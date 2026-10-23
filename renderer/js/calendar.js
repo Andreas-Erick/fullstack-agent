@@ -1,5 +1,6 @@
-// Calendar view: a 7-day board of Google Calendar events (read-only).
-import { $, api, el, toastError, modal, renderMarkdown } from './util.js';
+// Calendar view: a 7-day board of Google Calendar events. The agent adds and changes events; the
+// board refreshes when it does.
+import { $, api, el, toastError, modal, renderMarkdown, on } from './util.js';
 import { switchView } from './nav.js';
 
 let weekStart = startOfDay(new Date());
@@ -18,6 +19,7 @@ export function initCalendar() {
     refresh();
   };
   $('#calRefresh').onclick = refresh;
+  on('calendar-changed', refresh);
 }
 
 function shift(days) {

@@ -1,11 +1,13 @@
-// Google Calendar (read-only) via OAuth2 "installed app" loopback flow with PKCE.
+// Google Calendar via OAuth2 "installed app" loopback flow with PKCE: reads events and, when the
+// user allows it, creates, changes and deletes them.
 // The user supplies their own OAuth client (Desktop app type) from Google Cloud Console.
 const http = require('http');
 const crypto = require('crypto');
 const { shell } = require('electron');
 const store = require('./store');
 
-const SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const READ_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const API = 'https://www.googleapis.com/calendar/v3';
@@ -21,12 +23,20 @@ function b64url(buf) {
 async function status() {
   const s = await store.getSettings();
   const tokens = await store.getSecretBlob(TOKEN_BLOB);
+  const granted = grantedWrite(tokens);
   return {
     configured: Boolean(s.calendar.clientId),
     signedIn: Boolean(tokens?.refresh_token || tokens?.access_token),
     email: tokens?.email || null,
     enabled: s.calendar.enabled,
+    canWrite: granted && s.calendar.allowWrite !== false,
+    needsReconnect: !granted && s.calendar.allowWrite !== false && Boolean(tokens),
   };
+}
+
+// Sign-ins from before write support only granted read access; Google reports the granted scopes.
+function grantedWrite(tokens) {
+  return String(tokens?.scope || '').split(' ').includes(WRITE_SCOPE);
 }
 
 async function signIn() {
@@ -66,7 +76,7 @@ async function signIn() {
         client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
-        scope: `${SCOPE} openid email`,
+        scope: [READ_SCOPE, s.calendar.allowWrite !== false && WRITE_SCOPE, 'openid', 'email'].filter(Boolean).join(' '),
         access_type: 'offline',
         prompt: 'consent',
         code_challenge: challenge,
@@ -151,10 +161,12 @@ async function accessToken() {
   return merged.access_token;
 }
 
-async function api(pathname, params = {}) {
+async function api(pathname, params = {}, { method = 'GET', body } = {}) {
   const token = await accessToken();
   const url = `${API}${pathname}?${new URLSearchParams(params)}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const headers = { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) };
+  const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 204) return {};
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`Google Calendar error: ${json.error?.message || res.status}`);
   return json;
@@ -171,6 +183,7 @@ function normalize(ev, cal) {
   const allDay = Boolean(ev.start?.date);
   return {
     id: ev.id,
+    calendarId: cal.id,
     title: ev.summary || '(no title)',
     start: ev.start?.dateTime || ev.start?.date,
     end: ev.end?.dateTime || ev.end?.date,
@@ -210,6 +223,88 @@ async function events({ start, end } = {}) {
   return all;
 }
 
+// ---------------------------------------------------------------- writing
+async function requireWrite() {
+  const st = await status();
+  if (!st.signedIn) throw new Error('Google Calendar is not connected. Sign in from Settings.');
+  const s = await store.getSettings();
+  if (s.calendar.allowWrite === false) throw new Error('Calendar changes are turned off in Settings → Google Calendar.');
+  if (!st.canWrite) throw new Error('This Google sign-in only allows reading. Ask the user to click "Reconnect" in Settings → Google Calendar to allow changes.');
+}
+
+const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+const dateOnly = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+
+function addDays(ymd, n) {
+  const d = new Date(`${ymd}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Times without an offset ("2026-10-24T15:00") are read in the computer's time zone.
+function when(value, allDay) {
+  if (allDay) return { date: String(value).slice(0, 10) };
+  if (isNaN(new Date(value))) throw new Error(`Invalid date/time: ${value}`);
+  value = String(value).replace(/T(\d{2}:\d{2})(?=$|[zZ+-])/, 'T$1:00'); // Google wants seconds
+  return /[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? { dateTime: value } : { dateTime: value, timeZone: localZone() };
+}
+
+function later(start, ms = 3600000) {
+  if (/[zZ]|[+-]\d{2}:?\d{2}$/.test(start)) return new Date(new Date(start).getTime() + ms).toISOString();
+  const d = new Date(new Date(start).getTime() + ms); // no offset: parsed and formatted as local time
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`;
+}
+
+function eventBody(e, { partial = false } = {}) {
+  const body = {};
+  if (e.title != null) body.summary = e.title;
+  if (e.description != null) body.description = e.description;
+  if (e.location != null) body.location = e.location;
+  if (e.attendees) body.attendees = e.attendees.map((email) => ({ email }));
+  if (e.recurrence) body.recurrence = [].concat(e.recurrence);
+  if (e.start) {
+    const allDay = e.all_day ?? dateOnly(e.start);
+    body.start = when(e.start, allDay);
+    body.end = when(e.end || (allDay ? addDays(String(e.start).slice(0, 10), 1) : later(e.start)), allDay);
+  } else if (e.end && partial) throw new Error('Changing the end also needs the start.');
+  return body;
+}
+
+const sendUpdates = (notify) => ({ sendUpdates: notify ? 'all' : 'none' });
+
+async function getEvent(id, calendarId = 'primary') {
+  return api(`/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(id)}`);
+}
+
+async function createEvent(e) {
+  await requireWrite();
+  if (!e.title || !e.start) throw new Error('A new event needs a title and a start.');
+  const cal = e.calendar_id || 'primary';
+  const ev = await api(`/calendars/${encodeURIComponent(cal)}/events`, sendUpdates(e.notify_attendees), { method: 'POST', body: eventBody(e) });
+  cache = { key: '', at: 0, events: [] };
+  return normalize(ev, { id: cal });
+}
+
+async function updateEvent(id, e) {
+  await requireWrite();
+  const cal = e.calendar_id || 'primary';
+  // Moving an event without a new end keeps its length.
+  if (e.start && !e.end && !dateOnly(e.start)) {
+    const old = await getEvent(id, cal);
+    if (old.start?.dateTime && old.end?.dateTime) e = { ...e, end: later(e.start, new Date(old.end.dateTime) - new Date(old.start.dateTime)) };
+  }
+  const ev = await api(`/calendars/${encodeURIComponent(cal)}/events/${encodeURIComponent(id)}`, sendUpdates(e.notify_attendees), { method: 'PATCH', body: eventBody(e, { partial: true }) });
+  cache = { key: '', at: 0, events: [] };
+  return normalize(ev, { id: cal });
+}
+
+async function deleteEvent(id, { calendar_id: cal = 'primary', notify_attendees } = {}) {
+  await requireWrite();
+  await api(`/calendars/${encodeURIComponent(cal)}/events/${encodeURIComponent(id)}`, sendUpdates(notify_attendees), { method: 'DELETE' });
+  cache = { key: '', at: 0, events: [] };
+}
+
 function startOfDay(d) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -234,7 +329,7 @@ async function promptBlock() {
     const today = list.filter((e) => new Date(e.start).getTime() < todayEnd);
     const upcoming = list.filter((e) => new Date(e.start).getTime() >= todayEnd).slice(0, 40);
     return [
-      '## Calendar (Google Calendar, read-only)',
+      `## Calendar (Google Calendar${st.canWrite ? '' : ', read-only'})`,
       "Today's events:",
       today.length ? today.map(fmtEvent).join('\n') : '- Nothing scheduled today.',
       'Upcoming:',
@@ -245,4 +340,4 @@ async function promptBlock() {
   }
 }
 
-module.exports = { status, signIn, signOut, events, promptBlock, fmtEvent };
+module.exports = { status, signIn, signOut, events, promptBlock, fmtEvent, getEvent, createEvent, updateEvent, deleteEvent };

@@ -1,5 +1,5 @@
 // Renderer entry point: wires views, the agent face, push-to-talk and status indicators together.
-import { $, $$, api, on, emit, el } from './util.js';
+import { $, $$, api, on, emit, el, toast, logEvent } from './util.js';
 import { state, loadSettings, saveSettings, ttsActive, raiseAlert } from './state.js';
 import { switchView, currentView } from './nav.js';
 import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
@@ -7,7 +7,7 @@ import { startListening, stopListening, toggleListening, speaker, preloadLocalMo
 import { initChat, newChat, sendVoice, currentConversationId } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { tryCommand } from './commands.js';
-import { startThinkingSound, stopThinkingSound } from './sounds.js';
+import { startThinkingSound, stopThinkingSound, thinkingStyle } from './sounds.js';
 import { initSetup, startSetup, handleSetupVoice } from './setup.js';
 import { initMemory, refresh as refreshMemory } from './memory.js';
 import { initCalendar, refresh as refreshCalendar } from './calendar.js';
@@ -16,6 +16,19 @@ import { initDocs } from './docs.js';
 import { initSettings } from './settings.js';
 import { initEvolution, refresh as refreshEvolution } from './evolution.js';
 import { applyTheme } from './theme.js';
+
+// Safety net: an unexpected error anywhere in the UI is logged (repeats at most once a minute)
+// instead of disappearing; the app keeps running.
+const seenErrors = new Map();
+function reportUiError(kind, err) {
+  const message = String(err?.message || err || 'unknown error').slice(0, 300);
+  const key = `${kind}:${message}`;
+  if (Date.now() - (seenErrors.get(key) || 0) < 60000) return;
+  seenErrors.set(key, Date.now());
+  logEvent('error', `ui ${kind}`, { message, stack: String(err?.stack || '').split('\n').slice(0, 4).join(' | ') });
+}
+window.addEventListener('error', (e) => reportUiError('error', e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => reportUiError('unhandled rejection', e.reason));
 
 let appliedTheme = '';
 function syncTheme() {
@@ -67,7 +80,7 @@ async function boot() {
   // Agent state → UI
   on('agent-state', (s) => {
     // Processing sound while thinking (only when replies are spoken, and not during the demo).
-    if (s === 'thinking' && ttsActive() && state.settings.voice.thinkingSound && !state.demo) startThinkingSound();
+    if (s === 'thinking' && ttsActive() && !state.demo) startThinkingSound(thinkingStyle(state.settings.voice.thinkingSound), state.settings.voice.thinkingVolume ?? 0.5);
     else stopThinkingSound();
     const label = s.toUpperCase();
     const b = $('#brandState');
@@ -122,6 +135,7 @@ async function boot() {
   });
   on('voice-fallback', (msg) => raiseAlert(`VoiceStudio unavailable: ${msg}`));
   api.on('vault:changed', (rel) => emit('vault-changed', rel));
+  api.on('app:notice', ({ message, kind }) => toast(message, kind, 15000));
 
   // Face gallery + demo
   $('#faceSelect').onchange = () => saveSettings({ ui: { face: $('#faceSelect').value } });
@@ -322,7 +336,10 @@ for (const [id, section] of Object.entries(pillTargets)) document.getElementById
 
 boot().catch((err) => {
   console.error(err);
-  document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;bottom:0;left:0;right:0;color:#ff4d6d;padding:12px;background:#000;z-index:99">Startup error: ${err.message}</pre>`);
+  reportUiError('startup', err);
+  const bar = el('div', { style: { position: 'fixed', bottom: '0', left: '0', right: '0', padding: '12px', background: 'var(--glass)', color: 'rgb(var(--err))', zIndex: '99', display: 'flex', gap: '12px', alignItems: 'center' } }, `Startup error: ${err.message}`);
+  bar.append(el('button', { class: 'btn', onclick: () => location.reload() }, 'Reload'));
+  document.body.append(bar);
 });
 
 emit('ready');

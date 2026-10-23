@@ -1,19 +1,10 @@
-// Document viewer: PDFs (pdf.js), Word (.docx → HTML), Markdown, text/code, HTML and images.
-import { $, api, el, renderMarkdown, sanitizeHtml, toast, toastError, timeAgo, on } from './util.js';
+// Documents view: open files, recent list, and the viewer (rendering lives in docview.js, shared with
+// the pop-up document window the agent opens).
+import { $, api, el, toast, toastError, timeAgo, on } from './util.js';
 import { switchView } from './nav.js';
+import { renderDocument } from './docview.js';
 
-let pdfjs = null;
 let current = null;
-let zoom = 1.25;
-let renderToken = 0;
-
-async function getPdfjs() {
-  if (!pdfjs) {
-    pdfjs = await import('app://bundle/node_modules/pdfjs-dist/build/pdf.min.mjs');
-    pdfjs.GlobalWorkerOptions.workerSrc = 'app://bundle/node_modules/pdfjs-dist/build/pdf.worker.min.mjs';
-  }
-  return pdfjs;
-}
 
 export function initDocs() {
   $('#docOpen').onclick = async () => {
@@ -72,73 +63,10 @@ async function show(doc) {
   viewer.innerHTML = '';
   const ctl = el('div', { class: 'ctl' });
   viewer.append(el('div', { class: 'doc-title' }, el('span', { class: 'name', title: doc.path }, doc.name), ctl));
-  ctl.append(el('button', { class: 'btn small', onclick: () => api.docs.showInFolder(doc.path) }, 'Show in folder'));
+  ctl.append(
+    el('button', { class: 'btn small', onclick: () => api.docs.showInFolder(doc.path) }, 'Show in folder'),
+    el('button', { class: 'btn small', title: 'Open in its own window', onclick: () => api.docs.popup(doc.path).catch(toastError) }, 'Pop out'),
+  );
   refreshRecent();
-
-  try {
-    if (doc.kind === 'pdf') await showPdf(doc, viewer, ctl);
-    else if (doc.kind === 'docx') viewer.append(el('div', { class: 'doc-html paper', html: sanitizeHtml(doc.data) }));
-    else if (doc.kind === 'markdown') viewer.append(el('div', { class: 'doc-html', html: renderMarkdown(doc.data, { wikilinks: true }) }));
-    else if (doc.kind === 'html') viewer.append(el('div', { class: 'doc-html paper', html: sanitizeHtml(doc.data) }));
-    else if (doc.kind === 'image') viewer.append(el('div', { class: 'doc-image' }, el('img', { src: doc.data, alt: doc.name })));
-    else viewer.append(el('pre', { class: 'doc-text' }, doc.data));
-  } catch (err) {
-    viewer.append(el('p', { class: 'muted', style: { padding: '20px' } }, `Could not display this document: ${err.message}`));
-  }
-  viewer.scrollTop = 0;
-}
-
-async function showPdf(doc, viewer, ctl) {
-  const lib = await getPdfjs();
-  const token = ++renderToken;
-  const pdf = await lib.getDocument({ data: doc.data, isEvalSupported: false }).promise;
-  const pages = el('div', { class: 'pdf-pages' });
-  viewer.append(pages);
-  const label = el('span', { class: 'muted' }, `${pdf.numPages} pages · ${Math.round(zoom * 100)}%`);
-  const rerender = () => {
-    label.textContent = `${pdf.numPages} pages · ${Math.round(zoom * 100)}%`;
-    renderPages(pdf, pages, ++renderToken);
-  };
-  ctl.prepend(
-    label,
-    el('button', { class: 'btn small', onclick: () => ((zoom = Math.max(0.5, zoom - 0.25)), rerender()) }, '−'),
-    el('button', { class: 'btn small', onclick: () => ((zoom = Math.min(4, zoom + 0.25)), rerender()) }, '+'),
-  );
-  renderPages(pdf, pages, token);
-}
-
-// Lazily render pages as they scroll into view.
-async function renderPages(pdf, container, token) {
-  container.innerHTML = '';
-  const first = await pdf.getPage(1);
-  const base = first.getViewport({ scale: zoom });
-  const observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting || entry.target.dataset.done) continue;
-        entry.target.dataset.done = '1';
-        drawPage(pdf, Number(entry.target.dataset.page), entry.target, token);
-      }
-    },
-    { root: $('#docViewer'), rootMargin: '800px 0px' },
-  );
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const c = el('canvas', { 'data-page': i });
-    c.style.width = `${base.width}px`;
-    c.style.height = `${base.height}px`;
-    container.append(c);
-    observer.observe(c);
-  }
-}
-
-async function drawPage(pdf, n, canvas, token) {
-  if (token !== renderToken) return;
-  const page = await pdf.getPage(n);
-  const vp = page.getViewport({ scale: zoom });
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.floor(vp.width * dpr);
-  canvas.height = Math.floor(vp.height * dpr);
-  canvas.style.width = `${vp.width}px`;
-  canvas.style.height = `${vp.height}px`;
-  await page.render({ canvas, canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined }).promise;
+  await renderDocument(doc, viewer, ctl);
 }

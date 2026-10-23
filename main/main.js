@@ -6,6 +6,7 @@ const fsp = require('fs').promises;
 const store = require('./store');
 const memory = require('./memory');
 const calendar = require('./calendar');
+const github = require('./github');
 const obsidian = require('./obsidian');
 const documents = require('./documents');
 const voice = require('./voice');
@@ -21,11 +22,19 @@ const diagnostics = require('./diagnostics');
 const journal = require('./journal');
 const vaultgit = require('./vaultgit');
 const faces = require('./faces');
+const docwindows = require('./docwindows');
+const envinfo = require('./envinfo');
 
 const ROOT = path.join(__dirname, '..');
+
+// Last-resort safety net: an unexpected error in the main process is logged, never fatal.
+process.on('uncaughtException', (err) => log.error('uncaught exception', err?.stack || String(err)));
+process.on('unhandledRejection', (err) => log.error('unhandled rejection', err?.stack || String(err)));
 const isDev = process.argv.includes('--dev');
 // Optional override of the data folder (portable installs, testing).
 if (process.env.NEXUS_USER_DATA) app.setPath('userData', path.resolve(process.env.NEXUS_USER_DATA));
+// Laptops with integrated + dedicated graphics: run WebGPU (local Whisper) on the dedicated GPU.
+app.commandLine.appendSwitch('force_high_performance_gpu');
 
 // Only these folders are served to the renderer over app://bundle/...
 const SERVED = ['renderer/', 'node_modules/marked/lib/', 'node_modules/dompurify/dist/', 'node_modules/@huggingface/transformers/dist/', 'node_modules/pdfjs-dist/build/', 'node_modules/@fontsource/'];
@@ -49,9 +58,12 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let win = null;
-const activeRequests = new Map(); // requestId -> AbortController
+const activeRequests = new Map(); // requestId -> AbortController (with .conversationId)
+const deletedConversations = new Set(); // a reply finishing after its conversation was deleted is dropped
 
-if (!app.requestSingleInstanceLock()) app.quit();
+// A second copy (e.g. a double click) hands over to the running one and exits at once, before it
+// can open a window or touch the same files.
+if (!app.requestSingleInstanceLock()) app.exit(0);
 app.on('second-instance', () => {
   if (win) {
     if (win.isMinimized()) win.restore();
@@ -122,18 +134,42 @@ function createWindow() {
   win.loadURL('app://bundle/renderer/index.html');
   if (isDev) win.webContents.openDevTools({ mode: 'detach' });
 
-  // External links open in the system browser, never inside the app.
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  guardNavigation(win.webContents);
+  win.on('closed', () => (win = null));
+
+  // If the window's renderer crashes or is killed, reload it (a few times; then stop and say so).
+  const crashes = [];
+  win.webContents.on('render-process-gone', (_e, details) => {
+    log.error('window crashed', details);
+    if (details.reason === 'clean-exit' || !win || win.isDestroyed()) return;
+    const now = Date.now();
+    crashes.push(now);
+    while (crashes.length && now - crashes[0] > 60000) crashes.shift();
+    if (crashes.length <= 3) setTimeout(() => win && !win.isDestroyed() && win.loadURL('app://bundle/renderer/index.html'), 500);
+    else dialog.showErrorBox('Nexus Agent', 'The window keeps crashing. Restart the app; if it persists, run the diagnose tool or check the log (Settings → Data).');
+  });
+  captureConsole(win.webContents, 'window');
+  win.webContents.on('unresponsive', () => log.warn('window not responding'));
+  win.webContents.on('responsive', () => log.info('window responding again'));
+  // Tell the user once if their settings had to be restored from the backup.
+  win.webContents.on('did-finish-load', () => {
+    const r = store.settingsRecovery();
+    if (r) send('app:notice', { kind: 'error', message: r.restored ? 'Your settings file was damaged and has been restored from the last good copy.' : 'Your settings file was damaged; defaults are used. The damaged file was kept for recovery.' });
+  });
+}
+
+// External links open in the system browser, never inside the app.
+function guardNavigation(wc) {
+  wc.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
-  win.webContents.on('will-navigate', (e, url) => {
+  wc.on('will-navigate', (e, url) => {
     if (!url.startsWith('app://')) {
       e.preventDefault();
       if (/^https?:/i.test(url)) shell.openExternal(url);
     }
   });
-  win.on('closed', () => (win = null));
 }
 
 function send(channel, payload) {
@@ -165,8 +201,18 @@ function handle(channel, fn) {
     try {
       return { ok: true, data: await fn(...args) };
     } catch (err) {
+      // The UI shows the message; the log keeps where it came from.
+      if (channel !== 'log:write') log.warn('ipc failed', { channel, error: err });
       return { ok: false, error: err?.message || String(err) };
     }
+  });
+}
+
+// Errors printed in any window's console (also scripts that fail to load) end up in the log.
+function captureConsole(wc, label) {
+  wc.on('console-message', (e) => {
+    if (e.level !== 'error') return;
+    log.warn(`${label} console error`, { message: String(e.message).slice(0, 500), source: `${String(e.sourceId || '').replace(/^.*\/renderer\//, 'renderer/')}:${e.lineNumber}` });
   });
 }
 
@@ -176,6 +222,7 @@ function registerIpc() {
   handle('settings:set', async (patch) => {
     const s = await store.setSettings(patch);
     if (patch?.stt?.globalShortcut !== undefined) registerShortcut();
+    if (patch?.logging) log.setDebug(s.logging.debug);
     return s;
   });
   handle('settings:reset', () => store.resetSettings());
@@ -202,12 +249,21 @@ function registerIpc() {
     await store.saveConversation(conv);
 
     const controller = new AbortController();
+    controller.conversationId = conv.id;
     activeRequests.set(requestId, controller);
-    const emit = (ev) => send('chat:event', { requestId, conversationId: conv.id, ...ev });
+    // Timing for the log: when the first words of the reply arrived, and when it finished.
+    const startedAt = Date.now();
+    let firstTextMs = null;
+    const emit = (ev) => {
+      if (firstTextMs === null && ev.type === 'text') firstTextMs = Date.now() - startedAt;
+      send('chat:event', { requestId, conversationId: conv.id, ...ev });
+    };
     emit({ type: 'start', userMessage: userMsg, title: conv.title });
 
-    // Run the turn in the background; the renderer receives streamed events.
-    (async () => {
+    // Run the turn in the background; the renderer receives streamed events. Every log line it
+    // produces carries turn=<id> conv=<id>, so one request can be traced end to end.
+    const tags = { turn: requestId.slice(-6), conv: conv.id.slice(-6) };
+    log.withContext(tags, async () => {
       const trackChanges = settings.code.enabled && settings.code.allowSelfModify;
       const before = trackChanges ? await selfchange.fingerprint() : null;
       try {
@@ -222,23 +278,24 @@ function registerIpc() {
           provider: settings.llm.provider,
           createdAt: Date.now(),
         };
+        if (deletedConversations.has(conv.id)) return;
         const fresh = (await store.getConversation(conv.id)) || conv;
         fresh.messages.push(assistantMsg);
         if (result.sessionId) fresh.claudeSessionId = result.sessionId;
         if (result.convPatch) Object.assign(fresh, result.convPatch);
         await store.saveConversation(fresh);
         emit({ type: 'done', message: stripRaw(assistantMsg) });
-        log.info('reply', { model: result.model, chars: assistantMsg.content.length, tools: (result.toolCalls || []).map((t) => t.name).join(','), text: assistantMsg.content.slice(0, 160) });
+        log.info('reply', { model: result.model, voice: viaVoice, firstTextMs, totalMs: Date.now() - startedAt, chars: assistantMsg.content.length, tools: (result.toolCalls || []).map((t) => t.name).join(','), text: assistantMsg.content.slice(0, 160) });
       } catch (err) {
         const aborted = controller.signal.aborted || err?.name === 'AbortError';
         if (aborted) log.info('turn interrupted', { conversation: conv.id });
-        else log.error('turn failed', { conversation: conv.id, provider: settings.llm.provider, error: err?.message });
+        else log.error('turn failed', { provider: settings.llm.provider, model: settings.llm.provider === 'claude-code' ? settings.claudeCode.model : undefined, voice: viaVoice, ms: Date.now() - startedAt, error: err });
         emit({ type: aborted ? 'aborted' : 'error', message: aborted ? 'Stopped' : err?.message || String(err) });
       } finally {
         activeRequests.delete(requestId);
         if (trackChanges) recordSelfChanges(before, text).catch((e) => log.warn('self-change tracking', e.message));
       }
-    })();
+    });
     return { conversationId: conv.id };
   });
   handle('chat:abort', (requestId) => {
@@ -255,11 +312,20 @@ function registerIpc() {
   });
   handle('conv:new', () => store.createConversation());
   handle('conv:delete', (id) => {
+    deletedConversations.add(id);
+    for (const c of activeRequests.values()) if (c.conversationId === id) c.abort();
     claudecode.endSession(id);
     return store.deleteConversation(id);
   });
   handle('conv:rename', (id, title) => store.renameConversation(id, title));
-  handle('conv:clear', () => store.clearConversations());
+  handle('conv:clear', async () => {
+    for (const c of await store.listConversations()) {
+      deletedConversations.add(c.id);
+      claudecode.endSession(c.id);
+    }
+    for (const c of activeRequests.values()) c.abort();
+    return store.clearConversations();
+  });
   handle('conv:export', async () => {
     const all = (await store.exportConversations()).filter(Boolean).map((c) => ({ ...c, messages: c.messages.map(stripRaw) }));
     return saveFile('nexus-conversations.json', JSON.stringify(all, null, 2), [{ name: 'JSON', extensions: ['json'] }]);
@@ -288,13 +354,14 @@ function registerIpc() {
   handle('tts:speak', (text, override) => voice.speak(text, override));
   handle('tts:voices', (override) => voice.voices(override));
   handle('tts:ping', () => voice.ping());
-  handle('stt:transcribe', (wav) => voice.transcribe(wav));
+  handle('stt:transcribe', (wav, opts) => voice.transcribe(wav, opts || {}));
 
   // Calendar
   handle('calendar:status', () => calendar.status());
   handle('calendar:signIn', () => calendar.signIn());
   handle('calendar:signOut', () => calendar.signOut());
   handle('calendar:events', (range) => calendar.events(range || {}));
+  handle('github:status', async () => ({ ...(await github.status({ fresh: true })), workspace: await github.workspace() }));
 
   // Obsidian
   handle('obsidian:status', () => obsidian.status());
@@ -315,6 +382,9 @@ function registerIpc() {
     return documents.load(r.filePaths[0], { fromUser: true });
   });
   handle('docs:load', (p) => documents.load(p));
+  handle('docs:popup', async (p) => docwindows.open(await documents.resolveAllowed(p)));
+  handle('docs:closePopup', () => docwindows.close()[0] || null);
+  handle('docs:windowState', (state) => docwindows.setState('it', state));
   handle('docs:recent', () => documents.recent());
   handle('docs:clearRecent', () => documents.clearRecent());
   handle('docs:roots', () => documents.allowedRoots());
@@ -369,6 +439,11 @@ function registerIpc() {
   handle('log:write', (level, event, data) => log[['info', 'warn', 'error'].includes(level) ? level : 'info'](`ui: ${event}`, data));
   handle('log:tail', (n, filter) => log.tail(n || 300, filter || ''));
   handle('log:open', () => shell.showItemInFolder(log.file()));
+  handle('log:report', async (note) => {
+    const r = await envinfo.bugReport(note || '');
+    shell.showItemInFolder(r.file);
+    return r;
+  });
 
   // Warm the Claude Code session for a conversation (called at launch / when a chat opens)
   handle('llm:prewarm', async (convId) => {
@@ -464,10 +539,16 @@ app.whenReady().then(async () => {
   registerFacesProtocol();
   registerIpc();
   approvals.setSender(send);
+  docwindows.init({ root: ROOT, preload: path.join(ROOT, 'preload.js'), mainWindow: () => win, guard: guardNavigation, captureConsole });
+  documents.setPopup(docwindows);
   obsidian.setChangeListener((rel) => send('vault:changed', rel));
-  log.info('app start', { version: app.getVersion(), platform: process.platform, electron: process.versions.electron });
-  process.on('uncaughtException', (err) => log.error('uncaught exception', err.stack || err.message));
-  process.on('unhandledRejection', (err) => log.error('unhandled rejection', err?.stack || String(err)));
+  log.info('==================== app start', { version: app.getVersion(), pid: process.pid });
+  envinfo.environment().then((env) => log.info('environment', env), (err) => log.warn('environment unavailable', err));
+  // Health heartbeat: memory and uptime, so leaks and slowdowns show up in the log.
+  setInterval(() => {
+    const m = process.memoryUsage();
+    log.info('heartbeat', { uptimeMin: Math.round(process.uptime() / 60), rssMB: Math.round(m.rss / 1e6), heapMB: Math.round(m.heapUsed / 1e6), windows: BrowserWindow.getAllWindows().length });
+  }, 15 * 60 * 1000).unref();
 
   // Allow microphone access for push-to-talk; deny everything else by default.
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(['media', 'audioCapture', 'clipboard-sanitized-write'].includes(permission)));
@@ -479,9 +560,12 @@ app.whenReady().then(async () => {
 
   // Make sure the change history exists before the agent can modify itself.
   const s = await store.getSettings();
-  if (s.code.enabled && s.code.allowSelfModify) selfchange.ensureRepo().catch((e) => log.warn('change history unavailable', e.message));
+  log.setDebug(s.logging?.debug);
+  if (s.code.enabled && s.code.allowSelfModify) selfchange.ensureRepo().catch((e) => log.warn('change history unavailable', e));
   obsidian.vaultPath().catch(() => {});
   journal.start();
+  store.sweepStaleTemp().catch(() => {});
+  claudecode.sweepStaleTemp().catch(() => {});
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -489,11 +573,15 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  log.info('app quit');
+  log.flush();
   claudecode.shutdown();
   journal.stop();
   vaultgit.flushAll();
 });
 app.on('will-quit', () => globalShortcut.unregisterAll());
+// The GPU or audio process can crash on its own (driver updates, sleep); Chromium restarts it.
+app.on('child-process-gone', (_e, details) => log.warn('helper process gone', details));
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });

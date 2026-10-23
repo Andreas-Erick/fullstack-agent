@@ -11,6 +11,7 @@ const prompt = require('./prompt');
 const claudecode = require('./claudecode');
 const codebase = require('./codebase');
 const obsidian = require('./obsidian');
+const github = require('./github');
 const approvals = require('./approvals');
 const log = require('./logger');
 
@@ -117,6 +118,12 @@ const PROMPT_VERSION = 3;
 async function claudeCodeOptions(settings, active, model) {
   const names = active.map((t) => t.name);
   const [cwd, vault] = await Promise.all([codebase.root(), obsidian.vaultPath()]);
+  // With GitHub connected, Claude Code may also read and (on work branches) edit the cloned repos.
+  let repos = null;
+  if (names.includes('github_clone')) {
+    repos = await github.workspace();
+    await fsp.mkdir(repos, { recursive: true }).catch(() => {});
+  }
   return {
     settings,
     configKey: sessionConfigKey(settings),
@@ -124,6 +131,7 @@ async function claudeCodeOptions(settings, active, model) {
     activeTools: active,
     cwd,
     vault,
+    repos,
     model,
   };
 }
@@ -132,7 +140,9 @@ async function runTurn({ settings, conv, history, emit, signal, voice = false })
   const setup = Boolean(conv.setup);
   const active = setup || settings.llm.useTools ? await tools.activeTools(settings, { setup }) : [];
   const names = active.map((t) => t.name);
-  const ctx = { emit, turn: approvals.newTurn() };
+  // logTags: tool calls that arrive later through other channels (the MCP bridge, the Claude Code
+  // process's output) are logged under this turn too.
+  const ctx = { emit, turn: approvals.newTurn(), logTags: log.context() };
   const model = effectiveModel(settings, { voice });
   log.info('turn', { provider: settings.llm.provider, model: model || 'default', voice, setup, conversation: conv.id, text: String(history[history.length - 1]?.content || '').slice(0, 200) });
   if (settings.llm.provider === 'claude-code') {
