@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' blob: data:; object-src 'none'; frame-src 'none'; base-uri 'none'"
+    />
+    <title>Document</title>
+    <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/exo-2/400.css" />
+    <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/exo-2/600.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app://bundle/node_modules/marked/lib/marked.umd.js"></script>
+    <script src="app://bundle/node_modules/dompurify/dist/purify.min.js"></script>
+    <script type="module" src="js/viewer.js"></script>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+      }
+      #popupViewer {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body class="doc-popup">
+    <div class="doc-viewer" id="popupViewer"></div>
+    <div id="toasts"></div>
+  </body>
+</html>

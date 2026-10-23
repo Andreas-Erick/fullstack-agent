@@ -1,6 +1,6 @@
 // Voice commands, handled locally (never sent to the model). They only trigger when spoken on their
 // own, so the same words inside a normal sentence still go to the agent.
-import { toast } from './util.js';
+import { toast, api } from './util.js';
 import { state, saveSettings } from './state.js';
 import { speaker, setMicMode } from './voice.js';
 
@@ -15,6 +15,15 @@ const COMMANDS = [
   { re: /^stop asking( for permission)?$/, run: async () => (await saveSettings({ safety: { permissionMode: 'auto' } }), 'Okay — I’ll stop asking, except before changing my code after reading web pages or documents, and before running commands.') },
   { re: /^start asking( again)?( for permission)?$/, run: async () => (await saveSettings({ safety: { permissionMode: 'ask' } }), 'I’ll ask before changing my code, settings or deleting things.') },
   { re: /^(clear|new|reset) (the )?(session|conversation|chat)$/, run: async (ctx) => (ctx.newChat(), 'Fresh session.') },
+  { re: /^(please )?close (the |this )?(document|pdf|image|picture|file|window)( please)?$/, run: async () => ((await api.docs.closePopup().catch(() => null)) ? 'Closed.' : 'No document is open.') },
+  // Instant window controls for the latest document window ("make it full screen", "minimize the PDF").
+  ...[
+    [/^(make (it|the (document|pdf|image|file)) |go |show (it )?)?full ?screen( please)?$/, 'fullscreen', 'Full screen.'],
+    [/^(exit|leave|close|end) full ?screen( please)?$|^(make it )?(smaller|normal size)$/, 'exit_fullscreen', 'Done.'],
+    [/^minimi[sz]e (it|the (document|pdf|image|file|window))( please)?$/, 'minimize', 'Minimized.'],
+    [/^(maximi[sz]e (it|the (document|pdf|image|file|window))|make (it|the (document|pdf|image)) bigger)( please)?$/, 'maximize', 'Maximized.'],
+    [/^(restore|bring back|show) (it|the (document|pdf|image|file|window))( again)?( please)?$/, 'restore', 'Here it is.'],
+  ].map(([re, state, reply]) => ({ re, run: async () => ((await api.docs.windowState(state).then(() => true, () => false)) ? reply : 'No document is open.') })),
   { re: /^(stop|quiet|be quiet|shut up|stop talking|cancel)$/, run: async (ctx) => (ctx.stop(), '') },
   { re: /^(mute|voice off)$/, run: async () => (await saveSettings({ voice: { autoSpeak: false } }), '') },
   { re: /^(unmute|voice on)$/, run: async () => (await saveSettings({ voice: { autoSpeak: true } }), 'Voice is back on.') },

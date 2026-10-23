@@ -5,6 +5,7 @@ import { speaker, preloadLocalModel, listMics, handsFree } from './voice.js';
 import { refreshList, newChat } from './chat.js';
 import { FONTS, PATTERNS, CORE_SHAPES, TRACE_STYLES, normalizeTheme, extractPalette } from './theme.js';
 import { switchView } from './nav.js';
+import { previewThinkingSound, thinkingStyle } from './sounds.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -13,9 +14,10 @@ const CLAUDE_MODELS = [
   ['claude-fable-5-1', 'Claude Fable 5.1'],
 ];
 const WHISPER_MODELS = [
-  ['Xenova/whisper-tiny.en', 'Whisper tiny (English, ~40 MB, fastest)'],
-  ['Xenova/whisper-base.en', 'Whisper base (English, ~80 MB, recommended)'],
-  ['Xenova/whisper-small.en', 'Whisper small (English, ~250 MB, most accurate)'],
+  ['onnx-community/whisper-large-v3-turbo', 'Whisper large-v3 turbo (~1.6 GB, recommended with a GPU: fastest and most accurate there)'],
+  ['Xenova/whisper-tiny.en', 'Whisper tiny (English, ~40 MB)'],
+  ['Xenova/whisper-base.en', 'Whisper base (English, ~80 MB, best without a GPU)'],
+  ['Xenova/whisper-small.en', 'Whisper small (English, ~250 MB)'],
   ['Xenova/whisper-base', 'Whisper base (multilingual)'],
   ['Xenova/whisper-small', 'Whisper small (multilingual)'],
 ];
@@ -148,7 +150,7 @@ async function render() {
   const root = $('#settingsRoot');
   const scroll = root.parentElement.scrollTop;
   root.innerHTML = '';
-  root.append(agentCard(), brainCard(), voiceCard(), sttCard(), safetyCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await docsCard(), await dataCard(), uiCard());
+  root.append(agentCard(), brainCard(), voiceCard(), sttCard(), safetyCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), uiCard());
   root.parentElement.scrollTop = scroll;
 }
 
@@ -435,7 +437,16 @@ function voiceCard() {
     el('div', { class: 'grid2' }, text('voice.voice', 'Voice id (manual)', { placeholder: 'e.g. af_heart', onChange: (v) => fillSelect(voiceSel, [['', '(server default)'], ...[...voiceSel.options].slice(1).map((o) => [o.value, o.textContent])], v) }), text('voice.model', 'TTS model', { placeholder: 'tts-1' })),
     el('div', { class: 'grid2' }, field('Speed', el('div', { class: 'row' }, speed, speedLabel)), select('voice.format', 'Audio format', ['mp3', 'wav', 'opus', 'flac'])),
     field('Sample text', sample),
-    el('div', { class: 'grid2' }, toggle('voice.greetOnLaunch', 'Speak a greeting on launch'), toggle('voice.thinkingSound', 'Soft sound while thinking'), toggle('voice.filler', 'Short spoken lines while tools run'), toggle('voice.fallbackSystemVoice', 'Fall back to the system voice')),
+    el('div', { class: 'grid2' }, toggle('voice.greetOnLaunch', 'Speak a greeting on launch'), toggle('voice.filler', 'Short spoken lines while tools run'), toggle('voice.fallbackSystemVoice', 'Fall back to the system voice')),
+    el(
+      'div',
+      { class: 'grid2' },
+      select('voice.thinkingSound', 'Sound while thinking', [['grandfather', 'Grandfather clock (slow, deep tick-tock)'], ['clock', 'Mechanical clock (lighter, faster)'], ['soft', 'Soft (low, slowly breathing)'], ['classic', 'Classic shimmer'], ['off', 'Off']], {
+        hint: 'Starts only when a reply takes longer than 1.5 seconds.',
+        onChange: (v) => previewThinkingSound(v, state.settings.voice.thinkingVolume ?? 0.5),
+      }),
+      field('Thinking sound volume', thinkingVolume()),
+    ),
     el('div', { class: 'row' }, test, el('button', { class: 'btn', onclick: () => speaker.stop() }, '■ Stop')),
     out,
   );
@@ -481,6 +492,16 @@ function sttCard() {
     select('stt.micMode', 'Microphone mode', [['ptt', 'Push to talk (mic closed between presses)'], ['open', 'Hands-free (always listening, voice detection)']], { hint: 'Also by voice: “go hands free” / “push to talk”.' }),
     micField(),
     el('div', { class: 'grid2' }, toggle('stt.headphones', 'I use headphones (lets me talk over the agent hands-free)'), field('Voice detection sensitivity', sensitivity())),
+    el(
+      'div',
+      { class: 'grid2' },
+      select('stt.vadEngine', 'Voice detector (hands-free)', [['neural', 'Neural (Silero) — ignores breathing and noise'], ['energy', 'Basic (loudness + voicing)']], {
+        hint: 'The neural detector downloads a 2 MB model once; until it loads, or if it can’t, the basic one is used.',
+        onChange: () => handsFree.running && handsFree.restart(),
+      }),
+      field('Pause that ends your turn', endSilence(), 'How long you can pause before it stops listening and answers.'),
+    ),
+    calibrationInfo(),
     el('div', { class: 'hint' }, 'Voice commands (spoken on their own): “go hands free”, “push to talk”, “switch to the fast/deep model”, “stop asking for permission”, “start asking again”, “clear the session”, “stop”, “mute” / “unmute”.'),
   );
   return card('stt', 'Voice input · speech-to-text', 'Hold the push-to-talk key or the mic button, speak, release.', ...children);
@@ -488,8 +509,9 @@ function sttCard() {
 
 async function calendarCard() {
   const st = await api.calendar.status().catch(() => ({}));
-  const statusLine = el('div', { class: `test-result ${st.signedIn ? 'ok' : ''}` }, st.signedIn ? `✓ Connected${st.email ? ` as ${st.email}` : ''}` : st.configured ? 'Not signed in.' : 'Add your OAuth client to connect.');
-  const signIn = el('button', {
+  const access = st.canWrite ? ' · can add and change events' : ' · read-only';
+  const statusLine = el('div', { class: `test-result ${st.signedIn ? 'ok' : ''}` }, st.signedIn ? `✓ Connected${st.email ? ` as ${st.email}` : ''}${access}` : st.configured ? 'Not signed in.' : 'Add your OAuth client to connect.');
+  const signIn = (label) => el('button', {
     class: 'btn primary',
     onclick: async () => {
       statusLine.className = 'test-result';
@@ -504,18 +526,36 @@ async function calendarCard() {
         statusLine.textContent = `✕ ${err.message}`;
       }
     },
-  }, 'Sign in with Google');
+  }, label);
   const signOut = el('button', { class: 'btn', onclick: async () => (await api.calendar.signOut(), emit('status-refresh'), render()) }, 'Sign out');
+  const reconnect = st.needsReconnect
+    ? el('div', { class: 'test-result err' }, 'This sign-in only allows reading. Reconnect and allow calendar access in Google’s screen so the agent can add and change events.')
+    : '';
   return card(
     'calendar',
-    'Google Calendar · read-only',
-    'Create an OAuth client of type <b>Desktop app</b> in Google Cloud Console (enable the Google Calendar API), then paste it here. Today’s and upcoming events are injected into the agent’s context.',
+    'Google Calendar',
+    'Create an OAuth client of type <b>Desktop app</b> in Google Cloud Console (enable the Google Calendar API), then paste it here. Today’s and upcoming events are injected into the agent’s context. When changes are allowed, the agent can add, move and delete events; it asks first according to your permission mode, and always asks before anything that emails other people.',
     toggle('calendar.enabled', 'Enable calendar', () => emit('status-refresh')),
     text('calendar.clientId', 'OAuth Client ID', { placeholder: '…apps.googleusercontent.com' }),
     text('calendar.clientSecret', 'OAuth Client Secret', { type: 'password' }),
     el('div', { class: 'grid2' }, text('calendar.daysAhead', 'Days ahead in context', { type: 'number' }), el('div', { style: { alignSelf: 'end' } }, toggle('calendar.allCalendars', 'Include all my calendars'))),
-    el('div', { class: 'row' }, st.signedIn ? signOut : signIn),
+    toggle('calendar.allowWrite', 'Let the agent add, change and delete events', () => render()),
+    reconnect,
+    el('div', { class: 'row' }, st.signedIn ? signOut : signIn('Sign in with Google'), st.needsReconnect ? signIn('Reconnect') : ''),
     statusLine,
+  );
+}
+
+async function githubCard() {
+  const st = await api.github.status().catch((e) => ({ connected: false, error: e.message }));
+  const line = el('div', { class: `test-result ${st.connected ? 'ok' : 'err'}` }, st.connected ? `✓ Connected as ${st.login} (through the GitHub CLI)` : `✕ ${st.error || 'Not connected'}`);
+  return card(
+    'github',
+    'GitHub',
+    `Lets ${state.settings.agent.name} read your repositories, issues and pull requests, and work on them when you ask: it clones a repo into the folder below, changes it on a new branch and commits there (approved per your permission mode). <b>Pushing and opening a pull request always ask you first</b>, it never touches the default branch directly and never merges. Uses the GitHub CLI: install it and run <code>gh auth login</code> once.`,
+    toggle('github.enabled', 'Enable GitHub', () => render()),
+    folder('github.workspace', 'Repos folder', { placeholder: st.workspace || '~/NexusRepos', hint: 'Where repositories are cloned. Keep it out of OneDrive/Dropbox.' }),
+    line,
   );
 }
 
@@ -635,7 +675,18 @@ async function docsCard() {
       }
     },
   }, '＋ Add folder');
-  return card('documents', 'Documents', 'Folders the agent may open and read documents from (files you open yourself are always allowed). The Obsidian vault is always included.', list, el('div', { class: 'row' }, add));
+  return card(
+    'documents',
+    'Documents',
+    'Folders the agent may open and read documents from (files you open yourself are always allowed). The Obsidian vault is always included.',
+    folder('documents.workspace', 'Agent workspace folder', {
+      placeholder: 'e.g. the folder with your university or work files',
+      hint: 'Where you keep the files you work on. When you ask for a file without saying where ("open the decision tree PDF"), the agent looks here first. It is always allowed.',
+      onChange: () => render(),
+    }),
+    list,
+    el('div', { class: 'row' }, add),
+  );
 }
 
 async function dataCard() {
@@ -683,11 +734,60 @@ function sensitivity() {
   return r;
 }
 
+// What voice calibration learned: misheard words it now fixes, and the words it listens for.
+function calibrationInfo() {
+  const stt = state.settings.stt;
+  const fixes = stt.corrections || [];
+  const words = stt.vocabulary || [];
+  if (!stt.calibratedAt && !fixes.length && !words.length) {
+    return el('div', { class: 'hint' }, `Voice calibration: not done yet. Ask ${state.settings.agent.name || 'the agent'} to “calibrate my voice” — you read a short script and it learns how your names and words come through.`);
+  }
+  const clear = el('button', {
+    class: 'btn',
+    onclick: async () => {
+      await save('stt.corrections', []);
+      await save('stt.vocabulary', []);
+      render();
+    },
+  }, 'Forget what it learned');
+  const info = field(
+    `Voice calibration${stt.calibratedAt ? ` · ${new Date(stt.calibratedAt).toLocaleDateString()}` : ''}`,
+    el(
+      'div',
+      { class: 'test-result' },
+      fixes.length ? `Fixes: ${fixes.map((c) => `“${c.heard}” → ${c.meant}`).join(', ')}` : 'No misheard words to fix.',
+      el('br'),
+      words.length ? `Listens for: ${words.join(', ')}` : '',
+    ),
+    'Corrections apply to whole words in everything you say. Ask the agent to calibrate again any time.',
+  );
+  info.append(clear);
+  return info;
+}
+
+function thinkingVolume() {
+  const r = el('input', { type: 'range', min: '0.1', max: '1', step: '0.05', value: state.settings.voice.thinkingVolume ?? 0.5, style: { width: '100%' } });
+  r.addEventListener('input', () => queueSave('voice.thinkingVolume', Number(r.value)));
+  r.addEventListener('change', () => previewThinkingSound(thinkingStyle(state.settings.voice.thinkingSound), Number(r.value)));
+  return r;
+}
+
+function endSilence() {
+  const value = state.settings.stt.endSilenceMs ?? 600;
+  const label = el('span', { class: 'muted' }, `${(value / 1000).toFixed(1)} s`);
+  const r = el('input', { type: 'range', min: '300', max: '2000', step: '100', value, style: { width: '100%' } });
+  r.addEventListener('input', () => {
+    label.textContent = `${(Number(r.value) / 1000).toFixed(1)} s`;
+    queueSave('stt.endSilenceMs', Number(r.value));
+  });
+  return el('div', {}, r, label);
+}
+
 function safetyCard() {
   return card(
     'safety',
     'Safety & permissions',
-    'What the agent may do without asking. Approve requests by clicking or by saying an exact “yes” (anything else declines; no answer counts as no).',
+    'What the agent may do without asking. Approve requests by clicking or by saying a yes on its own — “yes”, “yeah”, “okay”, “go ahead” (anything else declines; no answer counts as no).',
     select('safety.permissionMode', 'Permission mode', [['ask', 'Ask me first — self-changes, settings changes, deletions (recommended)'], ['auto', 'Just do it — still asks before commands and after reading external content']], { hint: 'Also by voice: “stop asking for permission” / “start asking again”.' }),
     toggle('safety.taintGuard', 'Always ask before self-modification in a turn that read web pages or documents'),
     text('safety.approvalTimeoutSec', 'Approval timeout (seconds)', { type: 'number' }),
@@ -720,9 +820,22 @@ async function healthCard() {
       el('button', { class: 'btn primary', onclick: run }, '🩺 Run diagnostics'),
       el('button', { class: 'btn', onclick: async () => { logBox.classList.toggle('hidden'); logBox.textContent = await api.log.tail(300); logBox.scrollTop = logBox.scrollHeight; } }, '📜 Show log'),
       el('button', { class: 'btn', onclick: () => api.log.open() }, 'Open log folder'),
+      el('button', {
+        class: 'btn',
+        title: 'One file with the environment, health checks, recent errors and log, and settings without secrets',
+        onclick: async () => {
+          try {
+            const r = await api.log.report('');
+            toast(`Bug report saved (${r.problemsLast24h} problems in the last 24 h).`);
+          } catch (err) {
+            toastError(err);
+          }
+        },
+      }, '🐞 Create bug report'),
       el('button', { class: 'btn', onclick: async () => (await import('./setup.js')).startSetup() }, '✦ Set me up by conversation'),
       el('button', { class: 'btn', onclick: async () => (await import('./onboarding.js')).startOnboarding() }, 'Setup form'),
     ),
+    toggle('logging.debug', 'Detailed logging (more lines, for hunting a bug; turn off afterwards)'),
     list,
     logBox,
   );

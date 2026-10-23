@@ -31,8 +31,22 @@ Diagnose from the log rather than guessing.
 
 - **The first turn after launch is cold.** The app starts the session while the greeting plays. "Keep a warm session" must be on.
 - **Sessions close after the idle timeout** (20 minutes by default). Raise it in Settings → AI brain.
-- **Use the fast model:** say "switch to the fast model", or enable "Use the fast model for spoken turns".
+- **Use the fast model:** say "switch to the fast model", or enable "Use the fast model for spoken turns" (on by default). The running session switches models in place (a `set_model` request), so alternating between speaking and typing doesn't restart it; the log shows `claude model switched`.
 - **Higher effort means slower replies.**
+- **Where the time goes:** each `reply` line in the log has `firstTextMs` (until the first words arrived) and `totalMs`; each `heard` line has `sttMs` (speech-to-text time). `speech-to-text ready` names the device local Whisper runs on; it should say WebGPU with the dedicated GPU (the app asks Chromium for the high-performance GPU). If it says CPU (WASM), WebGPU failed and the reason is in the same line.
+- **A GPU does not speed up the brain**: Claude runs in the cloud. Locally the GPU helps speech-to-text (WebGPU) and the voice (VoiceStudio uses CUDA by itself; its `/system/info` shows `device`).
+
+## The thinking sound
+
+- Settings → Voice output → **Sound while thinking**: grandfather clock (default), mechanical clock, soft, classic or off, plus a volume slider; choosing one plays a preview. It starts only when a reply takes longer than 1.5 seconds. Code: `renderer/js/sounds.js`.
+
+## GitHub
+
+- Works through the GitHub CLI: install it and run `gh auth login` once; Settings → GitHub shows the connection. The tools appear only while gh is signed in (checked every 10 minutes).
+- Repos are cloned into Settings → GitHub → Repos folder (default `~/NexusRepos`). Work happens on a branch from `github_start_branch`; changes on the default branch are refused. Changing files and committing follow the permission mode; **push and opening a pull request always ask, every time**. There is no merge.
+- **"Author identity unknown"** can't happen: without a git identity, commits use your GitHub account and its private no-reply email.
+- **"Filename too long"**: clones use `core.longpaths`; if an old clone fails, delete it and clone again.
+- With the Claude Code brain, its Read/Edit tools also work inside the repos folder; edits there get the same branch check and approval (`approveRepoEdit` in `main/claudecode.js`). Code: `main/github.js`.
 
 ## The agent is silent (no voice)
 
@@ -47,6 +61,10 @@ Diagnose from the log rather than guessing.
   - The mic is ignored while the agent speaks, so it doesn't hear itself.
   - Wear headphones and enable "I use headphones" to talk over it.
   - Raise **Voice detection sensitivity** if quiet speech isn't picked up. Lower it if room noise triggers turns.
+  - Speech is detected by a small neural model (Silero VAD, `renderer/js/vad-worker.js`), downloaded from Hugging Face on first use. The log says `neural voice detection ready`, or `neural voice detection unavailable` with the reason, and then the basic loudness detector is used. Settings → Voice input → Voice detector switches between them.
+  - Interrupting the agent needs about a quarter-second of real voice, so breathing and coughs don't cut it off. Recordings with no voice in them are dropped before transcription.
+  - **Pause that ends your turn** (default 0.6 s): raise it if the agent answers while you are still mid-thought, lower it for snappier replies.
+- **It keeps mishearing a name or word, or understands you poorly:** ask the agent to "calibrate my voice" (also offered during setup). You read a short script containing your names and words; it reports how accurately you were understood, learns fixes for misheard names ("lexus" → Nexus, shown under Settings → Voice input, where "Forget what it learned" clears them), recommends a bigger Whisper model when accuracy is low, and tunes the basic detector's sensitivity. It does not retrain Whisper. With the remote engine the names also go along as Whisper's prompt. Code: `main/calibration.js`.
 - **Wrong microphone:** pick it under Settings → Voice input → Microphone. If the chosen device disappears, the default is used and the log lists the inputs it found.
 - **Headset plugged in or unplugged:** the mic reopens automatically (`audio devices changed` in the log).
 - **Local Whisper:** the first use downloads the model. "Download / load model now" shows progress. On slow machines use `whisper-tiny.en`.
@@ -57,7 +75,7 @@ Diagnose from the log rather than guessing.
 - In **Ask** mode, the agent asks before changing its own code, its settings or deleting notes. One approval covers a whole change in that turn.
 - Say "stop asking for permission" (or Settings → Safety) to switch to **Auto**. Even then it asks before running shell commands, and before changing its code in a turn that read web pages or documents.
 - **Answering by voice:**
-  - Approve with an exact "yes".
+  - Approve with a yes spoken on its own ("yes", "yeah", "yep", "sure", "okay", "go ahead", "do it", "approved", "yes please"). Punctuation from the transcript is ignored.
   - "details" reads the change aloud.
   - Anything else declines, and your words are passed to the agent as the reason.
   - No answer within 75 seconds counts as no.
@@ -85,6 +103,50 @@ Diagnose from the log rather than guessing.
 ## Google Calendar
 
 - "Not signed in" or "token error": Settings → Google Calendar → Sign in again. Google refresh tokens expire after 7 days while the OAuth consent screen is in *Testing* mode. Publishing the app (even unverified) stops that.
+- **The agent says it can only read the calendar:** sign-ins from before calendar changes were supported only granted read access. Settings → Google Calendar → **Reconnect**, and allow calendar access on Google's screen. The status line then says "can add and change events". (Turning off "Let the agent add, change and delete events" hides those tools again.)
+- **Approvals for calendar changes:** adding, moving or deleting your own events follows the permission mode. Anything that makes Google email other people (invites, updates or cancellations sent to guests) always asks, once per change, even in auto mode.
+
+## New voices (VoiceStudio)
+
+- The agent creates voices in VoiceStudio itself: `voice_design` from a description, `voice_clone` from a recording (the user reads a script in the app, or an audio file the agent may open under Settings → Documents). Code: `main/voicestudio.js`.
+- **"VoiceStudio is not reachable":** start VoiceStudio; the URL is Settings → Voice output (default `http://localhost:3900`).
+- **The sample sounds like the system voice, or takes long:** VoiceStudio loads its speech model on first use, which can take a minute; the system voice fills in if synthesis fails. Try again once VoiceStudio shows the model as ready.
+- **Design ignored part of the description:** VoiceStudio understands gender, age, pitch, speaking style and accent; the tool result lists the words it ignored.
+- Cloning from a file always asks first and records whose voice it is (the user's own, or someone who agreed).
+
+## Documents
+
+- **Workspace folder** (Settings → Documents): where you keep your files. "Open the decision tree PDF" without a location makes the agent call `find_document`, which searches the workspace first (then the other document folders) by file and folder names, in milliseconds. The workspace is always an allowed folder, and relative paths resolve into it first.
+- The agent opens each document (PDF, Word, Markdown, text, HTML, images) in **its own window** (`open_document`; up to 8, the oldest closes beyond that; opening an open one brings it forward). Windows open without taking focus, so the push-to-talk key keeps working. Close one with its Close button, Esc, by asking the agent ("close the decision tree", "close all documents"), or by saying just "close the document" / "close the PDF" (a voice command for the latest one, instant).
+- **Full screen / minimize**: "make it full screen", "exit full screen", "minimize the document", "maximize it", "bring back the PDF" act instantly on the latest document window (voice commands); for a specific one ("make the decision tree full screen") the agent uses `set_window_state`.
+- **Monitors**: numbered 1, 2, 3… from left to right. "Move the decision tree to monitor 2", "put it on the left monitor, full screen", "move yourself to monitor 1" (`move_window`: center, maximize, fullscreen, left/right half). "Which monitor is which?" flashes the numbers (`identify_monitors`). `list_monitors` reports the monitors and where each window is.
+- The Documents view has **Pop out** for the file shown there. Code: `main/docwindows.js` (windows and monitors), `renderer/viewer.html` + `js/viewer.js` (a document window), `js/docview.js` (rendering, shared with the Documents view).
+- "Access … is not allowed": the agent opens files only in the folders under Settings → Documents (plus files you opened yourself).
+
+## Reading the log
+
+The log is `<userData>/logs/nexus.log` (Settings → Health → Show log / Open log folder; older parts in `nexus.1.log` … `nexus.3.log`). Each line: `time LEVEL [turn=… conv=…] event {details}`.
+
+1. **Find the failure:** `read_app_log` with `level: "error"` (or `"warn"`), optionally `since_minutes`.
+2. **Trace that request:** take the `turn=` id from the failing line and read the log with `turn: "<id>"`. That shows everything the request did: the `turn` line (provider, model, voice), every tool call with its duration and arguments, approvals, Claude session start/stop/retry, the `reply` line with `firstTextMs`/`totalMs`, or `turn failed` with the error, its cause and the app's stack frames.
+3. **Know the setup:** each launch starts with `==================== app start` and an `environment` line (versions, code commit and uncommitted files, OS, CPU, RAM, GPU, monitors, the settings that change behaviour).
+4. **Voice timing:** `heard` (sttMs), `reply` (firstTextMs), `first audio` (synthMs, sinceSpeechEndMs).
+
+Also in the log: failed IPC calls (`ipc failed` + channel), console errors of every window, `heartbeat` every 15 minutes (memory, uptime), `tool slow` (> 5 s). A line repeated within 10 s is collapsed into "(previous line repeated N more times)". Secrets (API keys, tokens) are masked before writing.
+
+**Bug report:** Settings → Health → 🐞 Create bug report, or ask the agent (`create_bug_report`): one Markdown file in the log folder with the environment, health checks, all errors and warnings of the last 24 h, the last 600 log lines and the settings without secrets. That file is what to share when asking for help.
+
+## Crashes and recovery (what the app does by itself)
+
+- **Settings file damaged:** restored from `settings.backup.json` (the copy from the last good launch); the damaged file is kept as `settings.corrupt-<time>.json` and a notice appears. Without a backup, defaults are used and the notice says so.
+- **Saving:** every JSON file is written atomically (temp file + rename, retried while Windows briefly locks the file) and through one queue per file, so a crash never leaves half a file and an older save never overwrites a newer one.
+- **Window crash:** the window reloads (up to 3 times a minute). The GPU/audio helper processes restart on their own (`helper process gone` in the log).
+- **Claude session:** a replaced process can no longer end its successor's turn; a process that dies before answering is retried once with a fresh session (`failed to start; retrying`). One that dies mid-work is not retried, so nothing runs twice.
+- **Speech-to-text:** a hung or failed transcription restarts the model (`timed out; restarting it` / `reloading the model`), so the mic never waits forever. If the mic stream ends (sleep, USB mic unplugged), hands-free reopens it with retries.
+- **Speaking:** playback can't get stuck "speaking" (which would keep the mic ignored): every sentence has a time limit.
+- **Deleting a conversation while it replies** stops the reply; it is not saved back.
+- **UI errors** are logged as `ui error` / `ui unhandled rejection` (once a minute per message) and never stop the app.
+- Leftover temp files (`nexus-cc-*` session folders, `*.tmp` from interrupted saves) are cleaned up at startup.
 
 ## Faces
 

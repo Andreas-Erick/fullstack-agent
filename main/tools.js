@@ -11,6 +11,9 @@ const approvals = require('./approvals');
 const store = require('./store');
 const log = require('./logger');
 const vaultgit = require('./vaultgit');
+const voicestudio = require('./voicestudio');
+const calibration = require('./calibration');
+const github = require('./github');
 
 const arr = (description) => ({ type: 'array', items: { type: 'string' }, description });
 
@@ -20,7 +23,7 @@ const SETTABLE = {
   llm: ['baseUrl', 'model', 'temperature', 'maxTokens', 'historyLimit', 'modelMode', 'fastModel', 'deepModel', 'maxToolRounds'],
   claudeCode: ['model', 'effort', 'fastModel', 'deepModel', 'cliPath', 'idleMinutes'],
   anthropic: ['model', 'effort', 'fastModel', 'deepModel'],
-  voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'thinkingSound', 'filler', 'fallbackSystemVoice'],
+  voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'thinkingSound', 'thinkingVolume', 'filler', 'fallbackSystemVoice'],
   stt: ['enabled', 'engine', 'localModel', 'remoteUrl', 'remoteModel', 'language', 'pttKey', 'autoSend', 'micMode', 'micDevice', 'headphones', 'vadSensitivity'],
   calendar: ['daysAhead', 'allCalendars'],
   obsidian: ['injectIndex', 'maxIndexEntries'],
@@ -49,10 +52,59 @@ async function requireApproval(ctx, kind, title, detail) {
   if (!r.allow) throw new Error(`Not approved by the user: ${r.reason || 'declined'}`);
 }
 
+// Calendar writes follow the permission mode, but anything that emails other people always asks.
+async function gateCalendar(ctx, emailsOthers, title, detail) {
+  await requireApproval(ctx, emailsOthers ? 'invite' : 'calendar', title, emailsOthers ? `${detail}\n\nGoogle will email the guests about this.` : detail);
+}
+
+// Read aloud by the user to clone their voice: varied sounds, natural rhythm, about 20 seconds.
+const CLONE_SCRIPT =
+  'The quick brown fox jumps over the lazy dog, and that is just the start. On a bright Tuesday morning I check my calendar, make a cup of coffee, and plan the week ahead. Some days are busy, others are quiet, but every one of them is mine.';
+
+// After a voice is created: let the user hear it, and switch to it when asked (with approval).
+async function finishNewVoice(v, a, ctx, extra = {}) {
+  let using = false;
+  if (a.use_now) {
+    await requireApproval(ctx, 'settings', `Speak with the new voice "${v.name}"`, `voice.voice → ${v.id}`);
+    await store.setSettings({ voice: { voice: v.id } });
+    ctx.emit({ type: 'settings_changed' });
+    using = true;
+  }
+  ctx.emit({ type: 'voice_preview', voice: v.id, text: a.sample_text || `Hi, this is ${v.name}. How do I sound?` });
+  return { created: true, voice_id: v.id, name: v.name, using, ...extra, note: 'A sample is playing for the user. The first sample can take a while if VoiceStudio still has to load its model.' };
+}
+
+const isCloned = (repo) => require('fs').promises.access(require('path').join(github.localPath(repo), '.git')).then(() => true, () => false);
+
+// After calibration: is the speech model good enough for this voice?
+function speechRecommendation(stt, accuracy) {
+  if (accuracy >= 0.9) return 'None: recognition is accurate.';
+  if (stt.engine === 'local' && !/large/.test(stt.localModel)) {
+    return 'Switch stt.localModel to onnx-community/whisper-large-v3-turbo (about 1.6 GB, once; much better with accents, and on a GPU also faster). Ask the user first.';
+  }
+  if (stt.engine === 'local') return 'The largest local model is already in use. A remote Whisper (stt.engine "remote", e.g. through FreeLLMAPI) is usually more accurate; suggest it.';
+  return 'Speak a little slower and closer to the microphone; check the input device in Settings → Voice input.';
+}
+
+// What an event will look like, for the approval dialog. `old` is the current event when changing one.
+function describeEvent(a, old = {}) {
+  const t = (v) => (v?.dateTime || v?.date || v || '').toString().replace('T', ' ').slice(0, 16);
+  const lines = [
+    `Title: ${a.title ?? old.summary ?? ''}`,
+    `When: ${t(a.start ?? old.start)}${a.end || old.end ? ` → ${t(a.end ?? old.end)}` : ''}`,
+    a.location ?? old.location ? `Where: ${a.location ?? old.location}` : '',
+    a.recurrence ? `Repeats: ${a.recurrence}` : '',
+    (a.attendees || old.attendees)?.length ? `Guests: ${(a.attendees || old.attendees.map((x) => x.email)).join(', ')}` : '',
+    a.description ? `Notes: ${a.description.slice(0, 300)}` : '',
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+
 const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const str = (description) => ({ type: 'string', description });
 const int = (description) => ({ type: 'integer', description });
 const bool = (description) => ({ type: 'boolean', description });
+const POSITION = { type: 'string', enum: ['center', 'maximize', 'fullscreen', 'left', 'right'], description: 'Where on the monitor (default center)' };
 
 const TOOLS = [
   // ------------------------------------------------------------- memory
@@ -118,7 +170,331 @@ const TOOLS = [
       if (!a.end_date) start.setHours(0, 0, 0, 0);
       const end = a.end_date ? new Date(a.end_date) : new Date(start.getTime() + 86400000);
       const list = await calendar.events({ start, end });
-      return { count: list.length, events: list.map(calendar.fmtEvent).join('\n') || 'No events.' };
+      return { count: list.length, events: list.map((e) => `${calendar.fmtEvent(e)} (event_id ${e.id}, calendar_id ${e.calendarId})`).join('\n') || 'No events.' };
+    },
+  },
+  {
+    name: 'calendar_create_event',
+    group: 'calendar_write',
+    description:
+      "Add an event to the user's Google Calendar. Times without an offset are in the user's local time zone; a date alone (YYYY-MM-DD) makes an all-day event. Without an end, timed events last one hour. Only invite attendees the user named, and confirm the details first if anything is ambiguous.",
+    parameters: obj(
+      {
+        title: str('Event title'),
+        start: str('Start, e.g. 2026-10-24T15:00 or 2026-10-24 for all day'),
+        end: str('End (optional); for all-day events the day after the last day'),
+        location: str('Location (optional)'),
+        description: str('Notes (optional)'),
+        attendees: arr('Email addresses to invite (optional). Google emails each of them an invitation.'),
+        recurrence: str('Repeat rule (optional), e.g. RRULE:FREQ=WEEKLY;COUNT=10'),
+        calendar_id: str('Calendar to add it to (default: primary)'),
+      },
+      ['title', 'start'],
+    ),
+    run: async (a, ctx) => {
+      await gateCalendar(ctx, Boolean(a.attendees?.length), `Add "${a.title}" to your calendar`, describeEvent(a));
+      const ev = await calendar.createEvent({ ...a, notify_attendees: Boolean(a.attendees?.length) });
+      ctx.emit({ type: 'calendar_changed' });
+      return { created: calendar.fmtEvent(ev), event_id: ev.id, calendar_id: ev.calendarId, link: ev.link };
+    },
+  },
+  {
+    name: 'calendar_update_event',
+    group: 'calendar_write',
+    description:
+      'Change an event (find its event_id with calendar_get_events). Pass only what changes. Moving the start without an end keeps the length. For a repeating event this changes only that occurrence. notify_attendees emails the guests about the change.',
+    parameters: obj(
+      {
+        event_id: str('Event id from calendar_get_events'),
+        calendar_id: str('Calendar id from calendar_get_events (default: primary)'),
+        title: str('New title'),
+        start: str('New start'),
+        end: str('New end'),
+        location: str('New location'),
+        description: str('New notes'),
+        attendees: arr('Full new guest list (replaces the old one)'),
+        notify_attendees: bool('Email the guests about this change (default false)'),
+      },
+      ['event_id'],
+    ),
+    run: async (a, ctx) => {
+      const old = await calendar.getEvent(a.event_id, a.calendar_id);
+      const notify = Boolean(a.notify_attendees || a.attendees?.length);
+      const guests = a.attendees?.length || old.attendees?.length;
+      await gateCalendar(ctx, notify && Boolean(guests), `Change "${old.summary || 'event'}"`, describeEvent(a, old));
+      const ev = await calendar.updateEvent(a.event_id, { ...a, notify_attendees: notify });
+      ctx.emit({ type: 'calendar_changed' });
+      return { updated: calendar.fmtEvent(ev), event_id: ev.id };
+    },
+  },
+  {
+    name: 'calendar_delete_event',
+    group: 'calendar_write',
+    description: "Delete an event from the user's calendar (find its event_id with calendar_get_events). notify_attendees emails the guests that it is cancelled.",
+    parameters: obj({ event_id: str('Event id'), calendar_id: str('Calendar id (default: primary)'), notify_attendees: bool('Email the guests a cancellation (default false)') }, ['event_id']),
+    run: async (a, ctx) => {
+      const old = await calendar.getEvent(a.event_id, a.calendar_id);
+      const title = `Delete "${old.summary || 'event'}" from your calendar`;
+      if (a.notify_attendees && old.attendees?.length) await requireApproval(ctx, 'invite', title, `${describeEvent({}, old)}\nGuests who will get a cancellation email: ${old.attendees.map((x) => x.email).join(', ')}`);
+      else await requireApproval(ctx, 'delete', title, describeEvent({}, old));
+      await calendar.deleteEvent(a.event_id, a);
+      ctx.emit({ type: 'calendar_changed' });
+      return { deleted: old.summary || a.event_id };
+    },
+  },
+
+  // ------------------------------------------------- voices (VoiceStudio)
+  {
+    name: 'voice_list',
+    group: 'voice',
+    description: 'List the voices in VoiceStudio (ids and names) and which one you currently speak with.',
+    parameters: obj({}),
+    run: async () => {
+      const s = await store.getSettings();
+      return { current: s.voice.voice || '(default)', voices: await voicestudio.list() };
+    },
+  },
+  {
+    name: 'voice_design',
+    group: 'voice',
+    description:
+      'Create a new voice in VoiceStudio from a description, e.g. "warm, low-pitched British man, calm". VoiceStudio understands gender, age, pitch, speaking style and accent; it reports which words it ignored. The user hears a sample afterwards. Set use_now to switch to it (asks the user).',
+    parameters: obj(
+      {
+        name: str('Name for the voice'),
+        description: str('What it should sound like'),
+        sample_text: str('A sentence to hear it with (optional)'),
+        use_now: bool('Switch your own voice to it afterwards'),
+      },
+      ['name', 'description'],
+    ),
+    run: async (a, ctx) => {
+      await requireApproval(ctx, 'voice', `Create the voice "${a.name}" in VoiceStudio`, `Description: ${a.description}`);
+      const v = await voicestudio.design({ name: a.name, description: a.description, sampleText: a.sample_text });
+      return finishNewVoice(v, a, ctx, { understood: v.understood, ignored: v.ignored });
+    },
+  },
+  {
+    name: 'voice_clone',
+    group: 'voice',
+    description:
+      "Clone a voice into VoiceStudio. source 'record': the app asks the user to read a short script aloud (their own voice). source 'file': an existing recording (10–30 s of one clear speaker; wav, mp3, m4a, flac, ogg or webm). Only clone a voice that belongs to the user or whose owner agreed: ask the user which applies before cloning from a file, and pass it as consent. Set use_now to switch to it (asks the user).",
+    parameters: obj(
+      {
+        name: str('Name for the voice'),
+        source: { type: 'string', enum: ['record', 'file'] },
+        path: str("For source 'file': the recording's path"),
+        transcript: str("For source 'file': what is said in it (optional; VoiceStudio transcribes it otherwise)"),
+        consent: { type: 'string', enum: ['own_voice', 'speaker_agreed'], description: "For source 'file': the user's own voice, or the speaker agreed to it being cloned" },
+        use_now: bool('Switch your own voice to it afterwards'),
+      },
+      ['name', 'source'],
+    ),
+    run: async (a, ctx) => {
+      let audio, filename, transcript;
+      if (a.source === 'record') {
+        const script = CLONE_SCRIPT;
+        const b64 = await approvals.askRecording({ script, seconds: 30 });
+        if (!b64) return { created: false, note: 'The user cancelled the recording.' };
+        audio = Buffer.from(b64, 'base64');
+        filename = 'recording.wav';
+        transcript = script;
+      } else {
+        if (!a.path) throw new Error("source 'file' needs a path.");
+        if (!a.consent) throw new Error("Ask the user whether this is their own voice or the speaker agreed to the cloning, then pass consent.");
+        const full = await documents.resolveAllowed(a.path);
+        const ext = require('path').extname(full).toLowerCase();
+        if (!voicestudio.AUDIO_TYPES[ext]) throw new Error(`Not an audio file VoiceStudio takes: ${ext || '(no extension)'}`);
+        const who = a.consent === 'own_voice' ? "the user's own voice" : 'someone who agreed to have their voice cloned';
+        await requireApproval(ctx, 'voice_clone', `Clone the voice in ${require('path').basename(full)} as "${a.name}"`, `Recording: ${full}\nWhose voice: ${who}`);
+        audio = await require('fs/promises').readFile(full);
+        filename = full;
+        transcript = a.transcript || '';
+      }
+      const v = await voicestudio.clone({ name: a.name, audio, filename, transcript });
+      log.info('voice cloned', { id: v.id, source: a.source, consent: a.consent || 'recorded by the user' });
+      return finishNewVoice(v, a, ctx);
+    },
+  },
+  {
+    name: 'voice_delete',
+    group: 'voice',
+    description: 'Delete a voice from VoiceStudio (get its id from voice_list). You cannot delete the voice you are using.',
+    parameters: obj({ voice_id: str('Voice id') }, ['voice_id']),
+    run: async (a, ctx) => {
+      const s = await store.getSettings();
+      if (s.voice.voice === a.voice_id) throw new Error('That is the voice you are using; switch to another one first.');
+      const v = (await voicestudio.list()).find((x) => x.id === a.voice_id);
+      if (!v) throw new Error(`No VoiceStudio voice with id ${a.voice_id}.`);
+      await requireApproval(ctx, 'delete', `Delete the voice "${v.name}" from VoiceStudio`, `Voice id: ${v.id}`);
+      await voicestudio.remove(a.voice_id);
+      return { deleted: v.name };
+    },
+  },
+
+  // ------------------------------------------------- voice calibration
+  {
+    name: 'voice_calibrate',
+    group: 'listening',
+    description:
+      "Optional voice calibration (about a minute): the user reads a short script aloud in the app. It measures how accurately you understand their voice, learns how names and special words get misheard (fixed automatically from then on) and sets the hands-free sensitivity to their voice and room. It does not retrain speech recognition. Pass the user's name and the names and words they will often say (people, projects, places, jargon). Report the result in plain words and act on the recommendation (ask before switching the speech model).",
+    parameters: obj({ user_name: str("What the user wants to be called"), words: arr('Names and special words they will often say, up to 6') }),
+    run: async (a, ctx) => {
+      const s = await store.getSettings();
+      const { script, vocabulary } = calibration.buildScript({ userName: a.user_name || '', agentName: s.agent.name || 'Nexus', words: a.words || [] });
+      const json = await approvals.askRecording({
+        script,
+        seconds: 60,
+        mode: 'calibrate',
+        title: 'Voice calibration',
+        intro: 'Read this aloud the way you normally talk to me. I compare it with what I heard, so I learn how your names and words come through. The recording itself is not kept.',
+      });
+      if (!json) return { calibrated: false, note: 'The user cancelled; nothing changed. They can ask for it again any time.' };
+      const heard = JSON.parse(json);
+      const result = calibration.analyze({ script, transcript: heard.transcript, vocabulary });
+      const level = calibration.sensitivityFor(heard);
+      const patch = { vocabulary: [...new Set([...(s.stt.vocabulary || []), ...vocabulary])].slice(-30), corrections: calibration.merge(s.stt.corrections, result.corrections), calibratedAt: Date.now() };
+      // The level-based sensitivity is for the basic loudness detector; the neural one judges speech itself.
+      const tuneLevel = level && s.stt.vadEngine === 'energy';
+      if (tuneLevel) patch.vadSensitivity = level.sensitivity;
+      await store.setSettings({ stt: patch });
+      ctx.emit({ type: 'settings_changed' });
+      log.info('voice calibration', { accuracy: result.accuracy.toFixed(2), corrections: result.corrections.length, ratio: level?.ratio?.toFixed(1) });
+      return {
+        calibrated: true,
+        accuracy: `${Math.round(result.accuracy * 100)}% of the words came through right`,
+        heard: heard.transcript,
+        words: result.words.map((w) => `${w.word}: ${w.heardAs === null ? 'unclear' : w.heardAs === w.word.toLowerCase() ? 'understood' : `heard as "${w.heardAs}"`}`),
+        learnedCorrections: result.corrections.map((c) => `"${c.heard}" → ${c.meant}`),
+        microphone: !level ? 'could not measure' : heard.speechLevel < 0.01 ? 'very quiet: move closer or raise the input volume' : level.ratio < 3 ? 'noisy: background noise is close to your speaking level' : 'good',
+        handsFreeSensitivity: tuneLevel ? `set to ${level.sensitivity}` : 'unchanged (the neural voice detector adapts by itself)',
+        recommendation: speechRecommendation(s.stt, result.accuracy),
+      };
+    },
+  },
+
+  // ------------------------------------------------------------- GitHub
+  {
+    name: 'github_list_repos',
+    group: 'github',
+    description: "List the user's GitHub repositories (or another owner's/organisation's), most recently updated first.",
+    parameters: obj({ owner: str('User or organisation (default: the signed-in user)'), limit: int('Max results (default 30)') }),
+    run: async (a) => github.listRepos(a),
+  },
+  {
+    name: 'github_repo',
+    group: 'github',
+    description: 'Overview of one repository: description, default branch, open issues/PRs, whether it is cloned locally and where.',
+    parameters: obj({ repo: str('owner/name') }, ['repo']),
+    run: async (a) => github.repoInfo(a.repo),
+  },
+  {
+    name: 'github_issues',
+    group: 'github',
+    description: 'List issues of a repository, or open one (with comments) by number.',
+    parameters: obj({ repo: str('owner/name'), number: int('Issue number to open (omit to list)'), state: { type: 'string', enum: ['open', 'closed', 'all'] } }, ['repo']),
+    untrusted: true,
+    run: async (a) => (a.number ? github.viewIssue(a.repo, a.number) : github.listIssues(a.repo, a)),
+  },
+  {
+    name: 'github_pull_requests',
+    group: 'github',
+    description: 'List pull requests of a repository, or open one by number (description, changed files, CI checks, reviews; diff: true adds the diff).',
+    parameters: obj({ repo: str('owner/name'), number: int('PR number to open (omit to list)'), state: { type: 'string', enum: ['open', 'closed', 'merged', 'all'] }, diff: bool('Include the diff') }, ['repo']),
+    untrusted: true,
+    run: async (a) => (a.number ? github.viewPullRequest(a.repo, a.number, a) : github.listPullRequests(a.repo, a)),
+  },
+  {
+    name: 'github_read_file',
+    group: 'github',
+    description: 'Read a file from a repository: from the local clone when there is one (including uncommitted work), otherwise from GitHub. ref reads a branch, tag or commit on GitHub.',
+    parameters: obj({ repo: str('owner/name'), path: str('File path in the repo'), ref: str('Branch, tag or commit (optional)') }, ['repo', 'path']),
+    untrusted: true,
+    run: async (a) => (!a.ref && (await isCloned(a.repo)) ? github.readFile(a.repo, a.path) : github.readRemoteFile(a.repo, a.path, a.ref)),
+  },
+  {
+    name: 'github_search',
+    group: 'github',
+    description: 'Search code in a repository (case-insensitive): the local clone when there is one, otherwise GitHub code search. With a clone, pattern lists files instead (e.g. "src/**/*.ts").',
+    parameters: obj({ repo: str('owner/name'), query: str('Text to find'), pattern: str('List files matching this path pattern (local clone only)') }, ['repo']),
+    untrusted: true,
+    run: async (a) => {
+      const local = await isCloned(a.repo);
+      if (a.pattern || !a.query) {
+        if (!local) throw new Error('Listing files needs a local clone (github_clone).');
+        return github.listFiles(a.repo, a.pattern);
+      }
+      return local ? github.search(a.repo, a.query) : github.searchCode(a.repo, a.query);
+    },
+  },
+  {
+    name: 'github_clone',
+    group: 'github',
+    description: "Clone a repository into the user's repos folder so you can work on it (or update an existing clone from GitHub). Returns the local path.",
+    parameters: obj({ repo: str('owner/name') }, ['repo']),
+    run: async (a) => github.clone(a.repo),
+  },
+  {
+    name: 'github_start_branch',
+    group: 'github',
+    description: 'Create (or switch to) a work branch in a cloned repository, starting from the latest default branch. All changes happen on such a branch, never on the default branch. Name it after the work, e.g. "fix/login-timeout".',
+    parameters: obj({ repo: str('owner/name'), branch: str('Branch name') }, ['repo', 'branch']),
+    run: async (a) => github.startBranch(a.repo, a.branch),
+  },
+  {
+    name: 'github_status',
+    group: 'github',
+    description: 'State of a local clone: current branch, changed files, whether it is pushed. diff: true adds the full diff of uncommitted work.',
+    parameters: obj({ repo: str('owner/name'), diff: bool('Include the diff') }, ['repo']),
+    run: async (a) => ({ ...(await github.repoStatus(a.repo)), ...(a.diff ? { diff: await github.diff(a.repo) } : {}) }),
+  },
+  {
+    name: 'github_change_file',
+    group: 'github',
+    description:
+      'Change a file in a cloned repository on its work branch: either replace old_text with new_text (old_text must occur exactly once; read the file first), or write the whole file with content (creates it if new). Approval follows the permission mode.',
+    parameters: obj({ repo: str('owner/name'), path: str('File path in the repo'), old_text: str('Exact text to replace'), new_text: str('Replacement'), content: str('Whole new file content (instead of old_text/new_text)') }, ['repo', 'path']),
+    run: async (a, ctx) => {
+      const { branch } = await github.requireWorkBranch(a.repo);
+      await requireApproval(ctx, 'repo_change', `Change files in ${a.repo} (branch ${branch})`, `${a.path}\n\n${String(a.content ?? a.new_text ?? '').slice(0, 600)}`);
+      const file = a.content != null ? await github.writeFile(a.repo, a.path, a.content) : await github.editFile(a.repo, a.path, a.old_text, a.new_text ?? '');
+      return { changed: file, branch };
+    },
+  },
+  {
+    name: 'github_commit',
+    group: 'github',
+    description: 'Commit all changes in a cloned repository on its work branch, with a clear message (what and why). Local only; github_push publishes.',
+    parameters: obj({ repo: str('owner/name'), message: str('Commit message') }, ['repo', 'message']),
+    run: async (a, ctx) => {
+      const { branch } = await github.requireWorkBranch(a.repo);
+      await requireApproval(ctx, 'repo_change', `Commit in ${a.repo} (branch ${branch})`, a.message);
+      return github.commit(a.repo, a.message);
+    },
+  },
+  {
+    name: 'github_push',
+    group: 'github',
+    description: 'Push the work branch of a cloned repository to GitHub. Always asks the user first and shows exactly which commits go out. Never pushes the default branch.',
+    parameters: obj({ repo: str('owner/name') }, ['repo']),
+    run: async (a, ctx) => {
+      const p = await github.pendingPush(a.repo);
+      if (!p.commits.length) throw new Error('Nothing to push: every commit on this branch is already on GitHub.');
+      const detail = `Branch: ${p.branch} (new commits for ${a.repo} on GitHub)\n\nCommits:\n${p.commits.join('\n')}\n\nFiles:\n${p.stat}${p.uncommitted ? '\n\n(Uncommitted changes stay local.)' : ''}`;
+      await requireApproval(ctx, 'github_publish', `Push ${p.commits.length} commit${p.commits.length > 1 ? 's' : ''} to GitHub (${a.repo})`, detail);
+      return github.push(a.repo);
+    },
+  },
+  {
+    name: 'github_create_pull_request',
+    group: 'github',
+    description: 'Open a pull request from the pushed work branch into the default branch (or base). Always asks the user first. Write a clear title and a body that says what changed, why, and how it was tested. You never merge; the user does.',
+    parameters: obj({ repo: str('owner/name'), title: str('PR title'), body: str('PR description (Markdown)'), draft: bool('Open as a draft'), base: str('Target branch (default: the default branch)') }, ['repo', 'title']),
+    run: async (a, ctx) => {
+      const p = await github.pendingPush(a.repo);
+      if (p.commits.length) throw new Error(`The branch has ${p.commits.length} commit(s) that are not on GitHub yet; push first (github_push).`);
+      await requireApproval(ctx, 'github_publish', `Open a pull request in ${a.repo}`, `${p.branch} → ${a.base || p.main}${a.draft ? ' (draft)' : ''}\n\nTitle: ${a.title}\n\n${String(a.body || '').slice(0, 1500)}`);
+      return github.createPullRequest(a.repo, a);
     },
   },
 
@@ -390,9 +766,24 @@ const TOOLS = [
   {
     name: 'read_app_log',
     group: 'mechanic',
-    description: 'Read your diagnostic log (what was heard/said, tool calls, fallbacks, errors). Use a filter like "ERROR", "voice" or "claude session".',
-    parameters: obj({ lines: int('How many recent lines (default 120)'), filter: str('Only lines containing this text (optional)') }),
-    run: async (a) => log.tail(a.lines || 120, a.filter || ''),
+    description:
+      'Read your diagnostic log: what was heard and said, tool calls (with ms), approvals, session events, timings (sttMs, firstTextMs, sinceSpeechEndMs), errors with stack traces. Lines inside a request carry [turn=… conv=…]: find the failing line with level "error", then pass its turn id to see everything that request did. Each launch starts with "app start" and an "environment" line.',
+    parameters: obj({
+      lines: int('How many recent lines (default 120, up to 2000)'),
+      filter: str('Only lines containing this text, e.g. "claude session", "speech-to-text" (optional)'),
+      level: { type: 'string', enum: ['error', 'warn'], description: 'Only errors, or warnings and errors (optional)' },
+      turn: str('Only lines of this turn id, e.g. "a1b2c3" (optional)'),
+      since_minutes: int('Only the last N minutes (optional)'),
+    }),
+    run: async (a) => log.tail(a.lines || 120, a.filter || '', { level: a.level, turn: a.turn, sinceMin: a.since_minutes }),
+  },
+  {
+    name: 'create_bug_report',
+    group: 'mechanic',
+    description:
+      'Write a bug report file (environment, health checks, all errors of the last 24 h, the recent log, settings without secrets) when the user reports a problem you cannot fix right away, or asks for one. Include what happened in their words. Returns the file path; tell the user where it is.',
+    parameters: obj({ what_happened: str('The problem, in the user\'s words') }),
+    run: async (a) => require('./envinfo').bugReport(a.what_happened || ''),
   },
   {
     name: 'settings_read',
@@ -436,14 +827,61 @@ const TOOLS = [
     name: 'open_document',
     group: 'documents',
     description:
-      'Open a document (PDF, DOCX, Markdown, text, HTML, image) on the user\'s screen in the document viewer, and get its text. Accepts an absolute path, "~/..." or a path relative to your vault.',
-    parameters: obj({ path: str('File path') }, ['path']),
+      'Open a document (PDF, DOCX, Markdown, text, HTML, image) for the user in its own window, and get its text. Several can be open; opening one that is already open brings it forward. Accepts an absolute path, "~/..." or a path relative to the workspace folder or vault. Optionally on a monitor (see list_monitors).',
+    parameters: obj({ path: str('File path'), monitor: { type: ['integer', 'string'], description: 'Monitor number (1 = leftmost), or "primary", "left", "right" (optional)' }, position: POSITION }, ['path']),
     untrusted: true,
-    run: async (a, ctx) => {
+    run: async (a) => {
       const full = await documents.resolveAllowed(a.path);
-      ctx.emit({ type: 'open_document', path: full });
+      const shown = documents.popup().open(full, { monitor: a.monitor, position: a.position });
       const t = await documents.extractText(full, { maxChars: 12000 }).catch((e) => ({ text: `(could not extract text: ${e.message})` }));
-      return { opened: full, kind: t.kind, pages: t.pages, text: t.text };
+      return { opened: full, monitor: shown.monitor, openDocuments: shown.openDocuments, kind: t.kind, pages: t.pages, text: t.text };
+    },
+  },
+  {
+    name: 'list_monitors',
+    group: 'documents',
+    description: 'The connected monitors (numbered 1, 2… from left to right, with the primary one marked) and which monitor each open window (the assistant, each document) is on.',
+    parameters: obj({}),
+    run: async () => documents.popup().listMonitors(),
+  },
+  {
+    name: 'identify_monitors',
+    group: 'documents',
+    description: 'Show each monitor\'s number big on its screen for a few seconds, so the user can see which is monitor 1, 2…',
+    parameters: obj({}),
+    run: async () => documents.popup().identify(),
+  },
+  {
+    name: 'set_window_state',
+    group: 'documents',
+    description: 'Make a document window (by name, or "it" for the latest) or your own window ("assistant") full screen, leave full screen, maximize, minimize, or restore it to a normal window. E.g. "make the PDF full screen", "exit full screen", "minimize the document".',
+    parameters: obj({ window: str('Document name, "it", or "assistant"'), state: { type: 'string', enum: ['fullscreen', 'exit_fullscreen', 'maximize', 'minimize', 'restore'] } }, ['window', 'state']),
+    run: async (a) => documents.popup().setState(a.window, a.state),
+  },
+  {
+    name: 'move_window',
+    group: 'documents',
+    description:
+      'Move a document window (by its name, e.g. "decision tree", or "it" for the latest) or the assistant\'s own window ("assistant") to a monitor, e.g. "move the decision tree PDF to monitor 2". position: center (default, keeps the size), maximize, fullscreen, left or right half.',
+    parameters: obj({ window: str('Document name, "it", or "assistant"'), monitor: { type: ['integer', 'string'], description: 'Monitor number (1 = leftmost), or "primary", "left", "right", "other"' }, position: POSITION }, ['window', 'monitor']),
+    run: async (a) => documents.popup().move(a.window, a.monitor, a.position),
+  },
+  {
+    name: 'find_document',
+    group: 'documents',
+    description:
+      "Find files by name or topic when the user asks for one without a full path (e.g. \"the decision tree PDF\", \"my CV\"). Searches the user's workspace folder first, then their other document folders; folder names count too. Mention the kind (pdf, word, image) in the query to narrow it. One clear match: open it. Several: ask which. Use this instead of searching the disk yourself.",
+    parameters: obj({ query: str('What the user called the file, e.g. "decision tree pdf"') }, ['query']),
+    run: async (a) => documents.findDocuments(a.query),
+  },
+  {
+    name: 'close_document',
+    group: 'documents',
+    description: 'Close a document window when the user asks: by name (e.g. "decision tree"), the latest one (no name), or "all".',
+    parameters: obj({ name: str('Which document, or "all" (optional; default the latest)') }),
+    run: async (a) => {
+      const closed = documents.popup().close(a.name);
+      return closed.length ? { closed } : { closed: [], note: 'No document window is open.' };
     },
   },
   {
@@ -472,7 +910,7 @@ const SETUP_SETTABLE = [
   'llm.baseUrl', 'voice.ttsEnabled', 'voice.autoSpeak', 'voice.baseUrl', 'voice.voice', 'voice.speed', 'voice.greetOnLaunch', 'voice.thinkingSound', 'voice.filler',
   'stt.enabled', 'stt.engine', 'stt.localModel', 'stt.micMode', 'stt.pttKey', 'stt.headphones', 'stt.language',
   'obsidian.enabled', 'obsidian.vaultPath', 'ui.face', 'ui.showVisualizerInChat',
-  'safety.permissionMode', 'code.allowSelfModify', 'web.enabled', 'journal.enabled', 'llm.modelMode', 'llm.voiceUsesFast', 'calendar.enabled',
+  'safety.permissionMode', 'code.allowSelfModify', 'web.enabled', 'journal.enabled', 'llm.modelMode', 'llm.voiceUsesFast', 'calendar.enabled', 'documents.workspace',
 ];
 const FACES = ['circuit', 'radial', 'rain', 'neural'];
 const secretHint = (service) => (service === 'freellmapi' ? 'You find it in FreeLLMAPI’s configuration.' : 'You find it in VoiceStudio’s settings.');
@@ -512,7 +950,7 @@ const SETUP_TOOLS = [
   {
     name: 'setup_configure',
     group: 'setup',
-    description: 'Apply one of the user\'s answers to your configuration. setting is "section.key" from settableDuringSetup (e.g. "agent.name", "stt.micMode" = ptt|open, "ui.face", "safety.permissionMode" = ask|auto, "obsidian.vaultPath" = "" for your own vault). Confirm briefly after applying.',
+    description: 'Apply one of the user\'s answers to your configuration. setting is "section.key" from settableDuringSetup (e.g. "agent.name", "stt.micMode" = ptt|open, "ui.face", "safety.permissionMode" = ask|auto, "obsidian.vaultPath" = "default" for your own vault). Confirm briefly after applying.',
     parameters: obj({ setting: str('section.key'), value: { type: ['string', 'number', 'boolean'], description: 'New value' } }, ['setting', 'value']),
     run: async (a, ctx) => {
       if (!SETUP_SETTABLE.includes(a.setting)) throw new Error(`"${a.setting}" can't be set during setup. Settable: ${SETUP_SETTABLE.join(', ')}`);
@@ -522,6 +960,12 @@ const SETUP_TOOLS = [
       const old = s[section][key];
       if (typeof old === 'number') value = Number(value);
       if (typeof old === 'boolean') value = value === true || value === 'true' || value === 'yes';
+      if (a.setting === 'obsidian.vaultPath' && /^(default|own|)$/i.test(String(value ?? '').trim())) value = '';
+      if (a.setting === 'documents.workspace' && value) {
+        value = require('path').resolve(String(value).replace(/^~(?=$|[/\\])/, require('os').homedir()));
+        const st = await require('fs').promises.stat(value).catch(() => null);
+        if (!st?.isDirectory()) throw new Error(`There is no folder at ${value}. Ask the user for the exact path, or to pick it in Settings → Documents.`);
+      }
       if (a.setting === 'ui.face' && !FACES.includes(value) && !String(value).startsWith('custom:')) throw new Error(`Unknown face. Use one of: ${FACES.join(', ')}`);
       if (a.setting === 'stt.micMode' && !['ptt', 'open'].includes(value)) throw new Error('micMode must be "ptt" or "open"');
       if (a.setting === 'safety.permissionMode' && !['ask', 'auto'].includes(value)) throw new Error('permissionMode must be "ask" or "auto"');
@@ -625,13 +1069,14 @@ const SETUP_TOOLS = [
 TOOLS.push(...SETUP_TOOLS);
 
 // Tools available in the setup conversation.
-const SETUP_EXTRA = ['memory_save', 'priorities_update', 'diagnose'];
+const SETUP_EXTRA = ['memory_save', 'priorities_update', 'diagnose', 'voice_calibrate'];
 
 const NATIVE_IN_CLAUDE_CODE = ['code', 'selfmod', 'web'];
 
 async function activeTools(settings, { setup = false } = {}) {
   if (setup) return TOOLS.filter((t) => t.group === 'setup' || SETUP_EXTRA.includes(t.name));
   const cal = await calendar.status().catch(() => ({}));
+  const gh = settings.github?.enabled !== false ? await github.status().catch(() => ({})) : {};
   const vault = await obsidian.vaultPath().catch(() => null);
   const viaClaudeCode = settings.llm.provider === 'claude-code';
   return TOOLS.filter((t) => {
@@ -639,6 +1084,10 @@ async function activeTools(settings, { setup = false } = {}) {
     // Claude Code edits with its own tools, but still states its plan for approval first.
     if (viaClaudeCode && NATIVE_IN_CLAUDE_CODE.includes(t.group) && t.name !== 'self_change_plan') return false;
     if (t.group === 'calendar') return settings.calendar.enabled && cal.signedIn;
+    if (t.group === 'calendar_write') return settings.calendar.enabled && cal.signedIn && cal.canWrite;
+    if (t.group === 'voice') return settings.voice.ttsEnabled;
+    if (t.group === 'listening') return settings.stt.enabled;
+    if (t.group === 'github') return settings.github?.enabled !== false && gh.connected;
     if (t.group === 'vault') return Boolean(vault);
     if (t.group === 'code') return settings.code.enabled;
     if (t.group === 'selfmod') return settings.code.enabled && settings.code.allowSelfModify;
@@ -647,20 +1096,30 @@ async function activeTools(settings, { setup = false } = {}) {
   });
 }
 
-async function execute(name, args, ctx) {
+function execute(name, args, ctx) {
+  return log.withContext(ctx.logTags || {}, () => executeTool(name, args, ctx));
+}
+
+async function executeTool(name, args, ctx) {
   const tool = TOOLS.find((t) => t.name === name);
-  if (!tool) return { ok: false, result: { error: `Unknown tool "${name}"` } };
+  if (!tool) {
+    log.warn('tool unknown', { name });
+    return { ok: false, result: { error: `Unknown tool "${name}"` } };
+  }
   ctx.turn ||= approvals.newTurn();
+  const started = Date.now();
   try {
     let result = await tool.run(args || {}, ctx);
     if (tool.untrusted) {
       approvals.markTainted(ctx.turn, `${name} ${args?.url || args?.path || args?.query || ''}`);
       result = { notice: UNTRUSTED_NOTICE, content: result };
     }
-    log.info('tool', { name, ok: true, args: JSON.stringify(args || {}).slice(0, 300) });
+    log.info('tool', { name, ok: true, ms: Date.now() - started, args: JSON.stringify(args || {}).slice(0, 300) });
     return { ok: true, result };
   } catch (err) {
-    log.warn('tool failed', { name, error: err.message });
+    // Declined approvals are normal outcomes; everything else is logged with its stack.
+    const declined = /^Not approved by the user/.test(err.message);
+    log[declined ? 'info' : 'warn'](declined ? 'tool declined' : 'tool failed', { name, ms: Date.now() - started, args: JSON.stringify(args || {}).slice(0, 300), error: declined ? err.message : err });
     return { ok: false, result: { error: err.message } };
   }
 }

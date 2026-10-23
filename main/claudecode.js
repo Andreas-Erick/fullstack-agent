@@ -10,6 +10,7 @@ const path = require('path');
 const crypto = require('crypto');
 const store = require('./store');
 const bridge = require('./bridge');
+const github = require('./github');
 const approvals = require('./approvals');
 const log = require('./logger');
 
@@ -190,22 +191,42 @@ class Session {
     return Boolean(this.child) && this.child.exitCode === null && !this.dead;
   }
 
+  // Log lines from the process's output, its permission prompts and its exit belong to the turn
+  // that is running (they arrive outside that turn's async context).
+  inTurn(fn) {
+    return log.withContext(this.turn?.ctx?.logTags || { conv: this.convId.slice(-6) }, fn);
+  }
+
+  // Switch the running session's model (fast for voice, deep for typing) without restarting it:
+  // stream-json sessions accept a set_model control request, applied before the next message.
+  setModel(model) {
+    const want = model || 'default';
+    if (!this.alive() || want === this.requestedModel) return;
+    this.child.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: crypto.randomUUID(), request: { subtype: 'set_model', model: want } })}\n`);
+    log.info('claude model switched', { conversation: this.convId, from: this.requestedModel, to: want });
+    this.requestedModel = want;
+  }
+
   async spawn(spec) {
-    this.kill();
+    // The old process must be gone before the conversation is resumed in a new one.
+    await this.kill();
     const cli = await findCli();
-    if (!cli) throw new Error('Claude Code is not installed. Install it, then connect your Claude account in Settings â†’ AI brain.');
+    if (!cli) throw new Error('Claude Code is not installed. Install it, then connect your Claude account in Settings → AI brain.');
     const b = await bridge.start();
     this.spec = spec;
+    this.requestedModel = spec.model || 'default';
     this.dead = false;
     this.stderr = '';
     this.sentAny = false;
-    this.tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'nexus-cc-'));
+    const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'nexus-cc-'));
+    this.tmp = tmp;
     const bridgeId = crypto.randomUUID();
-    this.unregister = bridge.registerSession(bridgeId, {
+    const unregister = bridge.registerSession(bridgeId, {
       allowed: spec.toolNames,
       getCtx: () => this.turn?.ctx || null,
-      approve: (req) => this.approve(req),
+      approve: (req) => this.inTurn(() => this.approve(req)),
     });
+    this.unregister = unregister;
     const sysFile = path.join(this.tmp, 'system.md');
     const mcpFile = path.join(this.tmp, 'mcp.json');
     await fsp.writeFile(sysFile, spec.system, 'utf8');
@@ -234,43 +255,61 @@ class Session {
     this.child = child;
     this.key = spec.key;
     let buf = '';
+    // Handlers act only while this child is the session's process: a replaced process exiting
+    // late must not end the new one's turn or delete its files.
+    const current = () => this.child === child;
+    this.gotOutput = false;
     child.stdout.on('data', (chunk) => {
+      if (!current()) return;
+      this.gotOutput = true;
       buf += chunk;
       let idx;
       while ((idx = buf.indexOf('\n')) !== -1) {
         const line = buf.slice(0, idx).trim();
         buf = buf.slice(idx + 1);
-        if (line) this.onLine(line);
+        if (line) this.inTurn(() => this.onLine(line));
       }
     });
-    child.stderr.on('data', (d) => (this.stderr = (this.stderr + d).slice(-4000)));
-    child.on('error', (err) => this.onExit(null, err));
-    child.on('close', (code) => this.onExit(code));
+    child.stderr.on('data', (d) => {
+      if (!current()) return;
+      this.stderr = (this.stderr + d).slice(-4000);
+      this.inTurn(() => log.debug('claude stderr', String(d).slice(0, 1500)));
+    });
+    const exited = (code, err) => {
+      unregister();
+      fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+      if (current()) this.inTurn(() => this.onExit(code, err));
+    };
+    child.on('error', (err) => exited(null, err));
+    child.on('close', (code) => exited(code));
     log.info('claude session started', { conversation: this.convId, model: spec.model, resume: resume || null, pid: child.pid });
     this.resetIdle();
   }
 
   onExit(code, err) {
     clearTimeout(this.idleTimer);
-    this.unregister?.();
-    if (this.tmp) fsp.rm(this.tmp, { recursive: true, force: true }).catch(() => {});
     const wasDead = this.dead;
     this.dead = true;
     if (this.turn && !this.turn.settled) {
       const detail = err?.message || this.stderr.trim() || `Claude Code exited (code ${code})`;
       log.error('claude session exited mid-turn', { conversation: this.convId, code, detail: detail.slice(0, 500) });
-      this.turn.reject(new Error(/log ?in|auth|credential/i.test(detail) ? `${detail}\nConnect your Claude account in Settings â†’ AI brain.` : detail));
+      this.turn.reject(new Error(/log ?in|auth|credential/i.test(detail) ? `${detail}\nConnect your Claude account in Settings → AI brain.` : detail));
     } else if (!wasDead && code) log.warn('claude session exited', { conversation: this.convId, code, stderr: this.stderr.slice(-300) });
   }
 
+  // Stops the process; resolves once it has exited (at most 5 seconds).
   kill() {
     clearTimeout(this.idleTimer);
-    if (this.alive()) {
-      this.dead = true;
-      killTree(this.child);
-      this.unregister?.();
-      log.info('claude session stopped', { conversation: this.convId });
-    }
+    const child = this.child;
+    if (!this.alive()) return Promise.resolve();
+    this.dead = true;
+    const gone = new Promise((resolve) => {
+      child.once('close', resolve);
+      setTimeout(resolve, 5000);
+    });
+    killTree(child);
+    log.info('claude session stopped', { conversation: this.convId });
+    return gone;
   }
 
   resetIdle() {
@@ -285,10 +324,11 @@ class Session {
   // shell commands outside the safe list always ask, anything else outside the allowed folders is denied.
   async approve({ tool_name: tool, input = {} }) {
     const turnState = this.turn?.ctx?.turn;
-    const { codeRoot, vault, allowSelfModify } = this.spec;
+    const { codeRoot, vault, repos, allowSelfModify } = this.spec;
     if (EDIT_TOOLS.includes(tool)) {
       const file = input.file_path || input.notebook_path || '';
       if (vault && inside(vault, file)) return { behavior: 'allow', updatedInput: input };
+      if (repos && inside(repos, file)) return this.approveRepoEdit(tool, file, input, turnState);
       if (inside(codeRoot, file)) {
         if (!allowSelfModify) return { behavior: 'deny', message: 'Self-modification is disabled in Settings.' };
         const rel = path.relative(codeRoot, file).split(path.sep).join('/');
@@ -308,6 +348,24 @@ class Session {
       return { behavior: 'allow', updatedInput: input };
     }
     return { behavior: 'deny', message: `Tool ${tool} is not available here.` };
+  }
+
+  // Edits inside a cloned GitHub repo: only on a work branch, never in .git, approved like
+  // github_change_file (per the permission mode).
+  async approveRepoEdit(tool, file, input, turnState) {
+    const repo = github.repoOf(file);
+    if (!repo) return { behavior: 'deny', message: 'Edit files inside a cloned repository (owner/name folder).' };
+    const rel = path.relative(github.localPath(repo), file).split(path.sep).join('/');
+    if (/^\.git(\/|$)/.test(rel)) return { behavior: 'deny', message: '.git must not be modified.' };
+    let branch;
+    try {
+      ({ branch } = await github.requireWorkBranch(repo));
+    } catch (err) {
+      return { behavior: 'deny', message: err.message };
+    }
+    const preview = String(input.new_string ?? input.content ?? '').slice(0, 600);
+    const r = await approvals.gate(turnState, 'repo_change', `Change files in ${repo} (branch ${branch})`, `${tool} ${rel}${preview ? `\n\n${preview}` : ''}`);
+    return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
   }
 
   send(text, { emit, signal, ctx }) {
@@ -387,7 +445,7 @@ class Session {
         const name = shortTool(block.name);
         if (name === 'approval_prompt') continue;
         if (WEB_TOOLS.includes(name)) approvals.markTainted(t.ctx?.turn, `${name} ${block.input?.url || block.input?.query || ''}`);
-        t.tools.set(block.id, { name, input: block.input });
+        t.tools.set(block.id, { name, input: block.input, started: Date.now() });
         t.emit({ type: 'tool_start', id: block.id, name, input: block.input });
         log.info('tool', { name, input: JSON.stringify(block.input || {}).slice(0, 300) });
       }
@@ -403,17 +461,20 @@ class Session {
         const preview = raw.slice(0, 600);
         t.emit({ type: 'tool_end', id: block.tool_use_id, name: info.name, ok: !block.is_error, preview });
         t.records.push({ name: info.name, input: info.input, ok: !block.is_error, preview });
-        if (block.is_error) log.warn('tool failed', { name: info.name, preview: preview.slice(0, 300) });
+        const ms = Date.now() - info.started;
+        if (block.is_error) log.warn('tool failed', { name: info.name, ms, input: JSON.stringify(info.input || {}).slice(0, 300), preview: preview.slice(0, 500) });
+        else if (ms > 5000) log.info('tool slow', { name: info.name, ms });
       }
     }
   }
 }
 
-function sessionSpec({ settings, configKey, activeTools, cwd, vault, model }) {
+function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, model }) {
   const cc = settings.claudeCode;
   const builtins = ['Read', 'Glob', 'Grep'];
   if (settings.web.enabled) builtins.push('WebSearch', 'WebFetch');
   if (settings.code.allowSelfModify) builtins.push('Edit', 'Write', 'Bash');
+  else if (repos) builtins.push('Edit', 'Write');
   const allowed = ['Read', 'Glob', 'Grep', 'mcp__nexus'];
   if (settings.web.enabled) allowed.push('WebSearch', 'WebFetch');
   if (settings.code.allowSelfModify) allowed.push('Bash(npm run check)', 'Bash(node scripts/check.js)', 'Bash(git status*)', 'Bash(git diff*)', 'Bash(git log*)');
@@ -426,26 +487,31 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, model }) {
     cwd,
     vault,
     codeRoot: cwd,
-    addDirs: vault ? [vault] : [],
+    repos,
+    addDirs: [vault, repos].filter(Boolean),
     model,
     effort: cc.effort,
     allowSelfModify: settings.code.allowSelfModify,
     idleMinutes: cc.idleMinutes,
   };
-  // The session restarts only when configuration changes (persona, tools, model…), not when the
-  // vault or memories change; those reach the agent through the per-turn context.
-  spec.key = crypto.createHash('sha1').update(JSON.stringify([configKey, builtins, allowed, toolNames, cwd, vault, model, cc.effort])).digest('hex');
+  // The session restarts only when configuration changes (persona, tools…), not when the vault or
+  // memories change (those reach the agent through the per-turn context) and not for a model switch
+  // (Session.setModel changes it in place).
+  spec.key = crypto.createHash('sha1').update(JSON.stringify([configKey, builtins, allowed, toolNames, cwd, vault, repos, cc.effort])).digest('hex');
   return spec;
 }
 
-async function ensureSession(conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, model }) {
+async function ensureSession(conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, model }) {
   let session = sessions.get(conv.id);
   if (!session) {
     session = new Session(conv.id);
     sessions.set(conv.id, session);
   }
-  const spec = sessionSpec({ settings, configKey, activeTools, cwd, vault, model });
-  if (session.alive() && session.key === spec.key) return session;
+  const spec = sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, model });
+  if (session.alive() && session.key === spec.key) {
+    session.setModel(model);
+    return session;
+  }
   const p = await buildPrompt();
   spec.system = p.stable;
   spec.resume = conv.claudeSessionId || session.sessionId;
@@ -461,14 +527,30 @@ async function ensureSession(conv, { settings, configKey, buildPrompt, activeToo
 async function runTurn({ conv, history, buildContext, emit, signal, ctx, ...opts }) {
   const session0 = sessions.get(conv.id) || new Session(conv.id);
   sessions.set(conv.id, session0);
-  const run = async () => {
+  const attempt = async () => {
     const session = await ensureSession(conv, opts);
     const context = await buildContext(session.memIds);
     let prompt = history[history.length - 1].content;
     if (context) prompt = `<context>\n${context}\n</context>\n\n${prompt}`;
     if (!session.resumed && !session.sentAny) prompt = transcript(history) + prompt;
     session.sentAny = true;
-    return session.send(prompt, { emit, signal, ctx });
+    return { session, result: session.send(prompt, { emit, signal, ctx }) };
+  };
+  // A process that dies before printing anything never started the turn (e.g. resuming a
+  // conversation it can't load): start fresh once, with the recent conversation as context.
+  // A process that dies after starting work is not retried, so no action runs twice.
+  const run = async () => {
+    const first = await attempt();
+    try {
+      return await first.result;
+    } catch (err) {
+      if (signal.aborted || first.session.gotOutput) throw err;
+      log.warn('claude session failed to start; retrying with a fresh session', { conversation: conv.id, error: err.message });
+      conv.claudeSessionId = null;
+      first.session.sessionId = null;
+      first.session.key = '';
+      return (await attempt()).result;
+    }
   };
   const p = session0.chain.then(run, run);
   session0.chain = p.catch(() => {});
@@ -484,6 +566,17 @@ async function prewarm(conv, opts) {
 function endSession(convId) {
   sessions.get(convId)?.kill();
   sessions.delete(convId);
+}
+
+// Session folders (system prompt, MCP config) left behind by processes that were killed hard.
+async function sweepStaleTemp() {
+  const root = os.tmpdir();
+  const names = await fsp.readdir(root).catch(() => []);
+  for (const name of names.filter((n) => n.startsWith('nexus-cc-'))) {
+    const dir = path.join(root, name);
+    const st = await fsp.stat(dir).catch(() => null);
+    if (st?.isDirectory() && Date.now() - st.mtimeMs > 86400000) await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 function shutdown() {
@@ -512,4 +605,4 @@ async function complete(prompt, { imagePath, model } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { findCli, status, openLogin, installHint, runTurn, prewarm, endSession, shutdown, complete };
+module.exports = { findCli, status, openLogin, installHint, runTurn, prewarm, endSession, shutdown, complete, sweepStaleTemp };

@@ -71,7 +71,9 @@ async function ping() {
 }
 
 // Remote STT: OpenAI-compatible POST /audio/transcriptions (e.g. FreeLLMAPI → Groq Whisper).
-async function transcribe(wavBytes) {
+// The words from voice calibration go along as Whisper's prompt, which biases it towards spelling
+// those names right (skipped for raw calibration measurements).
+async function transcribe(wavBytes, { raw = false } = {}) {
   const s = await store.getSettings();
   const base = (s.stt.remoteUrl || s.llm.baseUrl || '').replace(/\/+$/, '');
   if (!base) throw new Error('Set a transcription URL in Settings → Voice input');
@@ -80,6 +82,7 @@ async function transcribe(wavBytes) {
   form.append('file', new Blob([wavBytes], { type: 'audio/wav' }), 'speech.wav');
   form.append('model', s.stt.remoteModel || 'whisper-1');
   if (s.stt.language) form.append('language', s.stt.language);
+  if (!raw && s.stt.vocabulary?.length) form.append('prompt', s.stt.vocabulary.join(', '));
   const url = base.endsWith('/audio/transcriptions') ? base : `${base}/audio/transcriptions`;
   const res = await fetch(url, { method: 'POST', headers: authHeaders(key), body: form, signal: AbortSignal.timeout(120000) });
   const text = await res.text();

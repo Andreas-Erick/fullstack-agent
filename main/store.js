@@ -35,7 +35,7 @@ const DEFAULTS = {
     historyLimit: 30,
     compaction: true, // summarize older turns instead of dropping them
     modelMode: 'default', // default | fast | deep (switchable by voice)
-    voiceUsesFast: false, // use the fast model for spoken turns
+    voiceUsesFast: true, // use the fast model for spoken turns (switched in place, no session restart)
     fastModel: '',
     deepModel: '',
   },
@@ -67,14 +67,15 @@ const DEFAULTS = {
     speed: 1.0,
     format: 'mp3',
     greetOnLaunch: true,
-    thinkingSound: true,
+    thinkingSound: 'grandfather', // grandfather | clock | soft | classic | off (starts after a short pause)
+    thinkingVolume: 0.5,
     filler: true, // short spoken lines while tools run
     fallbackSystemVoice: true, // use the OS voice if VoiceStudio is unreachable
   },
   stt: {
     enabled: true,
     engine: 'local', // 'local' = Whisper in-app (transformers.js), 'remote' = OpenAI-compatible /audio/transcriptions
-    localModel: 'Xenova/whisper-base.en',
+    localModel: 'onnx-community/whisper-large-v3-turbo', // without WebGPU the worker falls back to base.en
     remoteUrl: '',
     remoteKey: '',
     remoteModel: 'whisper-1',
@@ -86,6 +87,15 @@ const DEFAULTS = {
     micDevice: '', // device label (substring) or empty for the system default
     headphones: false, // allows talking over the agent in hands-free mode
     vadSensitivity: 0.5,
+    vadEngine: 'neural', // 'neural' = Silero VAD (falls back to energy if it can't load), 'energy' = loudness + voicing
+    endSilenceMs: 600, // pause that ends an utterance in hands-free mode
+    vocabulary: [], // names/words from voice calibration (prompt for remote Whisper)
+    corrections: [], // [{ heard, meant }] misheard words learned by voice calibration
+    calibratedAt: 0,
+  },
+  github: {
+    enabled: true, // tools appear when the GitHub CLI (gh) is signed in
+    workspace: '', // where repos are cloned; empty = ~/NexusRepos
   },
   calendar: {
     enabled: true,
@@ -93,6 +103,7 @@ const DEFAULTS = {
     clientSecret: '',
     daysAhead: 7,
     allCalendars: true,
+    allowWrite: true, // let the agent create, change and delete events (needs a sign-in that granted it)
   },
   obsidian: {
     enabled: true,
@@ -119,6 +130,9 @@ const DEFAULTS = {
     taintGuard: true, // always ask before self-modification in a turn that read web pages or documents
     approvalTimeoutSec: 75,
   },
+  logging: {
+    debug: false, // also write DEBUG lines (e.g. Claude Code's raw error output) to the log
+  },
   journal: {
     enabled: true, // write a session entry to the daily note after a conversation goes quiet
     idleMinutes: 15,
@@ -128,6 +142,7 @@ const DEFAULTS = {
   },
   documents: {
     allowedRoots: [], // empty = Documents, Desktop, Downloads (+ Obsidian vault)
+    workspace: '', // the agent's workspace folder: searched first for files the user names, always allowed
   },
   ui: {
     showVisualizerInChat: true,
@@ -182,19 +197,69 @@ function deepMerge(base, patch) {
   return out;
 }
 
-async function readJson(file, fallback) {
+// A missing file gives the fallback. A file that exists but can't be parsed also gives the
+// fallback, unless onCorrupt is passed (then it decides), and it is reported, never silently lost.
+async function readJson(file, fallback, { onCorrupt } = {}) {
+  let text;
   try {
-    return JSON.parse(await fsp.readFile(file, 'utf8'));
+    text = await fsp.readFile(file, 'utf8');
   } catch {
+    return fallback;
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    if (onCorrupt) return onCorrupt(err);
+    console.error(`[store] unreadable JSON in ${file}: ${err.message}`);
     return fallback;
   }
 }
 
-async function writeJsonAtomic(file, data) {
+// Writes go through one queue per file, in call order, so an older state can never land last.
+// Each write goes to a unique temp file and is renamed over the target (atomic: a crash leaves the
+// old or the new file, never half of one). Windows briefly locks files that antivirus or search
+// indexing is reading, so the rename is retried.
+const writeQueues = new Map();
+
+function writeJsonAtomic(file, data) {
+  const text = JSON.stringify(data, null, 2); // snapshot now; later changes to data don't leak in
+  const next = (writeQueues.get(file) || Promise.resolve()).catch(() => {}).then(() => writeNow(file, text));
+  writeQueues.set(file, next);
+  next.then(
+    () => writeQueues.get(file) === next && writeQueues.delete(file),
+    () => writeQueues.get(file) === next && writeQueues.delete(file),
+  );
+  return next;
+}
+
+async function writeNow(file, text) {
   await fsp.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await fsp.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
-  await fsp.rename(tmp, file);
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  await fsp.writeFile(tmp, text, 'utf8');
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fsp.rename(tmp, file);
+      return;
+    } catch (err) {
+      if (attempt >= 6 || !['EPERM', 'EBUSY', 'EACCES'].includes(err.code)) {
+        await fsp.rm(tmp, { force: true }).catch(() => {});
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 40 * 2 ** attempt));
+    }
+  }
+}
+
+// Temp files from writes interrupted by a crash or power loss (older than an hour).
+async function sweepStaleTemp() {
+  for (const dir of [dataDir(), path.join(dataDir(), 'conversations')]) {
+    const names = await fsp.readdir(dir).catch(() => []);
+    for (const name of names.filter((n) => n.endsWith('.tmp'))) {
+      const file = path.join(dir, name);
+      const st = await fsp.stat(file).catch(() => null);
+      if (st && Date.now() - st.mtimeMs > 3600000) await fsp.rm(file, { force: true }).catch(() => {});
+    }
+  }
 }
 
 // ---------- Settings ----------
@@ -204,12 +269,41 @@ function settingsFile() {
   return path.join(dataDir(), 'settings.json');
 }
 
+let settingsLoad = null;
+let settingsRecovered = null; // set when the settings file was damaged and restored from backup
+
+// A damaged settings file must not silently reset everything (and lose the encrypted keys): it is
+// kept as settings.corrupt-<time>.json and the last good copy (settings.backup.json) is used.
+async function loadSettingsFile() {
+  const file = settingsFile();
+  const backup = path.join(dataDir(), 'settings.backup.json');
+  const raw = await readJson(file, {}, {
+    onCorrupt: async (err) => {
+      const kept = path.join(dataDir(), `settings.corrupt-${Date.now()}.json`);
+      await fsp.copyFile(file, kept).catch(() => {});
+      const good = await readJson(backup, null, { onCorrupt: () => null });
+      settingsRecovered = { error: err.message, kept, restored: Boolean(good) };
+      if (good) await writeJsonAtomic(file, good).catch(() => {});
+      return good || {};
+    },
+  });
+  // Remember this launch's settings as the last good copy.
+  if (Object.keys(raw).length) await writeJsonAtomic(backup, raw).catch(() => {});
+  return raw;
+}
+
 async function getSettings() {
   if (settingsCache) return settingsCache;
-  const raw = await readJson(settingsFile(), {});
+  // Concurrent first calls share one load (and one recovery).
+  settingsLoad ||= loadSettingsFile().finally(() => (settingsLoad = null));
+  const raw = await settingsLoad;
+  if (settingsCache) return settingsCache;
   // Installs from before the setup wizard existed are already configured.
   if (Object.keys(raw).length && raw.onboarded === undefined) raw.onboarded = true;
   const merged = deepMerge(DEFAULTS, raw);
+  // The thinking sound used to be on/off; it is now a style.
+  if (typeof merged.voice.thinkingSound === 'boolean') merged.voice.thinkingSound = merged.voice.thinkingSound ? 'grandfather' : 'off';
+  if (merged.voice.thinkingSound === 'tick') merged.voice.thinkingSound = 'clock';
   for (const [section, key] of SECRET_FIELDS) merged[section][key] = decrypt(merged[section][key]);
   settingsCache = merged;
   return merged;
@@ -227,6 +321,7 @@ async function setSettings(patch) {
 
 async function resetSettings() {
   settingsCache = null;
+  settingsLoad = null;
   await fsp.rm(settingsFile(), { force: true });
   return getSettings();
 }
@@ -335,4 +430,7 @@ module.exports = {
   newId,
   readJson,
   writeJsonAtomic,
+  settingsRecovery: () => settingsRecovered,
+  SECRET_FIELDS,
+  sweepStaleTemp,
 };

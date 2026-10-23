@@ -183,6 +183,27 @@ const TOOL_LABELS = {
   memory_delete: '🧠 Deleted memory',
   memory_search: '🧠 Searched memory',
   calendar_get_events: '📅 Checked calendar',
+  calendar_create_event: '📅 Added event',
+  calendar_update_event: '📅 Changed event',
+  calendar_delete_event: '📅 Deleted event',
+  voice_list: '🎙 Listed voices',
+  voice_design: '🎙 Designed a voice',
+  voice_clone: '🎙 Cloned a voice',
+  voice_calibrate: '🎙 Calibrated your voice',
+  github_list_repos: '🐙 Listed repositories',
+  github_repo: '🐙 Looked at a repository',
+  github_issues: '🐙 Read issues',
+  github_pull_requests: '🐙 Read pull requests',
+  github_read_file: '🐙 Read a file',
+  github_search: '🐙 Searched code',
+  github_clone: '🐙 Cloned a repository',
+  github_start_branch: '🐙 Started a branch',
+  github_status: '🐙 Checked repo status',
+  github_change_file: '🐙 Changed a file',
+  github_commit: '🐙 Committed',
+  github_push: '🐙 Pushed to GitHub',
+  github_create_pull_request: '🐙 Opened a pull request',
+  voice_delete: '🎙 Deleted a voice',
   vault_search: '🔎 Searched vault',
   vault_read_note: '📓 Read note',
   vault_list_notes: '📓 Listed notes',
@@ -229,6 +250,13 @@ const TOOL_LABELS = {
   Grep: '💾 Searched files',
   Bash: '⌨ Ran command',
   open_document: '📄 Opened document',
+  close_document: '📄 Closed document',
+  find_document: '🔎 Looked for a file',
+  list_monitors: '🖥 Checked monitors',
+  identify_monitors: '🖥 Showed monitor numbers',
+  move_window: '🖥 Moved a window',
+  set_window_state: '🖥 Changed a window',
+  create_bug_report: '🐞 Wrote a bug report',
   read_document: '📄 Read document',
   list_recent_documents: '📄 Recent documents',
 };
@@ -417,6 +445,12 @@ function handleEvent(ev) {
       break;
     case 'settings_changed':
       loadSettings();
+      break;
+    case 'calendar_changed':
+      emit('calendar-changed');
+      break;
+    case 'voice_preview':
+      if (state.settings.voice.ttsEnabled) speaker.say(ev.text, { voice: ev.voice });
       break;
     case 'done': {
       const m = ev.message;
