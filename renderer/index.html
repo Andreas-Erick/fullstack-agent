@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: data:; font-src 'self' data:; connect-src 'self' blob: data: https:; object-src 'none'; frame-src faces:; base-uri 'none'"
+    />
+    <title>Nexus Agent</title>
+    <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/orbitron/500.css" />
+    <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/orbitron/700.css" />
+    <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/exo-2/400.css" />
+    <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/exo-2/600.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app://bundle/node_modules/marked/lib/marked.umd.js"></script>
+    <script src="app://bundle/node_modules/dompurify/dist/purify.min.js"></script>
+    <script type="module" src="js/app.js"></script>
+  </head>
+  <body>
+    <div class="circuit-bg" aria-hidden="true"></div>
+
+    <header class="titlebar">
+      <div class="brand">
+        <div class="brand-avatar" id="brandAvatar"></div>
+        <span class="brand-name" id="brandName">NEXUS</span>
+        <span class="brand-state" id="brandState">idle</span>
+      </div>
+      <div class="status-pills">
+        <span class="pill" id="pillLlm" title="AI brain"><i></i>Brain</span>
+        <span class="pill" id="pillVoice" title="VoiceStudio"><i></i>Voice</span>
+        <span class="pill" id="pillCal" title="Google Calendar"><i></i>Calendar</span>
+        <span class="pill" id="pillKb" title="Obsidian vault"><i></i>Vault</span>
+      </div>
+    </header>
+
+    <div class="shell">
+      <nav class="rail" id="rail">
+        <button class="rail-btn active" data-view="chat" title="Chat (Ctrl+1)">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z" /></svg><span>Chat</span>
+        </button>
+        <button class="rail-btn" data-view="face" title="Agent face (Ctrl+2)">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><circle cx="12" cy="12" r="8" /><path d="M12 1v3M12 20v3M1 12h3M20 12h3" /></svg><span>Face</span>
+        </button>
+        <button class="rail-btn" data-view="memory" title="Memory vault (Ctrl+3)">
+          <svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 7h6M9 11h6M9 15h4" /></svg><span>Memory</span>
+        </button>
+        <button class="rail-btn" data-view="calendar" title="Calendar (Ctrl+4)">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg><span>Calendar</span>
+        </button>
+        <button class="rail-btn" data-view="knowledge" title="Knowledge base (Ctrl+5)">
+          <svg viewBox="0 0 24 24"><path d="M12 2l8 5v10l-8 5-8-5V7z" /><path d="M12 12l8-5M12 12v10M12 12L4 7" /></svg><span>Vault</span>
+        </button>
+        <button class="rail-btn" data-view="docs" title="Documents (Ctrl+6)">
+          <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z" /><path d="M14 2v6h6M9 13h8M9 17h8" /></svg><span>Docs</span>
+        </button>
+        <button class="rail-btn" data-view="evolution" title="Evolution — changes the agent made to itself (Ctrl+7)">
+          <svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="12" r="2" /><path d="M6 7v10M6 12c0-3 3-5 6-5h1a5 5 0 0 1 5 5" /></svg><span>Evolve</span>
+        </button>
+        <div class="rail-spacer"></div>
+        <button class="rail-btn" data-view="settings" title="Settings (Ctrl+,)">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" /></svg><span>Config</span>
+        </button>
+      </nav>
+
+      <main class="views">
+        <!-- ============ CHAT ============ -->
+        <section class="view active" id="view-chat">
+          <aside class="conv-panel glass">
+            <div class="panel-head">
+              <h3>History</h3>
+              <button class="icon-btn" id="newChatBtn" title="New conversation (Ctrl+N)">＋</button>
+            </div>
+            <input class="input search" id="convSearch" placeholder="Search conversations…" />
+            <ul class="conv-list" id="convList"></ul>
+          </aside>
+
+          <div class="chat-main">
+            <div class="chat-header">
+              <h2 id="chatTitle">New conversation</h2>
+              <div class="chat-header-actions">
+                <button class="chip-btn" id="speakToggle" title="Speak replies aloud">🔊 Voice on</button>
+                <button class="chip-btn" id="faceToggle" title="Show/hide the face panel">◉ Face</button>
+              </div>
+            </div>
+            <div class="messages" id="messages">
+              <div class="empty-state" id="emptyState">
+                <div class="empty-orb"></div>
+                <h1 class="display" id="welcomeTitle">NEXUS ONLINE</h1>
+                <p class="greeting" id="welcomeGreeting"></p>
+                <p>Type a message, or hold <kbd id="pttHint">F8</kbd> / the mic button to talk.</p>
+                <div class="suggestions">
+                  <button class="suggestion">What's on my calendar today?</button>
+                  <button class="suggestion">What do you remember about me?</button>
+                  <button class="suggestion">What's new in the news today?</button>
+                  <button class="suggestion">What's in your vault?</button>
+                  <button class="suggestion">How does your memory system work? Check your code.</button>
+                </div>
+              </div>
+            </div>
+            <div class="composer glass">
+              <button class="mic-btn" id="micBtn" title="Hold to talk">
+                <svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8" /></svg>
+              </button>
+              <textarea id="input" rows="1" placeholder="Message Nexus…  (Enter to send, Shift+Enter for a new line)"></textarea>
+              <button class="send-btn" id="sendBtn" title="Send">
+                <svg viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-8z" /></svg>
+              </button>
+              <button class="stop-btn hidden" id="stopBtn" title="Stop">■</button>
+            </div>
+            <div class="voice-status hidden" id="voiceStatus"></div>
+          </div>
+
+          <aside class="face-panel glass" id="facePanel">
+            <div class="face-host" id="miniFace"></div>
+            <div class="face-label" id="miniFaceLabel">IDLE</div>
+          </aside>
+        </section>
+
+        <!-- ============ FACE ============ -->
+        <section class="view" id="view-face">
+          <div class="face-host" id="bigFace"></div>
+          <div class="face-overlay">
+            <div class="face-name display" id="faceName">NEXUS</div>
+            <div class="face-state" id="faceState">IDLE</div>
+            <div class="face-caption" id="faceCaption"></div>
+            <div class="face-controls">
+              <button class="mic-btn big" id="faceMicBtn" title="Hold to talk">
+                <svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8" /></svg>
+              </button>
+              <button class="chip-btn" id="fullscreenBtn">⛶ Full screen</button>
+              <select class="input face-select" id="faceSelect" title="Choose a face"></select>
+              <button class="chip-btn" id="faceDemo" title="Play a scripted listen → think → speak cycle">▶ Demo</button>
+              <button class="chip-btn" id="faceFolder" title="Custom faces folder">＋ Custom faces</button>
+            </div>
+            <div class="face-hint">Hold <kbd class="ptt-key">F8</kbd> or the mic to talk · Esc to exit full screen</div>
+          </div>
+        </section>
+
+        <!-- ============ MEMORY ============ -->
+        <section class="view padded" id="view-memory">
+          <div class="view-head">
+            <h2 class="display">Memory Vault</h2>
+            <div class="actions">
+              <input class="input search" id="memSearch" placeholder="Search memories…" />
+              <select class="input" id="memCategory"><option value="">All categories</option></select>
+              <button class="btn primary" id="memAdd">＋ Add memory</button>
+              <div class="dropdown">
+                <button class="btn" id="memMore">⋯</button>
+                <div class="dropdown-menu" id="memMenu">
+                  <button data-act="export-md">Export as Markdown</button>
+                  <button data-act="export-json">Export as JSON</button>
+                  <button data-act="import">Import JSON…</button>
+                  <button data-act="open-dir">Open vault folder</button>
+                  <button data-act="clear" class="danger">Delete all memories</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="muted" id="memSummary"></p>
+          <div class="mem-grid" id="memGrid"></div>
+        </section>
+
+        <!-- ============ CALENDAR ============ -->
+        <section class="view padded" id="view-calendar">
+          <div class="view-head">
+            <h2 class="display">Calendar</h2>
+            <div class="actions">
+              <button class="btn" id="calPrev">‹</button>
+              <button class="btn" id="calToday">Today</button>
+              <button class="btn" id="calNext">›</button>
+              <span class="cal-range" id="calRange"></span>
+              <button class="btn" id="calRefresh">⟳ Refresh</button>
+            </div>
+          </div>
+          <div id="calBody"></div>
+        </section>
+
+        <!-- ============ KNOWLEDGE (Obsidian) ============ -->
+        <section class="view padded" id="view-knowledge">
+          <div class="view-head">
+            <h2 class="display" id="kbTitle">Vault</h2>
+            <div class="actions">
+              <input class="input search" id="kbSearch" placeholder="Search notes…" />
+              <button class="btn primary" id="kbNew">＋ New note</button>
+              <button class="btn" id="kbObsidian" title="Open the vault in the Obsidian app">◆ Open in Obsidian</button>
+              <button class="btn" id="kbFolder">📁 Folder</button>
+            </div>
+          </div>
+          <div class="kb-layout">
+            <div class="kb-list glass" id="kbList"></div>
+            <div class="kb-note glass" id="kbNote"><p class="muted">Select a note to read it.</p></div>
+          </div>
+        </section>
+
+        <!-- ============ DOCUMENTS ============ -->
+        <section class="view padded" id="view-docs">
+          <div class="view-head">
+            <h2 class="display">Documents</h2>
+            <div class="actions">
+              <button class="btn primary" id="docOpen">📂 Open document…</button>
+              <button class="btn" id="docAsk" disabled>💬 Ask about this</button>
+              <button class="btn" id="docExternal" disabled>↗ Open externally</button>
+            </div>
+          </div>
+          <div class="docs-layout">
+            <div class="docs-recent glass">
+              <div class="panel-head"><h3>Recent</h3><button class="icon-btn" id="docClearRecent" title="Clear recent">✕</button></div>
+              <ul id="docRecent"></ul>
+            </div>
+            <div class="doc-viewer glass" id="docViewer">
+              <div class="doc-empty">
+                <p>Open a PDF, Word document, Markdown, text file or image — or ask the agent to open one for you.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ EVOLUTION (self-modification history) ============ -->
+        <section class="view padded" id="view-evolution">
+          <div class="view-head">
+            <h2 class="display">Evolution</h2>
+            <div class="actions">
+              <button class="btn" id="evoReload">⟳ Reload window</button>
+              <button class="btn" id="evoRestart">⏻ Restart app</button>
+            </div>
+          </div>
+          <p class="muted">Ask the agent for a new feature or change (“add a dark/light toggle”, “make the face bigger”) and it edits its own code. Every change is checked and recorded here, so you can inspect it, revert it, or restore any earlier version.</p>
+          <div id="evoStatus"></div>
+          <div class="evo-layout">
+            <div class="evo-list glass" id="evoList"></div>
+            <div class="evo-detail glass" id="evoDetail"><p class="muted">Select a change to see exactly what was modified.</p></div>
+          </div>
+        </section>
+
+        <!-- ============ SETTINGS ============ -->
+        <section class="view padded" id="view-settings">
+          <div class="view-head">
+            <h2 class="display">Configuration</h2>
+            <div class="actions"><span class="save-state" id="saveState"></span></div>
+          </div>
+          <div class="settings" id="settingsRoot"></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="onboarding hidden" id="onboarding"></div>
+    <div class="toasts" id="toasts"></div>
+    <div class="modal hidden" id="modal"><div class="modal-card glass" id="modalCard"></div></div>
+  </body>
+</html>

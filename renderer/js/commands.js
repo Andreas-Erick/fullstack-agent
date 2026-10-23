@@ -1,0 +1,35 @@
+// Voice commands, handled locally (never sent to the model). They only trigger when spoken on their
+// own, so the same words inside a normal sentence still go to the agent.
+import { toast } from './util.js';
+import { state, saveSettings } from './state.js';
+import { speaker, setMicMode } from './voice.js';
+
+const norm = (t) => t.toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+
+const COMMANDS = [
+  { re: /^(go )?hands free( mode)?$/, run: async () => (await saveSettings({ stt: { micMode: 'open' } }), setMicMode('open'), 'Hands-free mode on. I’m listening.') },
+  { re: /^(go back to |switch to )?push to talk( mode)?$/, run: async () => (await saveSettings({ stt: { micMode: 'ptt' } }), setMicMode('ptt'), `Push to talk. Hold ${state.settings.stt.pttKey} to speak.`) },
+  { re: /^(switch to |use )?(the )?(deep|smart|big|thinking) model$/, run: async () => (await saveSettings({ llm: { modelMode: 'deep' } }), 'Switched to the deep model.') },
+  { re: /^(switch to |use )?(the )?(fast|quick|small) model$/, run: async () => (await saveSettings({ llm: { modelMode: 'fast' } }), 'Switched to the fast model.') },
+  { re: /^(switch to |use )?(the )?default model$/, run: async () => (await saveSettings({ llm: { modelMode: 'default' } }), 'Back to the default model.') },
+  { re: /^stop asking( for permission)?$/, run: async () => (await saveSettings({ safety: { permissionMode: 'auto' } }), 'Okay — I’ll stop asking, except before changing my code after reading web pages or documents, and before running commands.') },
+  { re: /^start asking( again)?( for permission)?$/, run: async () => (await saveSettings({ safety: { permissionMode: 'ask' } }), 'I’ll ask before changing my code, settings or deleting things.') },
+  { re: /^(clear|new|reset) (the )?(session|conversation|chat)$/, run: async (ctx) => (ctx.newChat(), 'Fresh session.') },
+  { re: /^(stop|quiet|be quiet|shut up|stop talking|cancel)$/, run: async (ctx) => (ctx.stop(), '') },
+  { re: /^(mute|voice off)$/, run: async () => (await saveSettings({ voice: { autoSpeak: false } }), '') },
+  { re: /^(unmute|voice on)$/, run: async () => (await saveSettings({ voice: { autoSpeak: true } }), 'Voice is back on.') },
+];
+
+/** Returns true if the transcript was a command (and handled). */
+export async function tryCommand(text, ctx) {
+  const t = norm(text);
+  if (t.split(' ').length > 7) return false;
+  const cmd = COMMANDS.find((c) => c.re.test(t));
+  if (!cmd) return false;
+  const reply = await cmd.run(ctx);
+  if (reply) {
+    toast(`🎙 ${reply}`);
+    if (state.settings.voice.ttsEnabled) speaker.say(reply);
+  }
+  return true;
+}

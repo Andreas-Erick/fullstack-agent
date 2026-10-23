@@ -1,0 +1,49 @@
+// Exposes a small, explicit API to the renderer. Every call returns the handler's data or throws.
+const { contextBridge, ipcRenderer } = require('electron');
+
+async function call(channel, ...args) {
+  const res = await ipcRenderer.invoke(channel, ...args);
+  if (!res?.ok) throw new Error(res?.error || 'Unknown error');
+  return res.data;
+}
+
+function on(channel, fn) {
+  const listener = (_e, payload) => fn(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
+const channels = {
+  settings: ['get', 'set', 'reset'],
+  llm: ['models', 'test', 'prewarm'],
+  chat: ['send', 'abort', 'endSession'],
+  approval: ['respond'],
+  setup: ['start', 'skip', 'checkService'],
+  diag: ['run'],
+  log: ['write', 'tail', 'open'],
+  faces: ['list', 'openFolder'],
+  conv: ['list', 'get', 'new', 'delete', 'rename', 'clear', 'export'],
+  memory: ['list', 'search', 'save', 'update', 'delete', 'clear', 'dir', 'openDir', 'export', 'import'],
+  tts: ['speak', 'voices', 'ping'],
+  stt: ['transcribe'],
+  calendar: ['status', 'signIn', 'signOut', 'events'],
+  obsidian: ['status', 'list', 'read', 'search', 'write', 'delete', 'openFolder', 'openInObsidian', 'defaultPath', 'vaults', 'register', 'history', 'showVersion', 'restoreVersion', 'priorities'],
+  docs: ['pick', 'load', 'recent', 'clearRecent', 'roots', 'showInFolder', 'openExternal'],
+  code: ['root'],
+  self: ['status', 'ensure', 'log', 'show', 'check', 'commit', 'revert', 'restore', 'discard', 'reload', 'restart'],
+  claude: ['status', 'login', 'logout', 'installHint'],
+  persona: ['generate'],
+  web: ['search'],
+  dialog: ['pickFolder', 'pickImage'],
+  shell: ['openExternal'],
+  mic: ['request'],
+  app: ['info'],
+};
+
+const api = { on };
+for (const [ns, methods] of Object.entries(channels)) {
+  api[ns] = {};
+  for (const m of methods) api[ns][m] = (...args) => call(`${ns}:${m}`, ...args);
+}
+
+contextBridge.exposeInMainWorld('nexus', api);

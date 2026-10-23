@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Pulse Rings</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+      canvas { width: 100%; height: 100%; display: block; }
+    </style>
+    <script src="core.js"></script>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <script>
+      // Example custom face: concentric rings that follow the agent's state and voice.
+      // Copy this folder, rename it, and edit — it appears in the Face gallery automatically.
+      AV.init();
+      const c = document.getElementById('c');
+      const g = c.getContext('2d');
+      let t = 0;
+      function frame() {
+        requestAnimationFrame(frame);
+        const w = (c.width = innerWidth * devicePixelRatio);
+        const h = (c.height = innerHeight * devicePixelRatio);
+        const [main, accent] = AV.colors();
+        t += AV.state === 'thinking' ? 0.08 : 0.02;
+        const R = Math.min(w, h) * 0.12;
+        for (let i = 0; i < 12; i++) {
+          const r = R + i * R * 0.35 + Math.sin(t * 2 - i * 0.6) * R * 0.1 + AV.level * R * 0.8 * Math.exp(-i * 0.25);
+          g.strokeStyle = i % 2 ? accent : main;
+          g.globalAlpha = 0.9 - i * 0.07;
+          g.lineWidth = 2 * devicePixelRatio;
+          g.beginPath();
+          g.arc(w / 2, h / 2, r, 0, Math.PI * 2);
+          g.stroke();
+        }
+        g.globalAlpha = 1;
+        g.fillStyle = main;
+        g.font = `${R * 0.5}px sans-serif`;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText((AV.env.name || 'N')[0], w / 2, h / 2);
+      }
+      frame();
+    </script>
+  </body>
+</html>
