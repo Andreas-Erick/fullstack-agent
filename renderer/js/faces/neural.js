@@ -1,7 +1,7 @@
 // Neural-core face: a constellation brain with nine labeled regions, thought-pulses traveling along
 // connections, and a CORTEX STATUS panel tied to the real agent state.
 import { BaseFace, audio, faceState, baseState, paletteFor, rgba, lerp, lerpColor } from './common.js';
-import { state } from '../state.js';
+import { env } from './env.js';
 
 const REGIONS = [
   ['MEMORY', -0.55, -0.25], ['LANGUAGE', -0.25, -0.55], ['REASONING', 0.15, -0.6], ['PLANNING', 0.5, -0.35],
@@ -118,7 +118,7 @@ export class NeuralFace extends BaseFace {
       g.fillText(`STATE   ${st.toUpperCase()}`, x, y + 20);
       g.fillText(`SIGNAL  [${'|'.repeat(Math.round(level * 12)).padEnd(12, '.')}]`, x, y + 38);
       g.fillText(`REGIONS ${active.join(' · ')}`, x, y + 56);
-      if (state.alert) g.fillText(`ALERT   ${String(state.alert.message).slice(0, 48)}`, x, y + 74);
+      if (env.alert()) g.fillText(`ALERT   ${String(env.alert().message).slice(0, 48)}`, x, y + 74);
     }
   }
 }

@@ -32,7 +32,17 @@ const STATIC = {
   '/icon.png': 'assets/logo.png',
   '/vendor/marked.js': 'node_modules/marked/lib/marked.umd.js',
   '/vendor/purify.js': 'node_modules/dompurify/dist/purify.min.js',
+  // The desktop's built-in faces (app code, no data), so the phone shows the same one.
+  '/js/themecore.js': 'renderer/js/themecore.js',
+  '/js/visualizer.js': 'renderer/js/visualizer.js',
+  '/js/faces/env.js': 'renderer/js/faces/env.js',
+  '/js/faces/common.js': 'renderer/js/faces/common.js',
+  '/js/faces/radial.js': 'renderer/js/faces/radial.js',
+  '/js/faces/rain.js': 'renderer/js/faces/rain.js',
+  '/js/faces/neural.js': 'renderer/js/faces/neural.js',
+  '/js/faces/companion.js': 'renderer/js/faces/companion.js',
 };
+const FACES = ['circuit', 'radial', 'rain', 'neural', 'companion'];
 const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 // On every response. HSTS is added for the tunnel address (HTTPS at the edge).
@@ -354,7 +364,17 @@ async function info() {
   const colors = {};
   for (const [k, v] of Object.entries(s.appearance?.theme?.colors || {})) if (HEX.test(v)) colors[k] = v;
   const fx = ['hud', 'subtle', 'off'].includes(s.ui?.fx) ? s.ui.fx : 'hud';
-  return { name: String(s.agent.name || 'Nexus').slice(0, 40), colors, voice: Boolean(s.voice?.baseUrl), fx };
+  // The face chosen on the desktop (custom faces live in the user's data folder and stay there) and the
+  // theme's face parameters; the phone normalizes them again (themecore.normalizeTheme).
+  const f = s.appearance?.theme?.face || {};
+  const face = { id: FACES.includes(s.ui?.face) ? s.ui.face : 'circuit', states: {} };
+  if (/^\w{1,20}$/.test(f.core || '')) face.core = f.core;
+  if (/^\w{1,20}$/.test(f.traces || '')) face.traces = f.traces;
+  if (Number.isFinite(+f.density)) face.density = +f.density;
+  if (Number.isFinite(+f.glow)) face.glow = +f.glow;
+  for (const [k, v] of Object.entries(f.states || {})) if (/^\w{1,12}$/.test(k) && Array.isArray(v) && HEX.test(v[0])) face.states[k] = [v[0], HEX.test(v[1]) ? v[1] : v[0]];
+  const sleepAfterMin = Math.max(0, Math.min(240, Number(s.ui?.sleepAfterMin) || 0));
+  return { name: String(s.agent.name || 'Nexus').slice(0, 40), colors, voice: Boolean(s.voice?.baseUrl), fx, face, sleepAfterMin };
 }
 
 async function speak(req, res) {
