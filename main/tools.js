@@ -930,7 +930,7 @@ const TOOLS = [
     name: 'move_window',
     group: 'documents',
     description:
-      'Move a document window (by its name, e.g. "decision tree", or "it" for the latest) or the assistant\'s own window ("assistant") to a monitor, e.g. "move the decision tree PDF to the right monitor". position: center (default, keeps the size), maximize, fullscreen, left or right half.',
+      'Move a document window (by its name, e.g. "quarterly report", or "it" for the latest) or the assistant\'s own window ("assistant") to a monitor, e.g. "move the quarterly report PDF to the right monitor". position: center (default, keeps the size), maximize, fullscreen, left or right half.',
     parameters: obj({ window: str('Document name, "it", or "assistant"'), monitor: MONITOR, position: POSITION }, ['window', 'monitor']),
     run: async (a) => documents.popup().move(a.window, a.monitor, a.position),
   },
@@ -938,14 +938,14 @@ const TOOLS = [
     name: 'find_document',
     group: 'documents',
     description:
-      "Find files by name or topic when the user asks for one without a full path (e.g. \"the decision tree PDF\", \"my CV\"). Searches the user's workspace folder first, then their other document folders; folder names count too. Mention the kind (pdf, word, image) in the query to narrow it. One clear match: open it. Several: ask which. Use this instead of searching the disk yourself.",
-    parameters: obj({ query: str('What the user called the file, e.g. "decision tree pdf"') }, ['query']),
+      "Find files by name or topic when the user asks for one without a full path (e.g. \"the quarterly report PDF\", \"my CV\"). Searches the user's workspace folder first, then their other document folders; folder names count too. Mention the kind (pdf, word, image) in the query to narrow it. One clear match: open it. Several: ask which. Use this instead of searching the disk yourself.",
+    parameters: obj({ query: str('What the user called the file, e.g. "quarterly report pdf"') }, ['query']),
     run: async (a) => documents.findDocuments(a.query),
   },
   {
     name: 'close_document',
     group: 'documents',
-    description: 'Close a document window when the user asks: by name (e.g. "decision tree"), the latest one (no name), or "all".',
+    description: 'Close a document window when the user asks: by name (e.g. "quarterly report"), the latest one (no name), or "all".',
     parameters: obj({ name: str('Which document, or "all" (optional; default the latest)') }),
     run: async (a) => {
       const closed = documents.popup().close(a.name);

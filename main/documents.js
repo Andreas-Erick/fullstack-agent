@@ -162,7 +162,7 @@ async function clearRecent() {
 }
 
 // ------------------------------------------------------------- finding files
-// "Open the decision tree PDF": find files by name in the workspace folder first, then the other
+// "Open the quarterly report PDF": find files by name in the workspace folder first, then the other
 // document folders. Bounded (depth, entries, time) and skipping system/build folders, so a vague
 // request never turns into a minute-long crawl of the whole disk.
 const SKIP_DIRS = /^(\.|node_modules$|__pycache__$|\$recycle\.bin$|appdata$|venv$|site-packages$|windows$|program files)/i;
