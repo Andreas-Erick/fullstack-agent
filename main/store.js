@@ -185,6 +185,7 @@ const DEFAULTS = {
     chatLayout: 'split', // chat | split | face — what the chat view shows
     facePanelWidth: 300, // width of the face next to the chat in the split layout (drag the divider)
     sleepAfterMin: 10, // the face dozes off after this long without activity (0 = never)
+    fx: 'hud', // visual effects (renderer/hud.css): hud = futuristic, with motion | subtle = static | off
   },
 };
 

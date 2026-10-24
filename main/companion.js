@@ -353,7 +353,8 @@ async function info() {
   const s = await store.getSettings();
   const colors = {};
   for (const [k, v] of Object.entries(s.appearance?.theme?.colors || {})) if (HEX.test(v)) colors[k] = v;
-  return { name: String(s.agent.name || 'Nexus').slice(0, 40), colors, voice: Boolean(s.voice?.baseUrl) };
+  const fx = ['hud', 'subtle', 'off'].includes(s.ui?.fx) ? s.ui.fx : 'hud';
+  return { name: String(s.agent.name || 'Nexus').slice(0, 40), colors, voice: Boolean(s.voice?.baseUrl), fx };
 }
 
 async function speak(req, res) {

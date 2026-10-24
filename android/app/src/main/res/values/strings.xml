@@ -5,6 +5,7 @@
     <string name="shortcut_talk">Talk</string>
     <string name="shortcut_talk_long">Talk to the assistant</string>
     <string name="setup_title">Connect to your assistant</string>
+    <string name="hud_setup_sub">LINK // NOT ESTABLISHED</string>
     <string name="setup_hint">On your computer, open Settings → Remote access and copy the address shown there (the 🔒 secure address works from anywhere and enables push-to-talk).</string>
     <string name="setup_address">Address, e.g. https://nexus.example.com</string>
     <string name="setup_connect">Connect</string>

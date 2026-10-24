@@ -33,6 +33,7 @@ const state = {
   turns: new Map(), // requestId -> turn view, for turns started elsewhere in this conversation
   held: [], // events that arrived while our own send was in flight
   face: 'idle',
+  name: 'Nexus',
   speak: store.get(SPEAK_KEY) === '1',
   voice: false,
   stream: null,
@@ -241,6 +242,8 @@ function setConn(ok) {
   const c = $('#conn');
   c.classList.toggle('ok', ok);
   c.title = ok ? 'Connected' : 'Reconnecting…';
+  c.parentElement.dataset.link = ok ? 'LINK' : 'NO LINK';
+  if (ok) closeSplash();
   const was = state.connected;
   state.connected = ok;
   // A short drop isn't worth a banner; a longer one is (timed from the first failure, not each retry).
@@ -330,6 +333,7 @@ function onChat(ev) {
     case 'done':
       turn.bubble.classList.remove('streaming');
       turn.bubble.innerHTML = markdown(ev.message?.content || '');
+      turn.bubble.dataset.stamp = stamp(ev.message);
       turn.wrap.append(actions(ev.message?.content || ''));
       endTurn(turn);
       if (turn.mine && state.speak) say(ev.message?.content || '');
@@ -346,8 +350,15 @@ function onChat(ev) {
 
 const label = (name) => String(name || 'tool').replace(/^mcp__\w+__/, '').replace(/_/g, ' ');
 
+// The telemetry line the HUD shows on a reply: "NEXUS · 14:32:05 · OPUS 5.5".
+function stamp(m) {
+  const time = new Date(m?.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const model = String(m?.model || '').replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-/g, ' ');
+  return [state.name, time, model].filter(Boolean).join(' · ');
+}
+
 function newTurnView(requestId, mine = false) {
-  const bubble = el('div', { class: 'bubble streaming' });
+  const bubble = el('div', { class: 'bubble streaming', 'data-stamp': `${state.name} · live` });
   const tools = el('div', { class: 'tools' });
   const wrap = el('div', { class: 'msg assistant' }, tools, bubble);
   $('#messages').append(wrap);
@@ -392,6 +403,7 @@ function endTurn(turn) {
   state.turns.delete(turn.requestId);
   if (turn === state.active) {
     state.active = null;
+    document.body.classList.remove('busy');
     $('#sendBtn').classList.remove('hidden');
     $('#stopBtn').classList.add('hidden');
     if (state.face !== 'speaking') setFace('idle');
@@ -405,7 +417,7 @@ function addMessage(m) {
   const wrap = el('div', { class: `msg ${m.role}` });
   if (m.role === 'assistant') {
     if (m.toolCalls?.length) wrap.append(el('div', { class: 'tools' }, m.toolCalls.map((t) => el('span', { class: 'chip good' }, '⚙ ', label(t.name)))));
-    const b = el('div', { class: 'bubble' });
+    const b = el('div', { class: 'bubble', 'data-stamp': stamp(m) });
     b.innerHTML = markdown(text);
     wrap.append(b, actions(text));
   } else {
@@ -443,6 +455,7 @@ async function send(text) {
   addMessage({ role: 'user', content: text });
   const turn = newTurnView(null, true);
   state.active = turn;
+  document.body.classList.add('busy');
   state.held = [];
   setFace('thinking');
   $('#sendBtn').classList.add('hidden');
@@ -790,6 +803,8 @@ function setFace(s) {
   $('#faceState').textContent = (STATES[s] || STATES.idle)[0];
 }
 
+const hudOn = () => document.body.classList.contains('fx-hud') || document.body.classList.contains('fx-subtle');
+
 function startFace() {
   const c = $('#face');
   const g = c.getContext('2d');
@@ -831,6 +846,23 @@ function startFace() {
       g.arc(cx, cy, R * (1.45 + i * 0.22), a, a + 1.1);
       g.stroke();
     }
+    // HUD layer: a ring of instrument ticks, every fifth one longer, turning slowly.
+    if (hudOn()) {
+      const ticks = 72;
+      const r0 = R * 2.05;
+      const turn = document.body.classList.contains('fx-hud') ? spin * 0.15 : 0;
+      g.strokeStyle = main;
+      g.lineWidth = 1;
+      for (let i = 0; i < ticks; i++) {
+        const a = turn + (i / ticks) * Math.PI * 2;
+        const long = i % 6 === 0;
+        g.globalAlpha = (long ? 0.55 : 0.25) * bright;
+        g.beginPath();
+        g.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+        g.lineTo(cx + Math.cos(a) * (r0 + (long ? 7 : 3.5)), cy + Math.sin(a) * (r0 + (long ? 7 : 3.5)));
+        g.stroke();
+      }
+    }
     g.globalAlpha = 0.5 * bright;
     g.strokeStyle = main;
     g.lineWidth = 1.5;
@@ -857,8 +889,10 @@ async function applyInfo() {
   try {
     const info = await api('/api/info');
     state.voice = info.voice;
+    state.name = info.name;
     $('#agentName').textContent = info.name.toUpperCase();
     document.title = info.name;
+    setFx(info.fx);
     const root = document.documentElement.style;
     for (const [k, v] of Object.entries({ bg: '--bg', surface: '--surface', text: '--text', muted: '--muted', accent: '--accent', accent2: '--accent2', danger: '--danger', success: '--ok' })) {
       if (info.colors[k]) root.setProperty(v, info.colors[k]);
@@ -869,10 +903,42 @@ async function applyInfo() {
   }
 }
 
+// ------------------------------------------------------------------ HUD layer
+// The desktop's "Visual effects" setting: hud (with motion) | subtle (static) | off. Remembered, so
+// the next start looks right before the computer answers.
+const FX_KEY = 'nexus.fx';
+const stillMedia = matchMedia('(prefers-reduced-motion: reduce)');
+function setFx(fx) {
+  const level = ['hud', 'subtle', 'off'].includes(fx) ? fx : 'hud';
+  store.set(FX_KEY, level);
+  document.body.classList.toggle('fx-hud', level === 'hud');
+  document.body.classList.toggle('fx-subtle', level === 'subtle');
+  document.body.classList.toggle('fx-still', level !== 'off' && stillMedia.matches);
+}
+setFx(store.get(FX_KEY) || 'hud');
+
+// While the phone connects: a short "establishing link" splash (until connected, at most 2.5 s).
+let splash = null;
+function openSplash() {
+  if (!document.body.classList.contains('fx-hud') || stillMedia.matches || splash) return;
+  splash = el('div', { class: 'hud-splash', role: 'status', onclick: () => closeSplash() },
+    el('div', { class: 'hud-splash-box' }, el('div', { class: 'hud-splash-ring' }), el('div', { class: 'hud-splash-title' }, state.name.toUpperCase()), el('div', { class: 'hud-splash-sub' }, 'ESTABLISHING LINK')),
+  );
+  document.body.append(splash);
+  setTimeout(closeSplash, 2500);
+}
+function closeSplash() {
+  const s = splash;
+  if (!s || s.classList.contains('out')) return;
+  s.classList.add('out');
+  setTimeout(() => (s.remove(), splash === s && (splash = null)), 450);
+}
+
 async function start() {
   show('main');
   renderBanner();
   setSpeak(state.speak);
+  if (state.token) openSplash();
   await applyInfo();
   if (!state.token) return;
   android?.setToken(state.token, store.get(NAME_KEY) || '');

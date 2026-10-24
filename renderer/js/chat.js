@@ -318,14 +318,24 @@ function messageNode(m) {
   const body = el('div', { class: 'msg-body' });
   if (m.toolCalls?.length) body.append(el('div', { class: 'tools' }, m.toolCalls.map(toolChip)));
   const bubble = el('div', { class: 'bubble' });
-  if (m.role === 'assistant') bubble.innerHTML = renderMarkdown(m.content || '');
-  else bubble.textContent = m.display || m.content;
+  if (m.role === 'assistant') {
+    bubble.innerHTML = renderMarkdown(m.content || '');
+    bubble.dataset.stamp = stamp(m);
+  } else bubble.textContent = m.display || m.content;
   const tags = [m.skill && `⚡ skill /${m.skill}`, m.screen && '🖥 screen shared'].filter(Boolean);
   if (tags.length) body.append(el('div', { class: 'msg-tag' }, tags.map((t) => el('span', {}, t))));
   body.append(bubble);
   body.append(metaNode(m));
   wrap.append(avatarNode(m.role), body);
   return wrap;
+}
+
+// The telemetry line the HUD shows on a reply (hud.css): "NEXUS · 14:32:05 · OPUS 5.5".
+const agentName = () => state.settings?.agent?.name || 'Nexus';
+function stamp(m) {
+  const time = new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const model = String(m.model || '').replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-/g, ' ');
+  return [agentName(), time, model].filter(Boolean).join(' · ');
 }
 
 function metaNode(m) {
@@ -391,7 +401,7 @@ export async function send(text, { voice = false, hidden = false } = {}) {
   const wrap = el('div', { class: 'msg assistant' });
   const body = el('div', { class: 'msg-body' });
   const tools = el('div', { class: 'tools' });
-  const bubble = el('div', { class: 'bubble streaming' });
+  const bubble = el('div', { class: 'bubble streaming', 'data-stamp': `${agentName()} · live` });
   body.append(tools, bubble);
   wrap.append(avatarNode('assistant'), body);
   messagesEl().append(wrap);
@@ -506,6 +516,7 @@ function handleEvent(ev) {
       const m = ev.message;
       active.bubble.classList.remove('streaming');
       active.bubble.innerHTML = renderMarkdown(m.content || '');
+      active.bubble.dataset.stamp = stamp(m);
       active.body.append(metaNode(m));
       if (ttsActive() && !active.muted) speaker.flush();
       finish();
