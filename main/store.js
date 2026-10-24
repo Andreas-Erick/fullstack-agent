@@ -1,5 +1,5 @@
 // Persistent settings + conversation history, stored as JSON in the app's userData folder.
-// Secrets (API keys, OAuth secrets) are encrypted at rest with the OS keychain via safeStorage when available.
+// Secrets (API keys, tokens) are encrypted at rest with the OS keychain via safeStorage when available.
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
@@ -115,13 +115,8 @@ const DEFAULTS = {
     workspace: '', // where repos are cloned; empty = ~/NexusRepos
   },
   calendar: {
-    enabled: true,
-    clientId: '',
-    clientSecret: '',
-    daysAhead: 7,
-    allCalendars: true,
-    allowWrite: true, // let the agent create, change and delete events (needs a sign-in that granted it)
-    icsUrls: '', // read-only calendar feeds (iCal links), one per line; no Google sign-in needed
+    enabled: true, // the schedule in the vault (Schedule.md, main/calendar.js)
+    daysAhead: 7, // days of the schedule in the agent's context
   },
   screen: {
     attachToMessages: true, // while the screen is shared, each message carries a fresh screenshot
@@ -203,8 +198,6 @@ const SECRET_FIELDS = [
   ['anthropic', 'apiKey'],
   ['voice', 'apiKey'],
   ['stt', 'remoteKey'],
-  ['calendar', 'clientSecret'],
-  ['calendar', 'icsUrls'], // a secret iCal address gives read access to the calendar
   ['gemini', 'apiKey'],
   ['deepseek', 'apiKey'],
   ['groq', 'apiKey'],
@@ -357,6 +350,8 @@ async function getSettings() {
   // The thinking sound used to be on/off; it is now a style.
   if (typeof merged.voice.thinkingSound === 'boolean') merged.voice.thinkingSound = merged.voice.thinkingSound ? 'grandfather' : 'off';
   if (merged.voice.thinkingSound === 'tick') merged.voice.thinkingSound = 'clock';
+  // Google Calendar and iCal links were replaced by the schedule in the vault (1.3).
+  for (const k of ['clientId', 'clientSecret', 'allCalendars', 'allowWrite', 'icsUrls']) delete merged.calendar[k];
   for (const [section, key] of SECRET_FIELDS) merged[section][key] = decrypt(merged[section][key]);
   settingsCache = merged;
   return merged;
@@ -379,7 +374,7 @@ async function resetSettings() {
   return getSettings();
 }
 
-// ---------- Encrypted blobs (OAuth tokens) ----------
+// ---------- Encrypted blobs ----------
 async function getSecretBlob(name) {
   const raw = await readJson(path.join(dataDir(), `${name}.json`), null);
   if (!raw?.data) return null;

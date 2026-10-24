@@ -506,7 +506,7 @@ async function startupContext() {
   ];
   if (jobs.length) parts.push(`### Jobs (read the job note before doing one of these)\n${jobs.map((j) => `- ${j.name}: ${j.purpose}`).join('\n')}`);
   const folders = Object.keys(FOLDERS).map((f) => `${f}/`).join(', ');
-  parts.push(`### Vault map\nVAULT-INDEX.md, Profile.md, Active Priorities.md, ${DAILY}/, ${folders}`);
+  parts.push(`### Vault map\nVAULT-INDEX.md, Profile.md, Active Priorities.md, Schedule.md (the user's schedule: use the calendar_* tools), ${DAILY}/, ${folders}`);
   return parts.join('\n\n');
 }
 
@@ -577,6 +577,7 @@ module.exports = {
   defaultVaultPath,
   listNotes,
   readNote,
+  readOptional,
   writeNote,
   quickNote,
   deleteNote,

@@ -102,14 +102,19 @@ Diagnose from the log rather than guessing.
   - Auto-journal writes a session entry after a conversation has been quiet for 15 minutes (`journaled` in the log).
   - Conversations from earlier runs are caught up about 20 seconds after launch.
 
-## Google Calendar
+## Calendar (the schedule)
 
-- "Not signed in" or "token error": Settings → Google Calendar → Sign in again. Google refresh tokens expire after 7 days while the OAuth consent screen is in *Testing* mode. Publishing the app (even unverified) stops that.
-- **The agent says it can only read the calendar:** sign-ins from before calendar changes were supported only granted read access. Settings → Google Calendar → **Reconnect**, and allow calendar access on Google's screen. The status line then says "can add and change events". (Turning off "Let the agent add, change and delete events" hides those tools again.)
-- **Approvals for calendar changes:** adding, moving or deleting your own events follows the permission mode. Anything that makes Google email other people (invites, updates or cancellations sent to guests) always asks, once per change, even in auto mode.
+- **Where it lives:** `Schedule.md` in the vault, one entry per line under `## Recurring` and `## Events` (fields separated by `|`). The agent adds what you tell it; the Calendar view and Obsidian edit the same file. Everything else in the note is left alone. Code: `main/calendar.js` (file), `main/schedulecore.js` (format and repeat rules), `renderer/js/calendar.js` (view).
+- **"Unreadable line":** the Calendar view (side panel), Health and `calendar_list_entries` list lines that don't follow the format, with the reason. Accepted: `2026-10-28`, `2026-10-28 14:00-15:00`, `2026-12-21 to 2027-01-06`, `every Monday 10:00-11:30`, `every Tuesday, Thursday 08:15`, `every weekday 07:30`, `every 2 weeks on Friday`, `every day`, `every month on the 15th`, `every year on Mar 14`; extra fields `@ place`, `from DATE`, `until DATE`, `except DATE, DATE`, `note …`, `id …`. Lines that can't be read are kept, never deleted.
+- **The calendar says it needs the vault:** the schedule is a vault note; turn the vault on (Settings → Vault).
+- **A cancelled lecture:** "skip this day" (in the event's details, or ask the agent) adds the date to `except`; the rule stays.
+- **Upgrading from 1.2:** Google Calendar sign-in and iCal links were removed; their settings and the saved Google sign-in are deleted at launch. Tell the agent your schedule once (or paste it in a message) and it fills `Schedule.md`.
 
-- **Calendar links (iCal, read-only)**: "That link is not an iCal calendar" means the page isn't an `.ics` feed: use Google's *Secret address in iCal format* (not the public HTML link), Outlook's *ICS* link. Feeds refresh every 10 minutes. Events from a feed can't be changed by the agent. Code: `main/ics.js`.
-- **Importing the OAuth JSON**: it must be a *Desktop app* client (a *Web application* client is refused).
+## Phone on the secure address (Tailscale)
+
+- **Set up:** Tailscale on the computer and the phone, same account; MagicDNS and HTTPS certificates on (Tailscale admin console → DNS). On the computer run once `tailscale serve --bg 7823` (your remote-access port). Settings → Remote access → **Tailscale Serve** → **Detect** fills in the name and says whether Serve forwards to Nexus; **Check** opens the address from this computer (`secure address check failed` in the log when it can't).
+- **The Android app (or phone browser) still uses the Wi-Fi address:** open it at home; the banner offers **Switch** (also in the menu: *Switch to the secure address*). It asks the computer for a one-time secret, opens the `https://…ts.net` address and finishes there: same pairing, new token (the old one stops working). The secret works once, for 2 minutes, and only through the secure address. Or type the `https://` address on the Android setup screen and pair again.
+- **"Can't reach the assistant" on a .ts.net address:** the Tailscale app on the phone must be connected. If it is, check `tailscale serve status` on the computer.
 
 ## Multi-provider brain
 

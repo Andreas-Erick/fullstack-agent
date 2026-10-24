@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0 — 2026-10-24
+
+- The calendar no longer needs Google. *(Tell the assistant your schedule, "I have Linear Algebra every Monday at 10 in H1 until February", "dentist on the 28th at 2", and it keeps it in `Schedule.md` in its vault, repeating entries included: every day, weekdays, chosen weekdays, every few weeks, monthly, yearly, with a first and last day and skipped dates ("no lecture next Monday"). You can read and edit the note in Obsidian. Google Calendar sign-in and iCal links are gone; their settings and the saved Google sign-in are removed when you start the app.)*
+- A new Calendar view in the app's look. *(Month grid, a week time grid with a live "now" line, and an agenda; today's readout with what's next, your repeating entries and any unreadable lines on the side. Add and edit entries (one-time or repeating, all day or with times), skip a single day, delete. Each entry keeps its color; with the futuristic effects on it gets instrument-panel details. Keys: ← → to move, T for today, N for a new entry.)*
+- A Schedule screen on the phone and in the Android app. *(Calendar button in the header: the week with a dot per entry, the chosen day as a timeline, "now" and "next" with a countdown; swipe for the next day. Read-only; "Tell the assistant" adds new things.)*
+- One tap to move the phone to the secure address. *(Paired over Wi-Fi and a secure address is set up (Tailscale or Cloudflare)? The phone shows "Switch": it moves to the https address and keeps its pairing, with a new token, so the one that crossed the plain network stops working. In the Android app too.)*
+- Easier Tailscale. *(Settings → Remote access → Tailscale: "Detect" reads this computer's Tailscale name and whether Tailscale Serve forwards to Nexus (and gives the command if not); "Check" opens the address from this computer to prove it works; the status says so. The Android setup and error screens explain Tailscale, Cloudflare and Wi-Fi addresses, have a Paste button and scroll on small screens.)*
+- A more polished phone app. *(Suggestions to start a chat, conversations grouped by day, tool activity in words ("Added to schedule"), a recording bar with time and level while you hold the mic, and the connection (encrypted or not) in the menu.)*
+
 ## 1.2.0 — 2026-10-24
 
 - Only one app to open. *(Nexus now starts VoiceStudio and FreeLLMAPI itself when your settings use them: at launch, in the background with their windows minimized, and again when the voice or the FreeLLMAPI brain is needed and not running. Only apps on this computer, from their install folder or a location you set, and never one that is already running. Settings → Helper apps shows their status with a "Start now" button, and can close them when you quit Nexus (only the ones it started). Health shows them too, and the assistant can start one when you ask.)*
