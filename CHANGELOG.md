@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.0 — unreleased
+## 1.3.0 — 2026-10-24
 
 - The calendar no longer needs Google. *(Tell the assistant your schedule, "I have Linear Algebra every Monday at 10 in H1 until February", "dentist on the 28th at 2", and it keeps it in `Schedule.md` in its vault, repeating entries included: every day, weekdays, chosen weekdays, every few weeks, monthly, yearly, with a first and last day and skipped dates ("no lecture next Monday"). You can read and edit the note in Obsidian. Google Calendar sign-in and iCal links are gone; their settings and the saved Google sign-in are removed when you start the app.)*
 - A new Calendar view in the app's look. *(Month grid, a week time grid with a live "now" line, and an agenda; today's readout with what's next, your repeating entries and any unreadable lines on the side. Add and edit entries (one-time or repeating, all day or with times), skip a single day, delete. Each entry keeps its color; with the futuristic effects on it gets instrument-panel details. Keys: ← → to move, T for today, N for a new entry.)*
