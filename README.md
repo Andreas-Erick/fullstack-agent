@@ -48,8 +48,8 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 ### 🧰 Works with your stuff
 | | |
 | --- | --- |
-| 📄 **Documents** | Opens PDFs, Word files, Markdown, images… each in **its own window** with zoom, fit-to-width and page navigation. Finds files by name in your **workspace folder** first ("open the decision tree PDF"). |
-| 🖥️ **Monitors** | Named by where they are: "move the decision tree to the **right** monitor", "make it full screen", "which monitor is which?" |
+| 📄 **Documents** | Opens PDFs, Word files, Markdown, images… each in **its own window** with zoom, fit-to-width and page navigation. Finds files by name in your **workspace folder** first ("open the quarterly report PDF"). |
+| 🖥️ **Monitors** | Named by where they are: "move the quarterly report to the **right** monitor", "make it full screen", "which monitor is which?" |
 | 👀 **Screen sharing** | Share a screen or window and it **sees what you see**: "what's wrong with this error?", "help me fill in this form". You pick what to share; nothing is recorded. |
 | 📝 **Notes & PDFs** | Quick notes (Ctrl+Shift+N), "save this reply as a note", and **PDF export** of any reply, note or whole chat. Ask it to "write that up as a PDF". |
 | 📅 **Calendar** | Connect in a minute by **pasting an iCal link** (Google, Outlook, iCloud; read-only), or sign in with Google so it **adds, moves and deletes events**. |
@@ -150,8 +150,8 @@ A paired phone can chat, read conversations and answer approvals sent to it. It 
 **Things to try**
 
 > "What's on my calendar on Monday?" · "Move my dentist appointment to 4 pm."
-> "Open the kNN slides on the left monitor." · "Make it full screen." · "Close the PDF."
-> "Look at the open issues in my LanguageCoast repo and fix the first one." *(it asks before pushing)*
+> "Open the project slides on the left monitor." · "Make it full screen." · "Close the PDF."
+> "Look at the open issues in my website repo and fix the first one." *(it asks before pushing)*
 > "Make me a calmer voice." · "Calibrate my voice." · "Create a bug report."
 > *(sharing your screen)* "What does this error mean?" · "Turn our chat into a PDF." · "Save what you just did as a skill."
 > "Add a button that exports today's chat to my vault." *(self-improvement, with your approval)*
