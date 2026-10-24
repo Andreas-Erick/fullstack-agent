@@ -1,6 +1,9 @@
 // QR code encoder (byte mode, error correction level M, versions 1–20) for the pairing link in
-// Settings → Remote access. Follows ISO/IEC 18004 and Project Nayuki's reference implementation.
-// No dependencies; qrMatrix() is pure, qrCanvas() draws it.
+// Settings → Remote access. No dependencies; qrMatrix() is pure, qrCanvas() draws it.
+//
+// Implements ISO/IEC 18004. The error-correction tables and the structure of the algorithm follow
+// Project Nayuki's QR Code generator library (https://www.nayuki.io/page/qr-code-generator-library):
+// Copyright (c) Project Nayuki. Released under the MIT License (https://opensource.org/license/mit).
 
 const ECC_PER_BLOCK = [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26];
 const NUM_BLOCKS = [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16];
