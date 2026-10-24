@@ -9,14 +9,14 @@
 - The server now keeps open approvals and replays them to a device when it connects, and every answered approval is broadcast as `approval:cancel`, so a card or notification closes everywhere once it is answered anywhere.
 - Quick Settings tile and app shortcut "Talk" (`nexusTalk()`, tap-to-stop), share sheet (`nexusShare(text)`).
 - Device token encrypted with an Android Keystore key; `allowBackup=false`.
-- Distribution: a debug APK built locally; release signing with the user's own key (README). Not done: an APK in the GitHub release workflow, Play Store.
+- Distribution: the release workflow attaches the APK to each GitHub Release (signed with the maintainer's key when the signing secrets are set, debug-signed otherwise); it can also be built locally (README). Not done: Play Store.
 
 ### Step 3 (as built)
 - `remote.tunnel`: `quick` (cloudflared, temporary `trycloudflare.com` address, testing only), `cloudflare` (the user's named tunnel; connector token encrypted in settings and passed via `TUNNEL_TOKEN`, never on the command line), `tailscale` (the user runs `tailscale serve --bg <port>`; we only accept its hostname). cloudflared is found on PATH or the usual install folders, restarted after a drop (5 times per 10 minutes), and stopped with remote access.
 - Requests through the tunnel are recognized by the public hostname (Host header) and need an `https://` Origin. With `accessTeam` + `accessAud` set, every tunnel request must carry a valid `Cf-Access-Jwt-Assertion` (RS256 against the team's published certs; issuer, audience and expiry checked).
 - Push-to-talk on the phone (HTTPS only): `POST /api/transcribe` with a 16 kHz mono 16-bit WAV (≤ 60 s, 30 per minute). The window transcribes it with the configured speech-to-text (`remote:transcribe` → `remote:transcribed`), then the phone sends the text as a message.
 - Desktop status pill "Remote" (title bar) while remote access is on; one click turns everything off.
-- Not done: a QR code for pairing, push notifications (step 4), independent review.
+- Since added: pairing by QR code (a one-time secret in the link's fragment), background notifications in the Android app (step 4, without a push service). Not done: an independent security review.
 
 ### Step 2 client (as built)
 - Pairing screen, then chat with live streaming, tool chips, a conversation drawer, a small animated face, and approval cards (Allow / Deny).
