@@ -4,6 +4,7 @@ import { CircuitFace } from '../visualizer.js';
 import { RadialFace } from './radial.js';
 import { RainFace } from './rain.js';
 import { NeuralFace } from './neural.js';
+import { CompanionFace } from './companion.js';
 import { state, setFlag } from '../state.js';
 import { faceState, samples64, audio, theme } from './common.js';
 
@@ -12,6 +13,7 @@ export const BUILT_IN = [
   { id: 'radial', title: 'Radial', tagline: 'Starburst bars around a particle orb', Face: RadialFace },
   { id: 'rain', title: 'Code Rain', tagline: 'Glyph rain; a face appears when it speaks', Face: RainFace },
   { id: 'neural', title: 'Neural Core', tagline: 'Constellation brain with live regions', Face: NeuralFace },
+  { id: 'companion', title: 'Companion', tagline: 'A friendly character: eyes and smile show what it is doing', Face: CompanionFace },
 ];
 
 export class FaceHost {
@@ -23,7 +25,18 @@ export class FaceHost {
     this.id = '';
   }
 
+  // Compact faces are drawn for a small panel; the chat's face layout shows the full-size version.
+  setCompact(compact) {
+    if (compact === this.compact) return;
+    this.compact = compact;
+    const { id, opts } = this;
+    this.teardown();
+    this.id = '';
+    if (id) this.set(id, opts);
+  }
+
   set(id, { avatar, name } = {}) {
+    this.opts = { avatar, name };
     if (id === this.id && (this.face || this.frame)) {
       this.face?.setAvatar(avatar);
       this.face?.setLabel(name);
@@ -95,7 +108,10 @@ export function runDemo() {
     ['idle', 1500],
     ['listening', 3000],
     ['thinking', 3000],
+    ['working', 3000],
     ['speaking', 5000],
+    ['happy', 2200],
+    ['sleeping', 4500],
     ['idle', 1000],
   ];
   let i = 0;

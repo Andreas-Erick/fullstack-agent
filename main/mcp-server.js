@@ -37,7 +37,10 @@ async function handle(msg) {
       result = { tools: await bridge('/list', {}) };
     } else if (method === 'tools/call') {
       const r = await bridge('/call', { name: params?.name, args: params?.arguments || {} });
-      result = { content: [{ type: 'text', text: r.text }], isError: !r.ok };
+      const content = [{ type: 'text', text: r.text }];
+      const img = String(r.image || '').match(/^data:(image\/[\w+.-]+);base64,(.+)$/);
+      if (img) content.push({ type: 'image', mimeType: img[1], data: img[2] });
+      result = { content, isError: !r.ok };
     } else if (method === 'ping') {
       result = {};
     } else {

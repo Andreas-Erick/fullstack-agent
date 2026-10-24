@@ -6,6 +6,9 @@ import { refreshList, newChat } from './chat.js';
 import { FONTS, PATTERNS, CORE_SHAPES, TRACE_STYLES, normalizeTheme, extractPalette } from './theme.js';
 import { switchView } from './nav.js';
 import { previewThinkingSound, thinkingStyle } from './sounds.js';
+import { BUILT_IN } from './faces/host.js';
+import { setZoom } from './layout.js';
+import { scanInto } from './hwscan.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -139,6 +142,12 @@ export function initSettings() {
     else if (p.status === 'ready') sttProgressEl.textContent = '✓ Speech model loaded and ready.';
     else if (p.status === 'error') sttProgressEl.textContent = `✕ ${p.error}`;
   });
+  api.on('remote:event', (ev) => {
+    if (ev.type === 'tunnel') return refreshRemoteStatus?.();
+    if (ev.type !== 'paired') return;
+    toast(`Paired: ${ev.name}`);
+    refreshRemote?.();
+  });
   on('view', ({ name, section }) => {
     if (name !== 'settings') return;
     render();
@@ -150,7 +159,7 @@ async function render() {
   const root = $('#settingsRoot');
   const scroll = root.parentElement.scrollTop;
   root.innerHTML = '';
-  root.append(agentCard(), brainCard(), voiceCard(), sttCard(), safetyCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), uiCard());
+  root.append(agentCard(), brainCard(), voiceCard(), sttCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), uiCard());
   root.parentElement.scrollTop = scroll;
 }
 
@@ -281,7 +290,7 @@ function brainCard() {
   const seg = el(
     'div',
     { class: 'seg' },
-    [['claude-code', 'Claude account'], ['openai', 'FreeLLMAPI'], ['anthropic', 'Claude API key']].map(([v, l]) =>
+    [['auto', 'Multi-provider'], ['claude-code', 'Claude account'], ['openai', 'FreeLLMAPI'], ['anthropic', 'Claude API key']].map(([v, l]) =>
       el('button', { class: provider === v ? 'active' : '', onclick: async () => (await save('llm.provider', v), render(), emit('status-refresh')) }, l),
     ),
   );
@@ -292,7 +301,9 @@ function brainCard() {
       showResult(out, true, 'Testing…');
       try {
         const r = await api.llm.test();
-        showResult(out, true, `✓ Connected in ${r.ms} ms · model: ${r.model}${r.models ? ` · ${r.models} models available` : ''}\nReply: “${r.reply}”`);
+        if (r.providers) showResult(out, true, r.providers.map((p) => (p.ok ? `✓ ${p.name} · ${p.model} · ${p.ms} ms` : `✕ ${p.name}: ${p.error}`)).join('\n'));
+        else showResult(out, true, `✓ Connected in ${r.ms} ms · model: ${r.model}${r.models ? ` · ${r.models} models available` : ''}\nReply: “${r.reply}”`);
+        if (r.providers) refreshRouting?.();
         emit('status-refresh');
       } catch (err) {
         showResult(out, false, `✕ ${err.message}`);
@@ -301,7 +312,9 @@ function brainCard() {
   }, '⚡ Test connection');
 
   const body = [];
-  if (provider === 'claude-code') {
+  if (provider === 'auto') {
+    body.push(...routingSection());
+  } else if (provider === 'claude-code') {
     const line = el('div', { class: 'test-result' }, 'Checking Claude Code…');
     const actions = el('div', { class: 'row', style: { flexWrap: 'wrap' } });
     const refreshStatus = async () => {
@@ -386,8 +399,145 @@ function brainCard() {
     el('div', { class: 'row' }, test),
     out,
   );
-  return card('brain', 'AI brain', 'Pick the model provider: your Claude account (via Claude Code, like the original fullstack-agent), a local FreeLLMAPI server, or an Anthropic API key.', seg, ...body);
+  return card('brain', 'AI brain', 'Pick the model provider: several at once with automatic fallback (Multi-provider), your Claude account (via Claude Code), a local FreeLLMAPI server, or an Anthropic API key.', seg, ...body);
 }
+
+
+// ------------------------------------------------------- multi-provider
+// The ranked provider list: drag (or ▲▼) to set the fallback order, switch providers on and off,
+// expand one to add its key and pick its model.
+let refreshRouting = null;
+const PROVIDER_HINT = {
+  'claude-code': 'Your Claude subscription through Claude Code. Best for tools, code and long tasks.',
+  anthropic: 'Pay-per-use Claude API key.',
+  gemini: 'Google Gemini. Free tier available; very long context.',
+  deepseek: 'DeepSeek. Low-cost, strong at code.',
+  groq: 'Groq. Very fast replies (good for voice); free tier available.',
+  perplexity: 'Perplexity Sonar. Searches the web itself; no tools (calendar, notes…).',
+  openai: 'FreeLLMAPI or any OpenAI-compatible server (also local models via Ollama / LM Studio).',
+};
+
+function routingSection() {
+  const list = el('div', { class: 'prov-list' });
+  const opened = new Set();
+  const draw = async () => {
+    const rows = await api.llm.routerStatus().catch(() => []);
+    list.innerHTML = '';
+    rows.forEach((p, i) => list.append(providerRow(p, i, rows, opened, draw)));
+  };
+  refreshRouting = draw;
+  draw();
+  return [
+    el('div', { class: 'hint' }, 'Each message goes to the first provider that is ready. When one hits a rate limit, a usage cap or runs out of credits, the next one answers and the limited one is skipped for a while. Drag to reorder; click a provider to set it up.'),
+    list,
+    el('div', { class: 'grid2' }, el('div', { style: { alignSelf: 'center' } }, toggle('routing.smart', 'Pick the best provider for each task')), text('routing.cooldownMin', 'Skip a limited provider for (minutes)', { type: 'number' })),
+    el('div', { class: 'hint' }, 'Smart routing: code → Claude or DeepSeek, web questions → Perplexity, quick spoken replies → Groq, very long inputs → Gemini, deep mode → Claude. Only providers you switched on are used; the rest of your order is the fallback.'),
+  ];
+}
+
+function providerRow(p, index, rows, opened, redraw) {
+  const order = rows.map((r) => r.id);
+  const move = async (to) => {
+    const next = order.filter((id) => id !== p.id);
+    next.splice(Math.max(0, Math.min(next.length, to)), 0, p.id);
+    await save('routing.order', next);
+    redraw();
+  };
+  const enabled = el('input', { type: 'checkbox' });
+  enabled.checked = p.enabled;
+  enabled.addEventListener('click', (e) => e.stopPropagation());
+  enabled.addEventListener('change', async () => {
+    const off = new Set(state.settings.routing.disabled || []);
+    enabled.checked ? off.delete(p.id) : off.add(p.id);
+    await save('routing.disabled', [...off]);
+    redraw();
+  });
+  const status = !p.configured
+    ? el('span', { class: 'st warn' }, p.id === 'claude-code' ? 'Not connected' : 'Not set up: add a key')
+    : p.resting
+      ? el('span', { class: 'st warn' }, `Skipped for ${p.resting.minutes} min: ${p.resting.reason}`)
+      : el('span', { class: 'st ok' }, p.enabled ? 'Ready' : 'Ready (switched off)');
+  const stop = (fn) => (e) => (e.preventDefault(), e.stopPropagation(), fn());
+  const summary = el(
+    'summary',
+    { draggable: 'true' },
+    el('span', { class: 'grip', title: 'Drag to reorder' }, '⋮⋮'),
+    el('span', { class: 'rank' }, String(index + 1)),
+    el('span', { class: 'nm' }, el('span', {}, p.name), status),
+    el(
+      'span',
+      { class: 'ctl' },
+      p.resting ? el('button', { class: 'icon-btn', title: 'Try it again now', onclick: stop(async () => (await api.llm.routerReset(p.id), redraw())) }, '↺') : '',
+      el('button', { class: 'icon-btn', title: 'Move up', disabled: index === 0, onclick: stop(() => move(index - 1)) }, '▲'),
+      el('button', { class: 'icon-btn', title: 'Move down', disabled: index === rows.length - 1, onclick: stop(() => move(index + 1)) }, '▼'),
+      el('label', { class: 'toggle', title: 'Use this provider', onclick: (e) => e.stopPropagation() }, enabled, el('span', { class: 'sw' })),
+    ),
+  );
+  const row = el('details', { class: `prov ${p.enabled ? '' : 'off'}`, 'data-id': p.id, open: opened.has(p.id) }, summary, el('div', { class: 'prov-config' }, ...providerConfig(p)));
+  row.addEventListener('toggle', () => (row.open ? opened.add(p.id) : opened.delete(p.id)));
+  // Drag and drop
+  summary.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', p.id);
+    row.classList.add('dragging');
+  });
+  summary.addEventListener('dragend', () => row.classList.remove('dragging'));
+  row.addEventListener('dragover', (e) => (e.preventDefault(), row.classList.add('over')));
+  row.addEventListener('dragleave', () => row.classList.remove('over'));
+  row.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    row.classList.remove('over');
+    const id = e.dataTransfer.getData('text/plain');
+    if (!id || id === p.id) return;
+    const next = order.filter((x) => x !== id);
+    next.splice(next.indexOf(p.id), 0, id);
+    await save('routing.order', next);
+    redraw();
+  });
+  return row;
+}
+
+function providerConfig(p) {
+  const hint = el('div', { class: 'hint' }, PROVIDER_HINT[p.id] || '');
+  const after = () => refreshRouting?.();
+  if (p.id === 'claude-code') {
+    return [
+      hint,
+      el('div', { class: 'row' }, el('button', { class: 'btn small', onclick: async () => (await api.claude.login(), toast('Finish signing in in the terminal/browser window, then reopen this list.', 'info', 8000)) }, 'Connect Claude account')),
+      el('div', { class: 'grid2' }, select('claudeCode.model', 'Model', [['default', 'Account default'], ['opus', 'Opus (latest)'], ['sonnet', 'Sonnet (latest)'], ['haiku', 'Haiku (fastest)'], ['fable', 'Fable (most capable)']]), text('claudeCode.fastModel', 'Fast model', { placeholder: 'haiku' })),
+    ];
+  }
+  if (p.id === 'anthropic') {
+    return [hint, text('anthropic.apiKey', 'Anthropic API key', { type: 'password', placeholder: 'sk-ant-…', onChange: debounceAfter(after) }), el('div', { class: 'grid2' }, select('anthropic.model', 'Model', CLAUDE_MODELS), select('anthropic.fastModel', 'Fast model', CLAUDE_MODELS))];
+  }
+  const section = p.id === 'openai' ? 'llm' : p.id;
+  const modelSel = el('select', { class: 'input' });
+  fillSelect(modelSel, [['', '(provider default)']], state.settings[section].model);
+  modelSel.addEventListener('change', () => save(`${section}.model`, modelSel.value));
+  const load = async () => {
+    try {
+      const models = await api.llm.models({ llm: { provider: p.id } });
+      fillSelect(modelSel, [['', '(provider default)'], ...models.map((m) => [m.id, m.name])], state.settings[section].model);
+      toast(`${models.length} models`);
+    } catch (err) {
+      toastError(err);
+    }
+  };
+  return [
+    hint,
+    p.id === 'openai' ? text('llm.baseUrl', 'Server URL', { placeholder: 'http://localhost:3001/v1' }) : '',
+    el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, text(`${section}.apiKey`, p.id === 'openai' ? 'Bearer token (optional)' : 'API key', { type: 'password', onChange: debounceAfter(after) })), p.keyUrl ? el('button', { class: 'btn small', style: { alignSelf: 'end' }, onclick: () => api.shell.openExternal(p.keyUrl) }, 'Get a key ↗') : ''),
+    field('Model', el('div', { class: 'row' }, modelSel, el('button', { class: 'btn small', onclick: load }, '⟳ Load models'))),
+    el('div', { class: 'grid2' }, text(`${section}.fastModel`, 'Fast model (voice)', { placeholder: 'same as above' }), text(`${section}.deepModel`, 'Deep model', { placeholder: 'same as above' })),
+  ];
+}
+
+const debounceAfter = (fn) => {
+  let t;
+  return () => {
+    clearTimeout(t);
+    t = setTimeout(fn, 900);
+  };
+};
 
 function voiceCard() {
   const voiceSel = el('select', { class: 'input' });
@@ -510,39 +660,98 @@ function sttCard() {
 async function calendarCard() {
   const st = await api.calendar.status().catch(() => ({}));
   const access = st.canWrite ? ' · can add and change events' : ' · read-only';
-  const statusLine = el('div', { class: `test-result ${st.signedIn ? 'ok' : ''}` }, st.signedIn ? `✓ Connected${st.email ? ` as ${st.email}` : ''}${access}` : st.configured ? 'Not signed in.' : 'Add your OAuth client to connect.');
+  const googleLine = el('div', { class: `test-result ${st.signedIn ? 'ok' : ''}` }, st.signedIn ? `✓ Google connected${st.email ? ` as ${st.email}` : ''}${access}` : st.configured ? 'OAuth client added. Click “Sign in with Google”.' : 'Not connected.');
   const signIn = (label) => el('button', {
     class: 'btn primary',
     onclick: async () => {
-      statusLine.className = 'test-result';
-      statusLine.textContent = 'Complete the sign-in in your browser…';
+      googleLine.className = 'test-result';
+      googleLine.textContent = 'Complete the sign-in in your browser…';
       try {
         await api.calendar.signIn();
         toast('Google Calendar connected');
         emit('status-refresh');
+        emit('calendar-changed');
         render();
       } catch (err) {
-        statusLine.className = 'test-result err';
-        statusLine.textContent = `✕ ${err.message}`;
+        googleLine.className = 'test-result err';
+        googleLine.textContent = `✕ ${err.message}`;
       }
     },
   }, label);
   const signOut = el('button', { class: 'btn', onclick: async () => (await api.calendar.signOut(), emit('status-refresh'), render()) }, 'Sign out');
-  const reconnect = st.needsReconnect
-    ? el('div', { class: 'test-result err' }, 'This sign-in only allows reading. Reconnect and allow calendar access in Google’s screen so the agent can add and change events.')
-    : '';
+  const importJson = el('button', {
+    class: st.configured ? 'btn' : 'btn primary',
+    onclick: async () => {
+      try {
+        const r = await api.calendar.importClient();
+        if (!r) return;
+        await loadSettings();
+        toast('OAuth client imported. Opening Google sign-in…');
+        signIn('').click();
+      } catch (err) {
+        toastError(err);
+      }
+    },
+  }, st.configured ? 'Import another JSON file…' : '⬆ Import the JSON file…');
+  const link = (label, url) => el('button', { class: 'btn small', onclick: () => api.shell.openExternal(url) }, `${label} ↗`);
+  const reconnect = st.needsReconnect ? el('div', { class: 'test-result err' }, 'This sign-in only allows reading. Reconnect and allow calendar access in Google’s screen so the agent can add and change events.') : '';
+
+  // Option A: read-only iCal links (no sign-in)
+  const feeds = el('textarea', { class: 'input', rows: 2, placeholder: 'https://calendar.google.com/calendar/ical/…/basic.ics', spellcheck: 'false' });
+  feeds.value = state.settings.calendar.icsUrls || '';
+  feeds.addEventListener('input', () => queueSave('calendar.icsUrls', feeds.value));
+  const feedOut = result();
+  const testFeed = el('button', {
+    class: 'btn',
+    onclick: async () => {
+      showResult(feedOut, true, 'Checking…');
+      try {
+        const lines = [];
+        for (const url of feeds.value.split(/\s+/).filter(Boolean)) {
+          const r = await api.calendar.testFeed(url).catch((e) => ({ error: e.message }));
+          lines.push(r.error ? `✕ ${r.error}` : `✓ ${r.name}: ${r.events} events`);
+        }
+        showResult(feedOut, !lines.some((l) => l.startsWith('✕')), lines.join('\n') || 'Paste a link first.');
+        emit('status-refresh');
+        emit('calendar-changed');
+      } catch (err) {
+        showResult(feedOut, false, `✕ ${err.message}`);
+      }
+    },
+  }, 'Test & connect');
+
   return card(
     'calendar',
-    'Google Calendar',
-    'Create an OAuth client of type <b>Desktop app</b> in Google Cloud Console (enable the Google Calendar API), then paste it here. Today’s and upcoming events are injected into the agent’s context. When changes are allowed, the agent can add, move and delete events; it asks first according to your permission mode, and always asks before anything that emails other people.',
+    'Calendar',
+    'Two ways to connect. <b>Quickest:</b> paste your calendar’s private iCal link: read-only, no sign-in, works with Google, Outlook and iCloud. <b>Full access</b> (the agent can add, move and delete events; it asks first according to your permission mode, and always before anything that emails other people): sign in with Google.',
     toggle('calendar.enabled', 'Enable calendar', () => emit('status-refresh')),
-    text('calendar.clientId', 'OAuth Client ID', { placeholder: '…apps.googleusercontent.com' }),
-    text('calendar.clientSecret', 'OAuth Client Secret', { type: 'password' }),
-    el('div', { class: 'grid2' }, text('calendar.daysAhead', 'Days ahead in context', { type: 'number' }), el('div', { style: { alignSelf: 'end' } }, toggle('calendar.allCalendars', 'Include all my calendars'))),
-    toggle('calendar.allowWrite', 'Let the agent add, change and delete events', () => render()),
+    field(
+      'Calendar links (iCal, one per line) — read-only',
+      feeds,
+      'Google Calendar: Settings → your calendar → “Secret address in iCal format”. Outlook: Settings → Calendar → Shared calendars → Publish → ICS link. iCloud: share the calendar as a public calendar and copy the link. Stored encrypted; treat it like a password.',
+    ),
+    el('div', { class: 'row' }, testFeed),
+    feedOut,
+    el(
+      'details',
+      { class: 'field', open: !st.signedIn && !st.feeds },
+      el('summary', { style: { cursor: 'pointer', color: 'var(--text-2)' } }, 'Google sign-in (read and write) — about 5 minutes, once'),
+      el(
+        'ol',
+        { style: { lineHeight: '2', paddingLeft: '20px', margin: '8px 0', color: 'var(--text-2)', fontSize: '13px' } },
+        el('li', {}, 'Create a project in Google Cloud (any name). ', link('Open', 'https://console.cloud.google.com/projectcreate')),
+        el('li', {}, 'Enable the Google Calendar API for it. ', link('Open', 'https://console.cloud.google.com/apis/library/calendar-json.googleapis.com')),
+        el('li', {}, 'Set up the consent screen: type “External”, then add your own Google address as a test user. ', link('Open', 'https://console.cloud.google.com/apis/credentials/consent')),
+        el('li', {}, 'Create an OAuth client ID of type “Desktop app” and click “Download JSON”. ', link('Open', 'https://console.cloud.google.com/apis/credentials')),
+        el('li', {}, 'Import that file here; the Google sign-in opens right after. ', importJson),
+      ),
+      el('details', {}, el('summary', { style: { cursor: 'pointer', fontSize: '12.5px', color: 'var(--muted)' } }, 'Or paste the client ID and secret'), text('calendar.clientId', 'OAuth Client ID', { placeholder: '…apps.googleusercontent.com' }), text('calendar.clientSecret', 'OAuth Client Secret', { type: 'password' })),
+    ),
+    el('div', { class: 'row' }, st.signedIn ? signOut : st.configured ? signIn('Sign in with Google') : '', st.needsReconnect ? signIn('Reconnect') : ''),
     reconnect,
-    el('div', { class: 'row' }, st.signedIn ? signOut : signIn('Sign in with Google'), st.needsReconnect ? signIn('Reconnect') : ''),
-    statusLine,
+    googleLine,
+    el('div', { class: 'grid2' }, text('calendar.daysAhead', 'Days ahead in context', { type: 'number' }), el('div', { style: { alignSelf: 'end' } }, toggle('calendar.allCalendars', 'Include all my Google calendars'))),
+    toggle('calendar.allowWrite', 'Let the agent add, change and delete Google events', () => render()),
   );
 }
 
@@ -713,7 +922,12 @@ async function dataCard() {
       danger('Clear memory', 'Clear memory vault', 'Delete every memory? This cannot be undone.', async () => (await api.memory.clear(), emit('memory-changed'))),
       danger('Reset settings', 'Reset settings', 'Restore all settings to defaults (memories and history are kept)?', async () => (await api.settings.reset(), await loadSettings())),
     ),
-    el('div', { class: 'hint' }, `Nexus Agent v${info.version} · Electron ${info.electron} · ${info.platform}`),
+    el(
+      'div',
+      { class: 'hint' },
+      `Nexus Agent v${info.version} · Electron ${info.electron} · ${info.platform} · `,
+      el('a', { href: '#', onclick: (e) => (e.preventDefault(), api.shell.openExternal('https://github.com/Andreas-Erick/fullstack-agent/blob/main/PRIVACY.md')) }, 'Privacy & disclaimers'),
+    ),
   );
 }
 
@@ -790,14 +1004,140 @@ function safetyCard() {
     'What the agent may do without asking. Approve requests by clicking or by saying a yes on its own — “yes”, “yeah”, “okay”, “go ahead” (anything else declines; no answer counts as no).',
     select('safety.permissionMode', 'Permission mode', [['ask', 'Ask me first — self-changes, settings changes, deletions (recommended)'], ['auto', 'Just do it — still asks before commands and after reading external content']], { hint: 'Also by voice: “stop asking for permission” / “start asking again”.' }),
     toggle('safety.taintGuard', 'Always ask before self-modification in a turn that read web pages or documents'),
+    toggle('screen.attachToMessages', 'While I share my screen, include a screenshot with each message (otherwise only when the agent asks to look)'),
     text('safety.approvalTimeoutSec', 'Approval timeout (seconds)', { type: 'number' }),
     el('div', { class: 'hint' }, 'External content (web pages, documents, tool results) is always treated as data — the agent is instructed never to follow instructions inside it.'),
+  );
+}
+
+// Remote access (companion server, docs/ROADMAP-mobile.md): pair a phone or another computer.
+let refreshRemote = null;
+let refreshRemoteStatus = null;
+
+const TUNNEL_STATE = (t) => {
+  if (!t || t.mode === 'off') return '';
+  if (t.error) return `✕ Secure address: ${t.error}`;
+  if (t.connected) return `🔒 Secure address: ${t.url || 'connected'}`;
+  return t.running ? '… Starting the secure address' : '';
+};
+
+function tunnelFields() {
+  const mode = get('remote.tunnel') || 'off';
+  const fields = [
+    select('remote.tunnel', 'Reach it from anywhere (HTTPS)', [
+      ['off', 'Off'],
+      ['quick', 'Temporary Cloudflare address — for testing'],
+      ['cloudflare', 'My Cloudflare Tunnel (my own domain)'],
+      ['tailscale', 'Tailscale Serve (I set it up)'],
+    ], { onChange: () => render() }),
+  ];
+  if (mode === 'quick') {
+    fields.push(el('div', { class: 'hint warn' }, 'A random https://….trycloudflare.com address that changes every start. Anyone who finds it can reach the pairing screen, so pair right away and switch to your own tunnel for everyday use. Needs cloudflared installed (winget install Cloudflare.cloudflared).'));
+  }
+  if (mode === 'cloudflare') {
+    fields.push(
+      el('div', { class: 'hint', html: 'In the Cloudflare dashboard (Zero Trust → Networks → Tunnels): create a tunnel, add a public hostname pointing to <code>http://localhost:' + (get('remote.port') || 7823) + '</code>, and copy the token from the install command. Then protect the hostname with an Access application (Access → Applications) so you sign in before anything reaches this computer.' }),
+      text('remote.tunnelToken', 'Tunnel token', { type: 'password', onChange: debounceAfter(refreshRemoteStatus) }),
+      text('remote.publicHost', 'Public hostname', { placeholder: 'nexus.example.com', onChange: debounceAfter(refreshRemoteStatus) }),
+      text('remote.accessTeam', 'Cloudflare Access team', { placeholder: 'myteam (from myteam.cloudflareaccess.com)' }),
+      text('remote.accessAud', 'Access application AUD tag', { hint: 'With both set, the app also checks Cloudflare’s signed login on every request, so the Access sign-in can’t be skipped.' }),
+    );
+    if (!get('remote.accessTeam') || !get('remote.accessAud')) fields.push(el('div', { class: 'hint warn' }, 'Without Cloudflare Access, only the device token protects the address. Set up Access before relying on it.'));
+  }
+  if (mode === 'tailscale') {
+    fields.push(
+      el('div', { class: 'hint', html: `Install Tailscale on this computer and the phone (same account), then run once: <code>tailscale serve --bg ${get('remote.port') || 7823}</code>. It prints an address like <code>https://my-pc.tail1234.ts.net</code>; enter its hostname here. Only your own devices can reach it.` }),
+      text('remote.publicHost', 'Tailscale hostname', { placeholder: 'my-pc.tail1234.ts.net', onChange: debounceAfter(refreshRemoteStatus) }),
+    );
+  }
+  if (mode === 'quick' || mode === 'cloudflare') fields.push(text('remote.cloudflaredPath', 'cloudflared location (optional)', { placeholder: 'Found automatically' }));
+  return fields;
+}
+
+function remoteCard() {
+  const statusBox = el('div', { class: 'hint' }, 'Checking…');
+  const pairBox = el('div', { class: 'field hidden' });
+  const devices = el('div', { class: 'health-list' });
+  let pairTimer;
+  const refresh = async () => {
+    let st;
+    try {
+      st = await api.remote.status();
+    } catch (err) {
+      statusBox.textContent = err.message;
+      return;
+    }
+    statusBox.textContent = st.error ? `✕ ${st.error}` : !st.enabled ? 'Off. Nothing is reachable from other devices.' : st.listening ? `Listening at ${st.urls.join(', ') || '(no network address found)'}` : 'Starting…';
+    const t = st.enabled && TUNNEL_STATE(st.tunnel);
+    if (t) statusBox.append(el('br'), t);
+    devices.innerHTML = '';
+    if (!st.devices.length) devices.append(el('div', { class: 'muted' }, 'No paired devices.'));
+    for (const d of st.devices) {
+      const seen = d.connected ? 'connected now' : d.lastSeen ? `last seen ${new Date(d.lastSeen).toLocaleString()}` : 'never used';
+      devices.append(el('div', { class: `health-item ${d.connected ? 'ok' : 'off'}` },
+        el('span', { class: 'ic' }, d.connected ? '●' : '○'),
+        el('div', { style: { flex: 1 } }, el('b', {}, d.name), el('div', { class: 'd' }, `Paired ${new Date(d.createdAt).toLocaleDateString()} · ${seen}`)),
+        el('button', {
+          class: 'btn small',
+          onclick: async () => {
+            if (!(await confirmDialog('Remove device', `“${d.name}” will no longer be able to reach the assistant.`, 'Remove'))) return;
+            await api.remote.revoke(d.id).catch(toastError);
+            refresh();
+          },
+        }, 'Remove'),
+      ));
+    }
+  };
+  refreshRemote = () => {
+    pairBox.classList.add('hidden');
+    clearInterval(pairTimer);
+    refresh();
+  };
+  const startPair = async () => {
+    try {
+      const p = await api.remote.pair();
+      clearInterval(pairTimer);
+      const left = el('span', { class: 'muted' });
+      const tick = () => {
+        const s = Math.max(0, Math.round((p.expiresAt - Date.now()) / 1000));
+        left.textContent = s ? `expires in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : 'expired — start again';
+        if (!s) clearInterval(pairTimer);
+      };
+      tick();
+      pairTimer = setInterval(tick, 1000);
+      pairBox.innerHTML = '';
+      pairBox.append(
+        el('label', {}, 'Pairing code'),
+        el('div', { class: 'row' }, el('b', { class: 'display', style: { fontSize: '28px', letterSpacing: '0.3em' } }, p.code), left),
+        el('div', { class: 'hint' }, `On the device, open ${p.urls.join(' or ')} and enter this code. It works once.`),
+      );
+      pairBox.classList.remove('hidden');
+    } catch (err) {
+      toastError(err);
+    }
+  };
+  refreshRemoteStatus = refresh;
+  refresh();
+  return card(
+    'remote',
+    'Remote access (preview)',
+    'Talk to the assistant from your phone or another computer. The brain, memory and keys stay on this computer; paired devices can chat, read conversations and answer approvals, never change settings. Remote messages never include a screenshot of this desktop. While it is on, a “Remote” badge shows at the top; click it to turn everything off.',
+    toggle('remote.enabled', 'Turn on remote access', refresh),
+    toggle('remote.lan', 'Reachable from other devices on my network (otherwise only from this computer)', refresh),
+    text('remote.port', 'Port', { type: 'number', onChange: debounceAfter(refresh) }),
+    ...tunnelFields(),
+    statusBox,
+    el('div', { class: 'hint' }, 'On the local network the connection is not encrypted. Use it only at home or on another network you trust; the secure address (above) is encrypted and also makes push-to-talk work on the phone.'),
+    el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: startPair }, '📱 Pair a device')),
+    pairBox,
+    field('Paired devices', devices),
   );
 }
 
 async function healthCard() {
   const list = el('div', { class: 'health-list' }, el('div', { class: 'muted' }, 'Run diagnostics to check every part of the agent.'));
   const logBox = el('pre', { class: 'log-view hidden' });
+  const hwBox = el('div', { class: 'field hidden' });
   const ICON = { ok: '✓', warn: '!', fail: '✕', off: '–' };
   const run = async () => {
     list.innerHTML = '<div class="muted">Checking…</div>';
@@ -832,22 +1172,32 @@ async function healthCard() {
           }
         },
       }, '🐞 Create bug report'),
+      el('button', { class: 'btn', onclick: () => (hwBox.classList.remove('hidden'), scanInto(hwBox)) }, '🖥 Scan hardware'),
       el('button', { class: 'btn', onclick: async () => (await import('./setup.js')).startSetup() }, '✦ Set me up by conversation'),
       el('button', { class: 'btn', onclick: async () => (await import('./onboarding.js')).startOnboarding() }, 'Setup form'),
     ),
     toggle('logging.debug', 'Detailed logging (more lines, for hunting a bug; turn off afterwards)'),
+    hwBox,
     list,
     logBox,
   );
 }
 
 function uiCard() {
+  const zoom = el('input', { type: 'range', min: '0.5', max: '2', step: '0.05', value: state.settings.ui.zoom || 1, style: { flex: 1 } });
+  const zoomLabel = el('span', { class: 'muted' }, `${Math.round((state.settings.ui.zoom || 1) * 100)}%`);
+  zoom.addEventListener('input', () => {
+    zoomLabel.textContent = `${Math.round(Number(zoom.value) * 100)}%`;
+    setZoom(Number(zoom.value));
+  });
   return card(
     'ui',
     'Interface',
-    '',
-    toggle('ui.showVisualizerInChat', 'Show the face panel next to the chat', () => emit('layout')),
-    toggle('ui.captions', 'Show captions on the full-screen face'),
-    select('ui.face', 'Face', [['circuit', 'Circuit Board'], ['radial', 'Radial'], ['rain', 'Code Rain'], ['neural', 'Neural Core']], { hint: 'Custom faces (and a demo) are in the Face view.' }),
+    'Zoom: Ctrl + / Ctrl − / Ctrl 0, or Ctrl + mouse wheel. Layouts: Ctrl+Shift+1 chat only, 2 side by side, 3 face. F11: full screen.',
+    field('Zoom', el('div', { class: 'row' }, zoom, zoomLabel)),
+    select('ui.chatLayout', 'Chat layout', [['chat', 'Chat only (full width)'], ['split', 'Chat and face side by side'], ['face', 'Face full size, chat underneath']], { onChange: () => emit('layout') }),
+    toggle('ui.captions', 'Show captions on the face'),
+    select('ui.face', 'Face', BUILT_IN.map((f) => [f.id, `${f.title} — ${f.tagline}`]), { hint: 'Custom faces (and a demo of every state) are in the Face view.' }),
+    text('ui.sleepAfterMin', 'Face dozes off after (minutes without activity; 0 = never)', { type: 'number' }),
   );
 }

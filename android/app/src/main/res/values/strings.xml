@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nexus</string>
+    <string name="tile_talk">Talk to Nexus</string>
+    <string name="shortcut_talk">Talk</string>
+    <string name="shortcut_talk_long">Talk to the assistant</string>
+    <string name="setup_title">Connect to your assistant</string>
+    <string name="setup_hint">On your computer, open Settings → Remote access and copy the address shown there (the 🔒 secure address works from anywhere and enables push-to-talk).</string>
+    <string name="setup_address">Address, e.g. https://nexus.example.com</string>
+    <string name="setup_connect">Connect</string>
+    <string name="setup_invalid">Enter an address starting with https:// or http://</string>
+    <string name="error_title">Can\'t reach the assistant</string>
+    <string name="error_retry">Try again</string>
+    <string name="error_change">Change address</string>
+    <string name="ch_status">Connection</string>
+    <string name="ch_alerts">Approvals and replies</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_connected">Connected: approvals and replies arrive here</string>
+    <string name="status_reconnecting">Reconnecting…</string>
+    <string name="action_disconnect">Turn off</string>
+    <string name="action_allow">Allow</string>
+    <string name="action_deny">Deny</string>
+    <string name="approval_title">Approval needed</string>
+    <string name="reply_title">Reply from Nexus</string>
+    <string name="unpaired">This phone was disconnected from the assistant. Open the app to pair again.</string>
+</resources>

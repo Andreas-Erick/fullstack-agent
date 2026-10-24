@@ -6,6 +6,7 @@ import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
 import { startListening, stopListening, toggleListening, speaker, preloadLocalModel, setMicMode, handsFree } from './voice.js';
 import { initChat, newChat, sendVoice, currentConversationId } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
+import { initRemote } from './remote.js';
 import { tryCommand } from './commands.js';
 import { startThinkingSound, stopThinkingSound, thinkingStyle } from './sounds.js';
 import { initSetup, startSetup, handleSetupVoice } from './setup.js';
@@ -15,6 +16,8 @@ import { initKnowledge, refresh as refreshKnowledge } from './knowledge.js';
 import { initDocs } from './docs.js';
 import { initSettings } from './settings.js';
 import { initEvolution, refresh as refreshEvolution } from './evolution.js';
+import { initSkills, refresh as refreshSkills } from './skills.js';
+import { initLayout, applyLayout, setLayout, zoomBy, setZoom, quickNote, toggleAppFullscreen } from './layout.js';
 import { applyTheme } from './theme.js';
 
 // Safety net: an unexpected error anywhere in the UI is logged (repeats at most once a minute)
@@ -35,7 +38,9 @@ function syncTheme() {
   const json = JSON.stringify(state.settings.appearance?.theme || null);
   if (json === appliedTheme) return;
   appliedTheme = json;
-  applyTheme(state.settings.appearance?.theme);
+  const t = applyTheme(state.settings.appearance?.theme);
+  // The OS window buttons (drawn over the title bar) follow the theme too.
+  api.win.overlay({ color: t.colors.bg, symbolColor: t.colors.accent }).catch(() => {});
 }
 
 let miniFace;
@@ -58,7 +63,10 @@ async function boot() {
   initKnowledge();
   initDocs();
   initEvolution();
+  initSkills();
+  initLayout({ miniFace });
   initApprovals();
+  initRemote();
   setupVoiceRouting();
 
   // Navigation
@@ -68,6 +76,8 @@ async function boot() {
     if (name === 'calendar') refreshCalendar();
     if (name === 'knowledge') refreshKnowledge();
     if (name === 'evolution') refreshEvolution();
+    if (name === 'skills') refreshSkills();
+    if (name === 'chat') requestAnimationFrame(() => miniFace.resize());
     if (name === 'face') requestAnimationFrame(() => bigFace.resize());
     if (name !== 'face' && document.body.classList.contains('fullscreen-face')) exitFullscreen();
   });
@@ -79,8 +89,8 @@ async function boot() {
 
   // Agent state → UI
   on('agent-state', (s) => {
-    // Processing sound while thinking (only when replies are spoken, and not during the demo).
-    if (s === 'thinking' && ttsActive() && !state.demo) startThinkingSound(thinkingStyle(state.settings.voice.thinkingSound), state.settings.voice.thinkingVolume ?? 0.5);
+    // Processing sound while thinking or running tools (only when replies are spoken, and not during the demo).
+    if ((s === 'thinking' || s === 'working') && ttsActive() && !state.demo) startThinkingSound(thinkingStyle(state.settings.voice.thinkingSound), state.settings.voice.thinkingVolume ?? 0.5);
     else stopThinkingSound();
     const label = s.toUpperCase();
     const b = $('#brandState');
@@ -94,18 +104,18 @@ async function boot() {
     });
   });
   on('caption', ({ text, role }) => {
-    const c = $('#faceCaption');
-    c.textContent = state.settings.ui.captions ? text : '';
-    c.classList.toggle('user', role === 'user');
+    for (const c of [$('#faceCaption'), $('#miniCaption')]) {
+      c.textContent = state.settings.ui.captions ? text : '';
+      c.classList.toggle('user', role === 'user');
+    }
   });
   on('speech-idle', () => {
-    if (!state.generating) setTimeout(() => !state.playing && !state.recording && !state.generating && ($('#faceCaption').textContent = ''), 2500);
+    if (!state.generating) setTimeout(() => !state.playing && !state.recording && !state.generating && ($('#faceCaption').textContent = $('#miniCaption').textContent = ''), 2500);
   });
 
   setupPushToTalk();
   setupShortcuts();
 
-  $('#faceToggle').onclick = () => $('#facePanel').classList.toggle('collapsed');
   $('#fullscreenBtn').onclick = () => (document.fullscreenElement ? exitFullscreen() : enterFullscreen());
   document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement) document.body.classList.remove('fullscreen-face');
@@ -199,12 +209,15 @@ function applySettings() {
   av.style.backgroundSize = 'cover';
   const faceId = faceList.some((f) => f.id === s.ui.face) ? s.ui.face : 'circuit';
   bigFace?.set(faceId, { avatar: s.agent.avatar, name });
-  miniFace?.set(faceId.startsWith('custom:') ? 'circuit' : faceId, { avatar: s.agent.avatar, name });
+  // In the face layout the chat's face is full size (and can be a custom face); otherwise compact.
+  applyLayout();
+  const big = $('#view-chat').classList.contains('layout-face');
+  miniFace?.setCompact(!big);
+  miniFace?.set(!big && faceId.startsWith('custom:') ? 'circuit' : faceId, { avatar: s.agent.avatar, name });
   if ($('#faceSelect').value !== faceId) $('#faceSelect').value = faceId;
   $$('.ptt-key').forEach((k) => (k.textContent = s.stt.pttKey));
   const hint = $('#pttHint');
   if (hint) hint.textContent = s.stt.pttKey;
-  $('#facePanel').classList.toggle('collapsed', !s.ui.showVisualizerInChat);
 }
 
 // ------------------------------------------------------------ push-to-talk
@@ -259,12 +272,28 @@ function setupPushToTalk() {
 
 // --------------------------------------------------------------- shortcuts
 function setupShortcuts() {
-  const views = ['chat', 'face', 'memory', 'calendar', 'knowledge', 'docs', 'evolution'];
+  const views = ['chat', 'face', 'memory', 'calendar', 'knowledge', 'docs', 'evolution', 'skills'];
   window.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && /^Digit[1-7]$/.test(e.code)) {
+    if (mod && e.shiftKey && /^Digit[1-3]$/.test(e.code)) {
+      e.preventDefault();
+      switchView('chat');
+      setLayout(['chat', 'split', 'face'][Number(e.code.slice(5)) - 1]);
+    } else if (mod && /^Digit[1-8]$/.test(e.code)) {
       e.preventDefault();
       switchView(views[Number(e.code.slice(5)) - 1]);
+    } else if (mod && (e.key === '=' || e.key === '+')) {
+      e.preventDefault();
+      zoomBy(1);
+    } else if (mod && e.key === '-') {
+      e.preventDefault();
+      zoomBy(-1);
+    } else if (mod && e.key === '0') {
+      e.preventDefault();
+      setZoom(1);
+    } else if (mod && e.shiftKey && e.key.toLowerCase() === 'n') {
+      e.preventDefault();
+      quickNote();
     } else if (mod && e.key === ',') {
       e.preventDefault();
       switchView('settings');
@@ -275,6 +304,9 @@ function setupShortcuts() {
     } else if (e.key === 'F11' && currentView === 'face') {
       e.preventDefault();
       document.fullscreenElement ? exitFullscreen() : enterFullscreen();
+    } else if (e.key === 'F11') {
+      e.preventDefault();
+      toggleAppFullscreen();
     } else if (e.key === 'Escape' && state.playing) {
       speaker.stop();
     }
@@ -303,7 +335,17 @@ function setPill(id, cls, title) {
 async function refreshStatus() {
   const s = state.settings;
   // Brain
-  if (s.llm.provider === 'claude-code') {
+  if (s.llm.provider === 'auto') {
+    api.llm
+      .routerStatus()
+      .then((list) => {
+        const on_ = list.filter((p) => p.enabled && p.configured);
+        const ready = on_.filter((p) => !p.resting);
+        const detail = on_.map((p) => `${p.name}${p.resting ? ` (skipped ${p.resting.minutes} min: ${p.resting.reason})` : ''}`).join(' > ');
+        setPill('#pillLlm', !ready.length ? 'err' : ready.length < on_.length || ready.length === 1 ? 'warn' : 'ok', ready.length ? `Multi-provider · ${detail}` : 'Multi-provider: no provider is ready');
+      })
+      .catch((e) => setPill('#pillLlm', 'err', e.message));
+  } else if (s.llm.provider === 'claude-code') {
     api.claude
       .status()
       .then((c) => setPill('#pillLlm', c.loggedIn ? 'ok' : 'err', !c.installed ? 'Claude Code not installed' : c.loggedIn ? `Claude account · ${c.email || ''} (${c.subscription || c.authMethod})` : 'Claude account not connected'))
@@ -322,7 +364,7 @@ async function refreshStatus() {
     .catch(() => setPill('#pillVoice', 'err', 'VoiceStudio error'));
   api.calendar
     .status()
-    .then((c) => setPill('#pillCal', !c.enabled ? '' : c.signedIn ? 'ok' : 'warn', !c.enabled ? 'Calendar disabled' : c.signedIn ? `Google Calendar${c.email ? ` · ${c.email}` : ''}` : 'Calendar not connected'))
+    .then((c) => setPill('#pillCal', !c.enabled ? '' : c.connected ? 'ok' : 'warn', !c.enabled ? 'Calendar disabled' : c.connected ? [c.signedIn && `Google Calendar${c.email ? ` · ${c.email}` : ''}`, c.feeds && `${c.feeds} calendar link${c.feeds > 1 ? 's' : ''} (read-only)`].filter(Boolean).join(' + ') : 'Calendar not connected'))
     .catch(() => setPill('#pillCal', 'err', 'Calendar error'));
   api.obsidian
     .status()

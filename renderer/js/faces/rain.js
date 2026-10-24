@@ -1,6 +1,6 @@
 // Code-rain face: falling glyphs that idle like a screensaver. When the agent speaks, a face (the
 // agent's image, or a built-in portrait) emerges in the glyphs and breathes with the voice.
-import { BaseFace, audio, faceState, paletteFor, rgba, lerp, lerpColor } from './common.js';
+import { BaseFace, audio, faceState, baseState, paletteFor, rgba, lerp, lerpColor } from './common.js';
 
 const GLYPHS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノ0123456789ABCDEF<>/*+=#';
 
@@ -63,8 +63,9 @@ export class RainFace extends BaseFace {
 
   draw(dt) {
     const g = this.ctx;
-    const st = faceState();
-    const target = paletteFor(st);
+    const shown = faceState();
+    const st = baseState(shown); // core state for motion; colors use the exact one
+    const target = paletteFor(shown);
     this.cur.main = lerpColor(this.cur.main, target.main, 1 - Math.pow(0.02, dt));
     const main = this.cur.main;
     const { level } = audio();

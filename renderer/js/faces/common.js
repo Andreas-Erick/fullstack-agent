@@ -8,7 +8,14 @@ export const MOTION = {
   listening: { energy: 0.6, spin: 0.35 },
   thinking: { energy: 0.85, spin: 2.2 },
   speaking: { energy: 1, spin: 0.6 },
+  working: { energy: 0.9, spin: 1.4 },
+  happy: { energy: 0.95, spin: 0.9 },
+  sleeping: { energy: 0.08, spin: 0.04 },
 };
+
+// Faces written for the four core states read the newer ones as the closest of those.
+const BASE = { working: 'thinking', happy: 'speaking', sleeping: 'idle' };
+export const baseState = (st) => BASE[st] || st;
 const ALERT = { main: [255, 59, 79], accent: [255, 140, 120], energy: 0.9, spin: 1.2 };
 
 export const theme = () => state.theme || DEFAULT_THEME;

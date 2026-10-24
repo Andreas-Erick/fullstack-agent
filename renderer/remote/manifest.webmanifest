@@ -1,0 +1,12 @@
+{
+  "name": "Nexus Agent",
+  "short_name": "Nexus",
+  "description": "Talk to your assistant running on your computer.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "icons": [{ "src": "/icon.png", "sizes": "128x128", "type": "image/png", "purpose": "any" }]
+}

@@ -1,7 +1,8 @@
 // Calendar view: a 7-day board of Google Calendar events. The agent adds and changes events; the
 // board refreshes when it does.
-import { $, api, el, toastError, modal, renderMarkdown, on } from './util.js';
+import { $, api, el, toastError, modal, renderMarkdown, on, emit } from './util.js';
 import { switchView } from './nav.js';
+import { saveSettings } from './state.js';
 
 let weekStart = startOfDay(new Date());
 
@@ -32,25 +33,9 @@ export async function refresh() {
   const end = new Date(weekStart.getTime() + 7 * 86400000);
   $('#calRange').textContent = `${weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${new Date(end - 1).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
   const status = await api.calendar.status().catch(() => ({}));
-  if (!status.signedIn) {
+  if (!status.connected) {
     body.innerHTML = '';
-    body.append(
-      el(
-        'div',
-        { class: 'cal-empty glass' },
-        el('h3', { class: 'display' }, 'Connect Google Calendar'),
-        el('p', { class: 'muted' }, 'Read-only access. Your events are shown here and injected into the agent’s context.'),
-        el(
-          'ol',
-          {},
-          el('li', {}, 'In Google Cloud Console, enable the Google Calendar API.'),
-          el('li', {}, 'Create OAuth credentials of type “Desktop app”.'),
-          el('li', {}, 'Paste the Client ID and Client Secret in Configuration → Google Calendar.'),
-          el('li', {}, 'Click “Sign in with Google”.'),
-        ),
-        el('button', { class: 'btn primary', onclick: () => switchView('settings', 'calendar') }, 'Open calendar settings'),
-      ),
-    );
+    body.append(connectPanel());
     return;
   }
   body.innerHTML = '<p class="muted">Loading events…</p>';
@@ -85,6 +70,61 @@ export async function refresh() {
     body.append(el('p', { class: 'muted' }, err.message));
     toastError(err);
   }
+}
+
+// Not connected yet: the quick way (paste an iCal link, read-only) right here, or Google sign-in
+// (read and write) in the settings.
+function connectPanel() {
+  const input = el('input', { class: 'input', placeholder: 'Paste the iCal link (https://… or webcal://…)', spellcheck: 'false' });
+  const out = el('div', { class: 'test-result hidden' });
+  const connect = el('button', {
+    class: 'btn primary',
+    onclick: async () => {
+      const url = input.value.trim();
+      if (!url) return input.focus();
+      out.className = 'test-result';
+      out.textContent = 'Checking the link…';
+      try {
+        const r = await api.calendar.testFeed(url);
+        await saveSettings({ calendar: { icsUrls: url, enabled: true } });
+        out.className = 'test-result ok';
+        out.textContent = `✓ Connected “${r.name}” (${r.events} events)`;
+        emit('status-refresh');
+        setTimeout(refresh, 600);
+      } catch (err) {
+        out.className = 'test-result err';
+        out.textContent = `✕ ${err.message}`;
+      }
+    },
+  }, 'Connect');
+  input.addEventListener('keydown', (e) => e.key === 'Enter' && connect.click());
+  return el(
+    'div',
+    { class: 'cal-connect' },
+    el(
+      'section',
+      { class: 'card glass' },
+      el('h3', {}, el('span', { class: 'dot' }), 'Quick connect', el('span', { class: 'badge' }, '1 MINUTE')),
+      el('p', { class: 'desc' }, 'Read-only: your events show here and in the agent’s context. No sign-in.'),
+      el(
+        'ol',
+        {},
+        el('li', {}, el('b', {}, 'Google: '), 'calendar.google.com → ⚙ Settings → your calendar → “Secret address in iCal format” → copy.'),
+        el('li', {}, el('b', {}, 'Outlook: '), 'Settings → Calendar → Shared calendars → Publish a calendar → copy the ICS link.'),
+        el('li', {}, el('b', {}, 'iCloud: '), 'Calendar → share the calendar → Public Calendar → copy the link.'),
+      ),
+      el('div', { class: 'row' }, input, connect),
+      out,
+    ),
+    el(
+      'section',
+      { class: 'card glass' },
+      el('h3', {}, el('span', { class: 'dot' }), 'Google sign-in'),
+      el('p', { class: 'desc' }, 'Read and write: the agent can also add, move and delete events (it asks first, and always before anything that emails other people).'),
+      el('ol', {}, el('li', {}, 'Create a free Google Cloud project and turn on the Calendar API.'), el('li', {}, 'Create a “Desktop app” OAuth client and download its JSON file.'), el('li', {}, 'Import the file and sign in. The settings walk you through it with direct links.')),
+      el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => switchView('settings', 'calendar') }, 'Set up Google sign-in')),
+    ),
+  );
 }
 
 function details(e, time) {

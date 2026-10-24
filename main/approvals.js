@@ -105,6 +105,8 @@ function respond(id, allow, reason) {
   if (!resolve) return false;
   pending.delete(id);
   resolve({ allow: Boolean(allow), reason: reason || (allow ? '' : 'The user said no.') });
+  // Answered in one place (desktop, phone, notification): close it everywhere else.
+  sender?.('approval:cancel', { id, answered: true });
   return true;
 }
 

@@ -298,6 +298,21 @@ async function writeNote(ref, content, mode = 'overwrite', { source = 'agent' } 
   return { path: toPosix(path.relative(root, full)), created: !exists, mode };
 }
 
+// A quick note (from the chat's "Save as note", the quick-capture box or the agent): its own dated
+// note in Inbox/, never overwriting one.
+async function quickNote(text, title = '', { source = 'agent' } = {}) {
+  const name = String(title || String(text).split('\n').find((l) => l.trim()) || 'Note').replace(/[#*_`>[\]]/g, '').replace(/[<>:"/\\|?*]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Note';
+  const now = new Date();
+  const stamp = `${ymd(now)} ${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+  for (let i = 1; ; i++) {
+    try {
+      return await writeNote(`Inbox/${stamp} ${name}${i > 1 ? ` ${i}` : ''}.md`, `# ${name}\n\n${String(text).trim()}\n`, 'create', { source });
+    } catch (err) {
+      if (!/already exists/.test(err.message) || i > 20) throw err;
+    }
+  }
+}
+
 function insertAfterFrontmatter(old, text) {
   const fm = old.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
   return fm ? `${fm[0]}${text}\n\n${old.slice(fm[0].length)}` : `${text}\n\n${old}`;
@@ -563,6 +578,7 @@ module.exports = {
   listNotes,
   readNote,
   writeNote,
+  quickNote,
   deleteNote,
   search,
   status,

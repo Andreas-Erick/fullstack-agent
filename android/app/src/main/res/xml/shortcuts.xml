@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon → Talk: opens the app and starts listening. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_stat"
+        android:shortcutId="talk"
+        android:shortcutLongLabel="@string/shortcut_talk_long"
+        android:shortcutShortLabel="@string/shortcut_talk">
+        <intent
+            android:action="com.nexusagent.android.TALK"
+            android:targetClass="com.nexusagent.android.MainActivity"
+            android:targetPackage="com.nexusagent.android" />
+    </shortcut>
+</shortcuts>

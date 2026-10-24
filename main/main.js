@@ -24,6 +24,11 @@ const vaultgit = require('./vaultgit');
 const faces = require('./faces');
 const docwindows = require('./docwindows');
 const envinfo = require('./envinfo');
+const router = require('./router');
+const screenshare = require('./screenshare');
+const skills = require('./skills');
+const pdf = require('./pdf');
+const companion = require('./companion');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -153,6 +158,7 @@ function createWindow() {
   win.webContents.on('responsive', () => log.info('window responding again'));
   // Tell the user once if their settings had to be restored from the backup.
   win.webContents.on('did-finish-load', () => {
+    store.getSettings().then((s) => win && !win.isDestroyed() && win.webContents.setZoomFactor(clampZoom(s.ui.zoom))).catch(() => {});
     const r = store.settingsRecovery();
     if (r) send('app:notice', { kind: 'error', message: r.restored ? 'Your settings file was damaged and has been restored from the last good copy.' : 'Your settings file was damaged; defaults are used. The damaged file was kept for recovery.' });
   });
@@ -172,8 +178,12 @@ function guardNavigation(wc) {
   });
 }
 
+const clampZoom = (z) => Math.min(2, Math.max(0.5, Number(z) || 1));
+
+// To the window, and (chat and approval events only) to paired devices.
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  companion.publish(channel, payload);
 }
 
 async function registerShortcut() {
@@ -217,12 +227,33 @@ function captureConsole(wc, label) {
 }
 
 function registerIpc() {
+  // Per window: the zoom of the window that asks, and its title-bar button colors (they follow the theme).
+  ipcMain.handle('win:zoom', (e, factor) => {
+    const z = clampZoom(factor);
+    e.sender.setZoomFactor(z);
+    return { ok: true, data: z };
+  });
+  ipcMain.handle('win:overlay', (e, colors) => {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    if (w && process.platform !== 'darwin' && colors?.color) {
+      try {
+        w.setTitleBarOverlay({ color: colors.color, symbolColor: colors.symbolColor || '#ffffff' });
+      } catch {
+        /* a window without an overlay */
+      }
+    }
+    return { ok: true, data: true };
+  });
+
   // Settings
   handle('settings:get', () => store.getSettings());
   handle('settings:set', async (patch) => {
     const s = await store.setSettings(patch);
     if (patch?.stt?.globalShortcut !== undefined) registerShortcut();
     if (patch?.logging) log.setDebug(s.logging.debug);
+    if (patch?.calendar) calendar.clearCache();
+    if (patch?.remote) await companion.apply(s);
+    if (patch?.routing || patch?.llm?.provider || ['gemini', 'deepseek', 'groq', 'perplexity', 'anthropic', 'claudeCode'].some((k) => patch?.[k])) router.reset();
     return s;
   });
   handle('settings:reset', () => store.resetSettings());
@@ -237,69 +268,26 @@ function registerIpc() {
   // LLM
   handle('llm:models', async (override) => llm.listModels(merge(await store.getSettings(), override)));
   handle('llm:test', async (override) => llm.testConnection(merge(await store.getSettings(), override)));
+  handle('llm:routerStatus', async () => router.status(await store.getSettings()));
+  handle('llm:routerReset', (id) => router.reset(id));
 
   // Chat
-  handle('chat:send', async ({ conversationId, text, requestId, voice: viaVoice = false, hidden = false }) => {
-    const settings = await store.getSettings();
-    let conv = conversationId ? await store.getConversation(conversationId) : null;
-    if (!conv) conv = await store.createConversation();
-    const userMsg = { id: store.newId('m'), role: 'user', content: String(text), createdAt: Date.now(), ...(hidden ? { hidden: true } : {}) };
-    conv.messages.push(userMsg);
-    if (!conv.setup && conv.messages.filter((m) => m.role === 'user').length === 1) conv.title = String(text).replace(/\s+/g, ' ').slice(0, 60);
-    await store.saveConversation(conv);
-
-    const controller = new AbortController();
-    controller.conversationId = conv.id;
-    activeRequests.set(requestId, controller);
-    // Timing for the log: when the first words of the reply arrived, and when it finished.
-    const startedAt = Date.now();
-    let firstTextMs = null;
-    const emit = (ev) => {
-      if (firstTextMs === null && ev.type === 'text') firstTextMs = Date.now() - startedAt;
-      send('chat:event', { requestId, conversationId: conv.id, ...ev });
-    };
-    emit({ type: 'start', userMessage: userMsg, title: conv.title });
-
-    // Run the turn in the background; the renderer receives streamed events. Every log line it
-    // produces carries turn=<id> conv=<id>, so one request can be traced end to end.
-    const tags = { turn: requestId.slice(-6), conv: conv.id.slice(-6) };
-    log.withContext(tags, async () => {
-      const trackChanges = settings.code.enabled && settings.code.allowSelfModify;
-      const before = trackChanges ? await selfchange.fingerprint() : null;
-      try {
-        const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice });
-        const assistantMsg = {
-          id: store.newId('m'),
-          role: 'assistant',
-          content: result.text || (controller.signal.aborted ? '*(stopped)*' : ''),
-          toolCalls: result.toolCalls,
-          raw: result.raw,
-          model: result.model,
-          provider: settings.llm.provider,
-          createdAt: Date.now(),
-        };
-        if (deletedConversations.has(conv.id)) return;
-        const fresh = (await store.getConversation(conv.id)) || conv;
-        fresh.messages.push(assistantMsg);
-        if (result.sessionId) fresh.claudeSessionId = result.sessionId;
-        if (result.convPatch) Object.assign(fresh, result.convPatch);
-        await store.saveConversation(fresh);
-        emit({ type: 'done', message: stripRaw(assistantMsg) });
-        log.info('reply', { model: result.model, voice: viaVoice, firstTextMs, totalMs: Date.now() - startedAt, chars: assistantMsg.content.length, tools: (result.toolCalls || []).map((t) => t.name).join(','), text: assistantMsg.content.slice(0, 160) });
-      } catch (err) {
-        const aborted = controller.signal.aborted || err?.name === 'AbortError';
-        if (aborted) log.info('turn interrupted', { conversation: conv.id });
-        else log.error('turn failed', { provider: settings.llm.provider, model: settings.llm.provider === 'claude-code' ? settings.claudeCode.model : undefined, voice: viaVoice, ms: Date.now() - startedAt, error: err });
-        emit({ type: aborted ? 'aborted' : 'error', message: aborted ? 'Stopped' : err?.message || String(err) });
-      } finally {
-        activeRequests.delete(requestId);
-        if (trackChanges) recordSelfChanges(before, text).catch((e) => log.warn('self-change tracking', e.message));
-      }
-    });
-    return { conversationId: conv.id };
-  });
+  handle('chat:send', ({ conversationId, text, requestId, voice = false, hidden = false }) => startTurn({ conversationId, text, requestId, voice, hidden }));
   handle('chat:abort', (requestId) => {
     activeRequests.get(requestId)?.abort();
+    return true;
+  });
+
+  // Remote access (companion server): settings and pairing stay desktop-only.
+  handle('remote:status', () => companion.status());
+  handle('remote:pair', () => companion.startPairing());
+  handle('remote:revoke', (id) => companion.revoke(id));
+  handle('remote:transcribed', (id, text, error) => {
+    const p = pendingTranscripts.get(id);
+    if (!p) return false;
+    pendingTranscripts.delete(id);
+    clearTimeout(p.timer);
+    error ? p.reject(new Error(String(error))) : p.resolve(String(text || ''));
     return true;
   });
 
@@ -361,6 +349,12 @@ function registerIpc() {
   handle('calendar:signIn', () => calendar.signIn());
   handle('calendar:signOut', () => calendar.signOut());
   handle('calendar:events', (range) => calendar.events(range || {}));
+  handle('calendar:importClient', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Google OAuth client file (client_secret_….json)', properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return calendar.importClientFile(r.filePaths[0]);
+  });
+  handle('calendar:testFeed', (url) => calendar.testFeed(url));
   handle('github:status', async () => ({ ...(await github.status({ fresh: true })), workspace: await github.workspace() }));
 
   // Obsidian
@@ -424,6 +418,40 @@ function registerIpc() {
   handle('claude:login', () => claudecode.openLogin('login'));
   handle('claude:logout', () => claudecode.openLogin('logout'));
   handle('claude:installHint', () => claudecode.installHint());
+
+  // Screen sharing (started and stopped only by the user)
+  handle('screen:sources', () => screenshare.sources());
+  handle('screen:start', (src) => screenshare.start(src || {}));
+  handle('screen:stop', () => screenshare.stop('stopped by the user'));
+  handle('screen:state', () => ({ ...screenshare.state(), permission: screenshare.permission() }));
+  handle('screen:preview', () => screenshare.preview());
+
+  // Skills
+  handle('skills:list', () => skills.list());
+  handle('skills:save', (skill, oldSlug) => skills.save(skill || {}, { slug: oldSlug }));
+  handle('skills:delete', (slug) => skills.remove(slug));
+  handle('skills:openFolder', async () => {
+    await fsp.mkdir(skills.dir(), { recursive: true });
+    return shell.openPath(skills.dir());
+  });
+
+  // PDF export and quick notes (a new PDF opens in a document window)
+  const openPdf = (r) => (docwindows.open(r.path), r);
+  handle('pdf:fromMarkdown', async (title, markdown) => openPdf(await pdf.create({ title, markdown })));
+  handle('pdf:fromNote', async (ref) => {
+    const note = await obsidian.readNote(ref);
+    const title = String(note.path || ref).split('/').pop().replace(/\.md$/i, '');
+    return openPdf(await pdf.create({ title, markdown: String(note.content).replace(/^---[\s\S]*?---\s*/, '') }));
+  });
+  handle('pdf:fromConversation', async (id) => {
+    const conv = await store.getConversation(id);
+    if (!conv) throw new Error('Conversation not found');
+    return openPdf(await pdf.create({ title: conv.title || 'Conversation', html: await pdf.conversationHtml(conv) }));
+  });
+  handle('notes:quick', (text, title) => obsidian.quickNote(text, title, { source: 'user' }));
+
+  // Hardware scan (setup wizard)
+  handle('hardware:scan', (opts) => require('./hardware').scan(opts || {}));
 
   // Persona look & feel
   handle('persona:generate', (payload) => persona.generate(payload));
@@ -504,6 +532,104 @@ function registerIpc() {
   });
 }
 
+// Push-to-talk from a paired device: the window transcribes it with the user's speech-to-text
+// (local Whisper runs there) and answers through remote:transcribed.
+const pendingTranscripts = new Map(); // id -> { resolve, reject, timer }
+function transcribeInWindow(wav) {
+  if (!win || win.isDestroyed()) return Promise.reject(new Error('The assistant window is closed'));
+  const id = require('crypto').randomUUID();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingTranscripts.delete(id);
+      reject(new Error('Speech-to-text took too long'));
+    }, 90000);
+    pendingTranscripts.set(id, { resolve, reject, timer });
+    win.webContents.send('remote:transcribe', { id, wav: new Uint8Array(wav) });
+  });
+}
+
+// One chat turn, from the window (chat:send) or a paired device (remote = the device name). Returns
+// at once; the reply streams as chat:event. Remote turns never carry a screenshot of this desktop.
+async function startTurn({ conversationId, text, requestId, voice: viaVoice = false, hidden = false, remote = null }) {
+  const settings = await store.getSettings();
+  let conv = conversationId ? await store.getConversation(conversationId) : null;
+  if (!conv) conv = await store.createConversation();
+  if (remote && conv.setup) throw new Error('The setup conversation can only be used on the desktop');
+  // "/skill-name input": the agent gets the skill's steps; the chat shows what was typed.
+  const slash = conv.setup ? null : await skills.fromSlash(text).catch(() => null);
+  // While the screen is shared, the message carries a fresh screenshot (not stored).
+  let images = [];
+  if (!remote && !conv.setup && screenshare.state().active && settings.screen.attachToMessages !== false) {
+    images = await screenshare.capture().then(
+      (shot) => [shot.url],
+      (err) => (send('app:notice', { kind: 'error', message: err.message }), []),
+    );
+  }
+  const userMsg = {
+    id: store.newId('m'),
+    role: 'user',
+    content: slash ? skills.instructions(slash.skill, slash.args) : String(text),
+    createdAt: Date.now(),
+    ...(slash ? { display: String(text), skill: slash.skill.slug } : {}),
+    ...(images.length ? { screen: true } : {}),
+    ...(hidden ? { hidden: true } : {}),
+    ...(remote ? { remote } : {}),
+  };
+  conv.messages.push(userMsg);
+  if (!conv.setup && conv.messages.filter((m) => m.role === 'user').length === 1) conv.title = (slash ? slash.skill.name : String(text)).replace(/\s+/g, ' ').slice(0, 60);
+  await store.saveConversation(conv);
+
+  const controller = new AbortController();
+  controller.conversationId = conv.id;
+  activeRequests.set(requestId, controller);
+  // Timing for the log: when the first words of the reply arrived, and when it finished.
+  const startedAt = Date.now();
+  let firstTextMs = null;
+  const emit = (ev) => {
+    if (firstTextMs === null && ev.type === 'text') firstTextMs = Date.now() - startedAt;
+    send('chat:event', { requestId, conversationId: conv.id, ...ev });
+  };
+  emit({ type: 'start', userMessage: userMsg, title: conv.title });
+
+  // Run the turn in the background; the renderer receives streamed events. Every log line it
+  // produces carries turn=<id> conv=<id>, so one request can be traced end to end.
+  const tags = { turn: requestId.slice(-6), conv: conv.id.slice(-6) };
+  log.withContext(tags, async () => {
+    const trackChanges = settings.code.enabled && settings.code.allowSelfModify;
+    const before = trackChanges ? await selfchange.fingerprint() : null;
+    try {
+      const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images });
+      const assistantMsg = {
+        id: store.newId('m'),
+        role: 'assistant',
+        content: result.text || (controller.signal.aborted ? '*(stopped)*' : ''),
+        toolCalls: result.toolCalls,
+        raw: result.raw,
+        model: result.model,
+        provider: result.provider || settings.llm.provider,
+        createdAt: Date.now(),
+      };
+      if (deletedConversations.has(conv.id)) return;
+      const fresh = (await store.getConversation(conv.id)) || conv;
+      fresh.messages.push(assistantMsg);
+      if (result.sessionId) fresh.claudeSessionId = result.sessionId;
+      if (result.convPatch) Object.assign(fresh, result.convPatch);
+      await store.saveConversation(fresh);
+      emit({ type: 'done', message: stripRaw(assistantMsg) });
+      log.info('reply', { model: result.model, voice: viaVoice, remote: Boolean(remote), firstTextMs, totalMs: Date.now() - startedAt, chars: assistantMsg.content.length, tools: (result.toolCalls || []).map((t) => t.name).join(','), text: assistantMsg.content.slice(0, 160) });
+    } catch (err) {
+      const aborted = controller.signal.aborted || err?.name === 'AbortError';
+      if (aborted) log.info('turn interrupted', { conversation: conv.id });
+      else log.error('turn failed', { provider: settings.llm.provider, model: settings.llm.provider === 'claude-code' ? settings.claudeCode.model : undefined, voice: viaVoice, ms: Date.now() - startedAt, error: err });
+      emit({ type: aborted ? 'aborted' : 'error', message: aborted ? 'Stopped' : err?.message || String(err) });
+    } finally {
+      activeRequests.delete(requestId);
+      if (trackChanges) recordSelfChanges(before, text).catch((e) => log.warn('self-change tracking', e.message));
+    }
+  });
+  return { conversationId: conv.id };
+}
+
 // After a turn: if the agent changed its own source, syntax-check and record it in the history.
 async function recordSelfChanges(before, userText) {
   const after = await selfchange.fingerprint();
@@ -539,6 +665,15 @@ app.whenReady().then(async () => {
   registerFacesProtocol();
   registerIpc();
   approvals.setSender(send);
+  companion.init({
+    startTurn,
+    abortTurn: (requestId) => activeRequests.get(requestId)?.abort(),
+    respondApproval: (id, allow, reason) => approvals.respond(id, allow, reason),
+    transcribe: transcribeInWindow,
+    notify: (ev) => send('remote:event', ev),
+  });
+  require('./tunnel').setListener((st) => send('remote:event', { type: 'tunnel', tunnel: st }));
+  screenshare.setListener((st) => send('screen:state', st));
   docwindows.init({ root: ROOT, preload: path.join(ROOT, 'preload.js'), mainWindow: () => win, guard: guardNavigation, captureConsole });
   documents.setPopup(docwindows);
   obsidian.setChangeListener((rel) => send('vault:changed', rel));
@@ -563,6 +698,7 @@ app.whenReady().then(async () => {
   log.setDebug(s.logging?.debug);
   if (s.code.enabled && s.code.allowSelfModify) selfchange.ensureRepo().catch((e) => log.warn('change history unavailable', e));
   obsidian.vaultPath().catch(() => {});
+  companion.apply(s).catch((e) => log.warn('remote server start failed', e));
   journal.start();
   store.sweepStaleTemp().catch(() => {});
   claudecode.sweepStaleTemp().catch(() => {});
@@ -576,6 +712,7 @@ app.on('before-quit', () => {
   log.info('app quit');
   log.flush();
   claudecode.shutdown();
+  companion.stop();
   journal.stop();
   vaultgit.flushAll();
 });
