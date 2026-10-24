@@ -22,7 +22,9 @@ the Android Keystore and app backups are off. No third-party libraries.
    Tunnel or Tailscale) for use away from home and for push-to-talk.
 2. Install the APK on the phone (allow "install unknown apps" for your browser or file manager once).
 3. Open **Nexus**, enter the address shown on the desktop, then pair with the code from
-   **Pair a device**.
+   **Pair a device**. Or scan the QR code shown there with the camera, copy the link and paste it
+   (or share it to Nexus) on the setup screen: the app connects and pairs in one step. A shared link
+   is only filled in; you confirm the address with **Connect**.
 
 ## Build
 

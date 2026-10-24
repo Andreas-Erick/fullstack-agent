@@ -97,13 +97,43 @@ async function run() {
       const st = await selfchange.status();
       if (!st.available) return { status: 'fail', detail: st.reason };
       const chk = await selfchange.check();
-      if (!chk.ok) return { status: 'fail', detail: `Code fails the syntax check:\n${chk.output.slice(0, 800)}`, fix: 'Open Evolution and revert the last change, or run: npm run recover -- undo' };
-      return { status: st.dirty?.length ? 'warn' : 'ok', detail: `History at ${st.head}${st.dirty?.length ? ` · ${st.dirty.length} uncommitted file(s)` : ''} · syntax check passes`, fix: st.dirty?.length ? 'Evolution → Record or Discard the uncommitted changes.' : '' };
+      if (!chk.ok) return { status: 'fail', detail: `Code fails its checks (syntax or integrity):\n${chk.output.slice(0, 800)}`, fix: 'Open Evolution and revert the last change, or run: npm run recover -- undo' };
+      return { status: st.dirty?.length ? 'warn' : 'ok', detail: `History at ${st.head}${st.dirty?.length ? ` · ${st.dirty.length} uncommitted file(s)` : ''} · syntax and integrity checks pass`, fix: st.dirty?.length ? 'Evolution → Record or Discard the uncommitted changes.' : '' };
     }),
-    check('log', 'Recent errors', async () => {
-      const errs = log.recentErrors(3600000);
-      if (!errs.length) return { detail: 'No errors or warnings in the last hour.' };
-      return { status: 'warn', detail: `${errs.length} in the last hour. Latest:\n${errs.slice(-5).join('\n')}`, fix: 'Ask the agent to read its log and fix the cause.' };
+    check('lastchange', 'Last self-change', async () => {
+      if (!s.code.allowSelfModify) return { status: 'off', detail: 'Disabled.' };
+      const v = await selfchange.lastVerification();
+      if (!v) return { status: 'off', detail: 'No self-change recorded yet.' };
+      const when = new Date(v.at).toLocaleString();
+      if (v.state === 'pending') return { status: 'warn', detail: `“${v.subject}” (${v.short}, ${when}) is not live yet.`, fix: v.restart ? 'Restart the app to load it.' : 'Reload the window to load it.' };
+      if (v.state === 'problems') return { status: 'fail', detail: `“${v.subject}” (${v.short}) logged problems after it went live:\n${v.problems.map((p) => `${p.count}× ${p.event}: ${p.message.slice(0, 160)}${p.locations.length ? ` (${p.locations.join(', ')})` : ''}`).join('\n')}`, fix: 'Ask the assistant to fix it, or revert it in Evolution.' };
+      return { detail: `“${v.subject}” (${v.short}) started cleanly.` };
+    }),
+    check('log', 'Recent problems', async () => {
+      const groups = require('./errorinsight').fromLog({ sinceMs: 3600000, limit: 5 });
+      if (!groups.length) return { detail: 'No errors or warnings in the last hour.' };
+      const total = groups.reduce((n, g) => n + g.count, 0);
+      const errors = groups.some((g) => g.level === 'error');
+      return { status: errors ? 'fail' : 'warn', detail: `${total} in the last hour, ${groups.length} distinct:\n${groups.map((g) => `${g.count}× ${g.level} ${g.event}${g.where ? ` (${g.where})` : ''}: ${g.message.slice(0, 140)}${g.locations.length ? ` @ ${g.locations[0]}` : ''}`).join('\n')}`, fix: 'Ask the assistant to analyze its errors and fix the cause.' };
+    }),
+    check('disk', 'Disk space', async () => {
+      const st = await fsp.statfs(store.dataDir());
+      const freeGb = (st.bavail * st.bsize) / 1e9;
+      const detail = `${freeGb.toFixed(1)} GB free where the app keeps its data`;
+      if (freeGb < 0.3) return { status: 'fail', detail, fix: 'Free some disk space: settings, conversations and the log can no longer be saved reliably.' };
+      if (freeGb < 2) return { status: 'warn', detail, fix: 'Free some disk space soon (speech models alone need up to 1.6 GB).' };
+      return { detail };
+    }),
+    check('remote', 'Remote access', async () => {
+      if (!s.remote?.enabled) return { status: 'off', detail: 'Off. Nothing is reachable from other devices.' };
+      const st = await require('./companion').status();
+      const t = st.tunnel || {};
+      const parts = [`${st.devices.length} paired device(s)`, st.lan ? 'local network (unencrypted)' : 'this computer only'];
+      if (t.mode && t.mode !== 'off') parts.push(`${t.mode} tunnel ${t.connected ? 'connected' : 'not connected'}`);
+      if (t.mode === 'quick') return { status: 'warn', detail: parts.join(' · '), fix: 'The temporary address is public and has no sign-in in front of it: turn it off when you are done testing, or use a Cloudflare tunnel with Access or Tailscale.' };
+      if (t.mode === 'cloudflare' && !st.access) return { status: 'warn', detail: parts.join(' · '), fix: 'Put a Cloudflare Access application in front of the address and enter its team and AUD tag in Settings → Remote access.' };
+      if (st.error) return { status: 'fail', detail: st.error };
+      return { detail: parts.join(' · ') };
     }),
   ];
   const results = await Promise.all(checks);

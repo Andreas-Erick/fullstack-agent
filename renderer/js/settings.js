@@ -9,6 +9,7 @@ import { previewThinkingSound, thinkingStyle } from './sounds.js';
 import { BUILT_IN } from './faces/host.js';
 import { setZoom } from './layout.js';
 import { scanInto } from './hwscan.js';
+import { qrCanvas } from './qr.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -781,6 +782,7 @@ async function obsidianCard() {
     adoptField(known, after),
     toggle('obsidian.gitHistory', 'Keep a version history of every note (undo any agent edit)'),
     el('div', { class: 'grid2' }, toggle('journal.enabled', 'Auto-journal: log each conversation to the daily note'), text('journal.idleMinutes', 'Journal after (minutes quiet)', { type: 'number' })),
+    toggle('journal.handoffOnClose', 'When I close the app, note where we left off (continue from there next time; also saved as “Where We Left Off” in the vault)'),
     el(
       'div',
       { class: 'row', style: { flexWrap: 'wrap' } },
@@ -1074,9 +1076,10 @@ function remoteCard() {
     if (!st.devices.length) devices.append(el('div', { class: 'muted' }, 'No paired devices.'));
     for (const d of st.devices) {
       const seen = d.connected ? 'connected now' : d.lastSeen ? `last seen ${new Date(d.lastSeen).toLocaleString()}` : 'never used';
+      const from = d.lastVia ? ` · via ${d.lastVia}${d.lastIp && d.lastVia !== 'this computer' ? ` (${d.lastIp})` : ''}` : '';
       devices.append(el('div', { class: `health-item ${d.connected ? 'ok' : 'off'}` },
         el('span', { class: 'ic' }, d.connected ? '●' : '○'),
-        el('div', { style: { flex: 1 } }, el('b', {}, d.name), el('div', { class: 'd' }, `Paired ${new Date(d.createdAt).toLocaleDateString()} · ${seen}`)),
+        el('div', { style: { flex: 1 } }, el('b', {}, d.name), el('div', { class: 'd' }, `Paired ${new Date(d.createdAt).toLocaleDateString()} · ${seen}${from}`)),
         el('button', {
           class: 'btn small',
           onclick: async () => {
@@ -1086,6 +1089,16 @@ function remoteCard() {
           },
         }, 'Remove'),
       ));
+    }
+    if (st.devices.length > 1) {
+      devices.append(el('div', { class: 'row' }, el('button', {
+        class: 'btn small danger',
+        onclick: async () => {
+          if (!(await confirmDialog('Remove all devices', 'Every paired phone and computer loses access at once (for example if one was lost). Pair them again to use them.', 'Remove all'))) return;
+          await api.remote.revokeAll().catch(toastError);
+          refresh();
+        },
+      }, 'Remove all devices')));
     }
   };
   refreshRemote = () => {
@@ -1098,19 +1111,46 @@ function remoteCard() {
       const p = await api.remote.pair();
       clearInterval(pairTimer);
       const left = el('span', { class: 'muted' });
+      const qrBox = el('div', { class: 'qr-box' });
       const tick = () => {
         const s = Math.max(0, Math.round((p.expiresAt - Date.now()) / 1000));
         left.textContent = s ? `expires in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : 'expired — start again';
-        if (!s) clearInterval(pairTimer);
+        if (!s) {
+          clearInterval(pairTimer);
+          qrBox.replaceChildren(); // an expired code shouldn't stay on screen
+        }
       };
+      // The QR code opens the phone app and pairs it in one step. Prefer the secure address.
+      const links = [...p.links].sort((a, b) => b.secure - a.secure);
+      const showQr = (link) => {
+        qrBox.replaceChildren(el('div', { class: 'qr' }, qrCanvas(link.link, { scale: 5 })), el('div', { class: 'hint' }, link.secure ? `Opens ${link.url} (encrypted).` : `Opens ${link.url}. Not encrypted: scan it on your home network only.`));
+      };
+      pairBox.innerHTML = '';
+      if (links.length) {
+        pairBox.append(el('label', {}, 'Scan with the phone’s camera'));
+        if (links.length > 1) {
+          const pick = el('select', { onchange: (e) => showQr(links[e.target.selectedIndex]) }, links.map((l) => el('option', {}, `${l.url}${l.secure ? ' (secure)' : ''}`)));
+          pairBox.append(pick);
+        }
+        pairBox.append(qrBox);
+        showQr(links[0]);
+      } else {
+        pairBox.append(el('div', { class: 'hint warn' }, 'No address another device can reach yet, so there is no QR code. Turn on “Reachable from other devices on my network” or a secure address above.'));
+      }
+      pairBox.append(
+        el('label', {}, links.length ? 'Or type this code' : 'Pairing code'),
+        el('div', { class: 'row' }, el('b', { class: 'display', style: { fontSize: '28px', letterSpacing: '0.3em' } }, p.code), left),
+        el('div', { class: 'hint' }, `On the device, open ${p.urls.join(' or ')} and enter this code. The code and the QR code work once, for one device.`),
+        el('div', { class: 'row' }, el('button', {
+          class: 'btn small',
+          onclick: async () => {
+            await api.remote.cancelPair().catch(() => {});
+            refreshRemote();
+          },
+        }, 'Cancel')),
+      );
       tick();
       pairTimer = setInterval(tick, 1000);
-      pairBox.innerHTML = '';
-      pairBox.append(
-        el('label', {}, 'Pairing code'),
-        el('div', { class: 'row' }, el('b', { class: 'display', style: { fontSize: '28px', letterSpacing: '0.3em' } }, p.code), left),
-        el('div', { class: 'hint' }, `On the device, open ${p.urls.join(' or ')} and enter this code. It works once.`),
-      );
       pairBox.classList.remove('hidden');
     } catch (err) {
       toastError(err);
@@ -1195,9 +1235,10 @@ function uiCard() {
     'Interface',
     'Zoom: Ctrl + / Ctrl − / Ctrl 0, or Ctrl + mouse wheel. Layouts: Ctrl+Shift+1 chat only, 2 side by side, 3 face. F11: full screen.',
     field('Zoom', el('div', { class: 'row' }, zoom, zoomLabel)),
+    select('ui.fx', 'Visual effects', [['hud', 'Futuristic — HUD frames, ambient grid, boot sequence, animations'], ['subtle', 'Subtle — HUD frames and readouts, no motion'], ['off', 'Off — the plain look']], { hint: 'Follows the theme colors. With “reduce motion” on in your system, animations stay off.' }),
     select('ui.chatLayout', 'Chat layout', [['chat', 'Chat only (full width)'], ['split', 'Chat and face side by side'], ['face', 'Face full size, chat underneath']], { onChange: () => emit('layout') }),
     toggle('ui.captions', 'Show captions on the face'),
-    select('ui.face', 'Face', BUILT_IN.map((f) => [f.id, `${f.title} — ${f.tagline}`]), { hint: 'Custom faces (and a demo of every state) are in the Face view.' }),
+    select('ui.face', 'Face', BUILT_IN.map((f) => [f.id, `${f.title} — ${f.tagline}`]), { hint: 'Paired phones and the Android app show the same face. Custom faces (and a demo of every state) are in the Face view; they stay on this computer.' }),
     text('ui.sleepAfterMin', 'Face dozes off after (minutes without activity; 0 = never)', { type: 'number' }),
   );
 }

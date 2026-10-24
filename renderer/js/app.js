@@ -7,6 +7,8 @@ import { startListening, stopListening, toggleListening, speaker, preloadLocalMo
 import { initChat, newChat, sendVoice, currentConversationId } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
+import { initHandoff, handoffNote } from './handoff.js';
+import { initHud, bootScreen } from './hud.js';
 import { tryCommand } from './commands.js';
 import { startThinkingSound, stopThinkingSound, thinkingStyle } from './sounds.js';
 import { initSetup, startSetup, handleSetupVoice } from './setup.js';
@@ -51,6 +53,8 @@ async function boot() {
   if (info.platform === 'darwin') document.body.classList.add('mac');
   await loadSettings();
   syncTheme();
+  initHud();
+  const boot = bootScreen();
 
   miniFace = new FaceHost($('#miniFace'), { compact: true });
   bigFace = new FaceHost($('#bigFace'));
@@ -67,6 +71,7 @@ async function boot() {
   initLayout({ miniFace });
   initApprovals();
   initRemote();
+  initHandoff();
   setupVoiceRouting();
 
   // Navigation
@@ -157,6 +162,7 @@ async function boot() {
   initSetup();
   if (!state.settings.onboarded) startSetup(); // first launch: the agent sets itself up by asking questions
   if (state.settings.onboarded) greetOnLaunch();
+  boot.done();
 }
 
 let faceList = BUILT_IN.map((f) => ({ id: f.id, title: f.title }));
@@ -173,7 +179,12 @@ function greetOnLaunch() {
   const s = state.settings;
   if (s.voice.ttsEnabled && s.voice.greetOnLaunch) {
     const name = s.agent.name || 'Nexus';
-    setTimeout(() => speaker.say(s.appearance.greeting || `Hello, I'm ${name}. What are we working on today?`), 900);
+    // With a note from last time, the greeting says where we left off (one short sentence).
+    handoffNote().then((n) => {
+      const greeting = s.appearance.greeting || `Hello, I'm ${name}. What are we working on today?`;
+      const recent = n && Date.now() - n.at < 3 * 24 * 60 * 60 * 1000;
+      setTimeout(() => speaker.say(recent ? `${greeting} Last time we were on ${n.topic || n.title}; say the word and we continue.` : greeting), 900);
+    });
   }
   setTimeout(() => {
     const id = currentConversationId();
