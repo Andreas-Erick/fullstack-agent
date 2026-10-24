@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 — 2026-10-24
 
 - Only one app to open. *(Nexus now starts VoiceStudio and FreeLLMAPI itself when your settings use them: at launch, in the background with their windows minimized, and again when the voice or the FreeLLMAPI brain is needed and not running. Only apps on this computer, from their install folder or a location you set, and never one that is already running. Settings → Helper apps shows their status with a "Start now" button, and can close them when you quit Nexus (only the ones it started). Health shows them too, and the assistant can start one when you ask.)*
 
