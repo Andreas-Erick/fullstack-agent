@@ -194,7 +194,11 @@ async function openStream() {
       if (!res.ok) throw new Error(`Error ${res.status}`);
       setConn(true);
       $('#approvals').innerHTML = ''; // the server replays every approval that is still open
-      if (delay > 1000) loadConversation(state.convId); // catch up on what happened while away
+      if (delay > 1000) {
+        // Catch up on what happened while away, and on a face or theme changed on the desktop meanwhile.
+        loadConversation(state.convId);
+        applyInfo();
+      }
       delay = 1000;
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -299,6 +303,7 @@ function onChat(ev) {
       // A turn from the desktop or another device in the conversation shown here.
       addMessage(ev.userMessage);
       state.turns.set(ev.requestId, newTurnView(ev.requestId));
+      if (state.face === 'idle') setFace('thinking');
     }
     return;
   }
@@ -307,7 +312,7 @@ function onChat(ev) {
   switch (ev.type) {
     case 'text':
       turn.text += ev.delta;
-      if (turn === state.active) setFace('speaking-text');
+      if (state.face !== 'speaking') setFace('speaking-text');
       renderTurn(turn);
       break;
     case 'retract':
@@ -317,14 +322,14 @@ function onChat(ev) {
     case 'tool_start':
       turn.tools.append(el('span', { class: 'chip', 'data-id': ev.id }, '⚙ ', label(ev.name)));
       turn.running++;
-      if (turn === state.active) setFace('working');
+      setFace('working');
       scrollDown();
       break;
     case 'tool_end': {
       const chip = turn.tools.querySelector(`[data-id="${CSS.escape(String(ev.id))}"]`);
       if (chip) chip.className = `chip ${ev.ok === false ? 'bad' : 'good'}`;
       turn.running = Math.max(0, turn.running - 1);
-      if (turn === state.active && !turn.running) setFace(turn.text ? 'speaking-text' : 'thinking');
+      if (!turn.running) setFace(turn.text ? 'speaking-text' : 'thinking');
       break;
     }
     case 'notice':
@@ -335,6 +340,7 @@ function onChat(ev) {
       turn.bubble.innerHTML = markdown(ev.message?.content || '');
       turn.bubble.dataset.stamp = stamp(ev.message);
       turn.wrap.append(actions(ev.message?.content || ''));
+      state.happyUntil = Date.now() + 1800; // the face's short "done" glow, as on the desktop
       endTurn(turn);
       if (turn.mine && state.speak) say(ev.message?.content || '');
       break;
@@ -406,8 +412,9 @@ function endTurn(turn) {
     document.body.classList.remove('busy');
     $('#sendBtn').classList.remove('hidden');
     $('#stopBtn').classList.add('hidden');
-    if (state.face !== 'speaking') setFace('idle');
   }
+  // The face follows the assistant, whoever started the reply: idle once nothing is running.
+  if (!state.active && !state.turns.size && state.face !== 'speaking') setFace('idle');
   scrollDown();
 }
 
@@ -630,9 +637,20 @@ async function answer(id, allow) {
 }
 
 // ------------------------------------------------------------------ voice out
+// `audio` feeds the face's analyser once that exists (see ensureAnalyser); `plainAudio` is never routed,
+// so a reply is still heard if the browser has suspended the analyser's audio graph.
 const audio = new Audio();
-audio.addEventListener('ended', () => setFace(state.active ? 'thinking' : 'idle'));
-audio.addEventListener('playing', () => setFace('speaking'));
+const plainAudio = new Audio();
+for (const a of [audio, plainAudio]) {
+  a.addEventListener('ended', () => setFace(state.active || state.turns.size ? 'thinking' : 'idle'));
+  a.addEventListener('playing', () => setFace('speaking'));
+}
+
+async function player() {
+  if (!voiceCtx) return audio;
+  if (voiceCtx.state !== 'running') await voiceCtx.resume().catch(() => {});
+  return voiceCtx.state === 'running' ? audio : plainAudio;
+}
 
 function speakable(md) {
   return String(md || '')
@@ -650,9 +668,11 @@ async function say(md) {
   if (!text) return;
   try {
     const res = await api('/api/speak', { method: 'POST', body: { text }, raw: true });
-    if (audio.src) URL.revokeObjectURL(audio.src);
-    audio.src = URL.createObjectURL(await res.blob());
-    await audio.play();
+    const p = await player();
+    for (const a of [audio, plainAudio]) a.pause();
+    if (p.src) URL.revokeObjectURL(p.src);
+    p.src = URL.createObjectURL(await res.blob());
+    await p.play();
   } catch (err) {
     if (!(err instanceof AuthError)) toast(err.message);
   }
@@ -664,13 +684,16 @@ function setSpeak(on) {
   $('#speakBtn').replaceChildren(icon(on ? 'speaker-on' : 'speaker-off'));
   $('#speakBtn').classList.toggle('on', on);
   $('#speakBtn').setAttribute('aria-pressed', String(on));
-  if (!on) audio.pause();
+  if (!on) for (const a of [audio, plainAudio]) a.pause();
 }
 $('#speakBtn').addEventListener('click', () => {
   if (!state.voice && !state.speak) return toast('No voice is set up on the computer (Settings → Voice).');
   setSpeak(!state.speak);
-  // A tap unlocks audio playback on mobile browsers.
-  if (state.speak) audio.play().catch(() => {});
+  // A tap unlocks audio playback on mobile browsers, and is the moment to set up the face's analyser.
+  if (state.speak) {
+    ensureAnalyser();
+    for (const a of [audio, plainAudio]) a.play().catch(() => {});
+  }
 });
 
 // ------------------------------------------------------------------ push-to-talk
@@ -690,7 +713,13 @@ async function startRecording({ toggle = false } = {}) {
     const ctx = new AudioContext();
     const src = ctx.createMediaStreamSource(stream);
     const node = ctx.createScriptProcessor(4096, 1, 1);
-    node.onaudioprocess = (e) => rec?.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    node.onaudioprocess = (e) => {
+      const data = e.inputBuffer.getChannelData(0);
+      rec?.chunks.push(new Float32Array(data));
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+      state.micLevel = Math.min(1, Math.sqrt(sum / data.length) * 5); // same scale as the desktop
+    };
     src.connect(node);
     node.connect(ctx.destination);
     Object.assign(rec, { stream, ctx, node, rate: ctx.sampleRate, started: Date.now(), starting: false, limit: setTimeout(stopRecording, MAX_REC_MS) });
@@ -711,6 +740,7 @@ async function stopRecording() {
   r.node.disconnect();
   r.stream.getTracks().forEach((t) => t.stop());
   r.ctx.close().catch(() => {});
+  state.micLevel = 0;
   $('#micBtn').classList.remove('live');
   if (Date.now() - r.started < 400) return setFace('idle'), toast('Hold the button while you speak.');
   const mic = $('#micBtn');
@@ -794,17 +824,98 @@ if (window.isSecureContext && navigator.mediaDevices?.getUserMedia) {
 }
 
 // ------------------------------------------------------------------ face
-// A small orb with orbiting arcs; color and motion follow the agent's state.
-const STATES = { idle: ['IDLE', 0.3, 0.6], listening: ['LISTENING', 0.8, 1], thinking: ['THINKING', 2.4, 0.85], working: ['WORKING', 3.2, 0.9], 'speaking-text': ['REPLYING', 1.2, 1], speaking: ['SPEAKING', 1.2, 1] };
+// The same face the desktop shows: its built-in faces are served from /js/ and fed with this phone's
+// state through faces/env.js. The small orb further down is the fallback if they can't be loaded.
+const STATES = { idle: ['IDLE', 0.3, 0.6], listening: ['LISTENING', 0.8, 1], thinking: ['THINKING', 2.4, 0.85], working: ['WORKING', 3.2, 0.9], 'speaking-text': ['REPLYING', 1.2, 1], speaking: ['SPEAKING', 1.2, 1], happy: ['DONE', 0.9, 1], sleeping: ['ASLEEP', 0.05, 0.35] };
+const FACE_MODULES = { circuit: ['./js/visualizer.js', 'CircuitFace'], radial: ['./js/faces/radial.js', 'RadialFace'], rain: ['./js/faces/rain.js', 'RainFace'], neural: ['./js/faces/neural.js', 'NeuralFace'], companion: ['./js/faces/companion.js', 'CompanionFace'] };
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const faceView = { id: '', obj: null, themeFns: new Set(), orb: false };
+state.happyUntil = 0;
+state.lastActivity = Date.now();
+state.sleepAfterMin = 0;
+state.micLevel = 0;
 
 function setFace(s) {
   state.face = s;
+  if (s !== 'idle') state.lastActivity = Date.now();
+  updateFaceLabel();
+}
+
+// The state as the desktop names it: replying without a voice is "speaking"; after a reply, a moment of
+// "happy"; after quiet minutes (the desktop's ui.sleepAfterMin), "sleeping".
+function agentState() {
+  const f = state.face === 'speaking-text' ? 'speaking' : state.face;
+  if (f !== 'idle') return f;
+  if (state.happyUntil > Date.now()) return 'happy';
+  if (state.sleepAfterMin && Date.now() - state.lastActivity > state.sleepAfterMin * 60000) return 'sleeping';
+  return 'idle';
+}
+
+function updateFaceLabel() {
+  const s = state.face === 'speaking-text' ? 'speaking-text' : agentState();
   $('#faceState').textContent = (STATES[s] || STATES.idle)[0];
+}
+setInterval(updateFaceLabel, 1000);
+for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => (state.lastActivity = Date.now()), { passive: true });
+
+// Spoken replies drive the face like on the desktop: an analyser on the reply audio. Created on a tap
+// (a suspended audio graph would silence the replies), and only used while it is running.
+let voiceCtx = null;
+let voiceAnalyser = null;
+function ensureAnalyser() {
+  try {
+    if (!voiceCtx) {
+      voiceCtx = new AudioContext();
+      const src = voiceCtx.createMediaElementSource(audio);
+      voiceAnalyser = voiceCtx.createAnalyser();
+      src.connect(voiceAnalyser);
+      voiceAnalyser.connect(voiceCtx.destination);
+    }
+    voiceCtx.resume().catch(() => {});
+  } catch {
+    voiceCtx = null;
+    voiceAnalyser = null;
+  }
+}
+document.addEventListener('pointerdown', ensureAnalyser, { once: true, passive: true });
+const analyserLive = () => Boolean(voiceAnalyser && voiceCtx?.state === 'running');
+
+async function mountFace(id, theme) {
+  const want = FACE_MODULES[id] ? id : 'circuit';
+  try {
+    const [{ configureFaces }, { normalizeTheme }] = await Promise.all([import('./js/faces/env.js'), import('./js/themecore.js')]);
+    state.theme = normalizeTheme(theme);
+    configureFaces({
+      agentState,
+      alert: () => null,
+      theme: () => state.theme,
+      analyser: () => (analyserLive() ? voiceAnalyser : null),
+      // Audio playing without an analyser still makes the face talk.
+      synthLevel: () => (state.face === 'speaking' && !analyserLive() ? 0.35 + 0.35 * Math.abs(Math.sin(performance.now() / 90)) : 0),
+      micLevel: () => state.micLevel,
+      demo: () => null,
+      onTheme: (fn) => (faceView.themeFns.add(fn), () => faceView.themeFns.delete(fn)),
+    });
+    faceView.themeFns.forEach((fn) => fn());
+    if (faceView.id === want && faceView.obj) return faceView.obj.setLabel(state.name);
+    const [file, cls] = FACE_MODULES[want];
+    const Face = (await import(file))[cls];
+    faceView.obj?.destroy?.();
+    const canvas = el('canvas', { id: 'face', 'aria-hidden': 'true' });
+    $('#face').replaceWith(canvas);
+    faceView.obj = new Face(canvas, { compact: true });
+    faceView.obj.setLabel(state.name);
+    faceView.id = want;
+    faceView.orb = false;
+  } catch {
+    // An older desktop that doesn't serve the faces, or a face that failed: the built-in orb.
+    if (!faceView.orb && !faceView.obj) (faceView.orb = true), startFace();
+  }
 }
 
 const hudOn = () => document.body.classList.contains('fx-hud') || document.body.classList.contains('fx-subtle');
 
+// The fallback: a small orb with orbiting arcs; color and motion follow the agent's state.
 function startFace() {
   const c = $('#face');
   const g = c.getContext('2d');
@@ -814,6 +925,7 @@ function startFace() {
   const css = getComputedStyle(document.documentElement);
   const color = (name) => css.getPropertyValue(name).trim() || '#00e5ff';
   const frame = (now) => {
+    if (!faceView.orb) return; // a shared face took over
     requestAnimationFrame(frame);
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
@@ -898,9 +1010,12 @@ async function applyInfo() {
       if (info.colors[k]) root.setProperty(v, info.colors[k]);
     }
     if (info.colors.bg) document.querySelector('meta[name="theme-color"]').setAttribute('content', info.colors.bg);
+    state.sleepAfterMin = Number(info.sleepAfterMin) || 0;
+    await mountFace(info.face?.id, { colors: info.colors, face: info.face || {} });
   } catch {
     /* defaults */
   }
+  if (!faceView.obj && !faceView.orb) (faceView.orb = true), startFace();
 }
 
 // ------------------------------------------------------------------ HUD layer
@@ -972,7 +1087,6 @@ if (android) {
 }
 
 $('#pairInsecure').classList.toggle('hidden', !insecure);
-startFace();
 // Offline app shell (needs HTTPS or localhost; on the plain local network the browser doesn't allow it).
 if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
 // Opened from the pairing QR code (…/#pair=<secret>): take the secret out of the address bar and

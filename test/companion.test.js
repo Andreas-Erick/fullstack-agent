@@ -77,6 +77,18 @@ test('QR pairing: one-time secret, reachable address only', async () => {
   assert.strictEqual((await post('/api/pair', { secret })).status, 403, 'works once');
 });
 
+test('the phone gets the desktop face and its modules', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice()}` };
+  const info = await (await fetch(`${base}/api/info`, { headers: auth })).json();
+  assert.strictEqual(info.face.id, 'circuit', 'default face when none is set');
+  assert.ok('sleepAfterMin' in info);
+  const r = await fetch(`${base}/js/faces/common.js`);
+  assert.strictEqual(r.status, 200);
+  assert.match(r.headers.get('content-type'), /javascript/);
+  assert.match(r.headers.get('content-security-policy'), /script-src 'self'/);
+  assert.notStrictEqual((await fetch(`${base}/js/faces/host.js`)).status, 200, 'the desktop-only host is not served');
+});
+
 test('devices never see setup, tool inputs/results or raw provider data', async () => {
   const auth = { Authorization: `Bearer ${await pairDevice()}` };
   const list = await (await fetch(`${base}/api/conversations`, { headers: auth })).json();

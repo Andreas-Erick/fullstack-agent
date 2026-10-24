@@ -5,8 +5,23 @@ import { RadialFace } from './radial.js';
 import { RainFace } from './rain.js';
 import { NeuralFace } from './neural.js';
 import { CompanionFace } from './companion.js';
-import { state, setFlag } from '../state.js';
+import { state, setFlag, alertActive } from '../state.js';
+import { on } from '../util.js';
+import { DEFAULT_THEME } from '../themecore.js';
 import { faceState, samples64, audio, theme } from './common.js';
+import { configureFaces } from './env.js';
+
+// On the desktop the faces read the app's state (the phone client wires its own, see faces/env.js).
+configureFaces({
+  agentState: () => state.agentState,
+  alert: () => (alertActive() ? state.alert : null),
+  theme: () => state.theme || DEFAULT_THEME,
+  analyser: () => state.analyser,
+  synthLevel: () => state.synthLevel,
+  micLevel: () => state.micLevel,
+  demo: () => state.demo,
+  onTheme: (fn) => on('theme', fn),
+});
 
 export const BUILT_IN = [
   { id: 'circuit', title: 'Circuit Board', tagline: 'Living PCB — pulses run the traces', Face: CircuitFace },

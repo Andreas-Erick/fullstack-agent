@@ -8,9 +8,8 @@
 //   working   – satellites orbit the core while tools run
 //   happy     – a burst of pulses and an expanding ring when a reply is done
 //   sleeping  – dim, barely moving, with drifting "z"s
-import { state } from './state.js';
-import { on } from './util.js';
-import { DEFAULT_THEME, hexToRgb } from './theme.js';
+import { hexToRgb } from './themecore.js';
+import { env } from './faces/env.js';
 import { audio, faceState, paletteFor as themedPalette } from './faces/common.js';
 
 const POLY = { octagon: [8, Math.PI / 8], hexagon: [6, 0], diamond: [4, 0], triangle: [3, -Math.PI / 2] };
@@ -21,7 +20,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const lerpColor = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 
 function faceTheme() {
-  return state.theme || DEFAULT_THEME;
+  return env.theme();
 }
 
 const paletteFor = (st) => themedPalette(st);
@@ -48,7 +47,7 @@ export class CircuitFace {
     this.label = 'N';
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(canvas);
-    this.off = on('theme', () => this.generate());
+    this.off = env.onTheme(() => this.generate());
     this.resize();
     this.loop = this.loop.bind(this);
     this.alive = true;
@@ -294,7 +293,7 @@ export class CircuitFace {
   }
 
   update(dt) {
-    const st = state.agentState;
+    const st = env.agentState();
     const target = paletteFor(faceState());
     const k = 1 - Math.pow(0.02, dt);
     this.cur.main = lerpColor(this.cur.main, target.main, k);
@@ -535,7 +534,7 @@ export class CircuitFace {
     g.restore();
 
     // Core
-    const sleeping = state.agentState === 'sleeping';
+    const sleeping = env.agentState() === 'sleeping';
     const breathe = 0.5 + 0.5 * Math.sin(this.t * (sleeping ? 0.7 : this.cur.spinSpeed > 1 ? 5 : 1.6));
     const coreGlow = 0.35 + energy * 0.25 + this.level * 0.4 + (this.coreFlash || 0) * 0.3 + breathe * 0.1;
     const cg = g.createRadialGradient(cx, cy, 0, cx, cy, R * 1.05);
