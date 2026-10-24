@@ -14,45 +14,67 @@
     <script type="module" src="/app.js"></script>
   </head>
   <body>
+    <!-- Icons (inline, so they look the same on every phone) -->
+    <svg class="hidden" aria-hidden="true">
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-speaker-off" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z" /><path d="m22 9-6 6M16 9l6 6" /></symbol>
+      <symbol id="i-speaker-on" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z" /><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" /></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6" /></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5" /></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6" /></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h8" /></symbol>
+      <symbol id="i-lock-open" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 7.5-2" /></symbol>
+    </svg>
+
     <!-- Pairing: shown until this device has a token -->
     <section id="pair" class="screen hidden">
       <img class="pair-logo" src="/icon.png" alt="" />
       <h1>Connect to your assistant</h1>
       <p class="muted">On your computer, open <b>Settings → Remote access</b>, click <b>Pair a device</b> and type the code here.</p>
       <form id="pairForm" autocomplete="off">
-        <input id="pairCode" class="input code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required />
-        <input id="pairName" class="input" maxlength="40" placeholder="Name for this device (e.g. My phone)" />
-        <button class="btn primary" type="submit">Connect</button>
-        <div id="pairError" class="error hidden"></div>
+        <input id="pairName" class="input" maxlength="40" placeholder="Name for this device (optional)" aria-label="Device name" />
+        <input id="pairCode" class="input code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" autocomplete="one-time-code" aria-label="Pairing code" required />
+        <button id="pairBtn" class="btn primary" type="submit">Connect</button>
+        <div id="pairError" class="error hidden" role="alert"></div>
       </form>
+      <p id="pairInsecure" class="hint-warn hidden">This address is not encrypted. Pair on your home network only, or use the secure (https) address.</p>
     </section>
 
     <!-- Main app -->
     <section id="main" class="screen hidden">
       <header class="top">
-        <button id="convBtn" class="icon-btn" title="Conversations" aria-label="Conversations">☰</button>
+        <button id="convBtn" class="icon-btn" title="Conversations" aria-label="Conversations"><svg><use href="#i-menu" /></svg></button>
         <div class="title">
-          <div id="agentName" class="name">NEXUS</div>
+          <div class="name-row"><span id="conn" class="conn" aria-hidden="true"></span><span id="agentName" class="name">NEXUS</span></div>
           <div id="convTitle" class="sub">New conversation</div>
         </div>
-        <span id="conn" class="conn" title="Connection"></span>
-        <button id="speakBtn" class="icon-btn" title="Read replies aloud" aria-label="Read replies aloud" aria-pressed="false">🔈</button>
-        <button id="newBtn" class="icon-btn" title="New conversation" aria-label="New conversation">＋</button>
+        <button id="speakBtn" class="icon-btn" title="Read replies aloud" aria-label="Read replies aloud" aria-pressed="false"><svg><use href="#i-speaker-off" /></svg></button>
+        <button id="newBtn" class="icon-btn" title="New conversation" aria-label="New conversation"><svg><use href="#i-plus" /></svg></button>
       </header>
+      <div id="banner" class="banner hidden" role="status"></div>
 
       <div class="face-wrap">
         <canvas id="face" aria-hidden="true"></canvas>
         <div id="faceState" class="face-state">IDLE</div>
       </div>
 
-      <div id="messages" class="messages" aria-live="polite"></div>
+      <div class="messages-wrap">
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <div id="empty" class="empty hidden">
+          <p>Ask anything. Replies stream here, and approvals for things the assistant wants to do on your computer show up below.</p>
+        </div>
+        <button id="jumpBtn" class="jump hidden" type="button" aria-label="Jump to the latest message"><svg><use href="#i-down" /></svg></button>
+      </div>
       <div id="approvals" class="approvals"></div>
 
       <form id="composer" class="composer">
-        <button id="micBtn" class="mic hidden" type="button" aria-label="Hold to talk" title="Hold to talk">🎙</button>
-        <textarea id="input" rows="1" placeholder="Message…" enterkeyhint="send"></textarea>
-        <button id="sendBtn" class="send" type="submit" aria-label="Send">➤</button>
-        <button id="stopBtn" class="send stop hidden" type="button" aria-label="Stop">■</button>
+        <button id="micBtn" class="mic hidden" type="button" aria-label="Hold to talk" title="Hold to talk"><svg><use href="#i-mic" /></svg></button>
+        <textarea id="input" rows="1" placeholder="Message…" enterkeyhint="send" aria-label="Message"></textarea>
+        <button id="sendBtn" class="send" type="submit" aria-label="Send"><svg><use href="#i-send" /></svg></button>
+        <button id="stopBtn" class="send stop hidden" type="button" aria-label="Stop"><svg><use href="#i-stop" /></svg></button>
       </form>
     </section>
 
@@ -60,8 +82,9 @@
     <aside id="drawer" class="drawer hidden" aria-label="Conversations">
       <div class="drawer-head">
         <b>Conversations</b>
-        <button id="drawerClose" class="icon-btn" aria-label="Close">✕</button>
+        <button id="drawerClose" class="icon-btn" aria-label="Close"><svg><use href="#i-close" /></svg></button>
       </div>
+      <input id="convSearch" class="input search" type="search" placeholder="Search" aria-label="Search conversations" />
       <ul id="convList" class="conv-list"></ul>
       <button id="unpairBtn" class="btn ghost">Disconnect this device</button>
     </aside>

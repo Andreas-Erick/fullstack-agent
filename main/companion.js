@@ -33,6 +33,14 @@ const STATIC = {
 };
 const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+// On every response. HSTS is added for the tunnel address (HTTPS at the edge).
+const HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'microphone=(self), camera=(), geolocation=(), payment=(), usb=()',
+};
 const HEX = /^#[0-9a-f]{6}$/i;
 
 const MAX_BODY = 64 * 1024;
@@ -41,7 +49,9 @@ const PAIR_TTL_MS = 5 * 60 * 1000;
 const PAIR_TRIES = 5;
 const TURNS_PER_MIN = 20;
 const STREAMS_PER_DEVICE = 3;
+const DEVICE_IDLE_MS = 90 * 24 * 60 * 60 * 1000; // a device unused this long is unpaired
 const STREAMED = new Set(['chat:event', 'approval:request', 'approval:cancel']);
+const CHAT_TYPES = new Set(['start', 'text', 'retract', 'tool_start', 'tool_end', 'notice', 'done', 'error', 'aborted']);
 
 let hooks = null; // { startTurn, abortTurn, notify } from main.js
 let server = null;
@@ -158,12 +168,51 @@ function publish(channel, payload) {
   if (channel === 'chat:event' && ['done', 'error', 'aborted'].includes(payload.type)) turnOwners.delete(payload.requestId);
   if (channel === 'approval:cancel') openApprovals.delete(payload.id);
   // Open approvals are kept (until answered or timed out) so a device that connects later sees them.
-  if (channel === 'approval:request') openApprovals.set(payload.id, payload);
-  const data = sse(channel, payload);
+  if (channel === 'approval:request') openApprovals.set(payload.id, { ...payload, at: Date.now() });
+  const out = channel === 'chat:event' ? chatForDevice(payload) : channel === 'approval:request' ? approvalForDevice(openApprovals.get(payload.id)) : payload;
+  if (!out) return;
+  const data = sse(channel, out);
   for (const st of streams) st.res.write(data);
 }
 
 const sse = (channel, payload) => `event: ${channel.replace(':', '.')}\ndata: ${JSON.stringify(payload)}\n\n`;
+
+// Devices get what the phone shows, nothing more: no tool arguments or results (file contents, commands,
+// notes), no internal events (settings, vault, self-change). The window keeps the full events.
+function chatForDevice(ev) {
+  if (!CHAT_TYPES.has(ev.type)) return null;
+  const base = { requestId: ev.requestId, conversationId: ev.conversationId, type: ev.type };
+  switch (ev.type) {
+    case 'start':
+      return { ...base, title: ev.title, userMessage: messageForDevice(ev.userMessage) };
+    case 'text':
+      return { ...base, delta: ev.delta };
+    case 'retract':
+      return { ...base, chars: ev.chars };
+    case 'tool_start':
+      return { ...base, id: ev.id, name: ev.name };
+    case 'tool_end':
+      return { ...base, id: ev.id, name: ev.name, ok: ev.ok };
+    case 'done':
+      return { ...base, message: messageForDevice(ev.message) };
+    default:
+      return { ...base, message: ev.message };
+  }
+}
+
+// A stored or streamed message without the raw provider data and tool inputs/results; a /skill shows
+// what was typed rather than the expanded steps.
+function messageForDevice(m) {
+  if (!m) return m;
+  const { raw, toolCalls, display, content, ...rest } = m;
+  return { ...rest, content: display ?? content, ...(toolCalls?.length ? { toolCalls: toolCalls.map((t) => ({ name: t.name, ok: t.ok })) } : {}) };
+}
+
+// expiresIn: seconds left, so a device that connects later shows the right countdown.
+function approvalForDevice(a) {
+  const { at, ...rest } = a;
+  return { ...rest, expiresIn: Math.max(0, Math.round((a.timeoutSec || 0) - (Date.now() - at) / 1000)) };
+}
 
 // ------------------------------------------------------------- requests
 // Requests arrive as 127.0.0.1 / localhost / a LAN address with our port, or through the tunnel with
@@ -220,8 +269,14 @@ async function authenticate(req) {
   if (!m) return null;
   const want = Buffer.from(hash(m[1]), 'hex');
   const list = await readDevices();
-  const device = list.find((d) => crypto.timingSafeEqual(Buffer.from(d.tokenHash, 'hex'), want));
+  const device = list.find((d) => /^[0-9a-f]{64}$/.test(d.tokenHash) && crypto.timingSafeEqual(Buffer.from(d.tokenHash, 'hex'), want));
   if (!device) return null;
+  // A device unused for months (a lost or forgotten phone) is unpaired instead of let in.
+  if (Date.now() - (device.lastSeen || device.createdAt || 0) > DEVICE_IDLE_MS) {
+    log.info('remote device expired', { device: device.name });
+    await revoke(device.id);
+    return null;
+  }
   // lastSeen is coarse (one write per 5 minutes at most).
   if (!device.lastSeen || Date.now() - device.lastSeen > 5 * 60 * 1000) {
     device.lastSeen = Date.now();
@@ -282,6 +337,8 @@ async function route(req, res) {
     log.warn('remote request for an unknown host', { host: host.slice(0, 100) });
     return fail(res, 403, 'Unknown host');
   }
+  for (const [k, v] of Object.entries(HEADERS)) res.setHeader(k, v);
+  if (kind === 'tunnel') res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   const origin = req.headers.origin;
   if (origin && origin !== `${kind === 'tunnel' ? 'https' : 'http'}://${host}`) return fail(res, 403, 'Cross-origin requests are not allowed');
   // Behind Cloudflare Access, every request must carry Access's signed login (checked here too).
@@ -316,12 +373,15 @@ async function route(req, res) {
     if (!underLimit('transcribe', device.id, 30)) return fail(res, 429, 'Too many requests; wait a minute');
     return transcribe(req, res, device);
   }
-  if (req.method === 'GET' && p === '/api/conversations') return json(res, 200, await store.listConversations());
+  if (req.method === 'GET' && p === '/api/conversations') {
+    const list = (await store.listConversations()).filter((c) => !c.setup);
+    return json(res, 200, list.map(({ id, title, updatedAt, createdAt }) => ({ id, title, updatedAt, createdAt })));
+  }
   let m = /^\/api\/conversations\/([\w-]+)$/.exec(p);
   if (req.method === 'GET' && m) {
     const conv = await store.getConversation(m[1]);
     if (!conv || conv.setup) return fail(res, 404, 'Conversation not found');
-    return json(res, 200, { ...conv, messages: conv.messages.filter((x) => !x.hidden).map(({ raw, ...rest }) => rest) });
+    return json(res, 200, { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, messages: conv.messages.filter((x) => !x.hidden).map(messageForDevice) });
   }
   if (req.method === 'POST' && p === '/api/chat') return chat(req, res, device);
   m = /^\/api\/chat\/([\w-]+)\/abort$/.exec(p);
@@ -363,8 +423,9 @@ async function pair(req, res) {
   const body = await readBody(req).catch((e) => e);
   if (body instanceof Error) return fail(res, body.status || 400, body.message);
   if (!pairing || pairing.expiresAt < Date.now()) return fail(res, 403, 'No pairing in progress. Start pairing on the desktop.');
-  const code = String(body.code || '');
-  const ok = code.length === pairing.code.length && crypto.timingSafeEqual(Buffer.from(code), Buffer.from(pairing.code));
+  const code = String(body.code || '').trim();
+  // Six ASCII digits only: anything else counts as a wrong try (and can't break the comparison).
+  const ok = /^\d{6}$/.test(code) && crypto.timingSafeEqual(Buffer.from(code), Buffer.from(pairing.code));
   if (!ok) {
     if (++pairing.tries >= PAIR_TRIES) pairing = null;
     log.warn('remote pairing: wrong code');
@@ -383,7 +444,7 @@ function openStream(req, res, device) {
   if ([...streams].filter((s) => s.deviceId === device.id).length >= STREAMS_PER_DEVICE) return fail(res, 429, 'Too many open streams');
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Content-Type-Options': 'nosniff' });
   res.write(': connected\n\n');
-  for (const a of openApprovals.values()) res.write(sse('approval:request', a));
+  for (const a of openApprovals.values()) res.write(sse('approval:request', approvalForDevice(a)));
   const st = { res, deviceId: device.id };
   streams.add(st);
   const ping = setInterval(() => res.write(': ping\n\n'), 25000);
