@@ -39,7 +39,7 @@ const channels = {
   obsidian: ['status', 'list', 'read', 'search', 'write', 'delete', 'openFolder', 'openInObsidian', 'defaultPath', 'vaults', 'register', 'history', 'showVersion', 'restoreVersion', 'priorities'],
   docs: ['pick', 'load', 'popup', 'closePopup', 'windowState', 'recent', 'clearRecent', 'roots', 'showInFolder', 'openExternal'],
   code: ['root'],
-  self: ['status', 'ensure', 'log', 'show', 'check', 'commit', 'revert', 'restore', 'discard', 'reload', 'restart'],
+  self: ['status', 'ensure', 'log', 'show', 'check', 'verification', 'commit', 'revert', 'restore', 'discard', 'reload', 'restart'],
   claude: ['status', 'login', 'logout', 'installHint'],
   persona: ['generate'],
   web: ['search'],

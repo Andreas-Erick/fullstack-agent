@@ -21,6 +21,7 @@ const DEFAULTS = {
   appearance: {
     theme: null, // generated or edited theme object; null = default neon circuit theme
     personaNotes: '', // tone/style notes derived from the aesthetic, injected into the system prompt
+    greeting: '', // welcome line on the empty chat and spoken on launch; empty = a default greeting
     applyVoice: true, // let persona generation pick a matching VoiceStudio voice
   },
   llm: {
@@ -32,6 +33,7 @@ const DEFAULTS = {
     maxTokens: 4096,
     useTools: true,
     maxToolRounds: 8,
+    engineeringToolRounds: 40, // coding, self-change and debugging turns (llm.js engineering mode)
     historyLimit: 30,
     compaction: true, // summarize older turns instead of dropping them
     modelMode: 'default', // default | fast | deep (switchable by voice)

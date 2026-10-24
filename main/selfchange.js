@@ -100,6 +100,29 @@ async function check() {
   return { ok: res.ok, output: output || 'All files passed the syntax check.' };
 }
 
+// Runs the automated tests (scripts/test.js → test/*.test.js) with Electron's bundled Node.
+async function runTests(filter = '') {
+  const r = await root();
+  const script = path.join(r, 'scripts', 'test.js');
+  if (!fs.existsSync(script)) return { ok: true, output: 'No test runner found; skipped.' };
+  const res = await run(process.execPath, [script, ...(filter ? [String(filter)] : [])], r, { ELECTRON_RUN_AS_NODE: '1' });
+  const output = (res.stdout + res.stderr).trim();
+  // Keep the summary and the failures; passing tests are noise for the agent.
+  const lines = output.split('\n');
+  const summary = lines.filter((l) => /^# (tests|pass|fail|cancelled|duration_ms)/.test(l)).join('\n');
+  const failures = res.ok ? '' : output.slice(-6000);
+  return { ok: res.ok, summary: summary || output.slice(-400), ...(failures ? { failures } : {}) };
+}
+
+/** Uncommitted changes: the diff of changed files and the list of new ones (to review before committing). */
+async function diff(file = '') {
+  const dirty = await dirtyFiles();
+  const args = ['diff', 'HEAD', '--no-color', '--stat', '--patch', ...(file ? ['--', file] : [])];
+  let patch = await git(args).catch((e) => e.message);
+  if (patch.length > 60000) patch = `${patch.slice(0, 60000)}\n…[diff truncated; pass a file to see one at a time]`;
+  return { files: dirty, newFiles: dirty.filter((d) => d.state === '??').map((d) => d.file), patch: patch || '(no changes to tracked files)' };
+}
+
 function impact(files) {
   const restart = files.some((f) => /^(main\/|preload\.js|package\.json)/.test(f));
   const reload = !restart && files.some((f) => /^renderer\//.test(f));
@@ -111,6 +134,8 @@ async function commit(summary, { source = 'agent' } = {}) {
   if (!dirty.length) return { ok: true, nothing: true };
   const chk = await check();
   if (!chk.ok) return { ok: false, check: chk, files: dirty.map((d) => d.file) };
+  const tests = await runTests();
+  if (!tests.ok) return { ok: false, check: { ok: false, output: `Tests fail:\n${tests.failures || tests.summary}` }, files: dirty.map((d) => d.file) };
   const subject = `${PREFIX} ${String(summary || 'Update').replace(/\s+/g, ' ').trim().slice(0, 100)}`;
   await git(['add', '-A']);
   await git(['commit', '-q', '-m', subject, '-m', `Source: ${source}\nFiles:\n${dirty.map((d) => `  ${d.state} ${d.file}`).join('\n')}`]);
@@ -118,7 +143,39 @@ async function commit(summary, { source = 'agent' } = {}) {
   const files = dirty.map((d) => d.file);
   const change = { ok: true, sha, short: sha.slice(0, 7), subject, files, ...impact(files) };
   logToVault(change).catch(() => {});
+  await markPending(change).catch(() => {});
   return change;
+}
+
+// ------------------------------------------------ did the change start cleanly?
+// A committed change is "pending" until it is live: after an app restart (main/, preload.js) or a
+// window reload (renderer/). Then main.js calls verifyAfterLoad(), which looks at what the log
+// recorded since loading. Problems are shown to the user and put in the agent's context.
+const verifyFile = () => path.join(app.getPath('userData'), 'selfchange-verify.json');
+
+async function markPending(change) {
+  const rec = { sha: change.sha, short: change.short, subject: change.subject.replace(PREFIX, '').trim(), files: change.files, restart: change.restart, reload: change.reload, at: Date.now(), state: 'pending' };
+  await store.writeJsonAtomic(verifyFile(), rec);
+}
+
+async function lastVerification() {
+  return store.readJson(verifyFile(), null);
+}
+
+// processStartedAt / loadedAt: when the main process started and the window last finished loading.
+async function verifyAfterLoad({ processStartedAt, loadedAt }) {
+  const rec = await lastVerification();
+  if (!rec || rec.state !== 'pending') return null;
+  const live = rec.restart ? processStartedAt > rec.at : rec.reload ? loadedAt > rec.at : true;
+  if (!live) return null;
+  const since = Math.min(processStartedAt, loadedAt);
+  const groups = require('./errorinsight').fromLog({ sinceMs: Date.now() - since + 1000, limit: 10 });
+  // Errors count; warnings only when they point into the files this change touched.
+  const touched = (g) => g.locations.some((l) => rec.files.some((f) => l.startsWith(`${f}:`)));
+  const problems = groups.filter((g) => g.level === 'error' || touched(g));
+  const done = { ...rec, state: problems.length ? 'problems' : 'ok', checkedAt: Date.now(), problems };
+  await store.writeJsonAtomic(verifyFile(), done);
+  return done;
 }
 
 // Mirror self-changes into the agent's vault (Changelog/YYYY-MM.md) so they're part of its knowledge.
@@ -197,4 +254,4 @@ async function discard() {
   return status();
 }
 
-module.exports = { root, status, ensureRepo, dirtyFiles, fingerprint, check, commit, log, show, revert, restore, discard, impact };
+module.exports = { root, status, ensureRepo, dirtyFiles, fingerprint, check, runTests, diff, commit, log, show, revert, restore, discard, impact, lastVerification, verifyAfterLoad };

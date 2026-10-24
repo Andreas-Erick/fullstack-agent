@@ -172,7 +172,21 @@ function createWindow() {
     store.getSettings().then((s) => win && !win.isDestroyed() && win.webContents.setZoomFactor(clampZoom(s.ui.zoom))).catch(() => {});
     const r = store.settingsRecovery();
     if (r) send('app:notice', { kind: 'error', message: r.restored ? 'Your settings file was damaged and has been restored from the last good copy.' : 'Your settings file was damaged; defaults are used. The damaged file was kept for recovery.' });
+    scheduleChangeVerification(Date.now());
   });
+}
+
+// After a self-change goes live (restart or reload): give it a while to run, then check the log.
+let verifyTimer = null;
+function scheduleChangeVerification(loadedAt) {
+  clearTimeout(verifyTimer);
+  verifyTimer = setTimeout(async () => {
+    const v = await selfchange.verifyAfterLoad({ processStartedAt: Date.now() - process.uptime() * 1000, loadedAt }).catch((err) => log.warn('self-change verification failed', { error: err }));
+    if (!v) return;
+    log.info('self-change verified', { change: v.short, state: v.state, problems: v.problems.length });
+    if (v.state === 'problems') send('app:notice', { kind: 'error', message: `The last self-change (“${v.subject}”) logged ${v.problems.length} problem${v.problems.length > 1 ? 's' : ''} after it went live. Ask the assistant to look into it, or revert it in Evolution.` });
+  }, 45000);
+  verifyTimer.unref?.();
 }
 
 // External links open in the system browser, never inside the app.
@@ -424,6 +438,7 @@ function registerIpc() {
   handle('self:log', (n) => selfchange.log(n));
   handle('self:show', (sha) => selfchange.show(sha));
   handle('self:check', () => selfchange.check());
+  handle('self:verification', () => selfchange.lastVerification());
   handle('self:commit', (summary) => selfchange.commit(summary || 'Manual changes', { source: 'user' }));
   handle('self:revert', (sha) => selfchange.revert(sha));
   handle('self:restore', (sha) => selfchange.restore(sha));
