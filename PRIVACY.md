@@ -15,7 +15,8 @@ Nexus Agent is a desktop app that runs on your own computer. It has **no server 
 | Logs and bug reports | App data folder → `logs/` | Known key formats are masked. Bug reports stay local until **you** decide to share one |
 | Speech recognition (default) | Runs locally (Whisper via transformers.js) | Your voice is not sent anywhere in the default "local" mode |
 | PDF exports | Your workspace folder or `Documents/Nexus Exports` | |
-| Paired devices (remote access) | App data folder → `remote-devices.json` | Device name, dates and a SHA-256 of its token; never the token itself |
+| Paired devices (remote access) | App data folder → `remote-devices.json` | Device name, dates, how and from which IP address it last connected, and a SHA-256 of its token; never the token itself |
+| "Where we left off" note | App data folder → `handoff.json`, and `Where We Left Off.md` in the vault | A short summary of the latest conversation, written when the app closes (by your AI provider, like the journal) and replaced each time. Turn it off in Settings → Obsidian vault |
 | Android app | On the phone | The desktop's address and the device token (encrypted with an Android Keystore key, not included in backups). Notifications while the app is closed come over a direct connection to your desktop, not through a push service |
 
 Uninstalling the app does not delete your data folder or vault, so nothing is lost by accident; delete them yourself to remove everything.

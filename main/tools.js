@@ -35,7 +35,7 @@ const SETTABLE = {
   groq: ['model', 'fastModel', 'deepModel'],
   perplexity: ['model', 'fastModel', 'deepModel'],
   obsidian: ['injectIndex', 'maxIndexEntries'],
-  journal: ['enabled', 'idleMinutes'],
+  journal: ['enabled', 'idleMinutes', 'handoffOnClose'],
   ui: ['showVisualizerInChat', 'captions', 'face', 'zoom', 'chatLayout', 'sleepAfterMin'],
 };
 const SETTABLE_DESCRIPTION = () => Object.fromEntries(Object.entries(SETTABLE).map(([s, keys]) => [s, keys.join(',')]));

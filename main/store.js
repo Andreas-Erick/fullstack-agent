@@ -166,6 +166,7 @@ const DEFAULTS = {
   journal: {
     enabled: true, // write a session entry to the daily note after a conversation goes quiet
     idleMinutes: 15,
+    handoffOnClose: true, // on closing the app, note where we left off (handoff.js) for the next session
   },
   memory: {
     vaultPath: '', // empty = <vault>/Memory

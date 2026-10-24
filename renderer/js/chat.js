@@ -3,6 +3,7 @@ import { $, api, el, renderMarkdown, timeAgo, toast, toastError, confirmDialog, 
 import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
 import { speaker } from './voice.js';
+import { handoffSlot } from './handoff.js';
 
 let currentId = null;
 let conversations = [];
@@ -152,6 +153,7 @@ function emptyStateNode() {
   node.querySelector('#welcomeTitle').textContent = `${name} online`;
   node.querySelector('#welcomeGreeting').textContent = state.settings?.appearance?.greeting || '';
   node.querySelector('#pttHint').textContent = state.settings?.stt?.pttKey || 'F8';
+  node.querySelector('.suggestions').before(handoffSlot(openConversation)); // "Where we left off"
   return node;
 }
 

@@ -20,6 +20,7 @@ const log = require('./logger');
 const approvals = require('./approvals');
 const diagnostics = require('./diagnostics');
 const journal = require('./journal');
+const handoff = require('./handoff');
 const vaultgit = require('./vaultgit');
 const faces = require('./faces');
 const docwindows = require('./docwindows');
@@ -141,6 +142,16 @@ function createWindow() {
 
   guardNavigation(win.webContents);
   win.on('closed', () => (win = null));
+  // Closing: first the agent notes where we left off (handoff.js), then the window really closes.
+  handoffDone = false;
+  closing = false;
+  win.on('close', (e) => {
+    if (handoffDone) return;
+    e.preventDefault();
+    closeWithHandoff();
+  });
+  // Windows is shutting down or logging off: don't hold it up for the note.
+  win.on('session-end', () => (handoffDone = true));
 
   // If the window's renderer crashes or is killed, reload it (a few times; then stop and say so).
   const crashes = [];
@@ -287,6 +298,11 @@ function registerIpc() {
   handle('remote:status', () => companion.status());
   handle('remote:pair', () => companion.startPairing());
   handle('remote:revoke', (id) => companion.revoke(id));
+  handle('remote:revokeAll', () => companion.revokeAll());
+  handle('handoff:get', () => handoff.read());
+  handle('handoff:dismiss', () => handoff.dismiss());
+  handle('handoff:skip', () => handoff.skip());
+  handle('remote:cancelPair', () => companion.cancelPairing());
   handle('remote:transcribed', (id, text, error) => {
     const p = pendingTranscripts.get(id);
     if (!p) return false;
@@ -713,7 +729,36 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on('before-quit', () => {
+// The handoff note on closing: the window shows "Saving where we left off…" (with Skip) meanwhile.
+let handoffDone = false;
+let closing = false;
+let quitAfterHandoff = false;
+async function closeWithHandoff() {
+  if (closing) return;
+  closing = true;
+  try {
+    const s = await store.getSettings();
+    if (s.onboarded && s.journal.handoffOnClose !== false) {
+      toWindow('app:closing', {});
+      await handoff.write({ interrupted: activeRequests.size > 0 });
+    }
+  } catch (err) {
+    log.warn('handoff on close failed', { error: err });
+  } finally {
+    handoffDone = true;
+    if (quitAfterHandoff) app.quit();
+    else if (win && !win.isDestroyed()) win.close();
+  }
+}
+
+app.on('before-quit', (e) => {
+  // Quit from the menu or Cmd+Q: write the handoff first, then quit for real.
+  if (!handoffDone && win && !win.isDestroyed()) {
+    e.preventDefault();
+    quitAfterHandoff = true;
+    closeWithHandoff();
+    return;
+  }
   log.info('app quit');
   log.flush();
   claudecode.shutdown();
