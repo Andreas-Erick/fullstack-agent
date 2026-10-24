@@ -16,7 +16,8 @@ const esm = [];
 })('renderer/js');
 // The phone client (renderer/remote): app.js is a module, the service worker a classic script.
 esm.push('renderer/remote/app.js');
-cjs.push('renderer/faces/core.js', 'renderer/remote/sw.js', 'scripts/recover.js');
+cjs.push('renderer/faces/core.js', 'renderer/remote/sw.js', ...fs.readdirSync(path.join(root, 'scripts')).map((f) => `scripts/${f}`));
+if (fs.existsSync(path.join(root, 'test'))) cjs.push(...fs.readdirSync(path.join(root, 'test')).map((f) => `test/${f}`));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-check-'));
 let failed = 0;
 
@@ -38,4 +39,13 @@ function check(file, asModule) {
 cjs.filter((f) => f.endsWith('.js')).forEach((f) => check(f, false));
 esm.filter((f) => f.endsWith('.js')).forEach((f) => check(f, true));
 fs.rmSync(tmp, { recursive: true, force: true });
+
+// Then the cross-file integrity checks (scripts/verify.js), once every file parses.
+if (!failed) {
+  const { errors, warnings } = require('./verify').verify(root);
+  for (const w of warnings) console.log(`warn ${w}`);
+  for (const e of errors) console.log(`FAIL ${e}`);
+  if (errors.length) failed++;
+  else console.log('ok   integrity checks');
+}
 process.exit(failed ? 1 : 0);

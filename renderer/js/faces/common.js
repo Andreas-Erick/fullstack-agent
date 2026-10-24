@@ -1,7 +1,8 @@
 // Shared helpers for all faces: theme palette per state (with the red alert override) and the
 // current audio level (TTS analyser, system-voice fallback, microphone, or the scripted demo).
-import { state, alertActive } from '../state.js';
-import { DEFAULT_THEME, hexToRgb } from '../theme.js';
+// Everything about the app comes through env.js, so the phone client can use the same faces.
+import { env } from './env.js';
+import { hexToRgb } from '../themecore.js';
 
 export const MOTION = {
   idle: { energy: 0.25, spin: 0.15 },
@@ -18,13 +19,13 @@ const BASE = { working: 'thinking', happy: 'speaking', sleeping: 'idle' };
 export const baseState = (st) => BASE[st] || st;
 const ALERT = { main: [255, 59, 79], accent: [255, 140, 120], energy: 0.9, spin: 1.2 };
 
-export const theme = () => state.theme || DEFAULT_THEME;
+export const theme = () => env.theme();
 export const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
 export const lerp = (a, b, t) => a + (b - a) * t;
 export const lerpColor = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 
 export function faceState() {
-  return alertActive() ? 'alert' : state.agentState;
+  return env.alert() ? 'alert' : env.agentState();
 }
 
 export function paletteFor(st) {
@@ -37,10 +38,12 @@ let freq = null;
 let wave = null;
 // { level 0..1, freq Uint8Array|null, wave Float32Array(64)|null }
 export function audio() {
-  const st = state.agentState;
-  if (state.demo) return { level: state.demo.level || 0, freq: null, wave: null };
-  if (st === 'speaking' && state.analyser && !state.synthLevel) {
-    const a = state.analyser;
+  const st = env.agentState();
+  const demo = env.demo();
+  if (demo) return { level: demo.level || 0, freq: null, wave: null };
+  const synth = env.synthLevel();
+  const a = env.analyser();
+  if (st === 'speaking' && a && !synth) {
     if (!freq || freq.length !== a.frequencyBinCount) freq = new Uint8Array(a.frequencyBinCount);
     if (!wave || wave.length !== a.fftSize) wave = new Float32Array(a.fftSize);
     a.getByteFrequencyData(freq);
@@ -50,8 +53,8 @@ export function audio() {
     for (let i = 2; i < n; i++) sum += freq[i];
     return { level: Math.min(1, sum / (n - 2) / 140), freq, wave };
   }
-  if (st === 'speaking' && state.synthLevel) return { level: state.synthLevel, freq: null, wave: null };
-  if (st === 'listening') return { level: Math.min(1, state.micLevel * 1.6), freq: null, wave: null };
+  if (st === 'speaking' && synth) return { level: synth, freq: null, wave: null };
+  if (st === 'listening') return { level: Math.min(1, env.micLevel() * 1.6), freq: null, wave: null };
   return { level: 0, freq: null, wave: null };
 }
 

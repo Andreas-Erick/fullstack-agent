@@ -11,7 +11,7 @@ export function initEvolution() {
   api.on('self:event', (ev) => {
     if (ev.type === 'committed') announce(ev.change);
     else if (ev.type === 'check_failed') {
-      toastActions(`⚠ The agent's code changes failed the syntax check and were not applied to history.`, [['Review', () => openView()]]);
+      toastActions(`⚠ The agent's code changes failed their checks or tests and were not recorded.`, [['Review', () => openView()]]);
       refresh();
     }
   });
@@ -58,7 +58,7 @@ export async function refresh() {
             const summary = await promptDialog('Describe these changes', 'Manual changes');
             if (summary == null) return;
             const r = await api.self.commit(summary).catch(toastError);
-            if (r && !r.ok) toastError(new Error(`Syntax check failed:\n${r.check.output}`));
+            if (r && !r.ok) toastError(new Error(`Checks failed:\n${r.check.output}`));
             else if (r) announce(r);
           },
         }, 'Record'),
@@ -74,6 +74,33 @@ export async function refresh() {
         }, 'Discard'),
       ),
     );
+  }
+
+  // How the last self-change started up once it went live (checked by the app after a restart/reload).
+  const v = await api.self.verification().catch(() => null);
+  if (v?.state === 'problems') {
+    box.append(
+      el('div', { class: 'evo-banner warn' },
+        el('div', {},
+          el('b', {}, `“${v.subject}” (${v.short}) logged problems after it went live:`),
+          el('ul', {}, v.problems.slice(0, 5).map((p) => el('li', {}, `${p.count}× ${p.event}: ${p.message.slice(0, 160)}${p.locations.length ? ` (${p.locations.join(', ')})` : ''}`))),
+          el('div', { class: 'muted' }, 'Ask the assistant to fix it (it knows about these), or revert the change.'),
+        ),
+        el('button', {
+          class: 'btn small danger',
+          onclick: async () => {
+            if (!(await confirmDialog('Revert change', `Undo “${v.subject}”? This is recorded as a new change and can itself be reverted.`, 'Revert'))) return;
+            const r = await api.self.revert(v.sha).catch(toastError);
+            if (r) toastActions('Change reverted.', r.restart ? [['Restart now', () => api.self.restart()]] : r.reload ? [['Reload now', () => api.self.reload()]] : []);
+            refresh();
+          },
+        }, 'Revert'),
+      ),
+    );
+  } else if (v?.state === 'pending') {
+    box.append(el('div', { class: 'evo-banner' }, `“${v.subject}” (${v.short}) is not live yet: ${v.restart ? 'restart the app' : 'reload the window'} to use it. The app then checks that it started cleanly.`));
+  } else if (v?.state === 'ok') {
+    box.append(el('div', { class: 'evo-banner ok' }, `✓ The last self-change (“${v.subject}”, ${v.short}) started cleanly.`));
   }
 
   const log = await api.self.log(200).catch((e) => (toastError(e), []));

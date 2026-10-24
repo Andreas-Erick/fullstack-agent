@@ -25,6 +25,14 @@ body {
 .hidden { display: none !important; }
 .muted { color: var(--muted); }
 button { font: inherit; color: inherit; cursor: pointer; }
+button:disabled { cursor: default; opacity: 0.55; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.offscreen { position: fixed; left: -9999px; top: 0; opacity: 0; }
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+
+/* Line icons (index.html); the stop square is filled. */
+svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.send.stop svg { fill: currentColor; }
 
 .screen { height: 100dvh; display: flex; flex-direction: column; }
 
@@ -43,8 +51,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .btn { padding: 11px 18px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); }
 .btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600; }
 .btn.ghost { background: transparent; color: var(--muted); }
-.icon-btn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: transparent; font-size: 20px; flex: none; }
+.icon-btn { width: 44px; height: 44px; border-radius: 50%; border: 0; background: transparent; flex: none; display: grid; place-items: center; color: var(--text); }
 .icon-btn:active { background: var(--line); }
+.icon-btn.on { color: var(--accent); }
 
 /* Pairing */
 #pair { align-items: center; justify-content: center; padding: 24px 16px; text-align: center; gap: 10px; }
@@ -54,6 +63,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .pair-logo { width: 72px; height: 72px; border-radius: 18px; }
 .input.code { text-align: center; font-size: 28px; letter-spacing: 0.4em; font-variant-numeric: tabular-nums; }
 .error { color: var(--danger); font-size: 14px; }
+.hint-warn { max-width: 340px; margin: 10px 0 0; font-size: 13px; color: var(--muted); }
 
 /* Main */
 .top {
@@ -64,16 +74,34 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-bottom: 1px solid var(--line);
 }
 .title { flex: 1; min-width: 0; padding: 0 6px; }
+.name-row { display: flex; align-items: center; gap: 7px; }
 .name { font-weight: 700; letter-spacing: 0.25em; font-size: 13px; color: var(--accent); }
 .sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conn { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); margin: 0 6px; flex: none; }
+.conn { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; transition: background 0.3s; }
 .conn.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 
+/* Status line under the header: lost connection, or an unencrypted address */
+.banner { display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 13px; border-bottom: 1px solid var(--line); }
+.banner svg { width: 16px; height: 16px; }
+.banner span:not(.spin) { flex: 1; }
+.banner.offline { color: var(--text); background: color-mix(in srgb, var(--danger) 16%, var(--bg)); }
+.banner.warn { color: var(--muted); background: color-mix(in srgb, var(--surface) 70%, var(--bg)); }
+.banner-x { border: 0; background: transparent; padding: 4px; margin: -4px; display: grid; place-items: center; color: var(--muted); }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.9s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .face-wrap { position: relative; height: 22dvh; min-height: 120px; flex: none; }
+/* Landscape, or the keyboard is open on a small phone: the conversation gets the room. */
+@media (max-height: 520px) { .face-wrap { display: none; } }
 #face { width: 100%; height: 100%; display: block; }
 .face-state { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: 10px; letter-spacing: 0.35em; color: var(--muted); }
 
-.messages { flex: 1; overflow-y: auto; padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+.messages-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.messages { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+.empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); font-size: 14px; pointer-events: none; }
+.empty p { max-width: 300px; margin: 0; }
+.jump { position: absolute; right: 14px; bottom: 12px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--accent); display: grid; place-items: center; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
+.jump svg { width: 18px; height: 18px; }
 .msg { display: flex; flex-direction: column; max-width: 88%; }
 .msg.user { align-self: flex-end; align-items: flex-end; }
 .msg.assistant { align-self: flex-start; }
@@ -96,6 +124,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .chip.good { border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
 .chip.bad { border-color: var(--danger); color: var(--danger); }
 .notice { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.actions { display: flex; gap: 4px; margin-top: 2px; }
+.act { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 6px 8px; border-radius: 8px; }
+.act:active { background: var(--line); }
+.act svg { width: 14px; height: 14px; }
 
 .composer {
   display: flex;
@@ -106,21 +138,26 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .composer textarea { flex: 1; resize: none; max-height: 140px; height: 46px; line-height: 22px; scrollbar-width: none; padding: 11px 14px; border-radius: 22px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; outline: none; }
 .composer textarea:focus { border-color: var(--accent); }
-.send { width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--accent); color: var(--bg); font-size: 18px; flex: none; }
+.send { width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--accent); color: var(--bg); flex: none; display: grid; place-items: center; }
 .send.stop { background: var(--danger); color: #fff; }
-.mic { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); font-size: 20px; flex: none; touch-action: none; user-select: none; -webkit-user-select: none; }
+.mic { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); flex: none; display: grid; place-items: center; touch-action: none; user-select: none; -webkit-user-select: none; }
+.mic svg { pointer-events: none; }
 .mic.live { background: var(--danger); border-color: var(--danger); box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 25%, transparent); }
 .mic.busy { opacity: 0.5; }
 
 /* Approvals sit above the composer */
-.approvals { display: flex; flex-direction: column; gap: 8px; padding: 0 10px; }
+.approvals { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 0; max-height: 50dvh; overflow-y: auto; flex: none; }
 .approvals:empty { display: none; }
-.approval { padding: 12px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--surface); box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 25%, transparent); }
+.approval { padding: 12px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--surface); box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 25%, transparent); animation: rise 0.2s ease-out; }
+@keyframes rise { from { transform: translateY(8px); opacity: 0; } }
 .approval .kind { font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); }
+.approval .kind .left { color: var(--muted); letter-spacing: 0.05em; text-transform: none; font-variant-numeric: tabular-nums; }
 .approval b { display: block; margin: 2px 0 6px; }
-.approval .detail { max-height: 120px; overflow: auto; margin: 0 0 8px; font-size: 12px; white-space: pre-wrap; color: var(--muted); }
+.approval .detail { max-height: 120px; overflow: auto; margin: 0 0 8px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
 .approval .warn { font-size: 13px; color: var(--danger); margin-bottom: 8px; }
-.approval .row { display: flex; gap: 8px; justify-content: flex-end; }
+.approval .sources { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.approval .row { display: flex; gap: 8px; }
+.approval .row .btn { flex: 1; min-height: 44px; }
 
 /* Drawer */
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 5; }
@@ -138,6 +175,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding: calc(10px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom));
 }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 0 6px 8px; }
+.input.search { padding: 9px 12px; margin-bottom: 8px; font-size: 15px; }
 .conv-list { list-style: none; margin: 0; padding: 0; flex: 1; overflow-y: auto; }
 .conv-list li.muted { padding: 10px; }
 .conv { width: 100%; text-align: left; border: 0; background: transparent; padding: 10px; border-radius: 10px; display: flex; flex-direction: column; }
@@ -159,3 +197,140 @@ button { font: inherit; color: inherit; cursor: pointer; }
   text-align: center;
   z-index: 10;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .spin, .approval { animation: none; }
+}
+
+/* ===================================================================== HUD layer
+   The desktop's "Visual effects" setting (/api/info fx): body.fx-hud = everything, body.fx-subtle =
+   static parts, neither = the plain look. Same visual language as renderer/hud.css. Animations use
+   transform/opacity only; body.fx-still (reduce motion) stops them. */
+@property --hud-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+:is(.fx-hud, .fx-subtle) { --mono: ui-monospace, 'SF Mono', 'Roboto Mono', 'Cascadia Code', monospace; --glow-c: color-mix(in srgb, var(--accent) 60%, transparent); }
+:is(.fx-hud, .fx-subtle) .screen { position: relative; z-index: 1; }
+
+/* Ambient: a perspective grid floor drifting toward you, and fine scanlines. */
+.fx-hud::before {
+  content: '';
+  position: fixed;
+  left: -60%;
+  right: -60%;
+  bottom: 0;
+  height: 200%;
+  z-index: 0;
+  pointer-events: none;
+  background-image: linear-gradient(color-mix(in srgb, var(--accent) 40%, transparent) 2px, transparent 2px), linear-gradient(90deg, color-mix(in srgb, var(--accent) 40%, transparent) 2px, transparent 2px);
+  background-size: 64px 64px;
+  transform-origin: 50% 100%;
+  transform: perspective(420px) rotateX(62deg);
+  -webkit-mask-image: linear-gradient(to top, #000 2%, transparent 40%);
+  mask-image: linear-gradient(to top, #000 2%, transparent 40%);
+  opacity: 0.5;
+  animation: hud-grid 5s linear infinite;
+}
+@keyframes hud-grid { to { transform: perspective(420px) rotateX(62deg) translateY(64px); } }
+.fx-hud::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0, 0, 0, 0.07) 2px 3px), radial-gradient(ellipse at 50% 40%, transparent 60%, rgba(0, 0, 0, 0.35));
+}
+
+/* Header: monospace readouts, a link status next to the name. */
+:is(.fx-hud, .fx-subtle) .top { background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 92%, transparent), color-mix(in srgb, var(--bg) 60%, transparent)); border-bottom-color: transparent; box-shadow: 0 1px 0 var(--line), 0 6px 20px -12px var(--glow-c); position: relative; }
+:is(.fx-hud, .fx-subtle) .name { font-family: var(--mono); letter-spacing: 0.32em; text-shadow: 0 0 10px var(--glow-c); }
+:is(.fx-hud, .fx-subtle) .name-row::after { content: attr(data-link); font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.16em; color: var(--muted); }
+:is(.fx-hud, .fx-subtle) .sub { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em; }
+.fx-hud .top::after { content: ''; position: absolute; left: 0; bottom: -1px; width: 140px; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: hud-scan-x 5s linear infinite; }
+@keyframes hud-scan-x { from { transform: translateX(-140px); } to { transform: translateX(100vw); } }
+:is(.fx-hud, .fx-subtle) .face-state { font-family: var(--mono); color: color-mix(in srgb, var(--accent) 70%, var(--muted)); }
+:is(.fx-hud, .fx-subtle) .face-state::before { content: '[ '; }
+:is(.fx-hud, .fx-subtle) .face-state::after { content: ' ]'; }
+
+/* Messages read like telemetry: a stamp line, neon edges, a shimmer while streaming. */
+:is(.fx-hud, .fx-subtle) .msg.assistant .bubble { border-bottom-left-radius: 2px; border-top-left-radius: 2px; box-shadow: inset 2px 0 0 var(--accent), -6px 0 16px -10px var(--accent); }
+:is(.fx-hud, .fx-subtle) .msg.user .bubble { border-bottom-right-radius: 2px; box-shadow: inset -2px 0 0 var(--accent2), 6px 0 16px -10px var(--accent2); }
+:is(.fx-hud, .fx-subtle) .msg.assistant .bubble[data-stamp]::before {
+  content: attr(data-stamp);
+  display: block;
+  margin: -2px 0 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px dashed var(--line);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--accent) 75%, var(--text));
+}
+.fx-hud .bubble.streaming { background-image: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--accent) 10%, transparent) 45%, transparent 70%); background-size: 250% 100%; animation: hud-shimmer 1.8s linear infinite; }
+@keyframes hud-shimmer { from { background-position: 150% 0; } to { background-position: -100% 0; } }
+:is(.fx-hud, .fx-subtle) .chip { border-radius: 4px; font-family: var(--mono); font-size: 11px; }
+:is(.fx-hud, .fx-subtle) .chip::before { content: '> '; color: var(--accent); }
+:is(.fx-hud, .fx-subtle) .act { font-family: var(--mono); letter-spacing: 0.06em; text-transform: uppercase; font-size: 10.5px; }
+
+/* HUD frames: corner brackets on approvals and the composer frame. */
+:is(.fx-hud, .fx-subtle) .approvals { padding: 10px 14px 6px; }
+:is(.fx-hud, .fx-subtle) .approval { position: relative; border-radius: 6px; }
+:is(.fx-hud, .fx-subtle) .approval::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 1.5px solid var(--accent);
+  border-radius: 8px;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) 0 0 / 16px 16px no-repeat, linear-gradient(#000 0 0) 100% 0 / 16px 16px no-repeat, linear-gradient(#000 0 0) 0 100% / 16px 16px no-repeat, linear-gradient(#000 0 0) 100% 100% / 16px 16px no-repeat;
+  mask: linear-gradient(#000 0 0) 0 0 / 16px 16px no-repeat, linear-gradient(#000 0 0) 100% 0 / 16px 16px no-repeat, linear-gradient(#000 0 0) 0 100% / 16px 16px no-repeat, linear-gradient(#000 0 0) 100% 100% / 16px 16px no-repeat;
+}
+:is(.fx-hud, .fx-subtle) .approval .kind { font-family: var(--mono); }
+:is(.fx-hud, .fx-subtle) .approval .btn { border-radius: 6px; font-family: var(--mono); letter-spacing: 0.12em; text-transform: uppercase; font-size: 14px; }
+
+/* Composer: an energy border on focus and while the assistant works. */
+:is(.fx-hud, .fx-subtle) .composer { position: relative; }
+:is(.fx-hud, .fx-subtle) .composer textarea { border-radius: 8px; }
+:is(.fx-hud, .fx-subtle) :is(.send, .mic) { border-radius: 10px; }
+:is(.fx-hud, .fx-subtle) .composer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1.5px;
+  pointer-events: none;
+  background: conic-gradient(from var(--hud-angle), transparent 0 55%, var(--accent) 72%, var(--accent2) 84%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+:is(.fx-hud, .fx-subtle) .composer:focus-within::before, :is(.fx-hud, .fx-subtle).busy .composer::before { opacity: 1; }
+.fx-hud .composer::before { animation: hud-angle 3s linear infinite; }
+.fx-hud.busy .composer::before { animation-duration: 1.1s; }
+@keyframes hud-angle { to { --hud-angle: 360deg; } }
+
+/* Notices and the drawer. */
+:is(.fx-hud, .fx-subtle) .toast { border-radius: 4px; border-left: 3px solid var(--accent); text-align: left; font-family: var(--mono); font-size: 13px; }
+:is(.fx-hud, .fx-subtle) .banner { font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; }
+:is(.fx-hud, .fx-subtle) .drawer { box-shadow: 1px 0 0 var(--line), 12px 0 40px -20px var(--glow-c); }
+:is(.fx-hud, .fx-subtle) .drawer-head b { font-family: var(--mono); letter-spacing: 0.24em; text-transform: uppercase; font-size: 13px; color: var(--accent); }
+:is(.fx-hud, .fx-subtle) .conv { border-radius: 4px; }
+:is(.fx-hud, .fx-subtle) .conv.current { box-shadow: inset 2px 0 0 var(--accent); }
+:is(.fx-hud, .fx-subtle) .conv small { font-family: var(--mono); font-size: 11px; }
+:is(.fx-hud, .fx-subtle) .empty p { font-family: var(--mono); font-size: 12.5px; line-height: 1.6; }
+
+/* Pairing screen: a terminal-like sign-in. */
+:is(.fx-hud, .fx-subtle) #pair h1 { font-family: var(--mono); font-size: 17px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); text-shadow: 0 0 14px var(--glow-c); }
+:is(.fx-hud, .fx-subtle) .input { border-radius: 6px; }
+:is(.fx-hud, .fx-subtle) .input.code { font-family: var(--mono); box-shadow: inset 0 0 18px -8px var(--glow-c); }
+:is(.fx-hud, .fx-subtle) .btn.primary { border-radius: 6px; font-family: var(--mono); letter-spacing: 0.2em; text-transform: uppercase; box-shadow: 0 0 22px -6px var(--accent); }
+
+/* Link splash: shown while the phone connects to the computer (never longer than a few seconds). */
+.hud-splash { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: radial-gradient(ellipse at center, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%), var(--bg); font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace; transition: opacity 0.4s, filter 0.4s; }
+.hud-splash.out { opacity: 0; filter: blur(6px) brightness(1.5); pointer-events: none; }
+.hud-splash-box { text-align: center; }
+.hud-splash-ring { width: 84px; height: 84px; margin: 0 auto 20px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); box-shadow: 0 0 24px -6px var(--accent); animation: spin 1s linear infinite; }
+.hud-splash-title { font-size: 18px; letter-spacing: 0.4em; color: var(--accent); text-shadow: 0 0 14px var(--glow-c, var(--accent)); }
+.hud-splash-sub { margin-top: 8px; font-size: 11px; letter-spacing: 0.22em; color: var(--muted); }
+
+.fx-still *, .fx-still *::before, .fx-still *::after, .fx-still::before { animation: none !important; transition-duration: 0.01ms !important; }

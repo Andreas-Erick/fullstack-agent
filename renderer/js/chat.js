@@ -3,6 +3,7 @@ import { $, api, el, renderMarkdown, timeAgo, toast, toastError, confirmDialog, 
 import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
 import { speaker } from './voice.js';
+import { handoffSlot } from './handoff.js';
 
 let currentId = null;
 let conversations = [];
@@ -152,6 +153,7 @@ function emptyStateNode() {
   node.querySelector('#welcomeTitle').textContent = `${name} online`;
   node.querySelector('#welcomeGreeting').textContent = state.settings?.appearance?.greeting || '';
   node.querySelector('#pttHint').textContent = state.settings?.stt?.pttKey || 'F8';
+  node.querySelector('.suggestions').before(handoffSlot(openConversation)); // "Where we left off"
   return node;
 }
 
@@ -237,6 +239,11 @@ const TOOL_LABELS = {
   code_list_files: '💾 Listed source files',
   code_read_file: '💾 Read source',
   code_search: '💾 Searched source',
+  code_grep: '💾 Searched source (exact)',
+  code_outline: '💾 Outlined a file',
+  code_map: '🗺 Mapped its architecture',
+  code_diff: '🛠 Reviewed its changes',
+  run_tests: '🧪 Ran its tests',
   code_edit_file: '🛠 Edited own code',
   code_write_file: '🛠 Wrote own code',
   code_check: '🛠 Checked code',
@@ -262,6 +269,7 @@ const TOOL_LABELS = {
   history_search: '🔎 Searched past chats',
   diagnose: '🩺 Ran diagnostics',
   read_app_log: '🩺 Read its log',
+  analyze_errors: '🩺 Analyzed its errors',
   settings_read: '⚙ Read its settings',
   settings_update: '⚙ Changed a setting',
   Read: '💾 Read file',
@@ -310,14 +318,24 @@ function messageNode(m) {
   const body = el('div', { class: 'msg-body' });
   if (m.toolCalls?.length) body.append(el('div', { class: 'tools' }, m.toolCalls.map(toolChip)));
   const bubble = el('div', { class: 'bubble' });
-  if (m.role === 'assistant') bubble.innerHTML = renderMarkdown(m.content || '');
-  else bubble.textContent = m.display || m.content;
+  if (m.role === 'assistant') {
+    bubble.innerHTML = renderMarkdown(m.content || '');
+    bubble.dataset.stamp = stamp(m);
+  } else bubble.textContent = m.display || m.content;
   const tags = [m.skill && `⚡ skill /${m.skill}`, m.screen && '🖥 screen shared'].filter(Boolean);
   if (tags.length) body.append(el('div', { class: 'msg-tag' }, tags.map((t) => el('span', {}, t))));
   body.append(bubble);
   body.append(metaNode(m));
   wrap.append(avatarNode(m.role), body);
   return wrap;
+}
+
+// The telemetry line the HUD shows on a reply (hud.css): "NEXUS · 14:32:05 · OPUS 5.5".
+const agentName = () => state.settings?.agent?.name || 'Nexus';
+function stamp(m) {
+  const time = new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const model = String(m.model || '').replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-/g, ' ');
+  return [agentName(), time, model].filter(Boolean).join(' · ');
 }
 
 function metaNode(m) {
@@ -383,7 +401,7 @@ export async function send(text, { voice = false, hidden = false } = {}) {
   const wrap = el('div', { class: 'msg assistant' });
   const body = el('div', { class: 'msg-body' });
   const tools = el('div', { class: 'tools' });
-  const bubble = el('div', { class: 'bubble streaming' });
+  const bubble = el('div', { class: 'bubble streaming', 'data-stamp': `${agentName()} · live` });
   body.append(tools, bubble);
   wrap.append(avatarNode('assistant'), body);
   messagesEl().append(wrap);
@@ -498,6 +516,7 @@ function handleEvent(ev) {
       const m = ev.message;
       active.bubble.classList.remove('streaming');
       active.bubble.innerHTML = renderMarkdown(m.content || '');
+      active.bubble.dataset.stamp = stamp(m);
       active.body.append(metaNode(m));
       if (ttsActive() && !active.muted) speaker.flush();
       finish();

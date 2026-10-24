@@ -17,6 +17,7 @@ const github = require('./github');
 const approvals = require('./approvals');
 const router = require('./router');
 const log = require('./logger');
+const { isEngineeringTask, toolBudget, upgradeBudget, turnEffort } = require('./engineering');
 
 const noToolSupport = new Set(); // `${baseUrl}|${model}` combos that rejected the tools parameter
 
@@ -150,7 +151,7 @@ function sessionConfigKey(settings) {
   const { agent, appearance, voice, safety, code, web } = settings;
   return JSON.stringify([agent.name, agent.personality, agent.aesthetic, appearance.personaNotes, voice.ttsEnabled && voice.autoSpeak, safety.permissionMode, code.enabled, code.allowSelfModify, web.enabled, PROMPT_VERSION]);
 }
-const PROMPT_VERSION = 3;
+const PROMPT_VERSION = 4;
 
 async function claudeCodeOptions(settings, active, model) {
   const names = active.map((t) => t.name);
@@ -222,11 +223,14 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   const names = active.map((t) => t.name);
   // logTags: tool calls that arrive later through other channels (the MCP bridge, the Claude Code
   // process's output) are logged under this turn too.
-  const ctx = { emit, turn: approvals.newTurn(), logTags: log.context() };
+  const lastText = String(history[history.length - 1]?.content || '');
+  // Spoken turns stay quick unless they actually start engineering work (upgraded in runTool).
+  const engineering = !setup && !voice && isEngineeringTask(lastText);
+  const ctx = { emit, turn: approvals.newTurn(), logTags: log.context(), budget: toolBudget(settings, engineering) };
   // A screenshot can contain anything on screen (web pages, emails): it is external content.
   if (images.length) approvals.markTainted(ctx.turn, 'the shared screen');
   const model = effectiveModel(settings, { voice });
-  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', voice, setup, images: images.length || undefined, conversation: conv.id, text: String(history[history.length - 1]?.content || '').slice(0, 200) });
+  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', voice, setup, engineering: engineering || undefined, images: images.length || undefined, conversation: conv.id, text: lastText.slice(0, 200) });
   if (settings.llm.provider === 'claude-code') {
     const opts = await claudeCodeOptions(settings, active, model);
     if (setup) {
@@ -322,6 +326,7 @@ async function completeOn(settings, text, { image } = {}) {
 }
 
 async function runTool(call, ctx, emit) {
+  if (upgradeBudget(ctx, call.name)) log.info('engineering mode', { after: call.name, rounds: ctx.budget.rounds });
   emit({ type: 'tool_start', id: call.id, name: call.name, input: call.input });
   const { ok, result, image } = await tools.execute(call.name, call.input, ctx);
   const summary = tools.stringifyResult(result);
@@ -490,7 +495,7 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
   let fullText = '';
   let servedModel = model;
 
-  for (let round = 0; round < (settings.llm.maxToolRounds || 8) + 1; round++) {
+  for (let round = 0; round < ctx.budget.rounds + 1; round++) {
     const payload = {
       model,
       messages: [...messages, ...turnMessages],
@@ -498,7 +503,7 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       temperature: Number(settings.llm.temperature),
       max_tokens: Number(settings.llm.maxTokens) || undefined,
     };
-    if (useTools && round < (settings.llm.maxToolRounds || 8)) payload.tools = fnTools;
+    if (useTools && round < ctx.budget.rounds) payload.tools = fnTools;
 
     if (fullText && !fullText.endsWith('\n')) {
       fullText += '\n\n';
@@ -641,14 +646,14 @@ async function runAnthropic({ settings, history, emit, signal, active, system, c
   let servedModel = model;
   let jsonRetries = 0;
 
-  for (let round = 0; round < (settings.llm.maxToolRounds || 8) + 1; round++) {
+  for (let round = 0; round < ctx.budget.rounds + 1; round++) {
     const params = {
       model,
       max_tokens: Number(a.maxTokens) || 64000,
       system,
       messages: [...messages, ...turnMessages],
       thinking: { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'drop_block' } },
-      output_config: { effort: a.effort || 'medium' },
+      output_config: { effort: turnEffort(a.effort, ctx) },
       betas,
     };
     if (apiTools.length) params.tools = apiTools;

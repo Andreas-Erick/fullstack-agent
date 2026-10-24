@@ -40,6 +40,8 @@ public class MainActivity extends Activity {
     static final String ACTION_TALK = "com.nexusagent.android.TALK";
     private static final int REQ_MIC = 1;
     private static final int REQ_NOTIFY = 2;
+    /** The link in the desktop's pairing QR code: address + #pair=one-time secret. */
+    private static final java.util.regex.Pattern PAIR_LINK = java.util.regex.Pattern.compile("^(https?://\\S+?)/?#pair=([A-Za-z0-9_-]{43})$");
 
     /** True while the app is on screen; the service then leaves notifications to the page. */
     static volatile boolean foreground;
@@ -51,6 +53,8 @@ public class MainActivity extends Activity {
     private boolean loaded;
     private String pendingJs;
     private PermissionRequest pendingPermission;
+    /** "#pair=…" for the next page load only (from a pairing link entered on the setup screen). */
+    private String pendingPair;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -71,7 +75,7 @@ public class MainActivity extends Activity {
         });
         setContentView(root);
         origin = Prefs.server(this);
-        if (origin == null) showSetup(null);
+        if (origin == null) showSetup(null, null);
         else showWeb();
         handleIntent(getIntent());
     }
@@ -110,19 +114,20 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------ first run
-    private void showSetup(String error) {
+    /** prefill: a pairing link shared to the app; it is only filled in, the user still taps Connect. */
+    private void showSetup(String error, String prefill) {
         destroyWeb();
-        root.removeAllViews();
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.CENTER);
-        int pad = dp(24);
-        box.setPadding(pad, pad, pad, pad);
+        LinearLayout box = hudPanel();
 
-        TextView title = text(getString(R.string.setup_title), 22, getColor(R.color.text));
+        TextView title = text(getString(R.string.setup_title), 18, getColor(R.color.text));
+        Hud.title(title);
+        TextView sub = text(getString(R.string.hud_setup_sub), 11, getColor(R.color.muted));
+        Hud.readout(sub);
+        sub.setPadding(0, dp(6), 0, 0);
         TextView hint = text(getString(R.string.setup_hint), 15, getColor(R.color.muted));
-        hint.setPadding(0, dp(10), 0, dp(18));
+        hint.setPadding(0, dp(14), 0, dp(18));
         EditText address = new EditText(this);
+        Hud.field(address);
         address.setHint(R.string.setup_address);
         address.setSingleLine(true);
         address.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
@@ -130,20 +135,27 @@ public class MainActivity extends Activity {
         address.setTextColor(getColor(R.color.text));
         address.setHintTextColor(getColor(R.color.muted));
         String last = Prefs.server(this);
-        if (last != null) address.setText(last);
+        if (prefill != null) address.setText(prefill);
+        else if (last != null) address.setText(last);
         TextView err = text(error == null ? "" : error, 14, Color.rgb(255, 77, 109));
         err.setPadding(0, dp(8), 0, 0);
         Button connect = new Button(this);
         connect.setText(R.string.setup_connect);
+        Hud.button(connect, true);
         Runnable go = () -> {
-            String o = Prefs.toOrigin(address.getText().toString());
+            String typed = address.getText().toString().trim();
+            // A pairing link (from the QR code) connects and pairs in one step; only the address is saved.
+            java.util.regex.Matcher link = PAIR_LINK.matcher(typed);
+            boolean isLink = link.matches();
+            String o = Prefs.toOrigin(isLink ? link.group(1) : typed);
             if (o == null) {
                 err.setText(R.string.setup_invalid);
                 return;
             }
-            if (!o.equals(Prefs.server(this))) Prefs.setToken(this, null, null); // a new desktop: pair again
+            if (!o.equals(Prefs.server(this)) || isLink) Prefs.setToken(this, null, null); // a new desktop or pairing: pair again
             Prefs.setServer(this, o);
             origin = o;
+            pendingPair = isLink ? "#pair=" + link.group(2) : null;
             showWeb();
         };
         connect.setOnClickListener(v -> go.run());
@@ -152,42 +164,63 @@ public class MainActivity extends Activity {
             return true;
         });
         box.addView(title);
+        box.addView(sub);
         box.addView(hint);
         box.addView(address, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         box.addView(err);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(12);
         box.addView(connect, lp);
-        root.addView(box, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
     private void showError(String detail) {
         destroyWeb();
-        root.removeAllViews();
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.CENTER);
-        int pad = dp(24);
-        box.setPadding(pad, pad, pad, pad);
-        box.addView(text(getString(R.string.error_title), 20, getColor(R.color.text)));
-        TextView d = text(origin + "\n" + detail, 14, getColor(R.color.muted));
-        d.setPadding(0, dp(8), 0, dp(16));
+        LinearLayout box = hudPanel();
+        TextView title = text(getString(R.string.error_title), 17, getColor(R.color.text));
+        Hud.title(title);
+        title.setTextColor(Color.rgb(255, 77, 109));
+        title.setShadowLayer(dp(10), 0, 0, Color.argb(200, 255, 77, 109));
+        box.addView(title);
+        TextView d = text(origin + "\n" + detail, 13, getColor(R.color.muted));
+        Hud.readout(d);
+        d.setPadding(0, dp(10), 0, dp(18));
         box.addView(d);
         Button retry = new Button(this);
         retry.setText(R.string.error_retry);
+        Hud.button(retry, true);
         retry.setOnClickListener(v -> showWeb());
         Button change = new Button(this);
         change.setText(R.string.error_change);
-        change.setOnClickListener(v -> showSetup(null));
-        box.addView(retry);
-        box.addView(change);
-        root.addView(box, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        Hud.button(change, false);
+        change.setOnClickListener(v -> showSetup(null, null));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        box.addView(retry, lp);
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp2.topMargin = dp(10);
+        box.addView(change, lp2);
+    }
+
+    /** A native screen in the HUD style: grid background, and a bracketed panel in the middle (returned). */
+    private LinearLayout hudPanel() {
+        root.removeAllViews();
+        root.setBackground(Hud.background(this));
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setGravity(Gravity.CENTER_HORIZONTAL);
+        panel.setBackground(Hud.frame(this));
+        int pad = dp(22);
+        panel.setPadding(pad, pad, pad, pad);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        lp.leftMargin = lp.rightMargin = dp(20);
+        root.addView(panel, lp);
+        return panel;
     }
 
     // ------------------------------------------------------------ web view
     private void showWeb() {
         destroyWeb();
         root.removeAllViews();
+        root.setBackgroundColor(getColor(R.color.bg));
         loaded = false;
         web = new WebView(this);
         web.setBackgroundColor(getColor(R.color.bg));
@@ -251,7 +284,8 @@ public class MainActivity extends Activity {
             }
         });
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        web.loadUrl(origin + "/");
+        web.loadUrl(origin + "/" + (pendingPair == null ? "" : pendingPair));
+        pendingPair = null;
     }
 
     /** Our desktop's address, and Cloudflare Access's sign-in pages (only if the address is https). */
@@ -288,7 +322,8 @@ public class MainActivity extends Activity {
         if (intent == null) return;
         if (Intent.ACTION_SEND.equals(intent.getAction())) {
             String text = intent.getStringExtra(Intent.EXTRA_TEXT);
-            if (text != null && !text.trim().isEmpty()) runJs("window.nexusShare && nexusShare(" + JSONObject.quote(text.trim()) + ")");
+            if (text != null && PAIR_LINK.matcher(text.trim()).matches()) showSetup(null, text.trim()); // the user confirms the address
+            else if (text != null && !text.trim().isEmpty()) runJs("window.nexusShare && nexusShare(" + JSONObject.quote(text.trim()) + ")");
         } else if (ACTION_TALK.equals(intent.getAction())) {
             runJs("window.nexusTalk && nexusTalk()");
         }
@@ -350,7 +385,7 @@ public class MainActivity extends Activity {
                 ConnectionService.stop(MainActivity.this);
                 Prefs.setToken(MainActivity.this, null, null);
                 Prefs.setBackground(MainActivity.this, false);
-                showSetup(null);
+                showSetup(null, null);
             });
         }
     }

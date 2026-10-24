@@ -21,6 +21,7 @@ const DEFAULTS = {
   appearance: {
     theme: null, // generated or edited theme object; null = default neon circuit theme
     personaNotes: '', // tone/style notes derived from the aesthetic, injected into the system prompt
+    greeting: '', // welcome line on the empty chat and spoken on launch; empty = a default greeting
     applyVoice: true, // let persona generation pick a matching VoiceStudio voice
   },
   llm: {
@@ -32,6 +33,7 @@ const DEFAULTS = {
     maxTokens: 4096,
     useTools: true,
     maxToolRounds: 8,
+    engineeringToolRounds: 40, // coding, self-change and debugging turns (llm.js engineering mode)
     historyLimit: 30,
     compaction: true, // summarize older turns instead of dropping them
     modelMode: 'default', // default | fast | deep (switchable by voice)
@@ -166,6 +168,7 @@ const DEFAULTS = {
   journal: {
     enabled: true, // write a session entry to the daily note after a conversation goes quiet
     idleMinutes: 15,
+    handoffOnClose: true, // on closing the app, note where we left off (handoff.js) for the next session
   },
   memory: {
     vaultPath: '', // empty = <vault>/Memory
@@ -182,6 +185,7 @@ const DEFAULTS = {
     chatLayout: 'split', // chat | split | face — what the chat view shows
     facePanelWidth: 300, // width of the face next to the chat in the split layout (drag the divider)
     sleepAfterMin: 10, // the face dozes off after this long without activity (0 = never)
+    fx: 'hud', // visual effects (renderer/hud.css): hud = futuristic, with motion | subtle = static | off
   },
 };
 
@@ -410,6 +414,7 @@ async function listConversations() {
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
         count: c.messages?.length || 0,
+        ...(c.setup ? { setup: true } : {}),
       };
     }),
   );
