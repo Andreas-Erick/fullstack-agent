@@ -327,6 +327,46 @@
   color: var(--muted);
 }
 
+/* ---------------------------------------------------------------- calendar */
+/* An instrument-panel calendar: readouts, cut corners, a bracketed "today", a live time line. */
+:is(.fx-hud, .fx-subtle) .cal-stamp::before { content: '// '; color: rgba(var(--c1), 0.7); }
+:is(.fx-hud, .fx-subtle) .cal-range { text-shadow: 0 0 12px rgba(var(--c1), 0.45); }
+:is(.fx-hud, .fx-subtle) .cal-dow div::before { content: '·'; margin-right: 6px; color: rgba(var(--c1), 0.6); }
+:is(.fx-hud, .fx-subtle) .cal-pill { border-radius: 2px; }
+:is(.fx-hud, .fx-subtle) .cal-block { border-radius: 2px; clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%); }
+:is(.fx-hud, .fx-subtle) .cal-cell.today::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 1.5px solid var(--hud-bracket);
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) 0 0 / 10px 10px no-repeat, linear-gradient(#000 0 0) 100% 0 / 10px 10px no-repeat, linear-gradient(#000 0 0) 0 100% / 10px 10px no-repeat, linear-gradient(#000 0 0) 100% 100% / 10px 10px no-repeat;
+  mask: linear-gradient(#000 0 0) 0 0 / 10px 10px no-repeat, linear-gradient(#000 0 0) 100% 0 / 10px 10px no-repeat, linear-gradient(#000 0 0) 0 100% / 10px 10px no-repeat, linear-gradient(#000 0 0) 100% 100% / 10px 10px no-repeat;
+  filter: drop-shadow(0 0 4px rgba(var(--c1), 0.6));
+}
+.fx-hud .cal-cell.today::after { animation: hud-cal-pulse 2.8s ease-in-out infinite; }
+@keyframes hud-cal-pulse { 50% { opacity: 0.45; } }
+:is(.fx-hud, .fx-subtle) .cal-ag-day header i, :is(.fx-hud, .fx-subtle) .cal-next small { font-family: var(--hud-mono); }
+:is(.fx-hud, .fx-subtle) .cal-next { border-radius: 3px; border-left: 3px solid var(--ev-c, rgb(var(--c1))); }
+.fx-hud .cal-next.live { animation: hud-cal-pulse 1.6s ease-in-out infinite; }
+:is(.fx-hud, .fx-subtle) .cal-big b::after { content: ''; display: block; height: 2px; margin-top: 4px; background: linear-gradient(90deg, rgb(var(--c1)), transparent); }
+/* Today's column in the week: a slow sweep of light, and a glowing "now" line. */
+.fx-hud .cal-wk-col.today { overflow: hidden; }
+.fx-hud .cal-wk-col.today::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 120px;
+  background: linear-gradient(to bottom, transparent, rgba(var(--c1), 0.08), transparent);
+  pointer-events: none;
+  animation: hud-cal-sweep 9s linear infinite;
+}
+@keyframes hud-cal-sweep { from { transform: translateY(-120px); } to { transform: translateY(1104px); } }
+:is(.fx-hud, .fx-subtle) .cal-now { box-shadow: 0 0 10px rgba(var(--err), 0.9), 0 0 22px rgba(var(--err), 0.4); }
+:is(.fx-hud, .fx-subtle) .cal-daypick button { border-radius: 3px; }
+
 /* ---------------------------------------------------------------- scrollbars */
 :is(.fx-hud, .fx-subtle) ::-webkit-scrollbar { width: 6px; height: 6px; }
 :is(.fx-hud, .fx-subtle) ::-webkit-scrollbar-thumb { border: 0; border-radius: 2px; background: rgba(var(--c1), 0.22); }

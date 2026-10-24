@@ -34,6 +34,9 @@ const state = {
   held: [], // events that arrived while our own send was in flight
   face: 'idle',
   name: 'Nexus',
+  view: 'chat', // chat | sched
+  convTitle: '',
+  secureUrl: '', // the computer's https address, when it has one
   speak: store.get(SPEAK_KEY) === '1',
   voice: false,
   stream: null,
@@ -106,6 +109,11 @@ async function api(path, { method = 'GET', body, raw = false } = {}) {
   }
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Error ${res.status}`);
   return raw ? res : res.json();
+}
+
+function setConvTitle(t) {
+  state.convTitle = t;
+  if (state.view !== 'sched') $('#convTitle').textContent = t;
 }
 
 function show(screen) {
@@ -275,6 +283,9 @@ function renderBanner() {
   if (state.token && state.connected === false) {
     b.classList.add('offline');
     b.append(el('span', { class: 'spin', 'aria-hidden': 'true' }), 'Can’t reach the computer. Retrying…');
+  } else if (insecure && state.token && state.secureUrl) {
+    b.classList.add('warn', 'offer');
+    b.append(icon('lock-open'), el('span', {}, 'Not encrypted. A secure address is set up: switch once and it works away from home too.'), el('button', { class: 'banner-btn', type: 'button', onclick: moveToSecure }, 'Switch'));
   } else if (insecure && !insecureSeen()) {
     b.classList.add('warn');
     b.append(icon('lock-open'), el('span', {}, 'Not encrypted: local network only. Away from home, use the secure https address.'), el('button', { class: 'banner-x', 'aria-label': 'Dismiss', onclick: () => {
@@ -298,7 +309,7 @@ function onChat(ev) {
     if (mine) {
       state.convId = ev.conversationId;
       store.set(CONV_KEY, ev.conversationId);
-      $('#convTitle').textContent = ev.title || 'Conversation';
+      setConvTitle(ev.title || 'Conversation');
     } else {
       // A turn from the desktop or another device in the conversation shown here.
       addMessage(ev.userMessage);
@@ -341,6 +352,7 @@ function onChat(ev) {
       turn.bubble.dataset.stamp = stamp(ev.message);
       turn.wrap.append(actions(ev.message?.content || ''));
       state.happyUntil = Date.now() + 1800; // the face's short "done" glow, as on the desktop
+      sched.cache.clear(); // the reply may have changed the schedule
       endTurn(turn);
       if (turn.mine && state.speak) say(ev.message?.content || '');
       break;
@@ -354,7 +366,16 @@ function onChat(ev) {
   }
 }
 
-const label = (name) => String(name || 'tool').replace(/^mcp__\w+__/, '').replace(/_/g, ' ');
+// What a tool did, in words (the desktop's labels, shortened); anything else by its name.
+const TOOL_WORDS = {
+  calendar_get_events: 'Checked schedule', calendar_list_entries: 'Looked up schedule', calendar_add_event: 'Added to schedule', calendar_update_event: 'Changed schedule', calendar_delete_event: 'Removed from schedule',
+  memory_save: 'Saved a memory', memory_update: 'Updated a memory', memory_search: 'Searched memory', web_search: 'Searched the web', web_fetch: 'Read a web page',
+  vault_search: 'Searched notes', vault_read_note: 'Read a note', vault_write_note: 'Wrote a note', daily_note_log: 'Logged the day', priorities_update: 'Updated priorities', history_search: 'Searched history',
+};
+const label = (name) => {
+  const n = String(name || 'tool').replace(/^mcp__\w+__/, '');
+  return TOOL_WORDS[n] || n.replace(/_/g, ' ');
+};
 
 // The telemetry line the HUD shows on a reply: "NEXUS · 14:32:05 · OPUS 5.5".
 function stamp(m) {
@@ -516,19 +537,19 @@ async function loadConversation(id) {
   scrollDown(true);
   $('#empty').classList.add('hidden'); // not while the conversation loads
   if (!id) {
-    $('#convTitle').textContent = 'New conversation';
+    setConvTitle('New conversation');
     return updateEmpty();
   }
   try {
     const conv = await api(`/api/conversations/${encodeURIComponent(id)}`);
-    $('#convTitle').textContent = conv.title || 'Conversation';
+    setConvTitle(conv.title || 'Conversation');
     for (const m of conv.messages) addMessage(m);
     scrollDown(true);
   } catch (err) {
     if (err instanceof AuthError) return;
     state.convId = null;
     store.set(CONV_KEY, null);
-    $('#convTitle').textContent = 'New conversation';
+    setConvTitle('New conversation');
   }
   updateEmpty();
 }
@@ -563,10 +584,19 @@ function renderConvs() {
   const list = $('#convList');
   list.replaceChildren();
   if (!shown.length) list.append(el('li', { class: 'muted' }, q ? 'No matching conversations.' : 'No conversations yet.'));
+  let group = '';
   for (const c of shown) {
+    const g = q ? '' : dayGroup(c.updatedAt);
+    if (g && g !== group) list.append(el('li', { class: 'conv-group' }, (group = g)));
     const current = c.id === state.convId;
     list.append(el('li', {}, el('button', { class: `conv ${current ? 'current' : ''}`, 'aria-current': current ? 'true' : null, onclick: () => openConversation(c.id) }, el('span', {}, c.title || 'Conversation'), c.updatedAt ? el('small', {}, ago(c.updatedAt)) : null)));
   }
+}
+
+function dayGroup(t) {
+  if (!t) return 'Earlier';
+  const days = Math.floor((new Date().setHours(24, 0, 0, 0) - t) / 86400000);
+  return days < 1 ? 'Today' : days < 2 ? 'Yesterday' : days < 7 ? 'This week' : 'Earlier';
 }
 
 function closeDrawer() {
@@ -724,6 +754,7 @@ async function startRecording({ toggle = false } = {}) {
     node.connect(ctx.destination);
     Object.assign(rec, { stream, ctx, node, rate: ctx.sampleRate, started: Date.now(), starting: false, limit: setTimeout(stopRecording, MAX_REC_MS) });
     $('#micBtn').classList.add('live');
+    showRecBar(rec);
     setFace('listening');
     navigator.vibrate?.(30);
   } catch (err) {
@@ -742,6 +773,7 @@ async function stopRecording() {
   r.ctx.close().catch(() => {});
   state.micLevel = 0;
   $('#micBtn').classList.remove('live');
+  hideRecBar();
   if (Date.now() - r.started < 400) return setFace('idle'), toast('Hold the button while you speak.');
   const mic = $('#micBtn');
   mic.classList.add('busy');
@@ -762,6 +794,25 @@ async function stopRecording() {
   } finally {
     mic.classList.remove('busy');
   }
+}
+
+// While recording: elapsed time and the input level above the message box.
+let recTimer = null;
+function showRecBar(r) {
+  $('#recHint').textContent = r.toggle ? 'Tap the mic to send' : 'Release to send';
+  $('#recBar').classList.remove('hidden');
+  const tick = () => {
+    const s = Math.floor((Date.now() - r.started) / 1000);
+    $('#recTime').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    $('#recLevel').style.transform = `scaleX(${Math.max(0.04, state.micLevel).toFixed(3)})`;
+  };
+  tick();
+  clearInterval(recTimer);
+  recTimer = setInterval(tick, 100);
+}
+function hideRecBar() {
+  clearInterval(recTimer);
+  $('#recBar').classList.add('hidden');
 }
 
 async function to16k(chunks, rate) {
@@ -996,6 +1047,207 @@ function startFace() {
   requestAnimationFrame(frame);
 }
 
+// ------------------------------------------------------------------ schedule
+// The schedule the assistant keeps on the computer (Schedule.md in its vault), read-only here: a week
+// strip, the chosen day as a timeline, and what's next. New entries go through the assistant.
+const DAY_MS = 86400000;
+const TINTS = ['--accent', '--accent2', '--ok'];
+const sched = { week: null, day: null, cache: new Map(), loading: null };
+const FIRST_DAY = (() => {
+  try {
+    const l = new Intl.Locale(navigator.language);
+    return ((l.getWeekInfo?.() || l.weekInfo)?.firstDay ?? 1) % 7;
+  } catch {
+    return 1;
+  }
+})();
+const dayOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const plusDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const weekOf = (d) => plusDays(dayOf(d), -((d.getDay() - FIRST_DAY + 7) % 7));
+const clock = (s) => new Date(s).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+// One theme color per entry (CSSOM, since the page's CSP allows no inline styles).
+function tint(node, id) {
+  let h = 0;
+  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  node.style.setProperty('--ev', `var(${TINTS[h % TINTS.length]})`);
+  return node;
+}
+
+function showView(v) {
+  state.view = v;
+  document.body.classList.toggle('view-sched', v === 'sched');
+  $('#sched').classList.toggle('hidden', v !== 'sched');
+  $('#schedBtn').classList.toggle('on', v === 'sched');
+  $('#schedBtn').setAttribute('aria-pressed', String(v === 'sched'));
+  $('#schedBtn').replaceChildren(icon(v === 'sched' ? 'chat' : 'calendar'));
+  $('#schedBtn').setAttribute('aria-label', v === 'sched' ? 'Back to the chat' : 'Schedule');
+  $('#convTitle').textContent = v === 'sched' ? 'Schedule' : state.convTitle || 'New conversation';
+  if (v === 'sched') {
+    sched.day ||= dayOf(new Date());
+    sched.week = weekOf(sched.day);
+    renderSchedule();
+  }
+}
+
+async function weekEvents(week, fresh = false) {
+  const key = ymd(week);
+  if (!fresh && sched.cache.has(key)) return sched.cache.get(key);
+  const data = await api(`/api/schedule?from=${key}&to=${ymd(plusDays(week, 7))}`);
+  sched.cache.set(key, data.events);
+  return data.events;
+}
+
+const onDate = (list, day) => {
+  const a = `${ymd(day)}T00:00:00`;
+  const b = `${ymd(plusDays(day, 1))}T00:00:00`;
+  return list.filter((e) => e.start < b && e.end > a);
+};
+
+async function renderSchedule(fresh = false) {
+  const week = sched.week;
+  const today = dayOf(new Date());
+  $('#schedList').replaceChildren(el('div', { class: 'muted sched-loading' }, 'Loading…'));
+  let list;
+  try {
+    list = await weekEvents(week, fresh);
+  } catch (err) {
+    if (err instanceof AuthError) return;
+    return $('#schedList').replaceChildren(el('div', { class: 'sched-empty' }, el('p', {}, err.message)));
+  }
+  if (week !== sched.week || state.view !== 'sched') return; // moved on meanwhile
+  $('#schedDays').replaceChildren(...[...Array(7)].map((_, i) => {
+    const d = plusDays(week, i);
+    const n = onDate(list, d).length;
+    const cls = ['sched-day', ymd(d) === ymd(today) && 'today', ymd(d) === ymd(sched.day) && 'sel', d < today && 'past'].filter(Boolean).join(' ');
+    return el('button', { class: cls, type: 'button', 'aria-label': d.toDateString(), 'aria-pressed': String(ymd(d) === ymd(sched.day)), onclick: () => pickDay(d) },
+      el('span', {}, d.toLocaleDateString(undefined, { weekday: 'narrow' })),
+      el('b', {}, d.getDate()),
+      el('i', { class: n ? 'dots' : 'dots none' }, '•'.repeat(Math.min(3, n)) || '·'),
+    );
+  }));
+  const day = sched.day;
+  const items = onDate(list, day);
+  const isToday = ymd(day) === ymd(today);
+  $('#schedHead').replaceChildren(
+    el('div', { class: 'sched-date' }, el('b', {}, day.getDate()), el('div', {}, el('span', {}, day.toLocaleDateString(undefined, { weekday: 'long' })), el('small', {}, day.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })))),
+    isToday ? el('i', { class: 'sched-badge' }, 'TODAY') : el('button', { class: 'sched-today', type: 'button', onclick: () => pickDay(today) }, 'Today'),
+  );
+  const next = isToday && items.find((e) => !e.allDay && new Date(e.end) > new Date());
+  const rows = items.filter((e) => e !== next).map((e) => schedRow(e, isToday));
+  if (next) {
+    const mins = Math.round((new Date(next.start) - Date.now()) / 60000);
+    rows.unshift(tint(el('div', { class: `sched-next ${mins <= 0 ? 'live' : ''}` }, el('small', {}, mins <= 0 ? 'NOW' : mins < 60 ? `NEXT · IN ${mins} MIN` : `NEXT · IN ${Math.floor(mins / 60)} H ${String(mins % 60).padStart(2, '0')}`), el('b', {}, next.title), next.location ? el('span', {}, next.location) : null), next.entryId));
+  }
+  $('#schedList').replaceChildren(...(rows.length ? rows : [el('div', { class: 'sched-empty' }, el('p', {}, isToday ? 'Nothing scheduled today.' : 'Nothing scheduled.'), el('p', { class: 'muted' }, 'Tell the assistant about lectures, shifts or appointments, and it keeps them here.'))]));
+}
+
+function schedRow(e, isToday) {
+  const past = isToday && new Date(e.end) < new Date();
+  return tint(el('div', { class: `sched-row ${past ? 'past' : ''}` },
+    el('div', { class: 'tm' }, e.allDay ? el('b', {}, 'ALL DAY') : [el('b', {}, clock(e.start)), e.openEnd ? null : el('span', {}, clock(e.end))]),
+    el('span', { class: 'bar' }),
+    el('div', { class: 'what' },
+      el('b', {}, e.title),
+      e.location ? el('span', {}, icon('pin'), e.location) : null,
+      e.recurring ? el('span', { class: 'rule' }, icon('repeat'), e.rule.split(' (')[0]) : null,
+      e.notes ? el('span', { class: 'notes' }, e.notes) : null,
+    ),
+  ), e.entryId);
+}
+
+function pickDay(d) {
+  sched.day = dayOf(d);
+  const week = weekOf(d);
+  if (ymd(week) !== ymd(sched.week)) sched.week = week;
+  navigator.vibrate?.(8);
+  renderSchedule();
+}
+
+$('#schedBtn').addEventListener('click', () => showView(state.view === 'sched' ? 'chat' : 'sched'));
+$('#schedPrev').addEventListener('click', () => pickDay(plusDays(sched.day, -7)));
+$('#schedNext').addEventListener('click', () => pickDay(plusDays(sched.day, 7)));
+$('#schedTell').addEventListener('click', () => {
+  showView('chat');
+  prefill('Add to my schedule: ');
+});
+// Swipe the day list sideways for the next or previous day.
+let swipe = null;
+$('#schedList').addEventListener('pointerdown', (e) => (swipe = { x: e.clientX, y: e.clientY }), { passive: true });
+$('#schedList').addEventListener('pointerup', (e) => {
+  if (!swipe) return;
+  const dx = e.clientX - swipe.x;
+  const dy = e.clientY - swipe.y;
+  swipe = null;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) pickDay(plusDays(sched.day, dx < 0 ? 1 : -1));
+}, { passive: true });
+
+function prefill(text) {
+  const input = $('#input');
+  input.value = text;
+  autosize();
+  input.focus();
+  input.setSelectionRange(text.length, text.length);
+}
+
+// ------------------------------------------------------------------ empty chat
+const SUGGESTIONS = [
+  ['What’s on my schedule today?'],
+  ['Plan my week with me'],
+  ['Where did we leave off?'],
+  ['Add to my schedule…', 'Add to my schedule: '],
+];
+$('#suggest').replaceChildren(...SUGGESTIONS.map(([label, fill]) => el('button', { class: 'suggestion', type: 'button', onclick: () => (fill ? prefill(fill) : send(label)) }, label)));
+
+// ------------------------------------------------------------------ secure address
+// On the plain local address with a secure one set up on the computer: one tap moves this device
+// there (same pairing, new token). See companion.js "moving to the secure address".
+async function moveToSecure() {
+  const btn = $('#moveBtn');
+  btn.disabled = true;
+  try {
+    const { url, secret } = await api('/api/move', { method: 'POST', body: {} });
+    if (android?.moveTo) android.moveTo(url, secret);
+    else location.assign(`${url}/#move=${secret}`);
+  } catch (err) {
+    if (!(err instanceof AuthError)) toast(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('#moveBtn').addEventListener('click', moveToSecure);
+
+async function finishMove(secret) {
+  show('pair');
+  showPairError('');
+  $('#pairBtn').disabled = true;
+  $('#pairBtn').textContent = 'Switching…';
+  try {
+    const res = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ move: secret }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+    state.token = data.token;
+    store.set(TOKEN_KEY, data.token);
+    store.set(NAME_KEY, data.name);
+    start();
+    toast('Switched to the secure address 🔒');
+  } catch (err) {
+    showPairError(`${err.message} You can also pair again with a code.`);
+  } finally {
+    $('#pairBtn').disabled = false;
+    $('#pairBtn').textContent = 'Connect';
+  }
+}
+
+function renderLinkInfo() {
+  const secure = !insecure;
+  const here = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  $('#linkInfo').replaceChildren(icon(secure ? 'lock' : 'lock-open'), el('div', {}, el('b', {}, here ? 'This computer' : secure ? 'Encrypted connection' : 'Local network, not encrypted'), el('small', {}, location.host)));
+  $('#linkInfo').classList.toggle('secure', secure);
+  $('#moveBtn').classList.toggle('hidden', !(insecure && state.secureUrl));
+}
+
 // ------------------------------------------------------------------ boot
 async function applyInfo() {
   try {
@@ -1011,6 +1263,11 @@ async function applyInfo() {
     }
     if (info.colors.bg) document.querySelector('meta[name="theme-color"]').setAttribute('content', info.colors.bg);
     state.sleepAfterMin = Number(info.sleepAfterMin) || 0;
+    state.secureUrl = typeof info.secureUrl === 'string' && info.secureUrl.startsWith('https://') ? info.secureUrl : '';
+    $('#schedBtn').classList.toggle('hidden', !info.calendar);
+    if (!info.calendar && state.view === 'sched') showView('chat');
+    renderLinkInfo();
+    renderBanner();
     await mountFace(info.face?.id, { colors: info.colors, face: info.face || {} });
   } catch {
     /* defaults */
@@ -1079,8 +1336,7 @@ if (android) {
     sw.checked = on;
     if (!on) toast('Notifications are off. Allow them in Android settings to get approvals while the app is closed.');
   };
-  const unpairBtn = $('#unpairBtn');
-  unpairBtn.before(
+  $('#deviceBox').append(
     el('label', { class: 'switch-row' }, sw, el('span', {}, 'Notify me about approvals and replies while the app is closed')),
     el('button', { class: 'btn ghost', onclick: () => android.changeServer() }, 'Change the computer’s address'),
   );
@@ -1092,8 +1348,11 @@ if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWor
 // Opened from the pairing QR code (…/#pair=<secret>): take the secret out of the address bar and
 // history at once, then pair with it.
 const fromQr = /^#pair=([A-Za-z0-9_-]{43})$/.exec(location.hash);
-if (fromQr) history.replaceState(null, '', location.pathname + location.search);
-if (state.token) {
+const fromMove = /^#move=([A-Za-z0-9_-]{43})$/.exec(location.hash);
+if (fromQr || fromMove) history.replaceState(null, '', location.pathname + location.search);
+renderLinkInfo();
+if (fromMove) finishMove(fromMove[1]);
+else if (state.token) {
   start();
   if (fromQr) toast('This device is already connected.');
 } else {

@@ -191,13 +191,20 @@
         <!-- ============ CALENDAR ============ -->
         <section class="view padded" id="view-calendar">
           <div class="view-head">
-            <h2 class="display">Calendar</h2>
+            <div class="cal-title">
+              <h2 class="display">Calendar</h2>
+              <span class="cal-stamp" id="calStamp"></span>
+            </div>
             <div class="actions">
-              <button class="btn" id="calPrev">‹</button>
-              <button class="btn" id="calToday">Today</button>
-              <button class="btn" id="calNext">›</button>
+              <div class="seg" id="calModes"><button data-mode="month">Month</button><button data-mode="week">Week</button><button data-mode="agenda">Agenda</button></div>
+              <div class="cal-nav">
+                <button class="btn" id="calPrev" title="Previous (←)" aria-label="Previous">‹</button>
+                <button class="btn" id="calToday" title="Today (T)">Today</button>
+                <button class="btn" id="calNext" title="Next (→)" aria-label="Next">›</button>
+              </div>
               <span class="cal-range" id="calRange"></span>
-              <button class="btn" id="calRefresh">⟳ Refresh</button>
+              <button class="btn" id="calObsidian" title="Open Schedule.md in Obsidian">◆ Schedule.md</button>
+              <button class="btn primary" id="calNew" title="New entry (N)">＋ New entry</button>
             </div>
           </div>
           <div id="calBody"></div>

@@ -42,6 +42,8 @@ public class MainActivity extends Activity {
     private static final int REQ_NOTIFY = 2;
     /** The link in the desktop's pairing QR code: address + #pair=one-time secret. */
     private static final java.util.regex.Pattern PAIR_LINK = java.util.regex.Pattern.compile("^(https?://\\S+?)/?#pair=([A-Za-z0-9_-]{43})$");
+    /** A one-time secret for moving this device to the secure address (companion.js /api/move). */
+    private static final java.util.regex.Pattern MOVE_SECRET = java.util.regex.Pattern.compile("^[A-Za-z0-9_-]{43}$");
 
     /** True while the app is on screen; the service then leaves notifications to the page. */
     static volatile boolean foreground;
@@ -125,7 +127,12 @@ public class MainActivity extends Activity {
         Hud.readout(sub);
         sub.setPadding(0, dp(6), 0, 0);
         TextView hint = text(getString(R.string.setup_hint), 15, getColor(R.color.muted));
-        hint.setPadding(0, dp(14), 0, dp(18));
+        hint.setPadding(0, dp(14), 0, dp(10));
+        TextView kinds = text(getString(R.string.setup_kinds), 13, getColor(R.color.muted));
+        Hud.readout(kinds);
+        kinds.setGravity(Gravity.START);
+        kinds.setLineSpacing(dp(3), 1f);
+        kinds.setPadding(dp(4), 0, dp(4), dp(16));
         EditText address = new EditText(this);
         Hud.field(address);
         address.setHint(R.string.setup_address);
@@ -142,6 +149,16 @@ public class MainActivity extends Activity {
         Button connect = new Button(this);
         connect.setText(R.string.setup_connect);
         Hud.button(connect, true);
+        Button paste = new Button(this);
+        paste.setText(R.string.setup_paste);
+        Hud.button(paste, false);
+        paste.setOnClickListener(v -> {
+            android.content.ClipboardManager cm = getSystemService(android.content.ClipboardManager.class);
+            android.content.ClipData clip = cm == null ? null : cm.getPrimaryClip();
+            CharSequence t = clip != null && clip.getItemCount() > 0 ? clip.getItemAt(0).coerceToText(this) : null;
+            if (t == null || t.toString().trim().isEmpty()) err.setText(R.string.setup_paste_empty);
+            else address.setText(t.toString().trim());
+        });
         Runnable go = () -> {
             String typed = address.getText().toString().trim();
             // A pairing link (from the QR code) connects and pairs in one step; only the address is saved.
@@ -166,11 +183,19 @@ public class MainActivity extends Activity {
         box.addView(title);
         box.addView(sub);
         box.addView(hint);
+        box.addView(kinds);
         box.addView(address, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         box.addView(err);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams half = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        row.addView(paste, half);
+        LinearLayout.LayoutParams half2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f);
+        half2.leftMargin = dp(10);
+        row.addView(connect, half2);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(12);
-        box.addView(connect, lp);
+        box.addView(row, lp);
     }
 
     private void showError(String detail) {
@@ -181,7 +206,8 @@ public class MainActivity extends Activity {
         title.setTextColor(Color.rgb(255, 77, 109));
         title.setShadowLayer(dp(10), 0, 0, Color.argb(200, 255, 77, 109));
         box.addView(title);
-        TextView d = text(origin + "\n" + detail, 13, getColor(R.color.muted));
+        String why = origin.endsWith(".ts.net") ? getString(R.string.error_tailscale) : origin.startsWith("http://") ? getString(R.string.error_lan) : "";
+        TextView d = text(origin + "\n" + detail + (why.isEmpty() ? "" : "\n\n" + why), 13, getColor(R.color.muted));
         Hud.readout(d);
         d.setPadding(0, dp(10), 0, dp(18));
         box.addView(d);
@@ -212,7 +238,14 @@ public class MainActivity extends Activity {
         panel.setPadding(pad, pad, pad, pad);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
         lp.leftMargin = lp.rightMargin = dp(20);
-        root.addView(panel, lp);
+        lp.topMargin = lp.bottomMargin = dp(16);
+        // Centered, and scrollable on a small screen or with the keyboard open.
+        FrameLayout holder = new FrameLayout(this);
+        holder.addView(panel, lp);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(holder, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         return panel;
     }
 
@@ -375,6 +408,25 @@ public class MainActivity extends Activity {
                     Prefs.setBackground(MainActivity.this, true);
                     ConnectionService.start(MainActivity.this);
                 }
+            });
+        }
+
+        /**
+         * The page got a one-time secret for the computer's secure address: load that address with it,
+         * where the page finishes the switch and hands over the new token (setToken).
+         */
+        @JavascriptInterface
+        public void moveTo(String url, String secret) {
+            if (!trusted()) return;
+            String o = Prefs.toOrigin(url);
+            if (o == null || !o.startsWith("https://") || secret == null || !MOVE_SECRET.matcher(secret).matches()) return;
+            runOnUiThread(() -> {
+                // The old token stops working once the switch is done; the service restarts with the new one.
+                ConnectionService.stop(MainActivity.this);
+                Prefs.setServer(MainActivity.this, o);
+                origin = o;
+                pendingPair = "#move=" + secret;
+                showWeb();
             });
         }
 

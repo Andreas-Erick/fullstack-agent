@@ -78,13 +78,14 @@ async function run() {
       const st = await obsidian.status();
       return { status: st.registered ? 'ok' : 'warn', detail: `${root} · ${st.count} notes · writable${fs.existsSync(path.join(root, '.git')) ? ' · versioned' : ''}${st.registered ? '' : ' · not registered in Obsidian'}`, fix: st.registered ? '' : 'Settings → Vault → Register in Obsidian (close Obsidian first).' };
     }),
-    check('calendar', 'Google Calendar', async () => {
+    check('calendar', 'Schedule', async () => {
       if (!s.calendar.enabled) return { status: 'off', detail: 'Disabled.' };
       const st = await calendar.status();
-      if (!st.configured) return { status: 'off', detail: 'Not set up.' };
-      if (!st.signedIn) return { status: 'warn', detail: 'Not signed in.', fix: 'Settings → Google Calendar → Sign in.' };
+      if (!st.vault) return { status: 'warn', detail: 'The schedule lives in the vault, which is off.', fix: 'Settings → Vault → turn it on.' };
       const ev = await calendar.events();
-      return { detail: `${st.email || 'connected'} · ${ev.length} upcoming events` };
+      const detail = `${calendar.FILE} · ${st.recurring} repeating, ${st.events} single · ${ev.length} in the next days`;
+      if (st.problems) return { status: 'warn', detail: `${detail} · ${st.problems} unreadable line(s)`, fix: 'Ask the agent to fix them (calendar_list_entries shows which), or correct them in Obsidian.' };
+      return { detail };
     }),
     check('web', 'Internet search', async () => {
       if (!s.web.enabled) return { status: 'off', detail: 'Disabled.' };
