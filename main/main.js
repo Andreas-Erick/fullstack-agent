@@ -205,6 +205,8 @@ function guardNavigation(wc) {
 }
 
 const clampZoom = (z) => Math.min(2, Math.max(0.5, Number(z) || 1));
+// A schedule entry from the Calendar view: only the known fields, as text (calendar.js validates them).
+const scheduleInput = (v) => Object.fromEntries(['title', 'when', 'location', 'notes', 'from', 'until'].filter((k) => v?.[k] != null).map((k) => [k, String(v[k]).slice(0, 600)]));
 
 // To the window, and (chat and approval events only) to paired devices.
 function send(channel, payload) {
@@ -282,7 +284,6 @@ function registerIpc() {
     const s = await store.setSettings(patch);
     if (patch?.stt?.globalShortcut !== undefined) registerShortcut();
     if (patch?.logging) log.setDebug(s.logging.debug);
-    if (patch?.calendar) calendar.clearCache();
     if (patch?.remote) await companion.apply(s);
     // A newly used or re-enabled helper app (VoiceStudio, FreeLLMAPI) starts now.
     if (patch?.voice || patch?.llm || patch?.routing || patch?.helperApps) helperApps.ensureAll(s, 'settings');
@@ -320,6 +321,8 @@ function registerIpc() {
   handle('handoff:dismiss', () => handoff.dismiss());
   handle('handoff:skip', () => handoff.skip());
   handle('remote:cancelPair', () => companion.cancelPairing());
+  handle('remote:detectTailscale', async () => require('./tunnel').detectTailscale((await store.getSettings()).remote?.port || 7823));
+  handle('remote:checkSecure', () => require('./tunnel').verify());
   handle('remote:transcribed', (id, text, error) => {
     const p = pendingTranscripts.get(id);
     if (!p) return false;
@@ -386,16 +389,13 @@ function registerIpc() {
   handle('stt:transcribe', (wav, opts) => voice.transcribe(wav, opts || {}));
 
   // Calendar
+  // Schedule (Schedule.md in the vault); changes made here are the user's own.
   handle('calendar:status', () => calendar.status());
-  handle('calendar:signIn', () => calendar.signIn());
-  handle('calendar:signOut', () => calendar.signOut());
   handle('calendar:events', (range) => calendar.events(range || {}));
-  handle('calendar:importClient', async () => {
-    const r = await dialog.showOpenDialog(win, { title: 'Google OAuth client file (client_secret_….json)', properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] });
-    if (r.canceled || !r.filePaths[0]) return null;
-    return calendar.importClientFile(r.filePaths[0]);
-  });
-  handle('calendar:testFeed', (url) => calendar.testFeed(url));
+  handle('calendar:entries', () => calendar.entries());
+  handle('calendar:add', (input) => calendar.add(scheduleInput(input), { source: 'user' }));
+  handle('calendar:update', (id, patch) => calendar.update(String(id || ''), scheduleInput(patch), { source: 'user' }));
+  handle('calendar:remove', (id, opts) => calendar.remove(String(id || ''), { onlyDate: opts?.onlyDate ? String(opts.onlyDate) : undefined, source: 'user' }));
   handle('github:status', async () => ({ ...(await github.status({ fresh: true })), workspace: await github.workspace() }));
 
   // Obsidian
@@ -707,6 +707,7 @@ app.whenReady().then(async () => {
   registerFacesProtocol();
   registerIpc();
   approvals.setSender(send);
+  calendar.removeLegacy();
   companion.init({
     startTurn,
     abortTurn: (requestId) => activeRequests.get(requestId)?.abort(),

@@ -108,6 +108,7 @@ public class ConnectionService extends Service {
                 conn = c;
                 int code = c.getResponseCode();
                 if (code == 401) {
+                    if (!running) break; // stopped meanwhile (e.g. moving to the secure address)
                     Prefs.setToken(this, null, null);
                     Prefs.setBackground(this, false);
                     alert(2, getString(R.string.app_name), getString(R.string.unpaired), null);

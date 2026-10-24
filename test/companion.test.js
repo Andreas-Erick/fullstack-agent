@@ -1,5 +1,5 @@
 // Remote access server (main/companion.js): pairing by code and QR secret, what devices may see,
-// device expiry and removal, security headers.
+// device expiry and removal, security headers, moving to the secure address, the schedule.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -11,15 +11,24 @@ const convs = {
   c1: { id: 'c1', title: 'Normal', updatedAt: 2, messages: [{ id: 'm1', role: 'user', content: 'EXPANDED SKILL STEPS', display: '/skill hi' }, { id: 'm2', role: 'assistant', content: 'reply', raw: { secret: 1 }, toolCalls: [{ name: 'read_file', input: { path: 'C:/secret.txt' }, ok: true, preview: 'SECRET CONTENTS' }] }] },
   s1: { id: 's1', title: 'Setup', setup: true, updatedAt: 3, messages: [] },
 };
+// The tunnel as tests set it: off, or a connected Tailscale address.
+let tunnelState = { mode: 'off' };
+const calls = [];
 stub({
   './store': fileStore(dir, {
-    getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: {}, voice: {} }),
+    getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: {}, voice: {}, calendar: { enabled: true } }),
     listConversations: async () => Object.values(convs).map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, ...(c.setup ? { setup: true } : {}) })),
     getConversation: async (id) => convs[id] || null,
   }),
   './voice': {},
   './logger': quietLog,
-  './tunnel': { apply: async () => {}, stop() {}, status: () => ({ mode: 'off' }), publicHost: () => '' },
+  './tunnel': { apply: async () => {}, stop() {}, status: () => tunnelState, publicHost: () => tunnelState.host || '' },
+  './calendar': {
+    events: async (range) => {
+      calls.push(range);
+      return [{ id: 'r1@2026-10-26', entryId: 'r1', title: 'Lecture', location: 'H1', notes: '', allDay: false, start: '2026-10-26T10:00:00', end: '2026-10-26T11:30:00', openEnd: false, recurring: true, rule: 'Every Monday', internal: 'x' }];
+    },
+  },
 });
 const companion = load('main/companion.js');
 let base = '';
@@ -140,4 +149,68 @@ test('idle devices expire; a corrupt entry does not break the rest; remove all',
   assert.strictEqual(dev.lastVia, 'this computer');
   await companion.revokeAll();
   assert.strictEqual((await fetch(`${base}/api/info`, { headers: { Authorization: `Bearer ${fresh}` } })).status, 401);
+});
+
+// A request with a chosen Host header (fetch can't set one): how requests arrive through the tunnel.
+function viaHost(host, p, { method = 'GET', body, headers = {} } = {}) {
+  return new Promise((resolve, reject) => {
+    const data = body ? JSON.stringify(body) : '';
+    const req = require('http').request(`${base}${p}`, { method, headers: { Host: host, ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers } }, (res) => {
+      let text = '';
+      res.on('data', (c) => (text += c));
+      res.on('end', () => resolve({ status: res.statusCode, json: () => JSON.parse(text || '{}') }));
+    });
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
+test('moving to the secure address: one-time, only through the tunnel, rotates the token', async () => {
+  const old = await pairDevice('LAN phone');
+  const auth = { Authorization: `Bearer ${old}` };
+  let r = await post('/api/move', {}, auth);
+  assert.strictEqual(r.status, 409, 'no secure address yet');
+  assert.strictEqual((await (await fetch(`${base}/api/info`, { headers: auth })).json()).secureUrl, '');
+
+  tunnelState = { mode: 'tailscale', connected: true, host: 'pc.tail1234.ts.net', url: 'https://pc.tail1234.ts.net' };
+  try {
+    assert.strictEqual((await (await fetch(`${base}/api/info`, { headers: auth })).json()).secureUrl, 'https://pc.tail1234.ts.net');
+    assert.strictEqual((await post('/api/move', {})).status, 401, 'needs a paired device');
+    const move = await (await post('/api/move', {}, auth)).json();
+    assert.strictEqual(move.url, 'https://pc.tail1234.ts.net');
+    assert.match(move.secret, /^[A-Za-z0-9_-]{43}$/);
+
+    assert.strictEqual((await post('/api/pair', { move: move.secret })).status, 403, 'not over the plain local address');
+    const tunnelOrigin = { Origin: 'https://pc.tail1234.ts.net' };
+    // Asking again replaces the first secret; this one is redeemed through the tunnel.
+    const again = await (await post('/api/move', {}, auth)).json();
+    assert.strictEqual((await viaHost('pc.tail1234.ts.net', '/api/pair', { method: 'POST', body: { move: 'y'.repeat(43) }, headers: tunnelOrigin })).status, 403);
+    r = await viaHost('pc.tail1234.ts.net', '/api/pair', { method: 'POST', body: { move: again.secret }, headers: tunnelOrigin });
+    assert.strictEqual(r.status, 200);
+    const moved = r.json();
+    assert.strictEqual(moved.name, 'LAN phone');
+    assert.strictEqual((await viaHost('pc.tail1234.ts.net', '/api/pair', { method: 'POST', body: { move: again.secret }, headers: tunnelOrigin })).status, 403, 'works once');
+
+    assert.strictEqual((await fetch(`${base}/api/info`, { headers: auth })).status, 401, 'the old token stopped working');
+    assert.strictEqual((await viaHost('pc.tail1234.ts.net', '/api/info', { headers: { Authorization: `Bearer ${moved.token}` } })).status, 200);
+    const devices = JSON.parse(fs.readFileSync(devicesFile, 'utf8')).filter((d) => d.name === 'LAN phone');
+    assert.strictEqual(devices.length, 1, 'the same device, not a new one');
+  } finally {
+    tunnelState = { mode: 'off' };
+  }
+});
+
+test('the schedule: read-only, a bounded range, only the fields the phone shows', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice()}` };
+  for (const q of ['', '?from=2026-10-26', '?from=2026-10-26&to=2026-10-26', '?from=2026-10-01&to=2027-01-01', '?from=x&to=y']) {
+    assert.strictEqual((await fetch(`${base}/api/schedule${q}`, { headers: auth })).status, 400, q);
+  }
+  assert.strictEqual((await fetch(`${base}/api/schedule?from=2026-10-26&to=2026-11-02`)).status, 401);
+  const r = await fetch(`${base}/api/schedule?from=2026-10-26&to=2026-11-02`, { headers: auth });
+  assert.strictEqual(r.status, 200);
+  const { events } = await r.json();
+  assert.strictEqual(events[0].title, 'Lecture');
+  assert.strictEqual(events[0].internal, undefined);
+  assert.deepStrictEqual(calls.at(-1), { start: '2026-10-26T00:00:00', end: '2026-11-02T00:00:00' });
+  assert.strictEqual((await post('/api/schedule', {}, auth)).status, 404, 'no way to change it');
 });

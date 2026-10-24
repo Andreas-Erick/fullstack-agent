@@ -22,7 +22,7 @@ Voice-first · Claude-powered · Obsidian memory · Phone & Android companion ·
 
 ---
 
-Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, hands-free), and it answers in a natural voice within a few seconds, with your calendar, your notes, your documents and your GitHub repos at hand. It keeps its memory in an Obsidian vault you can read and edit, asks before it does anything consequential, and can change its own code when you ask for a feature, with every change checked, tested, recorded and reversible. Away from your desk, your phone or the Android app talks to the same assistant, while the brain, the memory and the keys stay on your computer.
+Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, hands-free), and it answers in a natural voice within a few seconds, with your schedule, your notes, your documents and your GitHub repos at hand. It keeps its memory in an Obsidian vault you can read and edit, asks before it does anything consequential, and can change its own code when you ask for a feature, with every change checked, tested, recorded and reversible. Away from your desk, your phone or the Android app talks to the same assistant, while the brain, the memory and the keys stay on your computer.
 
 > Inspired by [jaredrhod/fullstack-agent](https://github.com/jaredrhod/fullstack-agent): a warm Claude session, memory loaded on demand, standing rules, an agent that is its own mechanic, and hardened voice handling.
 
@@ -53,7 +53,7 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 | 🖥️ **Monitors** | Named by where they are: "move the quarterly report to the **right** monitor", "make it full screen", "which monitor is which?" |
 | 👀 **Screen sharing** | Share a screen or window and it **sees what you see**: "what's wrong with this error?", "help me fill in this form". You pick what to share; nothing is recorded. |
 | 📝 **Notes & PDFs** | Quick notes (Ctrl+Shift+N), "save this reply as a note", and **PDF export** of any reply, note or whole chat. Ask it to "write that up as a PDF". |
-| 📅 **Calendar** | Connect in a minute by **pasting an iCal link** (Google, Outlook, iCloud; read-only), or sign in with Google so it **adds, moves and deletes events**. |
+| 📅 **Calendar** | Nothing to connect: **tell it your schedule** ("I have Linear Algebra every Monday at 10 in H1 until February") and it keeps it in `Schedule.md` in its vault, repeat rules included. A themed month / week / agenda view to look at and edit it, also on the phone. |
 | 🐙 **GitHub** | Reads repos, issues and pull requests; clones a repo, works on a branch and commits. **Push and PRs always ask.** It never merges. |
 | 🌐 **Web** | Searches and reads pages, citing sources. |
 
@@ -137,7 +137,8 @@ Remote access is **off by default**. While it is on, a **Remote** badge shows in
 
 1. **Turn it on:** Settings → Remote access. Choose how the phone reaches your computer:
    - **This computer's network** (home Wi-Fi): simplest, but the connection is not encrypted, so use it only on a network you trust.
-   - **From anywhere, encrypted (recommended):** your own **Cloudflare Tunnel**, ideally with a **Cloudflare Access** sign-in in front (the app verifies it), or **Tailscale**. A temporary Cloudflare address is there for testing. No router port is opened either way.
+   - **From anywhere, encrypted (recommended):** your own **Cloudflare Tunnel**, ideally with a **Cloudflare Access** sign-in in front (the app verifies it), or **Tailscale** (**Detect** reads this computer's Tailscale name, **Check** opens it end to end). A temporary Cloudflare address is there for testing. No router port is opened either way.
+   - **Already paired over Wi-Fi?** Open the phone app at home and tap **Switch** in the banner (or in the menu): it moves to the secure address and keeps its pairing.
 2. **Pair:** click **Pair a device** and **scan the QR code** with the phone's camera; the phone app opens already connected. Or open the address on the phone and type the six-digit code. Codes and QR links work once and expire after five minutes.
 3. **Android (optional):** install `Nexus-Android-x.y.z.apk` (or the `-debug.apk`) from [Releases](https://github.com/Andreas-Erick/fullstack-agent/releases/latest) (Android 8 or newer), enter the address or paste the QR link, and turn on notifications to get approvals and replies while the app is closed. Build it yourself: [`android/README.md`](android/README.md).
 
@@ -150,7 +151,7 @@ A paired phone can chat, read conversations and answer approvals sent to it. It 
 
 **Things to try**
 
-> "What's on my calendar on Monday?" · "Move my dentist appointment to 4 pm."
+> "What's on my schedule on Monday?" · "I have Physics lab every Tuesday 14–16 in B2 this semester." · "Move my dentist appointment to 4 pm." · "No lecture next Monday."
 > "Open the project slides on the left monitor." · "Make it full screen." · "Close the PDF."
 > "Look at the open issues in my website repo and fix the first one." *(it asks before pushing)*
 > "Make me a calmer voice." · "Calibrate my voice." · "Create a bug report."
@@ -203,9 +204,8 @@ Choose **Ask** (approve consequential actions) or **Auto**. Approve by clicking 
 | Action | Ask mode | Auto mode |
 | --- | --- | --- |
 | Changing its own code, its settings, deleting things | asks | allowed (but code changes after reading a web page or document always ask) |
-| Calendar changes to your own events, local commits | asks | allowed |
+| Removing an entry from your schedule, local commits | asks | allowed |
 | Shell commands | **always asks** | **always asks** |
-| Anything that emails other people (calendar invites) | **always asks, each time** | **always asks, each time** |
 | Pushing to GitHub, opening a pull request | **always asks, each time** | **always asks, each time** |
 | Cloning a voice from an audio file (recording yourself in the app is your consent) | **always asks, each time** | **always asks, each time** |
 | Seeing your screen | only while **you** share it | only while **you** share it |
@@ -230,7 +230,7 @@ Ask it: *"what's wrong with your voice?"*. It runs its health checks, groups the
 <details>
 <summary><b>Where your data lives</b></summary>
 
-- **App data** (`%APPDATA%\Nexus Agent` on Windows, `~/Library/Application Support/Nexus Agent` on macOS, `~/.config/Nexus Agent` on Linux): settings (secrets encrypted with the OS keychain, plus a last-good backup), conversations, `logs/`, custom faces, Google tokens, paired devices (only a hash of each device's token) and the "where we left off" note.
+- **App data** (`%APPDATA%\Nexus Agent` on Windows, `~/Library/Application Support/Nexus Agent` on macOS, `~/.config/Nexus Agent` on Linux): settings (secrets encrypted with the OS keychain, plus a last-good backup), conversations, `logs/`, custom faces, paired devices (only a hash of each device's token) and the "where we left off" note.
 - **Vault:** `Documents/Nexus Vault` by default, with its own git history for every note (including `Where We Left Off.md`).
 - **On a paired phone:** only its device token, the open conversation's id and a few display preferences.
 - **Cloned repos:** `~/NexusRepos` (configurable).

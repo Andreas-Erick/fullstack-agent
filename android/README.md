@@ -21,10 +21,15 @@ the Android Keystore and app backups are off. No third-party libraries.
 1. On the desktop: Settings → Remote access → turn it on, and set up a secure address (Cloudflare
    Tunnel or Tailscale) for use away from home and for push-to-talk.
 2. Install the APK on the phone (allow "install unknown apps" for your browser or file manager once).
-3. Open **Nexus**, enter the address shown on the desktop, then pair with the code from
+3. Open **Nexus**, enter the address shown on the desktop (with Tailscale: turn Tailscale on on the phone and use `https://<your-pc>.<tailnet>.ts.net`), then pair with the code from
    **Pair a device**. Or scan the QR code shown there with the camera, copy the link and paste it
    (or share it to Nexus) on the setup screen: the app connects and pairs in one step. A shared link
    is only filled in; you confirm the address with **Connect**.
+4. Paired over Wi-Fi first? When the computer has a secure address, the app shows **Switch**: one tap
+   moves it there and keeps the pairing (`moveTo` in the bridge).
+
+The app also has a **Schedule** screen (calendar button in the header): the week, the chosen day as a
+timeline and what's next, read from the computer; new entries go through the assistant.
 
 ## Build
 
@@ -60,7 +65,7 @@ Debug builds allow inspecting the page from `chrome://inspect` (handy for develo
 
 - `MainActivity.java`: the WebView (locked to your address), first-run address screen, mic permission,
   share and Talk intents, and the `window.NexusAndroid` bridge (`setToken`, `clearToken`,
-  `setBackground`, `backgroundEnabled`, `changeServer`). Each method only answers while your own
+  `setBackground`, `backgroundEnabled`, `changeServer`, `moveTo`). Each method only answers while your own
   page is loaded.
 - `ConnectionService.java`: the optional background connection (`/api/events`) and notifications.
 - `ApprovalReceiver.java`: Allow / Deny from a notification (`POST /api/approvals/:id`).

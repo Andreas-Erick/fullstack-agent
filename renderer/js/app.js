@@ -381,7 +381,7 @@ async function refreshStatus() {
     .catch(() => setPill('#pillVoice', 'err', 'VoiceStudio error'));
   api.calendar
     .status()
-    .then((c) => setPill('#pillCal', !c.enabled ? '' : c.connected ? 'ok' : 'warn', !c.enabled ? 'Calendar disabled' : c.connected ? [c.signedIn && `Google Calendar${c.email ? ` · ${c.email}` : ''}`, c.feeds && `${c.feeds} calendar link${c.feeds > 1 ? 's' : ''} (read-only)`].filter(Boolean).join(' + ') : 'Calendar not connected'))
+    .then((c) => setPill('#pillCal', !c.enabled ? '' : c.connected ? (c.problems ? 'warn' : 'ok') : 'warn', !c.enabled ? 'Calendar disabled' : c.connected ? `Schedule in the vault: ${c.recurring} repeating, ${c.events} single${c.problems ? ` · ${c.problems} unreadable line(s)` : ''}` : 'Calendar needs the vault'))
     .catch(() => setPill('#pillCal', 'err', 'Calendar error'));
   api.obsidian
     .status()
