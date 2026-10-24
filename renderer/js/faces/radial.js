@@ -1,6 +1,6 @@
 // Radial face: an 80-bar starburst around a particle orb. Grains swirl and burst outward with each
 // syllable; sonar ripples at idle; a radar sweep while thinking; bars pull inward while listening.
-import { BaseFace, audio, faceState, paletteFor, rgba, lerp, lerpColor } from './common.js';
+import { BaseFace, audio, faceState, baseState, paletteFor, rgba, lerp, lerpColor } from './common.js';
 
 const BARS = 80;
 
@@ -23,8 +23,9 @@ export class RadialFace extends BaseFace {
 
   draw(dt) {
     const g = this.ctx;
-    const st = faceState();
-    const target = paletteFor(st);
+    const shown = faceState();
+    const st = baseState(shown); // core state for motion; colors use the exact one
+    const target = paletteFor(shown);
     const k = 1 - Math.pow(0.02, dt);
     this.cur.main = lerpColor(this.cur.main, target.main, k);
     this.cur.accent = lerpColor(this.cur.accent, target.accent, k);

@@ -13,24 +13,15 @@
     <script src="app://bundle/node_modules/marked/lib/marked.umd.js"></script>
     <script src="app://bundle/node_modules/dompurify/dist/purify.min.js"></script>
     <script type="module" src="js/viewer.js"></script>
-    <style>
-      html,
-      body {
-        height: 100%;
-        margin: 0;
-      }
-      body {
-        display: flex;
-        flex-direction: column;
-        background: var(--bg);
-      }
-      #popupViewer {
-        flex: 1;
-      }
-    </style>
   </head>
   <body class="doc-popup">
-    <div class="doc-viewer" id="popupViewer"></div>
-    <div id="toasts"></div>
+    <header class="doc-bar">
+      <span class="doc-kind" id="docKind">DOC</span>
+      <div class="doc-name"><b id="docName">Opening…</b><small id="docPath"></small></div>
+      <div class="doc-actions" id="docCtl"></div>
+    </header>
+    <main class="doc-viewer" id="popupViewer" tabindex="-1"></main>
+    <footer class="doc-foot" id="docFoot"></footer>
+    <div id="toasts" class="toasts"></div>
   </body>
 </html>

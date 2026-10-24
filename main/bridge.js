@@ -42,7 +42,7 @@ function start() {
             const ctx = session.getCtx();
             if (!ctx) throw new Error('No active turn.');
             const r = await tools.execute(msg.name, msg.args || {}, ctx);
-            out = { ok: r.ok, text: tools.stringifyResult(r.result) };
+            out = { ok: r.ok, text: tools.stringifyResult(r.result), ...(r.image ? { image: r.image } : {}) };
           } else throw new Error('Unknown route');
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(out));

@@ -2,6 +2,8 @@
 //  - "openai": FreeLLMAPI or any OpenAI-compatible server (/v1/chat/completions streaming, /v1/models)
 //  - "anthropic": Claude via the official Anthropic SDK (streaming Messages API + tool use)
 //  - "claude-code": the user's Claude account via their Claude Code CLI (see claudecode.js)
+//  - "auto": several of the above plus Gemini, DeepSeek, Groq and Perplexity, ranked by the user,
+//    with per-task routing and automatic fallback (see router.js)
 const fsp = require('fs').promises;
 const os = require('os');
 const path = require('path');
@@ -13,6 +15,7 @@ const codebase = require('./codebase');
 const obsidian = require('./obsidian');
 const github = require('./github');
 const approvals = require('./approvals');
+const router = require('./router');
 const log = require('./logger');
 
 const noToolSupport = new Set(); // `${baseUrl}|${model}` combos that rejected the tools parameter
@@ -34,7 +37,16 @@ const CLAUDE_CODE_MODELS = [
   { id: 'fable', name: 'Fable (most capable)' },
 ];
 
+// A cloud provider picked by id (gemini, groq…) runs as an OpenAI-compatible server with its own URL and key.
+function narrow(settings) {
+  const id = settings.llm.provider;
+  return router.PROVIDERS[id]?.openai ? router.concrete(settings, id) : settings;
+}
+
 async function listModels(settings) {
+  const id = settings.llm.provider;
+  if (id === 'auto') throw new Error('Pick one provider to list its models.');
+  settings = narrow(settings);
   if (settings.llm.provider === 'claude-code') return CLAUDE_CODE_MODELS;
   if (settings.llm.provider === 'anthropic') {
     const client = anthropicClient(settings);
@@ -42,6 +54,8 @@ async function listModels(settings) {
     for await (const m of client.models.list({ limit: 100 })) out.push({ id: m.id, name: m.display_name || m.id });
     return out;
   }
+  const fixed = router.PROVIDERS[id]?.models; // providers without a /models endpoint
+  if (fixed) return fixed.map((m) => ({ id: m, name: m }));
   const res = await fetch(`${trimBase(settings.llm.baseUrl)}/models`, {
     headers: openaiHeaders(settings.llm.apiKey),
     signal: AbortSignal.timeout(10000),
@@ -54,6 +68,9 @@ async function listModels(settings) {
 
 async function testConnection(settings) {
   const started = Date.now();
+  if (settings.llm.provider === 'auto') return testAll(settings, started);
+  const fixedModels = router.PROVIDERS[settings.llm.provider]?.models;
+  settings = narrow(settings);
   if (settings.llm.provider === 'claude-code') {
     const st = await claudecode.status();
     if (!st.installed) throw new Error(`Claude Code is not installed. Install it with:\n${claudecode.installHint()}`);
@@ -72,7 +89,7 @@ async function testConnection(settings) {
     const text = msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
     return { ok: true, model: msg.model, reply: text.trim(), ms: Date.now() - started };
   }
-  const models = await listModels(settings).catch((e) => {
+  const models = fixedModels ? fixedModels.map((m) => ({ id: m })) : await listModels(settings).catch((e) => {
     throw new Error(`Could not reach ${settings.llm.baseUrl}: ${e.message}`);
   });
   const model = settings.llm.model || models[0]?.id;
@@ -87,6 +104,26 @@ async function testConnection(settings) {
   if (!res.ok) throw new Error(`Chat completion failed: ${res.status} ${body.slice(0, 300)}`);
   const json = JSON.parse(body);
   return { ok: true, model: json.model || model, reply: json.choices?.[0]?.message?.content?.trim() || '', models: models.length, ms: Date.now() - started };
+}
+
+// Multi-provider mode: tests every provider that is set up and switched on, in parallel.
+async function testAll(settings, started) {
+  const disabled = new Set(settings.routing?.disabled || []);
+  const ids = router.order(settings).filter((id) => !disabled.has(id));
+  const providers = await Promise.all(
+    ids.map(async (id) => {
+      const t0 = Date.now();
+      try {
+        const r = await testConnection({ ...settings, llm: { ...settings.llm, provider: id } });
+        return { id, name: router.label(id), ok: true, model: r.model, ms: Date.now() - t0 };
+      } catch (err) {
+        return { id, name: router.label(id), ok: false, error: err.message.slice(0, 200) };
+      }
+    }),
+  );
+  if (!providers.some((p) => p.ok)) throw new Error(providers.map((p) => `${p.name}: ${p.error}`).join('\n'));
+  router.reset();
+  return { ok: true, providers, model: providers.filter((p) => p.ok).map((p) => p.name).join(', '), reply: 'online', ms: Date.now() - started };
 }
 
 // ---------------------------------------------------------------- agent turn
@@ -136,15 +173,60 @@ async function claudeCodeOptions(settings, active, model) {
   };
 }
 
-async function runTurn({ settings, conv, history, emit, signal, voice = false }) {
+/**
+ * One turn. `images` (data URLs, e.g. the shared screen) go with the newest user message only; they
+ * are never stored in the conversation. In multi-provider mode the turn goes to the providers in
+ * router order until one answers.
+ */
+async function runTurn(opts) {
+  const { settings, conv, history, emit, signal, voice = false } = opts;
+  if (settings.llm.provider !== 'auto') return { ...(await runOn(narrow(settings), opts)), provider: settings.llm.provider };
+  const text = String(history[history.length - 1]?.content || '');
+  const plan = await router.plan(settings, { text, voice, needsTools: Boolean(conv.setup) });
+  if (!plan.length) throw new Error('No AI provider is ready. Connect your Claude account or add an API key in Settings → AI brain.');
+  log.info('route', { order: plan.map((p) => p.id).join(' > '), reason: plan[0].reason });
+  const failures = [];
+  for (let i = 0; i < plan.length; i++) {
+    const { id } = plan[i];
+    // What this attempt already did: streamed text can be taken back, tool actions can't.
+    const seen = { chars: 0, tools: 0 };
+    const watch = (ev) => {
+      if (ev.type === 'text') seen.chars += ev.delta.length;
+      if (ev.type === 'retract') seen.chars -= ev.chars;
+      if (ev.type === 'tool_start') seen.tools++;
+      emit(ev);
+    };
+    try {
+      const result = await runOn(router.concrete(settings, id), { ...opts, emit: watch });
+      router.succeeded(id);
+      return { ...result, provider: id };
+    } catch (err) {
+      if (signal.aborted || err?.name === 'AbortError') throw err;
+      const why = router.failed(settings, id, err);
+      failures.push(`${router.label(id)} ${why.label}`);
+      const next = plan[i + 1];
+      if (!next) break;
+      if (seen.tools) {
+        throw new Error(`${router.label(id)} ${why.label} after it had already used tools, so this reply was not repeated on another provider (no action should run twice). Your next message goes to ${router.label(next.id)}.`);
+      }
+      if (seen.chars > 0) emit({ type: 'retract', chars: seen.chars });
+      emit({ type: 'notice', message: `${router.label(id)} ${why.label}${why.minutes ? ` (skipped for ${why.minutes} min)` : ''} — switching to ${router.label(next.id)}.` });
+    }
+  }
+  throw new Error(`No provider could answer: ${failures.join('; ')}.`);
+}
+
+async function runOn(settings, { conv, history, emit, signal, voice = false, images = [] }) {
   const setup = Boolean(conv.setup);
   const active = setup || settings.llm.useTools ? await tools.activeTools(settings, { setup }) : [];
   const names = active.map((t) => t.name);
   // logTags: tool calls that arrive later through other channels (the MCP bridge, the Claude Code
   // process's output) are logged under this turn too.
   const ctx = { emit, turn: approvals.newTurn(), logTags: log.context() };
+  // A screenshot can contain anything on screen (web pages, emails): it is external content.
+  if (images.length) approvals.markTainted(ctx.turn, 'the shared screen');
   const model = effectiveModel(settings, { voice });
-  log.info('turn', { provider: settings.llm.provider, model: model || 'default', voice, setup, conversation: conv.id, text: String(history[history.length - 1]?.content || '').slice(0, 200) });
+  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', voice, setup, images: images.length || undefined, conversation: conv.id, text: String(history[history.length - 1]?.content || '').slice(0, 200) });
   if (settings.llm.provider === 'claude-code') {
     const opts = await claudeCodeOptions(settings, active, model);
     if (setup) {
@@ -153,11 +235,11 @@ async function runTurn({ settings, conv, history, emit, signal, voice = false })
       opts.buildPrompt = async () => prompt.buildSetup(settings);
     }
     const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || []);
-    return claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext });
+    return claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
   }
   const { system } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names);
-  if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), history, emit, signal, active, system, ctx });
-  return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active, system, ctx });
+  if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), history, emit, signal, active, system, ctx, images });
+  return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active, system, ctx, images });
 }
 
 function withModel(settings, section, model) {
@@ -166,6 +248,12 @@ function withModel(settings, section, model) {
 
 // Pre-start the Claude Code session for a conversation (so the first turn after launch is warm).
 async function prewarm(settings, conv) {
+  // Multi-provider mode: warm the Claude session when Claude is the first choice.
+  if (settings.llm.provider === 'auto') {
+    const [first] = await router.plan(settings);
+    if (first?.id !== 'claude-code') return;
+    settings = router.concrete(settings, 'claude-code');
+  }
   if (settings.llm.provider !== 'claude-code' || !conv) return;
   const active = settings.llm.useTools ? await tools.activeTools(settings) : [];
   await claudecode.prewarm(conv, await claudeCodeOptions(settings, active, effectiveModel(settings)));
@@ -173,7 +261,24 @@ async function prewarm(settings, conv) {
 
 // Single non-streaming completion with whichever provider is configured (used for persona/theme
 // generation). `image` is an optional data URL the model may look at.
-async function complete(settings, text, { image } = {}) {
+async function complete(settings, text, opts = {}) {
+  if (settings.llm.provider !== 'auto') return completeOn(narrow(settings), text, opts);
+  const plan = await router.plan(settings, { text });
+  let lastErr = new Error('No AI provider is ready. Connect your Claude account or add an API key in Settings → AI brain.');
+  for (const { id } of plan) {
+    try {
+      const out = await completeOn(router.concrete(settings, id), text, opts);
+      router.succeeded(id);
+      return out;
+    } catch (err) {
+      router.failed(settings, id, err);
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
+async function completeOn(settings, text, { image } = {}) {
   const provider = settings.llm.provider;
   const model = effectiveModel(settings);
   if (model) settings = withModel(settings, provider === 'anthropic' ? 'anthropic' : provider === 'claude-code' ? 'claudeCode' : 'llm', model);
@@ -218,25 +323,42 @@ async function complete(settings, text, { image } = {}) {
 
 async function runTool(call, ctx, emit) {
   emit({ type: 'tool_start', id: call.id, name: call.name, input: call.input });
-  const { ok, result } = await tools.execute(call.name, call.input, ctx);
+  const { ok, result, image } = await tools.execute(call.name, call.input, ctx);
   const summary = tools.stringifyResult(result);
   emit({ type: 'tool_end', id: call.id, name: call.name, ok, preview: summary.slice(0, 600) });
-  return { ok, content: summary, record: { name: call.name, input: call.input, ok, preview: summary.slice(0, 600) } };
+  return { ok, content: summary, image, record: { name: call.name, input: call.input, ok, preview: summary.slice(0, 600) } };
 }
 
+const dataUrlParts = (url) => String(url || '').match(/^data:(image\/[\w+.-]+);base64,(.+)$/);
+
 // ------------------------------------------------- OpenAI-compatible (FreeLLMAPI)
-function openaiHistory(history, limit) {
+// plain: only text, strictly alternating (for providers without tool support, e.g. Perplexity).
+function openaiHistory(history, limit, { plain = false } = {}) {
   const recent = history.slice(-Math.max(2, limit || 30));
   while (recent.length && recent[0].role !== 'user') recent.shift();
   const out = [];
   for (const m of recent) {
     if (m.role === 'user') out.push({ role: 'user', content: m.content });
     else if (m.role === 'assistant') {
-      if (m.raw?.provider === 'openai' && Array.isArray(m.raw.messages) && m.raw.messages.length) out.push(...m.raw.messages);
+      if (!plain && m.raw?.provider === 'openai' && Array.isArray(m.raw.messages) && m.raw.messages.length) out.push(...m.raw.messages);
       else if (m.content) out.push({ role: 'assistant', content: m.content });
     }
   }
-  return out;
+  if (!plain) return out;
+  const merged = [];
+  for (const m of out) {
+    const prev = merged[merged.length - 1];
+    if (prev?.role === m.role) prev.content += `\n\n${m.content}`;
+    else merged.push({ ...m });
+  }
+  return merged;
+}
+
+function withImages(messages, images) {
+  const last = messages[messages.length - 1];
+  if (!images.length || last?.role !== 'user') return messages;
+  const content = [{ type: 'text', text: String(last.content || '') }, ...images.map((url) => ({ type: 'image_url', image_url: { url } }))];
+  return [...messages.slice(0, -1), { role: 'user', content }];
 }
 
 async function* sseLines(body) {
@@ -265,6 +387,7 @@ async function openaiStream({ base, key, payload, signal, emit }) {
     const detail = await res.text().catch(() => '');
     const err = new Error(`LLM error ${res.status}: ${detail.slice(0, 500)}`);
     err.status = res.status;
+    err.retryAfter = res.headers.get('retry-after');
     throw err;
   }
   let text = '';
@@ -340,8 +463,14 @@ async function compactHistory(settings, conv, history) {
   }
 }
 
-async function runOpenAI({ settings, conv, history, emit, signal, active, system, ctx }) {
+async function runOpenAI({ settings, conv, history, emit, signal, active, system, ctx, images = [] }) {
   const base = trimBase(settings.llm.baseUrl);
+  const plain = Boolean(settings.llm.plainHistory);
+  if (plain) active = [];
+  if (images.length && settings.llm.noVision) {
+    emit({ type: 'notice', message: `${router.label(settings.llm.via)} can't see images, so the shared screen was left out of this message.` });
+    images = [];
+  }
   let model = settings.llm.model;
   if (!model) {
     const models = await listModels(settings).catch(() => []);
@@ -353,7 +482,9 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
   const fnTools = active.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
 
   const compacted = await compactHistory(settings, conv, history);
-  const messages = [{ role: 'system', content: compacted.summary ? `${system}\n\n## Earlier in this conversation (summary)\n${compacted.summary}` : system }, ...openaiHistory(history, settings.llm.historyLimit)];
+  let messages = [{ role: 'system', content: compacted.summary ? `${system}\n\n## Earlier in this conversation (summary)\n${compacted.summary}` : system }, ...openaiHistory(history, settings.llm.historyLimit, { plain })];
+  const textOnly = messages;
+  messages = withImages(messages, images);
   const turnMessages = []; // what we append during this turn (for faithful replay later)
   const toolRecords = [];
   let fullText = '';
@@ -377,6 +508,13 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
     try {
       result = await openaiStream({ base, key: settings.llm.apiKey, payload, signal, emit });
     } catch (err) {
+      // The model can't take images: retry once without the screenshot.
+      if (messages !== textOnly && [400, 404, 415, 422].includes(err.status) && round === 0) {
+        messages = textOnly;
+        emit({ type: 'notice', message: `Model "${model}" can't see images — continuing without the shared screen.` });
+        round--;
+        continue;
+      }
       // Model/provider doesn't support function calling: retry once without tools.
       if (payload.tools && [400, 404, 415, 422, 500].includes(err.status) && round === 0) {
         noToolSupport.add(comboKey);
@@ -403,6 +541,7 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
     turnMessages.push({ role: 'assistant', content: result.text || null, tool_calls: toolCalls });
     emit({ type: 'thinking' });
 
+    const seen = []; // images from tools (look_at_screen): tool messages are text-only, so they follow as a user message
     for (const tc of toolCalls) {
       let input;
       try {
@@ -414,11 +553,27 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       const r = await runTool({ id: tc.id, name: tc.function.name, input }, ctx, emit);
       toolRecords.push(r.record);
       turnMessages.push({ role: 'tool', tool_call_id: tc.id, content: r.content });
+      if (r.image && !settings.llm.noVision) seen.push(r.image);
     }
+    if (seen.length) turnMessages.push({ role: 'user', content: [{ type: 'text', text: '(The screenshot you asked for.)' }, ...seen.map((url) => ({ type: 'image_url', image_url: { url } }))] });
     if (signal.aborted) break;
   }
 
-  return { text: fullText.trim(), toolCalls: toolRecords, raw: { provider: 'openai', messages: turnMessages }, model: servedModel, convPatch: compacted.patch };
+  return { text: fullText.trim(), toolCalls: toolRecords, raw: { provider: 'openai', messages: stripImages(turnMessages) }, model: servedModel, convPatch: compacted.patch };
+}
+
+// Screenshots are never kept in the stored conversation (size, privacy): replaced by a note.
+function stripImages(messages) {
+  const isImage = (b) => b?.type === 'image' || b?.type === 'image_url';
+  const clean = (content) => {
+    if (!Array.isArray(content)) return content;
+    return content.map((b) => {
+      if (isImage(b)) return { type: 'text', text: '(screenshot, not kept)' };
+      if (b?.type === 'tool_result' && Array.isArray(b.content)) return { ...b, content: clean(b.content) };
+      return b;
+    });
+  };
+  return messages.map((m) => ({ ...m, content: clean(m.content) }));
 }
 
 // ------------------------------------------------------------------- Anthropic
@@ -460,7 +615,12 @@ function validateInput(tool, input) {
   return null;
 }
 
-async function runAnthropic({ settings, history, emit, signal, active, system, ctx }) {
+function imageBlock(url) {
+  const m = dataUrlParts(url);
+  return m ? { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } } : null;
+}
+
+async function runAnthropic({ settings, history, emit, signal, active, system, ctx, images = [] }) {
   const client = anthropicClient(settings);
   const a = settings.anthropic;
   const model = a.model || 'claude-opus-5-5';
@@ -472,6 +632,9 @@ async function runAnthropic({ settings, history, emit, signal, active, system, c
 
   const apiTools = active.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters, eager_input_streaming: true }));
   const messages = anthropicHistory(history);
+  const last = messages[messages.length - 1];
+  const pictures = images.map(imageBlock).filter(Boolean);
+  if (pictures.length && last?.role === 'user' && typeof last.content === 'string') messages[messages.length - 1] = { role: 'user', content: [...pictures, { type: 'text', text: last.content }] };
   const turnMessages = [];
   const toolRecords = [];
   let fullText = '';
@@ -559,7 +722,8 @@ async function runAnthropic({ settings, history, emit, signal, active, system, c
       }
       const r = await runTool({ id: tu.id, name: tu.name, input: tu.input }, ctx, emit);
       toolRecords.push(r.record);
-      results.push({ type: 'tool_result', tool_use_id: tu.id, content: r.content, ...(r.ok ? {} : { is_error: true }) });
+      const picture = r.image && imageBlock(r.image);
+      results.push({ type: 'tool_result', tool_use_id: tu.id, content: picture ? [{ type: 'text', text: r.content }, picture] : r.content, ...(r.ok ? {} : { is_error: true }) });
     }
     // All results for one assistant message go back in a single user message.
     turnMessages.push({ role: 'user', content: results });
@@ -570,7 +734,7 @@ async function runAnthropic({ settings, history, emit, signal, active, system, c
   // assistant turn whose tool calls never got results (aborted or out of rounds).
   const dangling = (m) => m.role === 'user' || (Array.isArray(m.content) && m.content.some((b) => b.type === 'tool_use'));
   while (turnMessages.length && dangling(turnMessages[turnMessages.length - 1])) turnMessages.pop();
-  return { text: fullText.trim(), toolCalls: toolRecords, raw: turnMessages.length ? { provider: 'anthropic', messages: turnMessages } : null, model: servedModel };
+  return { text: fullText.trim(), toolCalls: toolRecords, raw: turnMessages.length ? { provider: 'anthropic', messages: stripImages(turnMessages) } : null, model: servedModel };
 }
 
 module.exports = { runTurn, listModels, testConnection, complete, prewarm, effectiveModel };

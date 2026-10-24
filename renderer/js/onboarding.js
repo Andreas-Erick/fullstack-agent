@@ -1,11 +1,14 @@
-// First-run setup wizard: one question at a time, nothing destructive, ends with a "first hello"
-// end-to-end test (voice speaks, brain answers, vault writable, mic works) with fixes for anything red.
+// First-run setup wizard: one question at a time, nothing destructive, an optional hardware check that
+// recommends the speech model and the kind of brain that fits, and a "first hello" end-to-end test
+// (voice speaks, brain answers, vault writable, mic works) with fixes for anything red.
 import { $, api, el, toast, toastError } from './util.js';
 import { state, saveSettings } from './state.js';
 import { speaker, listMics } from './voice.js';
 import { BUILT_IN } from './faces/host.js';
+import { scanInto } from './hwscan.js';
 
-const STEPS = ['welcome', 'persona', 'brain', 'voice', 'vault', 'face', 'safety', 'hello'];
+const STEPS = ['welcome', 'hardware', 'persona', 'brain', 'voice', 'vault', 'face', 'safety', 'hello'];
+const STEP_NAMES = { welcome: 'Welcome', hardware: 'Your computer', persona: 'Personality', brain: 'Brain', voice: 'Voice', vault: 'Memory', face: 'Face', safety: 'Permissions', hello: 'First hello' };
 let step = 0;
 const draft = {};
 
@@ -29,7 +32,7 @@ function choices(options, value, onPick) {
   const draw = (v) => {
     box.innerHTML = '';
     for (const o of options) {
-      box.append(el('button', { class: `ob-choice ${o.value === v ? 'sel' : ''}`, onclick: () => (onPick(o.value), draw(o.value)) }, el('b', {}, o.title), el('small', {}, o.desc || '')));
+      box.append(el('button', { class: `ob-choice ${o.value === v ? 'sel' : ''}`, onclick: () => (onPick(o.value), draw(o.value)) }, o.ico ? el('span', { class: 'ico' }, o.ico) : '', el('span', {}, el('b', {}, o.title), el('small', {}, o.desc || ''))));
     }
   };
   draw(value);
@@ -48,7 +51,10 @@ async function render() {
   const s = state.settings;
   const card = el('div', { class: 'ob-card glass' });
   const id = STEPS[step];
-  card.append(el('div', { class: 'ob-steps' }, STEPS.map((_, i) => el('span', { class: i <= step ? 'on' : '' }))));
+  card.append(
+    el('div', { class: 'ob-head' }, el('span', {}, `Step ${step + 1} of ${STEPS.length}`), el('b', {}, STEP_NAMES[id])),
+    el('div', { class: 'ob-steps' }, STEPS.map((_, i) => el('span', { class: i <= step ? 'on' : '' }))),
+  );
   const body = el('div', { class: 'field', style: { gap: '12px' } });
   card.append(body);
   let beforeNext = async () => {};
@@ -57,10 +63,21 @@ async function render() {
     draft.name = draft.name || s.agent.name;
     body.append(
       el('h2', {}, 'Let’s build your agent'),
-      el('p', { class: 'muted' }, 'A few quick questions — one at a time. You can change everything later in Configuration, and nothing you already have is overwritten.'),
+      el('p', { class: 'muted' }, 'A few quick questions, one at a time. You can change everything later in Configuration, and nothing you already have is overwritten.'),
       field('What should your agent be called?', input(draft.name, 'Nexus', (v) => (draft.name = v))),
     );
     beforeNext = () => saveSettings({ agent: { name: draft.name.trim() || 'Nexus' } });
+  }
+
+  if (id === 'hardware') {
+    const box = el('div', { class: 'field' });
+    const scan = el('button', { class: 'btn primary', onclick: async () => ((scan.disabled = true), (draft.hw = await scanInto(box)), (scan.disabled = false)) }, '🖥 Scan my hardware');
+    body.append(
+      el('h2', {}, 'Check this computer?'),
+      el('p', { class: 'muted' }, 'Optional. A quick look at the processor, memory and graphics card tells you which speech model runs best here, and whether a local AI model would run well or a cloud brain is the better choice. Nothing leaves this computer. Skip it with Next.'),
+      el('div', { class: 'row' }, scan),
+      box,
+    );
   }
 
   if (id === 'persona') {
@@ -74,8 +91,8 @@ async function render() {
       el('h2', {}, 'Personality'),
       choices(
         [
-          { value: 'keep', title: 'Use the default persona', desc: 'Warm, sharp co-pilot. You can edit it any time.' },
-          { value: 'custom', title: 'Write my own', desc: 'Your own master prompt and aesthetic.' },
+          { value: 'keep', ico: '🙂', title: 'Use the default persona', desc: 'Warm, sharp co-pilot. You can edit it any time.' },
+          { value: 'custom', ico: '✍', title: 'Write my own', desc: 'Your own master prompt and aesthetic.' },
         ],
         draft.persona,
         (v) => ((draft.persona = v), (custom.style.display = v === 'custom' ? '' : 'none')),
@@ -108,14 +125,25 @@ async function render() {
       } else {
         area.append(field('Anthropic API key', input(s.anthropic.apiKey, 'sk-ant-…', (v) => saveSettings({ anthropic: { apiKey: v } }), 'password')));
       }
+      if (draft.provider === 'auto') {
+        area.innerHTML = '';
+        area.append(
+          el('p', { class: 'muted', style: { margin: 0 } }, 'Uses every provider you set up, best one first, and switches automatically when one hits a rate limit or runs out of credits. Add the keys you have (all optional; your Claude account is used if it is connected). You can rank them and add more later in Configuration → AI brain.'),
+          field('Gemini API key (free tier)', input(s.gemini.apiKey, 'optional', (v) => saveSettings({ gemini: { apiKey: v } }), 'password'), 'Get one at <a href="https://aistudio.google.com/apikey">aistudio.google.com</a>.'),
+          field('Groq API key (free tier, very fast)', input(s.groq.apiKey, 'optional', (v) => saveSettings({ groq: { apiKey: v } }), 'password'), 'Get one at <a href="https://console.groq.com/keys">console.groq.com</a>.'),
+          field('Anthropic API key', input(s.anthropic.apiKey, 'optional', (v) => saveSettings({ anthropic: { apiKey: v } }), 'password')),
+        );
+      }
     };
+    if (draft.hw?.rec?.brain) body.append(el('div', { class: 'rec' }, el('span', {}, el('b', {}, 'From the hardware check: '), draft.hw.rec.brain.why)));
+    body.prepend(el('h2', {}, 'The brain'));
     body.append(
-      el('h2', {}, 'The brain'),
       choices(
         [
-          { value: 'claude-code', title: 'My Claude account', desc: 'Recommended. Uses your Claude subscription through Claude Code.' },
-          { value: 'openai', title: 'FreeLLMAPI', desc: 'Local OpenAI-compatible server.' },
-          { value: 'anthropic', title: 'Anthropic API key', desc: 'Pay-per-use API.' },
+          { value: 'claude-code', ico: '✦', title: 'My Claude account', desc: 'Recommended. Uses your Claude subscription through Claude Code.' },
+          { value: 'auto', ico: '⇄', title: 'Several providers', desc: 'Claude, Gemini, Groq, DeepSeek, Perplexity… with automatic fallback when one hits a limit.' },
+          { value: 'openai', ico: '⌂', title: 'FreeLLMAPI / local', desc: 'A local OpenAI-compatible server (also Ollama, LM Studio).' },
+          { value: 'anthropic', ico: '🔑', title: 'Anthropic API key', desc: 'Pay-per-use API.' },
         ],
         draft.provider,
         async (v) => ((draft.provider = v), await saveSettings({ llm: { provider: v } }), drawArea()),
@@ -148,8 +176,8 @@ async function render() {
       el('div', {}, el('b', {}, 'How do you want to talk?')),
       choices(
         [
-          { value: 'ptt', title: 'Push to talk', desc: `Hold ${s.stt.pttKey} or the mic button. Never hears the speakers.` },
-          { value: 'open', title: 'Hands-free', desc: 'Always listening with voice detection. Headphones recommended.' },
+          { value: 'ptt', ico: '🎙', title: 'Push to talk', desc: `Hold ${s.stt.pttKey} or the mic button. Never hears the speakers.` },
+          { value: 'open', ico: '👂', title: 'Hands-free', desc: 'Always listening with voice detection. Headphones recommended.' },
         ],
         s.stt.micMode,
         (v) => saveSettings({ stt: { micMode: v } }),
@@ -192,8 +220,8 @@ async function render() {
       el('p', { class: 'muted' }, 'The agent can change its own code, its settings and delete notes. How careful should it be?'),
       choices(
         [
-          { value: 'ask', title: 'Ask me first', desc: 'Recommended. You approve by click or by saying “yes”.' },
-          { value: 'auto', title: 'Just do it', desc: 'Still asks before running commands, and before changing its code after reading web pages or documents.' },
+          { value: 'ask', ico: '🛡', title: 'Ask me first', desc: 'Recommended. You approve by click or by saying “yes”.' },
+          { value: 'auto', ico: '⚡', title: 'Just do it', desc: 'Still asks before running commands, and before changing its code after reading web pages or documents.' },
         ],
         s.safety.permissionMode,
         (v) => saveSettings({ safety: { permissionMode: v } }),

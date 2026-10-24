@@ -1,0 +1,102 @@
+# Builds the Windows installer (.exe setup, .msi, portable .exe) and the Android app (.apk) and
+# attaches them to a GitHub Release.
+# Trigger: push a version tag, e.g.  git tag v1.1.0 && git push origin v1.1.0
+# (or run it by hand from the Actions tab: then the builds are kept as artifacts only).
+# The tag should match "version" in package.json.
+#
+# Android signing (optional): add these repository secrets to get a signed release APK —
+#   ANDROID_KEYSTORE_BASE64   the .jks file, base64-encoded (base64 -w0 nexus-release.jks)
+#   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# Without them the release gets a debug-signed APK (installable, but not upgradable to a signed one
+# without uninstalling first). See android/README.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the release and upload the installers
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check
+        run: npm run check
+
+      - name: Build and publish installers
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep the build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-agent-windows
+          path: |
+            dist/*.exe
+            dist/*.msi
+          if-no-files-found: error
+
+  android:
+    # After the Windows job, so the release it created exists to attach the APK to.
+    needs: windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Build the APK
+        working-directory: android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          NEXUS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          NEXUS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          NEXUS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          NEXUS_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          VERSION=$(node -p "require('../package.json').version")
+          export NEXUS_VERSION="$VERSION"
+          mkdir -p ../dist
+          chmod +x gradlew
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nexus-release.jks"
+            export NEXUS_KEYSTORE="$RUNNER_TEMP/nexus-release.jks"
+            ./gradlew assembleRelease --no-daemon
+            cp app/build/outputs/apk/release/app-release.apk "../dist/Nexus-Android-$VERSION.apk"
+            rm -f "$RUNNER_TEMP/nexus-release.jks"
+          else
+            echo "::warning::No Android signing secrets set; publishing a debug-signed APK."
+            ./gradlew assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk "../dist/Nexus-Android-$VERSION-debug.apk"
+          fi
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.apk --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep the build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-agent-android
+          path: dist/*.apk
+          if-no-files-found: error

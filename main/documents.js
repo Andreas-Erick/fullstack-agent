@@ -45,6 +45,7 @@ async function allowedRoots() {
       });
   const vault = await obsidian.vaultPath();
   if (vault) roots.push(vault);
+  roots.push(path.join(app.getPath('documents'), 'Nexus Exports')); // PDFs the app created
   const ws = await workspace();
   if (ws) roots.unshift(ws);
   return [...new Set(roots.filter(Boolean))];
