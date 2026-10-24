@@ -71,7 +71,9 @@ function help(r) {
   const steps = {
     ok: [],
     unreachable: [
-      `Start ${r.name} on this computer the way you normally launch it, and leave it running (its window or service must stay open).`,
+      r.installedAt
+        ? `${r.name} is installed on this computer (${r.installedAt}). I can start it for you now (helper_app_start), and from now on Nexus starts it by itself (Settings → Helper apps).`
+        : `Start ${r.name} on this computer the way you normally launch it, and leave it running (its window or service must stay open). If it is installed somewhere unusual, set its location in Settings → Helper apps, and Nexus will start it for you from then on.`,
       `Look at the address it shows when it starts (or in its settings). I'm currently trying ${r.url}${r.service === 'freellmapi' ? ' (the default is http://localhost:3001/v1)' : ' (the default is http://localhost:3900)'}.`,
       'If the address is different, tell me — I’ll switch to it and check again.',
       'If it still fails: make sure nothing else uses that port and that a firewall isn’t blocking local connections.',
@@ -101,8 +103,9 @@ function help(r) {
 
 async function check(service, { url } = {}) {
   const s = await store.getSettings();
-  if (service === 'freellmapi') return help(await checkFreeLLMAPI(url || s.llm.baseUrl || DEFAULTS.freellmapi, s.llm.apiKey));
-  if (service === 'voicestudio') return help(await checkVoiceStudio(url || s.voice.baseUrl || DEFAULTS.voicestudio, s.voice.apiKey, s.voice.voice));
+  const installedAt = (id) => require('./helperapps').installedPath(id, s);
+  if (service === 'freellmapi') return help({ ...(await checkFreeLLMAPI(url || s.llm.baseUrl || DEFAULTS.freellmapi, s.llm.apiKey)), installedAt: installedAt('freellmapi') });
+  if (service === 'voicestudio') return help({ ...(await checkVoiceStudio(url || s.voice.baseUrl || DEFAULTS.voicestudio, s.voice.apiKey, s.voice.voice)), installedAt: installedAt('voicestudio') });
   throw new Error('service must be "freellmapi" or "voicestudio"');
 }
 
