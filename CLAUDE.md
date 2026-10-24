@@ -45,8 +45,15 @@ Electron app, plain JavaScript, **no build step**. Node ≥ 22. Run `npm start`;
 - Renderer-only changes need a window reload; `main/`, `preload.js` or `package.json` changes need an app restart.
 - New npm dependencies can't be installed by the agent; ask the user to run `npm install <pkg>`.
 
+## Engineering method, checks and tests
+- `docs/ENGINEERING.md` is how to change this app well: the loop (understand → design → plan → implement → verify → review → commit → learn), design principles, cross-file checklists, security review, tests, debugging, definition of done. Read it before anything beyond a small fix.
+- `npm run check` = syntax of every file, then `scripts/verify.js`: integrity across files (IPC handler ↔ preload channel ↔ renderer `api.*` call, relative imports/requires and the names they import, settings keys bound in Settings or in `SETTABLE` exist in DEFAULTS, unique tool names; tool labels as a warning). It reads the code statically through `main/codemap.js` (also behind `code_map` / `code_outline`).
+- `npm test` = `test/*.test.js` with Node's built-in runner (no dependencies, offline, a few seconds). Load main modules with stand-ins via `test/helpers.js` (`stub`, `load`, `fileStore`). New logic gets tests; a bug fix gets a regression test.
+- `selfchange.commit` (and so every self-change) records a change only if check and tests pass, then marks it pending; after the next restart/reload `verifyAfterLoad` checks the log (`main/errorinsight.js` groups problems) and reports problems to the user, the agent's context (`prompt.turnContext`), Health and Evolution.
+- Engineering mode (`main/engineering.js`): coding, self-change and debugging turns get `llm.engineeringToolRounds` (40) tool rounds and at least "high" effort on the Claude API; a turn that starts a self-change is upgraded mid-way.
+
 ## When something is broken
-Read `TROUBLESHOOTING.md` (→ Reading the log), run the `diagnose` tool, read the log (`read_app_log` with `level: "error"`, then the failing line's `turn` id) — then fix the cause.
+Read `TROUBLESHOOTING.md` (→ Reading the log), run `analyze_errors` (distinct problems with code locations) and `diagnose`, read the log (`read_app_log` with the failing line's `turn` id) — then fix the cause, with a regression test.
 
 ## Logging (`main/logger.js`)
 - `log.info|warn|error(event, data)`: short event name, details as an object. Pass the Error object itself (`{ error: err }` or as data), not `err.message`: the logger keeps message, code, cause and stack.

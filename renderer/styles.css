@@ -380,6 +380,9 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .diff .file { color: rgb(var(--c1-soft)); font-weight: 600; margin-top: 8px; }
 .evo-banner { padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(var(--warn), 0.5); background: rgba(var(--warn), 0.08); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
 .evo-banner.ok { border-color: rgba(var(--ok), 0.4); background: rgba(var(--ok), 0.06); }
+.evo-banner.warn { border-color: rgba(var(--err), 0.5); background: rgba(var(--err), 0.08); align-items: flex-start; }
+.evo-banner.warn > div { flex: 1; min-width: 0; }
+.evo-banner ul { margin: 4px 0; padding-left: 18px; overflow-wrap: anywhere; }
 .toast .toast-actions { display: flex; gap: 6px; margin-top: 8px; }
 
 /* ================= Vault editor ================= */

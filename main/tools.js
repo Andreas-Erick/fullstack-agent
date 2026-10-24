@@ -23,7 +23,7 @@ const arr = (description) => ({ type: 'array', items: { type: 'string' }, descri
 // Settings the agent may change itself (to fix its own tools). Never safety, permissions, code
 // access, document roots or secrets — the agent must not expand its own access.
 const SETTABLE = {
-  llm: ['baseUrl', 'model', 'temperature', 'maxTokens', 'historyLimit', 'modelMode', 'fastModel', 'deepModel', 'maxToolRounds'],
+  llm: ['baseUrl', 'model', 'temperature', 'maxTokens', 'historyLimit', 'modelMode', 'fastModel', 'deepModel', 'maxToolRounds', 'engineeringToolRounds'],
   claudeCode: ['model', 'effort', 'fastModel', 'deepModel', 'cliPath', 'idleMinutes'],
   anthropic: ['model', 'effort', 'fastModel', 'deepModel'],
   voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'thinkingSound', 'thinkingVolume', 'filler', 'fallbackSystemVoice'],
@@ -594,9 +594,30 @@ const TOOLS = [
   {
     name: 'code_search',
     group: 'code',
-    description: 'Search your own source code for keywords; returns file paths, line numbers and snippets.',
+    description: 'Search your own source code for keywords; returns the best-matching files with a snippet. For exact matches (every caller of a function, every use of a setting) use code_grep.',
     parameters: obj({ query: str('Keywords or identifier') }, ['query']),
     run: async (a) => codebase.search(a.query),
+  },
+  {
+    name: 'code_grep',
+    group: 'code',
+    description: 'Exact search of your own source code with a regular expression: every matching line with its line number and surrounding lines. Use it to find all callers, definitions and uses before changing something (e.g. pattern "handoff\\.write\\(" or "\\bstartTurn\\b").',
+    parameters: obj({ pattern: str('JavaScript regular expression'), path: str('Limit to files matching this glob or text, e.g. "main/*.js", "renderer/**/*.css", "settings" (optional)'), ignore_case: bool('Case-insensitive'), context: int('Lines of context around each match (default 2)') }, ['pattern']),
+    run: async (a) => codebase.grep(a.pattern, { glob: a.path || '', ignoreCase: a.ignore_case, context: a.context ?? 2 }),
+  },
+  {
+    name: 'code_outline',
+    group: 'code',
+    description: 'The structure of one of your source files: functions (with parameters), classes, exports, IPC handlers and tools, with line numbers. Read this before reading a large file, then read only the parts you need.',
+    parameters: obj({ path: str('File path relative to the code root') }, ['path']),
+    run: async (a) => codebase.outline(a.path),
+  },
+  {
+    name: 'code_map',
+    group: 'engineering',
+    description: 'Architecture overview of your own codebase: every module with its purpose, exports and size, the IPC surface, your tools by group, the settings sections and the design docs. Start here when planning a feature or a refactor, together with CLAUDE.md and docs/ENGINEERING.md.',
+    parameters: obj({}),
+    run: async () => codebase.map(),
   },
 
   // -------------------------------------------- self-modification
@@ -624,20 +645,34 @@ const TOOLS = [
   {
     name: 'code_check',
     group: 'selfmod',
-    description: 'Syntax-check your whole codebase after editing it. Fix any errors it reports before finishing.',
+    description: 'Check your whole codebase after editing it: syntax of every file, then integrity across files (IPC handler ↔ preload ↔ renderer calls, imports and the names they import, settings keys, tool names). Fix everything it reports before finishing.',
     parameters: obj({}),
     run: async () => selfchange.check(),
+  },
+  {
+    name: 'code_diff',
+    group: 'selfmod',
+    description: 'Your uncommitted changes as a diff (and the list of new files). Review it before self_change_commit like a senior reviewer would: unintended edits, leftovers, missing pieces (preload channel, setting default, tool label, docs, tests), error handling, security.',
+    parameters: obj({ path: str('Only this file (optional)') }),
+    run: async (a) => selfchange.diff(a.path || ''),
+  },
+  {
+    name: 'run_tests',
+    group: 'engineering_run',
+    description: 'Run your automated tests (test/*.test.js, Node\'s built-in test runner). Returns the summary, and the failures in full. self_change_commit also runs them and refuses a change that breaks one. Pass a filter to run only matching test files, e.g. "companion".',
+    parameters: obj({ filter: str('Only test files whose name contains this (optional)') }),
+    run: async (a) => selfchange.runTests(a.filter || ''),
   },
   {
     name: 'self_change_commit',
     group: 'selfmod',
     description:
-      'Finish a change to yourself: syntax-checks and records the change in your change history (so the user can review or revert it). Call once when the feature/fix is complete, with a one-line summary of what changed and why.',
+      'Finish a change to yourself: runs code_check and the tests, and records the change in your change history (so the user can review or revert it). Refuses the change while either fails. Call once when the feature/fix is complete and reviewed (code_diff), with a one-line summary of what changed and why. After the next reload/restart the app checks that the change started cleanly.',
     parameters: obj({ summary: str('One-line summary, e.g. "Add a weather widget to the chat header"') }, ['summary']),
     run: async (a, ctx) => {
       const r = await selfchange.commit(a.summary, { source: 'agent' });
       if (r.ok && !r.nothing) ctx.emit({ type: 'self_changed', change: r });
-      if (!r.ok) return { committed: false, error: 'Syntax check failed — fix these errors and call self_change_commit again.', output: r.check.output };
+      if (!r.ok) return { committed: false, error: 'Checks failed (syntax, integrity or tests) — fix the cause, not the check, and call self_change_commit again.', output: r.check.output };
       return r.nothing ? { committed: false, note: 'No changes to record.' } : { committed: true, id: r.short, files: r.files, needs: r.restart ? 'app restart' : r.reload ? 'window reload' : 'nothing' };
     },
   },
@@ -787,6 +822,18 @@ const TOOLS = [
     run: async (a) => log.tail(a.lines || 120, a.filter || '', { level: a.level, turn: a.turn, sinceMin: a.since_minutes }),
   },
   {
+    name: 'analyze_errors',
+    group: 'mechanic',
+    description:
+      'Your log\'s warnings and errors grouped into distinct problems: how often each happened, first and last time, example turn ids, and the code locations (file:line in your source) from the stack traces. Start debugging here, then read_app_log with a turn id for the full story and code_read_file at the location. Also shows whether your last self-change started cleanly.',
+    parameters: obj({ hours: int('How far back (default 24)') }),
+    run: async (a) => {
+      const groups = require('./errorinsight').fromLog({ sinceMs: (Number(a.hours) || 24) * 3600000, limit: 20 });
+      const lastChange = await selfchange.lastVerification().catch(() => null);
+      return { problems: groups.length ? groups : 'No warnings or errors in that period.', lastSelfChange: lastChange ? { change: lastChange.short, subject: lastChange.subject, state: lastChange.state, problems: lastChange.problems?.length } : 'none recorded' };
+    },
+  },
+  {
     name: 'create_bug_report',
     group: 'mechanic',
     description:
@@ -822,12 +869,24 @@ const TOOLS = [
     name: 'self_change_plan',
     group: 'selfmod',
     description:
-      'Before changing your own code, state the plan: what you will change and why, and which files. The user approves it once (by click or voice); then edits in this turn proceed without further prompts. Required before code_edit_file / code_write_file.',
-    parameters: obj({ summary: str('One line: what the change does'), steps: arr('Concrete steps'), files: arr('Files to create or modify') }, ['summary', 'steps', 'files']),
+      'Before changing your own code, state the plan: what you will change and why, and which files. The user approves it once (by click or voice); then edits in this turn proceed without further prompts. Required before code_edit_file / code_write_file. For anything beyond a small fix, also give the design (approach, and the alternative you rejected and why), the risks (what could break, security, data) and how you will verify it (tests you add or run, what to check after reload/restart): see docs/ENGINEERING.md.',
+    parameters: obj(
+      {
+        summary: str('One line: what the change does'),
+        steps: arr('Concrete steps'),
+        files: arr('Files to create or modify'),
+        design: str('Approach and why; the alternative you considered and rejected (optional for small fixes)'),
+        risks: arr('What could break or go wrong, and how the change guards against it (optional for small fixes)'),
+        verification: arr('How you will verify it: tests added/run, checks, what to look at after reload or restart'),
+      },
+      ['summary', 'steps', 'files'],
+    ),
     run: async (a, ctx) => {
-      await requireApproval(ctx, 'self_modify', a.summary, `${(a.steps || []).map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\nFiles: ${(a.files || []).join(', ')}`);
+      const section = (title, list) => (list?.length ? `\n\n${title}:\n${list.map((x) => `- ${x}`).join('\n')}` : '');
+      const detail = `${(a.steps || []).map((s, i) => `${i + 1}. ${s}`).join('\n')}${a.design ? `\n\nDesign: ${a.design}` : ''}${section('Risks', a.risks)}${section('Verification', a.verification)}\n\nFiles: ${(a.files || []).join(', ')}`;
+      await requireApproval(ctx, 'self_modify', a.summary, detail);
       if (ctx.turn) ctx.turn.plan = a;
-      return { approved: true, next: 'Make the edits, run code_check, then self_change_commit.' };
+      return { approved: true, next: 'Read before you edit (code_outline, code_grep for every caller). Make the edits; add or update tests for new logic; run code_check and run_tests; review code_diff; then self_change_commit.' };
     },
   },
 
@@ -1199,8 +1258,8 @@ async function activeTools(settings, { setup = false } = {}) {
     if (t.group === 'listening') return settings.stt.enabled;
     if (t.group === 'github') return settings.github?.enabled !== false && gh.connected;
     if (t.group === 'vault') return Boolean(vault);
-    if (t.group === 'code') return settings.code.enabled;
-    if (t.group === 'selfmod') return settings.code.enabled && settings.code.allowSelfModify;
+    if (t.group === 'code' || t.group === 'engineering') return settings.code.enabled;
+    if (t.group === 'selfmod' || t.group === 'engineering_run') return settings.code.enabled && settings.code.allowSelfModify;
     if (t.group === 'web') return settings.web.enabled;
     return true;
   });

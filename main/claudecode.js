@@ -492,7 +492,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, mode
   else if (repos) builtins.push('Edit', 'Write');
   const allowed = ['Read', 'Glob', 'Grep', 'mcp__nexus'];
   if (settings.web.enabled) allowed.push('WebSearch', 'WebFetch');
-  if (settings.code.allowSelfModify) allowed.push('Bash(npm run check)', 'Bash(node scripts/check.js)', 'Bash(git status*)', 'Bash(git diff*)', 'Bash(git log*)');
+  if (settings.code.allowSelfModify) allowed.push('Bash(npm run check)', 'Bash(node scripts/check.js)', 'Bash(npm test*)', 'Bash(node scripts/test.js*)', 'Bash(node scripts/verify.js*)', 'Bash(git status*)', 'Bash(git diff*)', 'Bash(git log*)');
   const toolNames = activeTools.map((t) => t.name);
   const spec = {
     system: '',

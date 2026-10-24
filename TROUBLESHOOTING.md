@@ -87,7 +87,8 @@ Diagnose from the log rather than guessing.
   - `npm run recover` lists recent changes.
   - `npm run recover -- undo` reverts the latest one.
   - `npm run recover -- <id>` restores a version.
-- "Failed the syntax check": the change was not recorded. Evolution offers **Record** (after fixing) or **Discard**.
+- "Failed its checks or tests": the change was not recorded. A change is recorded only when every file parses, the cross-file integrity checks pass (`scripts/verify.js`: IPC ↔ preload ↔ renderer, imports, settings keys, tool names) and the tests pass (`npm test`). Evolution offers **Record** (after fixing) or **Discard**.
+- **After a change goes live** (restart or reload) the app waits 45 s and checks its log. If the change logged problems, a notice appears, Evolution shows them with **Revert**, and the agent sees them in its next turn so it can fix them. Settings → Health → "Last self-change" shows the result too.
 - The agent can't install npm packages. Run `npm install <pkg>` yourself if it asks.
 
 ## Vault and memory
@@ -150,6 +151,7 @@ Diagnose from the log rather than guessing.
 
 The log is `<userData>/logs/nexus.log` (Settings → Health → Show log / Open log folder; older parts in `nexus.1.log` … `nexus.3.log`). Each line: `time LEVEL [turn=… conv=…] event {details}`.
 
+0. **See the distinct problems first:** `analyze_errors` groups the warnings and errors of the last 24 h (numbers, ids and paths normalized, so one problem repeated 50 times is one line) with counts, first/last time, example `turn` ids and the code locations (`main/voice.js:32`) from the stack traces.
 1. **Find the failure:** `read_app_log` with `level: "error"` (or `"warn"`), optionally `since_minutes`.
 2. **Trace that request:** take the `turn=` id from the failing line and read the log with `turn: "<id>"`. That shows everything the request did: the `turn` line (provider, model, voice), every tool call with its duration and arguments, approvals, Claude session start/stop/retry, the `reply` line with `firstTextMs`/`totalMs`, or `turn failed` with the error, its cause and the app's stack frames.
 3. **Know the setup:** each launch starts with `==================== app start` and an `environment` line (versions, code commit and uncommitted files, OS, CPU, RAM, GPU, monitors, the settings that change behaviour).
