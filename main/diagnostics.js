@@ -54,7 +54,7 @@ async function run() {
     check('tts', 'Voice output (VoiceStudio)', async () => {
       if (!s.voice.ttsEnabled) return { status: 'off', detail: 'Disabled.' };
       const p = await voice.ping();
-      if (!p.ok) return { status: s.voice.fallbackSystemVoice ? 'warn' : 'fail', detail: `VoiceStudio is unreachable at ${s.voice.baseUrl}.${s.voice.fallbackSystemVoice ? ' Using the system voice as fallback.' : ''}`, fix: 'Start VoiceStudio, or correct its URL in Settings → Voice output.' };
+      if (!p.ok) return { status: s.voice.fallbackSystemVoice ? 'warn' : 'fail', detail: `VoiceStudio is unreachable at ${s.voice.baseUrl}.${s.voice.fallbackSystemVoice ? ' Using the system voice as fallback.' : ''}`, fix: require('./helperapps').installedPath('voicestudio', s) ? 'Start it from Settings → Helper apps (or ask me to); Nexus starts it by itself when "Start with Nexus" is on.' : 'Start VoiceStudio, or correct its URL in Settings → Voice output.' };
       const t0 = Date.now();
       try {
         await voice.speak('ok');
@@ -123,6 +123,18 @@ async function run() {
       if (freeGb < 0.3) return { status: 'fail', detail, fix: 'Free some disk space: settings, conversations and the log can no longer be saved reliably.' };
       if (freeGb < 2) return { status: 'warn', detail, fix: 'Free some disk space soon (speech models alone need up to 1.6 GB).' };
       return { detail };
+    }),
+    check('helperapps', 'Helper apps', async () => {
+      const apps = (await require('./helperapps').status(s)).filter((a) => a.needed);
+      if (!apps.length) return { status: 'off', detail: 'Neither VoiceStudio nor FreeLLMAPI is used with the current settings.' };
+      const line = (a) => `${a.name}: ${a.status === 'running' ? 'running' : a.status === 'starting' ? 'starting…' : a.status === 'remote' ? `on another computer (${a.url})` : a.status === 'failed' ? `failed to start (${a.error})` : a.installedAt ? 'installed, not running' : 'not found on this computer'}`;
+      const down = apps.filter((a) => a.local && !['running', 'starting'].includes(a.status));
+      const auto = s.helperApps?.autoStart !== false;
+      return {
+        status: down.length ? 'warn' : 'ok',
+        detail: `${apps.map(line).join(' · ')}${auto ? ' · started with Nexus' : ''}`,
+        fix: down.length ? (down.some((a) => a.installedAt) ? 'Settings → Helper apps → Start now (or ask me to start it).' : 'Install it, or set where it is in Settings → Helper apps.') : '',
+      };
     }),
     check('remote', 'Remote access', async () => {
       if (!s.remote?.enabled) return { status: 'off', detail: 'Off. Nothing is reachable from other devices.' };

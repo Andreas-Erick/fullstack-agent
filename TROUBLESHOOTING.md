@@ -50,7 +50,8 @@ Diagnose from the log rather than guessing.
 
 ## The agent is silent (no voice)
 
-- Diagnostics shows the VoiceStudio status. If VoiceStudio is down, the app falls back to the system voice and logs `VoiceStudio failed`. Start VoiceStudio or fix its URL. The agent can fix the URL itself with `settings_update voice.baseUrl`.
+- Diagnostics shows the VoiceStudio status. If VoiceStudio is down, the app falls back to the system voice and logs `VoiceStudio failed`. Nexus starts VoiceStudio by itself (Settings → **Helper apps**: at launch, and again when the voice is needed and nothing answers; first start takes about 20 s while it loads its models). If it is not found, set its location there; if it is on another computer, start it there. The agent can fix the URL itself with `settings_update voice.baseUrl`, or start it with `helper_app_start`.
+- **Helper apps** (VoiceStudio, FreeLLMAPI): started only when their address is on this computer and they are not running yet; their windows go minimized to the taskbar. "Close them when I quit Nexus" closes only the ones Nexus started. Log lines: `helper app starting`, `helper app ready` (with ms), `helper app did not come up`.
 - Check that **Voice output → Speak replies automatically** is on, and that you haven't said "mute".
 - A voice id that VoiceStudio doesn't know makes synthesis fail. Click **Load voices** and pick one.
 

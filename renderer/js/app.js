@@ -151,6 +151,12 @@ async function boot() {
   on('voice-fallback', (msg) => raiseAlert(`VoiceStudio unavailable: ${msg}`));
   api.on('vault:changed', (rel) => emit('vault-changed', rel));
   api.on('app:notice', ({ message, kind }) => toast(message, kind, 15000));
+  // Helper apps (VoiceStudio, FreeLLMAPI) started by Nexus: say so, and refresh the status lights when ready.
+  api.on('helperApps:event', (ev) => {
+    if (ev.type === 'starting') toast(`Starting ${ev.name} in the background…`);
+    else if (ev.type === 'ready') (toast(`${ev.name} is ready.`), emit('status-refresh'));
+    else if (ev.type === 'failed') toast(`${ev.name} could not be started: ${ev.error}`, 'error', 10000);
+  });
 
   // Face gallery + demo
   $('#faceSelect').onchange = () => saveSettings({ ui: { face: $('#faceSelect').value } });

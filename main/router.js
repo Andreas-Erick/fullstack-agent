@@ -139,6 +139,8 @@ function failed(settings, id, err) {
   const ms = { rate: retryAfterMs(err) ?? base, credits: Math.max(base, 3600000), auth: 30 * 60000, down: 2 * 60000, other: 0 }[why.kind];
   if (ms > 0) limits.set(id, { until: Date.now() + ms, reason: why.label, kind: why.kind });
   log.warn('provider failed', { provider: id, kind: why.kind, skipMin: Math.round(ms / 60000), error: err });
+  // FreeLLMAPI runs on this computer: if nothing answered, start it for the next time it is needed.
+  if (id === 'openai' && why.kind === 'down') require('./helperapps').onUnreachable('freellmapi', err, settings);
   return { ...why, minutes: Math.round(ms / 60000) };
 }
 

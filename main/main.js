@@ -30,6 +30,7 @@ const screenshare = require('./screenshare');
 const skills = require('./skills');
 const pdf = require('./pdf');
 const companion = require('./companion');
+const helperApps = require('./helperapps');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -283,6 +284,8 @@ function registerIpc() {
     if (patch?.logging) log.setDebug(s.logging.debug);
     if (patch?.calendar) calendar.clearCache();
     if (patch?.remote) await companion.apply(s);
+    // A newly used or re-enabled helper app (VoiceStudio, FreeLLMAPI) starts now.
+    if (patch?.voice || patch?.llm || patch?.routing || patch?.helperApps) helperApps.ensureAll(s, 'settings');
     if (patch?.routing || patch?.llm?.provider || ['gemini', 'deepseek', 'groq', 'perplexity', 'anthropic', 'claudeCode'].some((k) => patch?.[k])) router.reset();
     return s;
   });
@@ -374,7 +377,10 @@ function registerIpc() {
   });
 
   // Voice
-  handle('tts:speak', (text, override) => voice.speak(text, override));
+  // If nothing answers at VoiceStudio's address, start it (the window falls back to the system voice meanwhile).
+  handle('tts:speak', (text, override) => voice.speak(text, override).catch((err) => (helperApps.onUnreachable('voicestudio', err), Promise.reject(err))));
+  handle('helperApps:status', async () => helperApps.status(await store.getSettings()));
+  handle('helperApps:start', async (id) => helperApps.start(String(id), await store.getSettings(), { reason: 'manual' }));
   handle('tts:voices', (override) => voice.voices(override));
   handle('tts:ping', () => voice.ping());
   handle('stt:transcribe', (wav, opts) => voice.transcribe(wav, opts || {}));
@@ -735,6 +741,8 @@ app.whenReady().then(async () => {
   if (s.code.enabled && s.code.allowSelfModify) selfchange.ensureRepo().catch((e) => log.warn('change history unavailable', e));
   obsidian.vaultPath().catch(() => {});
   companion.apply(s).catch((e) => log.warn('remote server start failed', e));
+  helperApps.init({ notify: (ev) => send('helperApps:event', ev) });
+  helperApps.ensureAll(s, 'launch');
   journal.start();
   store.sweepStaleTemp().catch(() => {});
   claudecode.sweepStaleTemp().catch(() => {});
@@ -778,6 +786,7 @@ app.on('before-quit', (e) => {
   log.flush();
   claudecode.shutdown();
   companion.stop();
+  helperApps.stopStarted(); // only if "close them when Nexus quits" is on, and only the ones it started
   journal.stop();
   vaultgit.flushAll();
 });
