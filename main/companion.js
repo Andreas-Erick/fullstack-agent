@@ -2,8 +2,10 @@
 // the assistant and answer approvals, while the brain and data stay here. Off by default.
 //  - HTTP on 127.0.0.1, or on the local network when remote.lan is on. No port is opened otherwise.
 //    From anywhere: through the tunnel (tunnel.js), which reaches 127.0.0.1 and brings HTTPS.
-//  - Pairing: the desktop shows a one-time code (5 minutes, one use, 5 wrong tries); the device gets a
-//    long-lived token. Only its SHA-256 is stored (<userData>/remote-devices.json); revocable per device.
+//  - Pairing: the desktop shows a one-time code and a QR code (5 minutes, one use, 5 wrong tries); the
+//    QR link carries a 256-bit secret in its #fragment. The device gets a long-lived token. Only its
+//    SHA-256 is stored (<userData>/remote-devices.json); revocable per device or all at once; unused
+//    for 90 days, it expires.
 //  - Every call needs the token. Host and Origin are checked (DNS rebinding, other web pages), no CORS.
 //  - Scope: chat, conversations (read) and approvals. Never settings, secrets, setup or screen sharing.
 //  - Streaming: GET /api/events is a Server-Sent Events stream of chat and approval events.
@@ -49,6 +51,7 @@ const PAIR_TTL_MS = 5 * 60 * 1000;
 const PAIR_TRIES = 5;
 const TURNS_PER_MIN = 20;
 const STREAMS_PER_DEVICE = 3;
+const MAX_CONNECTIONS = 64;
 const DEVICE_IDLE_MS = 90 * 24 * 60 * 60 * 1000; // a device unused this long is unpaired
 const STREAMED = new Set(['chat:event', 'approval:request', 'approval:cancel']);
 const CHAT_TYPES = new Set(['start', 'text', 'retract', 'tool_start', 'tool_end', 'notice', 'done', 'error', 'aborted']);
@@ -97,7 +100,12 @@ async function restart(want) {
   if (!want.enabled) return;
   lastError = '';
   await new Promise((resolve) => {
-    const s = http.createServer((req, res) => route(req, res).catch((err) => fail(res, 500, 'Server error', err)));
+    const s = http.createServer({ connectionsCheckingInterval: 5000 }, (req, res) => route(req, res).catch((err) => fail(res, 500, 'Server error', err)));
+    // Slow or idle connections can't pile up (event streams are long responses, not slow requests).
+    s.headersTimeout = 10000;
+    s.requestTimeout = 60000;
+    s.keepAliveTimeout = 5000;
+    s.maxConnections = MAX_CONNECTIONS;
     s.on('error', (err) => {
       lastError = err.code === 'EADDRINUSE' ? `Port ${want.port} is already in use. Choose another port.` : err.message;
       log.warn('remote server error', { error: err });
@@ -141,16 +149,24 @@ function urls() {
 }
 
 async function status() {
-  const devices = (await readDevices()).map(({ id, name, createdAt, lastSeen }) => ({ id, name, createdAt, lastSeen, connected: [...streams].some((s) => s.deviceId === id) }));
+  const devices = (await readDevices()).map(({ id, name, createdAt, lastSeen, lastVia, lastIp }) => ({ id, name, createdAt, lastSeen, lastVia, lastIp, connected: [...streams].some((s) => s.deviceId === id) }));
   return { enabled: current.enabled, listening: Boolean(server), lan: current.lan, port: current.port, urls: urls(), error: lastError, tunnel: tunnel.status(), access: Boolean(access.team && access.aud), devices, pairing: pairing && pairing.expiresAt > Date.now() ? { code: pairing.code, expiresAt: pairing.expiresAt } : null };
 }
 
-// Desktop only (IPC): a fresh one-time pairing code.
+// Desktop only (IPC): a fresh one-time pairing code to type, and a long one-time secret for the QR
+// code. The secret travels in the link's #fragment, which browsers never send to a server or a log.
 function startPairing() {
   if (!server) throw new Error('Turn on remote access first.');
-  pairing = { code: String(crypto.randomInt(0, 1e6)).padStart(6, '0'), expiresAt: Date.now() + PAIR_TTL_MS, tries: 0 };
+  const secret = crypto.randomBytes(32).toString('base64url');
+  pairing = { code: String(crypto.randomInt(0, 1e6)).padStart(6, '0'), secretHash: hash(secret), expiresAt: Date.now() + PAIR_TTL_MS, tries: 0 };
   log.info('remote pairing started');
-  return { code: pairing.code, expiresAt: pairing.expiresAt, urls: urls() };
+  // The QR code links to an address another device can reach (never 127.0.0.1).
+  const links = urls().filter((u) => !/\/\/(127\.0\.0\.1|localhost)[:/]/.test(u)).map((u) => ({ url: u, link: `${u}/#pair=${secret}`, secure: u.startsWith('https:') }));
+  return { code: pairing.code, expiresAt: pairing.expiresAt, urls: urls(), links };
+}
+
+function cancelPairing() {
+  pairing = null;
 }
 
 async function revoke(id) {
@@ -160,6 +176,17 @@ async function revoke(id) {
   for (const st of streams) if (st.deviceId === id) (st.res.end(), streams.delete(st));
   if (device) log.info('remote device revoked', { device: device.name });
   return Boolean(device);
+}
+
+// "Remove all devices" (e.g. a phone was lost): every token stops working at once.
+async function revokeAll() {
+  const n = (await readDevices()).length;
+  await writeDevices([]);
+  for (const st of streams) st.res.end();
+  streams.clear();
+  pairing = null;
+  log.info('remote devices all revoked', { count: n });
+  return n;
 }
 
 // Called by main.js for every event sent to the window; devices only get chat and approval events.
@@ -264,7 +291,15 @@ function readBody(req, { raw = false, max = MAX_BODY } = {}) {
   });
 }
 
-async function authenticate(req) {
+// Where a request came from, for the device list ("via the secure address, 203.0.113.7"). Through the
+// tunnel the socket is cloudflared or Tailscale on this computer, so their forwarding header is used.
+function clientAddress(req, kind) {
+  const fwd = kind === 'tunnel' ? String(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+  const ip = (fwd || req.socket.remoteAddress || '').replace(/^::ffff:/, '').slice(0, 64);
+  return { via: kind === 'tunnel' ? 'secure address' : ip === '127.0.0.1' || ip === '::1' ? 'this computer' : 'local network', ip };
+}
+
+async function authenticate(req, kind) {
   const m = /^Bearer ([A-Za-z0-9_-]{20,})$/.exec(req.headers.authorization || '');
   if (!m) return null;
   const want = Buffer.from(hash(m[1]), 'hex');
@@ -277,9 +312,11 @@ async function authenticate(req) {
     await revoke(device.id);
     return null;
   }
-  // lastSeen is coarse (one write per 5 minutes at most).
-  if (!device.lastSeen || Date.now() - device.lastSeen > 5 * 60 * 1000) {
-    device.lastSeen = Date.now();
+  // lastSeen is coarse (one write per 5 minutes at most), the address is kept current.
+  const from = clientAddress(req, kind);
+  if (!device.lastSeen || Date.now() - device.lastSeen > 5 * 60 * 1000 || device.lastIp !== from.ip) {
+    if (device.lastIp && device.lastIp !== from.ip) log.info('remote device address changed', { device: device.name, via: from.via });
+    Object.assign(device, { lastSeen: Date.now(), lastVia: from.via, lastIp: from.ip });
     writeDevices(list).catch(() => {});
   }
   return device;
@@ -360,7 +397,7 @@ async function route(req, res) {
   if (req.method === 'GET' && p === '/api/ping') return json(res, 200, { app: 'nexus-agent', api: 1 });
   if (req.method === 'POST' && p === '/api/pair') return pair(req, res);
 
-  const device = await authenticate(req);
+  const device = await authenticate(req, kind);
   if (!device) return fail(res, 401, 'Not paired, or this device was removed');
 
   if (req.method === 'GET' && p === '/api/events') return openStream(req, res, device);
@@ -424,8 +461,11 @@ async function pair(req, res) {
   if (body instanceof Error) return fail(res, body.status || 400, body.message);
   if (!pairing || pairing.expiresAt < Date.now()) return fail(res, 403, 'No pairing in progress. Start pairing on the desktop.');
   const code = String(body.code || '').trim();
-  // Six ASCII digits only: anything else counts as a wrong try (and can't break the comparison).
-  const ok = /^\d{6}$/.test(code) && crypto.timingSafeEqual(Buffer.from(code), Buffer.from(pairing.code));
+  const secret = String(body.secret || '');
+  // The typed code (six ASCII digits) or the QR code's secret; anything else counts as a wrong try.
+  const ok = secret
+    ? /^[A-Za-z0-9_-]{43}$/.test(secret) && crypto.timingSafeEqual(Buffer.from(hash(secret), 'hex'), Buffer.from(pairing.secretHash, 'hex'))
+    : /^\d{6}$/.test(code) && crypto.timingSafeEqual(Buffer.from(code), Buffer.from(pairing.code));
   if (!ok) {
     if (++pairing.tries >= PAIR_TRIES) pairing = null;
     log.warn('remote pairing: wrong code');
@@ -473,4 +513,4 @@ async function chat(req, res, device) {
   return json(res, 200, { requestId, conversationId: r.conversationId });
 }
 
-module.exports = { init, apply, stop, status, startPairing, revoke, publish };
+module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, publish };

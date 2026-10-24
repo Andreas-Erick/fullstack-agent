@@ -9,6 +9,7 @@ const calendar = require('./calendar');
 const obsidian = require('./obsidian');
 const codebase = require('./codebase');
 const skills = require('./skills');
+const handoff = require('./handoff');
 
 const FULL_MEMORY_CHARS = 6000; // above this, only titles go in the prompt (memory_get loads the rest)
 
@@ -149,6 +150,9 @@ When one of your own parts misbehaves (no voice, the brain unreachable, the cale
     const startup = await obsidian.startupContext().catch(() => '');
     if (startup) parts.push(startup);
   }
+  // The note the agent left itself when the app last closed (handoff.js).
+  const handoffNote = await handoff.promptBlock().catch(() => '');
+  if (handoffNote) parts.push(handoffNote);
   if (has('memory_')) {
     const m = await memoryBlock();
     parts.push(m.text);

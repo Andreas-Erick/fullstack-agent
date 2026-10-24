@@ -129,8 +129,8 @@ function showPairError(msg) {
   e.classList.toggle('hidden', !msg);
 }
 
-$('#pairForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
+// { code } typed, or { secret } from the QR code's link.
+async function pair(proof) {
   const btn = $('#pairBtn');
   if (btn.disabled) return;
   showPairError('');
@@ -140,10 +140,13 @@ $('#pairForm').addEventListener('submit', async (e) => {
     const res = await fetch('/api/pair', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: $('#pairCode').value.trim(), name: $('#pairName').value.trim() || guessName() }),
+      body: JSON.stringify({ ...proof, name: $('#pairName').value.trim() || guessName() }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+    if (!res.ok) {
+      if (proof.secret && res.status === 403) throw new Error('This QR code has expired or was already used. Click “Pair a device” on the computer again.');
+      throw new Error(data.error || `Error ${res.status}`);
+    }
     state.token = data.token;
     store.set(TOKEN_KEY, data.token);
     store.set(NAME_KEY, data.name);
@@ -151,11 +154,16 @@ $('#pairForm').addEventListener('submit', async (e) => {
     start();
   } catch (err) {
     showPairError(err.message);
-    $('#pairCode').select();
+    if (!proof.secret) $('#pairCode').select();
   } finally {
     btn.disabled = false;
     btn.textContent = 'Connect';
   }
+}
+
+$('#pairForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  pair({ code: $('#pairCode').value.trim() });
 });
 // Digits only; the sixth one connects.
 $('#pairCode').addEventListener('input', (e) => {
@@ -901,5 +909,14 @@ $('#pairInsecure').classList.toggle('hidden', !insecure);
 startFace();
 // Offline app shell (needs HTTPS or localhost; on the plain local network the browser doesn't allow it).
 if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
-if (state.token) start();
-else show('pair');
+// Opened from the pairing QR code (…/#pair=<secret>): take the secret out of the address bar and
+// history at once, then pair with it.
+const fromQr = /^#pair=([A-Za-z0-9_-]{43})$/.exec(location.hash);
+if (fromQr) history.replaceState(null, '', location.pathname + location.search);
+if (state.token) {
+  start();
+  if (fromQr) toast('This device is already connected.');
+} else {
+  show('pair');
+  if (fromQr) pair({ secret: fromQr[1] });
+}

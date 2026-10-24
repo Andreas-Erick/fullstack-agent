@@ -40,6 +40,8 @@ public class MainActivity extends Activity {
     static final String ACTION_TALK = "com.nexusagent.android.TALK";
     private static final int REQ_MIC = 1;
     private static final int REQ_NOTIFY = 2;
+    /** The link in the desktop's pairing QR code: address + #pair=one-time secret. */
+    private static final java.util.regex.Pattern PAIR_LINK = java.util.regex.Pattern.compile("^(https?://\\S+?)/?#pair=([A-Za-z0-9_-]{43})$");
 
     /** True while the app is on screen; the service then leaves notifications to the page. */
     static volatile boolean foreground;
@@ -51,6 +53,8 @@ public class MainActivity extends Activity {
     private boolean loaded;
     private String pendingJs;
     private PermissionRequest pendingPermission;
+    /** "#pair=…" for the next page load only (from a pairing link entered on the setup screen). */
+    private String pendingPair;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -71,7 +75,7 @@ public class MainActivity extends Activity {
         });
         setContentView(root);
         origin = Prefs.server(this);
-        if (origin == null) showSetup(null);
+        if (origin == null) showSetup(null, null);
         else showWeb();
         handleIntent(getIntent());
     }
@@ -110,7 +114,8 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------ first run
-    private void showSetup(String error) {
+    /** prefill: a pairing link shared to the app; it is only filled in, the user still taps Connect. */
+    private void showSetup(String error, String prefill) {
         destroyWeb();
         root.removeAllViews();
         LinearLayout box = new LinearLayout(this);
@@ -130,20 +135,26 @@ public class MainActivity extends Activity {
         address.setTextColor(getColor(R.color.text));
         address.setHintTextColor(getColor(R.color.muted));
         String last = Prefs.server(this);
-        if (last != null) address.setText(last);
+        if (prefill != null) address.setText(prefill);
+        else if (last != null) address.setText(last);
         TextView err = text(error == null ? "" : error, 14, Color.rgb(255, 77, 109));
         err.setPadding(0, dp(8), 0, 0);
         Button connect = new Button(this);
         connect.setText(R.string.setup_connect);
         Runnable go = () -> {
-            String o = Prefs.toOrigin(address.getText().toString());
+            String typed = address.getText().toString().trim();
+            // A pairing link (from the QR code) connects and pairs in one step; only the address is saved.
+            java.util.regex.Matcher link = PAIR_LINK.matcher(typed);
+            boolean isLink = link.matches();
+            String o = Prefs.toOrigin(isLink ? link.group(1) : typed);
             if (o == null) {
                 err.setText(R.string.setup_invalid);
                 return;
             }
-            if (!o.equals(Prefs.server(this))) Prefs.setToken(this, null, null); // a new desktop: pair again
+            if (!o.equals(Prefs.server(this)) || isLink) Prefs.setToken(this, null, null); // a new desktop or pairing: pair again
             Prefs.setServer(this, o);
             origin = o;
+            pendingPair = isLink ? "#pair=" + link.group(2) : null;
             showWeb();
         };
         connect.setOnClickListener(v -> go.run());
@@ -178,7 +189,7 @@ public class MainActivity extends Activity {
         retry.setOnClickListener(v -> showWeb());
         Button change = new Button(this);
         change.setText(R.string.error_change);
-        change.setOnClickListener(v -> showSetup(null));
+        change.setOnClickListener(v -> showSetup(null, null));
         box.addView(retry);
         box.addView(change);
         root.addView(box, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -251,7 +262,8 @@ public class MainActivity extends Activity {
             }
         });
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        web.loadUrl(origin + "/");
+        web.loadUrl(origin + "/" + (pendingPair == null ? "" : pendingPair));
+        pendingPair = null;
     }
 
     /** Our desktop's address, and Cloudflare Access's sign-in pages (only if the address is https). */
@@ -288,7 +300,8 @@ public class MainActivity extends Activity {
         if (intent == null) return;
         if (Intent.ACTION_SEND.equals(intent.getAction())) {
             String text = intent.getStringExtra(Intent.EXTRA_TEXT);
-            if (text != null && !text.trim().isEmpty()) runJs("window.nexusShare && nexusShare(" + JSONObject.quote(text.trim()) + ")");
+            if (text != null && PAIR_LINK.matcher(text.trim()).matches()) showSetup(null, text.trim()); // the user confirms the address
+            else if (text != null && !text.trim().isEmpty()) runJs("window.nexusShare && nexusShare(" + JSONObject.quote(text.trim()) + ")");
         } else if (ACTION_TALK.equals(intent.getAction())) {
             runJs("window.nexusTalk && nexusTalk()");
         }
@@ -350,7 +363,7 @@ public class MainActivity extends Activity {
                 ConnectionService.stop(MainActivity.this);
                 Prefs.setToken(MainActivity.this, null, null);
                 Prefs.setBackground(MainActivity.this, false);
-                showSetup(null);
+                showSetup(null, null);
             });
         }
     }
