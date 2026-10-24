@@ -24,7 +24,7 @@ const DEFAULTS = {
     applyVoice: true, // let persona generation pick a matching VoiceStudio voice
   },
   llm: {
-    provider: 'openai', // 'openai' = FreeLLMAPI / OpenAI-compatible, 'claude-code' = Claude account, 'anthropic' = Claude API key
+    provider: 'openai', // 'openai' = FreeLLMAPI / OpenAI-compatible, 'claude-code' = Claude account, 'anthropic' = Claude API key, 'auto' = multi-provider (see routing)
     baseUrl: 'http://localhost:3001/v1',
     apiKey: '',
     model: '',
@@ -57,6 +57,21 @@ const DEFAULTS = {
     fastModel: 'claude-haiku-5-5',
     deepModel: 'claude-opus-5-5',
   },
+  // Multi-provider mode (llm.provider = 'auto'): the user's ranked list of brains. A turn goes to the
+  // first available one (or the best one for the task, with smart routing); when a provider hits a
+  // rate limit, a usage cap or runs out of credits, the next one takes over and the limited one is
+  // skipped for a while.
+  routing: {
+    order: ['claude-code', 'anthropic', 'gemini', 'deepseek', 'groq', 'perplexity', 'openai'],
+    disabled: [], // providers in the list that are switched off
+    smart: true, // pick the best provider for each task (code, web questions, quick spoken replies…)
+    cooldownMin: 15, // how long a provider that hit a limit is skipped
+  },
+  // OpenAI-compatible cloud providers (used in multi-provider mode).
+  gemini: { apiKey: '', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash', fastModel: '', deepModel: 'gemini-2.5-pro' },
+  deepseek: { apiKey: '', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', fastModel: '', deepModel: 'deepseek-reasoner' },
+  groq: { apiKey: '', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', fastModel: '', deepModel: '' },
+  perplexity: { apiKey: '', baseUrl: 'https://api.perplexity.ai', model: 'sonar', fastModel: '', deepModel: 'sonar-pro' },
   voice: {
     ttsEnabled: true,
     autoSpeak: true,
@@ -104,6 +119,10 @@ const DEFAULTS = {
     daysAhead: 7,
     allCalendars: true,
     allowWrite: true, // let the agent create, change and delete events (needs a sign-in that granted it)
+    icsUrls: '', // read-only calendar feeds (iCal links), one per line; no Google sign-in needed
+  },
+  screen: {
+    attachToMessages: true, // while the screen is shared, each message carries a fresh screenshot
   },
   obsidian: {
     enabled: true,
@@ -130,6 +149,17 @@ const DEFAULTS = {
     taintGuard: true, // always ask before self-modification in a turn that read web pages or documents
     approvalTimeoutSec: 75,
   },
+  remote: {
+    enabled: false, // companion server for paired phones / other computers (desktop-only setting)
+    lan: false, // false = this computer only (127.0.0.1); true = reachable on the local network
+    port: 7823,
+    tunnel: 'off', // off | quick (temporary trycloudflare.com address) | cloudflare (named tunnel) | tailscale (Tailscale Serve)
+    tunnelToken: '', // Cloudflare connector token (secret)
+    publicHost: '', // the tunnel's public hostname (named tunnel / Tailscale Serve)
+    accessTeam: '', // Cloudflare Access team (myteam or myteam.cloudflareaccess.com); with accessAud, every tunnel request must be signed in
+    accessAud: '', // the Access application's AUD tag
+    cloudflaredPath: '', // empty = find cloudflared on PATH
+  },
   logging: {
     debug: false, // also write DEBUG lines (e.g. Claude Code's raw error output) to the log
   },
@@ -147,7 +177,11 @@ const DEFAULTS = {
   ui: {
     showVisualizerInChat: true,
     captions: true,
-    face: 'circuit', // circuit | radial | rain | neural | custom:<folder>
+    face: 'circuit', // circuit | radial | rain | neural | companion | custom:<folder>
+    zoom: 1, // whole-window zoom (Ctrl + / Ctrl − / Ctrl 0, Ctrl + wheel)
+    chatLayout: 'split', // chat | split | face — what the chat view shows
+    facePanelWidth: 300, // width of the face next to the chat in the split layout (drag the divider)
+    sleepAfterMin: 10, // the face dozes off after this long without activity (0 = never)
   },
 };
 
@@ -157,8 +191,14 @@ const SECRET_FIELDS = [
   ['voice', 'apiKey'],
   ['stt', 'remoteKey'],
   ['calendar', 'clientSecret'],
+  ['calendar', 'icsUrls'], // a secret iCal address gives read access to the calendar
+  ['gemini', 'apiKey'],
+  ['deepseek', 'apiKey'],
+  ['groq', 'apiKey'],
+  ['perplexity', 'apiKey'],
   ['web', 'braveKey'],
   ['web', 'tavilyKey'],
+  ['remote', 'tunnelToken'],
 ];
 
 function dataDir() {

@@ -1,6 +1,6 @@
 // Neural-core face: a constellation brain with nine labeled regions, thought-pulses traveling along
 // connections, and a CORTEX STATUS panel tied to the real agent state.
-import { BaseFace, audio, faceState, paletteFor, rgba, lerp, lerpColor } from './common.js';
+import { BaseFace, audio, faceState, baseState, paletteFor, rgba, lerp, lerpColor } from './common.js';
 import { state } from '../state.js';
 
 const REGIONS = [
@@ -48,8 +48,9 @@ export class NeuralFace extends BaseFace {
 
   draw(dt) {
     const g = this.ctx;
-    const st = faceState();
-    const target = paletteFor(st);
+    const shown = faceState();
+    const st = baseState(shown); // core state for motion; colors use the exact one
+    const target = paletteFor(shown);
     const k = 1 - Math.pow(0.02, dt);
     this.cur.main = lerpColor(this.cur.main, target.main, k);
     this.cur.accent = lerpColor(this.cur.accent, target.accent, k);

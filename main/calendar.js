@@ -1,10 +1,14 @@
 // Google Calendar via OAuth2 "installed app" loopback flow with PKCE: reads events and, when the
 // user allows it, creates, changes and deletes them.
-// The user supplies their own OAuth client (Desktop app type) from Google Cloud Console.
+// The user supplies their own OAuth client (Desktop app type) from Google Cloud Console — pasted, or
+// imported from the client_secret_….json file Google offers for download. Read-only iCal feeds
+// (ics.js) need no sign-in at all; their events are merged in.
 const http = require('http');
 const crypto = require('crypto');
+const fsp = require('fs').promises;
 const { shell } = require('electron');
 const store = require('./store');
+const ics = require('./ics');
 
 const READ_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
 const WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
@@ -24,9 +28,13 @@ async function status() {
   const s = await store.getSettings();
   const tokens = await store.getSecretBlob(TOKEN_BLOB);
   const granted = grantedWrite(tokens);
+  const signedIn = Boolean(tokens?.refresh_token || tokens?.access_token);
+  const feeds = ics.urls(s.calendar.icsUrls).length;
   return {
     configured: Boolean(s.calendar.clientId),
-    signedIn: Boolean(tokens?.refresh_token || tokens?.access_token),
+    signedIn,
+    feeds,
+    connected: signedIn || feeds > 0, // any calendar to read from
     email: tokens?.email || null,
     enabled: s.calendar.enabled,
     canWrite: granted && s.calendar.allowWrite !== false,
@@ -108,6 +116,16 @@ async function signIn() {
   await store.setSecretBlob(TOKEN_BLOB, tokens);
   cache = { key: '', at: 0, events: [] };
   return status();
+}
+
+// The client_secret_….json Google offers after creating a Desktop OAuth client: { installed: { client_id, client_secret } }.
+async function importClientFile(file) {
+  const json = JSON.parse(await fsp.readFile(file, 'utf8'));
+  const c = json.installed || json.web || json;
+  if (!c?.client_id) throw new Error('That file has no OAuth client in it. Download the JSON of a "Desktop app" OAuth client from Google Cloud Console.');
+  if (json.web) throw new Error('That is a "Web application" client. Create one of type "Desktop app" instead (Credentials → Create credentials → OAuth client ID).');
+  await store.setSettings({ calendar: { clientId: c.client_id, clientSecret: c.client_secret || '', enabled: true } });
+  return { clientId: c.client_id };
 }
 
 function decodeEmail(idToken) {
@@ -201,10 +219,12 @@ async function events({ start, end } = {}) {
   const from = start ? new Date(start) : startOfDay(new Date());
   const s = await store.getSettings();
   const to = end ? new Date(end) : new Date(from.getTime() + (s.calendar.daysAhead || 7) * 86400000);
-  const key = `${from.toISOString()}|${to.toISOString()}`;
+  const key = `${from.toISOString()}|${to.toISOString()}|${s.calendar.icsUrls}`;
   if (cache.key === key && Date.now() - cache.at < 5 * 60 * 1000) return cache.events;
 
-  const cals = await calendars();
+  const signedIn = Boolean(await store.getSecretBlob(TOKEN_BLOB));
+  const feedEvents = ics.events(s.calendar.icsUrls, from, to);
+  const cals = signedIn ? await calendars() : [];
   const lists = await Promise.all(
     cals.map((cal) =>
       api(`/calendars/${encodeURIComponent(cal.id)}/events`, {
@@ -218,7 +238,7 @@ async function events({ start, end } = {}) {
         .catch(() => []),
     ),
   );
-  const all = lists.flat().sort((a, b) => new Date(a.start) - new Date(b.start));
+  const all = [...lists.flat(), ...(await feedEvents)].sort((a, b) => new Date(a.start) - new Date(b.start));
   cache = { key, at: Date.now(), events: all };
   return all;
 }
@@ -322,14 +342,14 @@ function fmtEvent(e) {
 // Text block for the system prompt: today's events + upcoming.
 async function promptBlock() {
   const st = await status();
-  if (!st.enabled || !st.signedIn) return '';
+  if (!st.enabled || !st.connected) return '';
   try {
     const list = await events();
     const todayEnd = startOfDay(new Date()).getTime() + 86400000;
     const today = list.filter((e) => new Date(e.start).getTime() < todayEnd);
     const upcoming = list.filter((e) => new Date(e.start).getTime() >= todayEnd).slice(0, 40);
     return [
-      `## Calendar (Google Calendar${st.canWrite ? '' : ', read-only'})`,
+      `## Calendar (${[st.signedIn && `Google Calendar${st.canWrite ? '' : ', read-only'}`, st.feeds && `${st.feeds} read-only calendar feed${st.feeds > 1 ? 's' : ''}`].filter(Boolean).join(' + ')})`,
       "Today's events:",
       today.length ? today.map(fmtEvent).join('\n') : '- Nothing scheduled today.',
       'Upcoming:',
@@ -340,4 +360,9 @@ async function promptBlock() {
   }
 }
 
-module.exports = { status, signIn, signOut, events, promptBlock, fmtEvent, getEvent, createEvent, updateEvent, deleteEvent };
+function clearCache() {
+  cache = { key: '', at: 0, events: [] };
+  ics.clearCache();
+}
+
+module.exports = { status, signIn, signOut, importClientFile, clearCache, testFeed: ics.test, events, promptBlock, fmtEvent, getEvent, createEvent, updateEvent, deleteEvent };

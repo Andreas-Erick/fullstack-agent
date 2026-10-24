@@ -1,7 +1,8 @@
 // Document windows and monitors: each document the agent opens gets its own window (opening one that
 // is already open brings it forward), and any of them, or the assistant's own window, can be moved
-// to a monitor. Monitors are numbered left to right (then top to bottom), the way the user points at
-// them; identify() flashes each number on its screen.
+// to a monitor. Monitors are named by where they sit, the way the user points at them: Left, Center,
+// Right (Center-left / Center-right with four; Top / Bottom when stacked). Numbers (1 = leftmost)
+// still work; identify() flashes each name on its screen.
 const path = require('path');
 const { BrowserWindow, screen } = require('electron');
 
@@ -13,16 +14,36 @@ function init(options) {
   ctx = options;
 }
 
+const ACROSS = { 1: [''], 2: ['Left', 'Right'], 3: ['Left', 'Center', 'Right'], 4: ['Left', 'Center-left', 'Center-right', 'Right'], 5: ['Far left', 'Left', 'Center', 'Right', 'Far right'] };
+
+// Monitors left to right, each with its positional name. Monitors that overlap horizontally are
+// one column (stacked), named Top/Bottom within it.
 function displays() {
-  return screen
-    .getAllDisplays()
-    .sort((a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y)
-    .map((d, i) => ({ number: i + 1, display: d }));
+  const all = screen.getAllDisplays().sort((a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y);
+  const columns = [];
+  for (const d of all) {
+    const mid = d.bounds.x + d.bounds.width / 2;
+    const col = columns.find((c) => mid > c.x && mid < c.x + c.width);
+    if (col) col.items.push(d);
+    else columns.push({ x: d.bounds.x, width: d.bounds.width, items: [d] });
+  }
+  const names = ACROSS[columns.length] || columns.map((_, i) => `Screen ${i + 1}`);
+  const out = [];
+  columns.forEach((col, ci) => {
+    col.items.sort((a, b) => a.bounds.y - b.bounds.y);
+    col.items.forEach((d, ri) => {
+      const vertical = col.items.length === 1 ? '' : col.items.length === 2 ? ['Top', 'Bottom'][ri] : ['Top', 'Middle', 'Bottom'][ri] || `Row ${ri + 1}`;
+      const across = names[ci];
+      const label = [vertical, vertical ? across.toLowerCase() : across].filter(Boolean).join(' ') || 'Main';
+      out.push({ label, display: d });
+    });
+  });
+  return out.map((m, i) => ({ ...m, number: i + 1 }));
 }
 
 function monitorOf(win) {
   const d = screen.getDisplayMatching(win.getBounds());
-  return displays().find((m) => m.display.id === d.id)?.number;
+  return displays().find((m) => m.display.id === d.id)?.label;
 }
 
 function listMonitors() {
@@ -33,35 +54,44 @@ function listMonitors() {
     ...[...docs].map(([file, w]) => ({ window: path.basename(file), monitor: monitorOf(w) })),
   ];
   return {
-    monitors: displays().map(({ number, display: d }) => ({
+    monitors: displays().map(({ label, number, display: d }) => ({
+      position: label,
       number,
       primary: d.id === primary || undefined,
       name: d.label || undefined,
       resolution: `${Math.round(d.size.width * d.scaleFactor)}×${Math.round(d.size.height * d.scaleFactor)}`,
-      position: `${d.bounds.x},${d.bounds.y}`,
+      origin: `${d.bounds.x},${d.bounds.y}`,
     })),
     windows,
   };
 }
 
-// "2", 2, "primary"/"main", "left"/"leftmost", "right"/"rightmost", "other"/"next".
+// "left", "center", "right", "top left"…, "primary"/"main", "other"/"next", or a number (1 = leftmost).
 function resolveMonitor(which, current) {
   const all = displays();
-  const w = String(which ?? '').trim().toLowerCase();
+  const w = String(which ?? '').trim().toLowerCase().replace(/\b(the|monitor|screen|display|one)\b/g, '').replace(/centre|middle/g, 'center').replace(/\s+/g, ' ').trim();
+  const names = () => all.map((m) => m.label).join(', ');
   if (/^\d+$/.test(w)) {
     const m = all[Number(w) - 1];
-    if (!m) throw new Error(`There is no monitor ${w}; ${all.length === 1 ? 'only one monitor is connected' : `monitors are numbered 1 to ${all.length}, left to right`}.`);
+    if (!m) throw new Error(`There is no monitor ${w}; ${all.length === 1 ? 'only one monitor is connected' : `the monitors are: ${names()}`}.`);
     return m.display;
   }
   if (/primary|main/.test(w)) return screen.getPrimaryDisplay();
-  if (/left/.test(w)) return all[0].display;
-  if (/right/.test(w)) return all[all.length - 1].display;
   if (/other|next|second/.test(w)) {
     if (all.length < 2) throw new Error('Only one monitor is connected.');
     const i = all.findIndex((m) => m.display.id === current?.id);
     return all[(i + 1) % all.length].display;
   }
-  throw new Error(`Say which monitor: a number from 1 to ${all.length} (left to right), "primary", "left" or "right".`);
+  const exact = all.find((m) => m.label.toLowerCase() === w || m.label.toLowerCase().replace('-', ' ') === w.replace('-', ' '));
+  if (exact) return exact.display;
+  // Looser: every word must appear ("top" with stacked monitors, "left" → the leftmost).
+  const words = w.split(/[\s-]+/).filter(Boolean);
+  const loose = all.filter((m) => words.every((x) => m.label.toLowerCase().includes(x)));
+  if (loose.length) return loose[0].display;
+  if (/left/.test(w)) return all[0].display;
+  if (/right/.test(w)) return all[all.length - 1].display;
+  if (/center/.test(w)) return all[Math.floor((all.length - 1) / 2)].display;
+  throw new Error(`Say which monitor by where it is: ${names()} (or "primary").`);
 }
 
 // Places a window on a display: centered (keeping its size), maximized, full screen, or a half.
@@ -142,6 +172,9 @@ function open(full, { monitor, position } = {}) {
       title: path.basename(full),
       icon: path.join(ctx.root, 'assets', 'icon.ico'),
       autoHideMenuBar: true,
+      // The viewer draws its own title bar (name, zoom, pages, actions); the OS buttons sit on top.
+      titleBarStyle: 'hidden',
+      ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 12, y: 14 } } : { titleBarOverlay: { color: '#0a0a0f', symbolColor: '#7df9ff', height: 44 } }),
       show: false,
       webPreferences: { preload: ctx.preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
@@ -217,9 +250,9 @@ function move(name, monitor, position) {
   return { moved: label, monitor: monitorOf(win), position: position || 'center' };
 }
 
-// Flashes each monitor's number on its screen for a few seconds (like Windows' "Identify").
+// Flashes each monitor's name on its screen for a few seconds (like Windows' "Identify").
 function identify(seconds = 3) {
-  for (const { number, display } of displays()) {
+  for (const { label, number, display } of displays()) {
     const b = display.bounds;
     const size = Math.round(Math.min(b.width, b.height) / 3);
     const w = new BrowserWindow({
@@ -237,12 +270,13 @@ function identify(seconds = 3) {
       webPreferences: { sandbox: true, contextIsolation: true },
     });
     w.setIgnoreMouseEvents(true);
-    const html = `<body style="margin:0;display:grid;place-items:center;height:100vh;background:rgba(10,10,15,.82);border-radius:24px;color:#7df9ff;font:700 ${Math.round(size * 0.6)}px system-ui;overflow:hidden">${number}</body>`;
+    const big = Math.round(size * (label.length > 8 ? 0.13 : 0.2));
+    const html = `<body style="margin:0;display:grid;place-content:center;text-align:center;height:100vh;background:rgba(10,10,15,.85);border-radius:24px;color:#7df9ff;font-family:system-ui;overflow:hidden"><div style="font-weight:700;font-size:${big}px;letter-spacing:.06em;text-transform:uppercase">${label}</div><div style="font-size:${Math.round(size * 0.07)}px;opacity:.6;margin-top:6px">monitor ${number}</div></body>`;
     w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
     w.once('ready-to-show', () => w.showInactive());
     setTimeout(() => !w.isDestroyed() && w.close(), seconds * 1000);
   }
-  return { monitors: displays().length };
+  return { monitors: displays().map((m) => m.label) };
 }
 
 function current() {

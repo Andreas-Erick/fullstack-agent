@@ -29,7 +29,7 @@ async function environment() {
     monitors: screen.getAllDisplays().map((d) => `${Math.round(d.size.width * d.scaleFactor)}×${Math.round(d.size.height * d.scaleFactor)}@${d.scaleFactor}`),
     code: { commit: commit || '(no git)', uncommittedFiles: changed ? changed.split('\n').length : 0 },
     settings: {
-      brain: s.llm.provider,
+      brain: s.llm.provider === 'auto' ? `auto: ${(s.routing.order || []).filter((p) => !(s.routing.disabled || []).includes(p)).join(' > ')}${s.routing.smart ? ' (smart)' : ''}` : s.llm.provider,
       model: s.llm.provider === 'claude-code' ? s.claudeCode.model : s.llm.provider === 'anthropic' ? s.anthropic.model : s.llm.model,
       fastForVoice: s.llm.voiceUsesFast,
       permissionMode: s.safety.permissionMode,

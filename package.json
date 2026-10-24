@@ -1,10 +1,10 @@
 {
   "name": "nexus-agent",
   "productName": "Nexus Agent",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Personal AI assistant desktop app: streaming chat, voice, memory vault, living circuit-board face, Google Calendar, Obsidian knowledge base and document viewer.",
   "main": "main/main.js",
-  "author": "Nexus Agent",
+  "author": "Andreas Erick",
   "license": "MIT",
   "type": "commonjs",
   "scripts": {
@@ -13,9 +13,10 @@
     "check": "node scripts/check.js",
     "recover": "node scripts/recover.js",
     "dist": "electron-builder",
-    "dist:win": "electron-builder --win",
+    "dist:win": "electron-builder --win --publish never",
     "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "dist:linux": "electron-builder --linux",
+    "release:win": "electron-builder --win --publish always"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.2.0",
@@ -63,12 +64,34 @@
       "!node_modules/onnxruntime-node/**",
       "!node_modules/sharp/**",
       "!node_modules/@img/**",
-      "!node_modules/onnxruntime-web/**"
+      "!node_modules/onnxruntime-web/**",
+      "scripts/**",
+      "CLAUDE.md",
+      "TROUBLESHOOTING.md",
+      "README.md",
+      "PRIVACY.md",
+      "CHANGELOG.md"
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "msi",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "assets/icon.ico"
     },
@@ -87,6 +110,39 @@
         "deb"
       ],
       "category": "Utility"
+    },
+    "asar": false,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Andreas-Erick",
+        "repo": "fullstack-agent",
+        "releaseType": "release"
+      }
+    ],
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nexus Agent",
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "artifactName": "${productName}-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Andreas-Erick/fullstack-agent.git"
   }
 }

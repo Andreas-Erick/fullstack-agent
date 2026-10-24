@@ -1,6 +1,6 @@
 // Chat view: conversation history, streaming messages, tool-call chips, voice integration.
 import { $, api, el, renderMarkdown, timeAgo, toast, toastError, confirmDialog, promptDialog, on, emit } from './util.js';
-import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert } from './state.js';
+import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
 import { speaker } from './voice.js';
 
@@ -16,7 +16,9 @@ export function initChat() {
   $('#emptyState').replaceWith(emptyStateNode());
   const input = $('#input');
   input.addEventListener('input', autosize);
+  input.addEventListener('input', suggestSkills);
   input.addEventListener('keydown', (e) => {
+    if (slashPick(e)) return;
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       sendFromInput();
@@ -36,6 +38,17 @@ export function initChat() {
   on('settings', updateSpeakToggle);
 
   api.on('chat:event', handleEvent);
+  loadSkillList();
+  on('skills-changed', loadSkillList);
+
+  // "↓ Latest" appears when you scrolled up away from the newest message.
+  const box = messagesEl();
+  const latest = $('#scrollLatest');
+  box.addEventListener('scroll', () => latest.classList.toggle('hidden', box.scrollHeight - box.scrollTop - box.clientHeight < 300));
+  latest.onclick = () => {
+    box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+    latest.classList.add('hidden');
+  };
   on('barge-in', () => {
     // Talking over the agent silences the rest of this reply; the new words (if any) interrupt it.
     if (active) active.muted = true;
@@ -178,6 +191,14 @@ function toolChip(t) {
 }
 
 const TOOL_LABELS = {
+  create_pdf: '📄 Created a PDF',
+  quick_note: '📝 Jotted a note',
+  skill_list: '⚡ Listed skills',
+  skill_run: '⚡ Ran a skill',
+  skill_save: '⚡ Saved a skill',
+  skill_delete: '⚡ Deleted a skill',
+  look_at_screen: '🖥 Looked at your screen',
+  setup_scan_hardware: '🖥 Checked the hardware',
   memory_save: '🧠 Saved memory',
   memory_update: '🧠 Updated memory',
   memory_delete: '🧠 Deleted memory',
@@ -290,7 +311,9 @@ function messageNode(m) {
   if (m.toolCalls?.length) body.append(el('div', { class: 'tools' }, m.toolCalls.map(toolChip)));
   const bubble = el('div', { class: 'bubble' });
   if (m.role === 'assistant') bubble.innerHTML = renderMarkdown(m.content || '');
-  else bubble.textContent = m.content;
+  else bubble.textContent = m.display || m.content;
+  const tags = [m.skill && `⚡ skill /${m.skill}`, m.screen && '🖥 screen shared'].filter(Boolean);
+  if (tags.length) body.append(el('div', { class: 'msg-tag' }, tags.map((t) => el('span', {}, t))));
   body.append(bubble);
   body.append(metaNode(m));
   wrap.append(avatarNode(m.role), body);
@@ -301,7 +324,19 @@ function metaNode(m) {
   const meta = el('div', { class: 'msg-meta' }, el('span', {}, new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
   if (m.model) meta.append(el('span', {}, m.model));
   meta.append(el('button', { onclick: () => (navigator.clipboard.writeText(m.content || ''), toast('Copied')) }, 'Copy'));
-  if (m.role === 'assistant') meta.append(el('button', { onclick: () => speaker.say(m.content || '') }, 'Speak'));
+  if (m.role === 'assistant') {
+    meta.append(
+      el('button', { onclick: () => speaker.say(m.content || '') }, 'Speak'),
+      el('button', { title: 'Save this reply as a note in your vault Inbox', onclick: () => api.notes.quick(m.content || '').then((r) => toast(`Saved to ${r.path}`), toastError) }, 'Save as note'),
+      el('button', {
+        title: 'Save this reply as a PDF',
+        onclick: () => {
+          const title = `${$('#chatTitle').textContent || 'Reply'} – ${new Date(m.createdAt || Date.now()).toLocaleDateString()}`;
+          api.pdf.fromMarkdown(title, m.content || '').then((r) => toast(`Saved ${r.path}`), toastError);
+        },
+      }, 'PDF'),
+    );
+  }
   return meta;
 }
 
@@ -342,7 +377,9 @@ export async function send(text, { voice = false, hidden = false } = {}) {
   messagesEl().querySelector('.empty-state')?.remove();
 
   const requestId = `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
-  if (!hidden) messagesEl().append(messageNode({ id: 'pending-user', role: 'user', content: text, createdAt: Date.now() }));
+  const sharing = !$('#screenThumb').classList.contains('hidden') && state.settings.screen?.attachToMessages !== false;
+  const slash = text.match(/^\/([\w-]+)/);
+  if (!hidden) messagesEl().append(messageNode({ id: 'pending-user', role: 'user', content: text, createdAt: Date.now(), screen: sharing, skill: slash && skillList.some((x) => x.slug === slash[1].toLowerCase()) ? slash[1].toLowerCase() : null }));
   const wrap = el('div', { class: 'msg assistant' });
   const body = el('div', { class: 'msg-body' });
   const tools = el('div', { class: 'tools' });
@@ -408,6 +445,7 @@ function handleEvent(ev) {
     case 'thinking':
       break;
     case 'tool_start': {
+      setFlag('toolsRunning', state.toolsRunning + 1);
       const chip = toolChip({ name: ev.name, input: ev.input });
       active.tools.set(ev.id, { chip, input: ev.input });
       if (ttsActive() && state.settings.voice.filler && !active.muted && !active.text.trim()) speaker.filler(fillerFor(ev.name));
@@ -416,6 +454,7 @@ function handleEvent(ev) {
       break;
     }
     case 'tool_end': {
+      setFlag('toolsRunning', Math.max(0, state.toolsRunning - 1));
       const prev = active.tools.get(ev.id);
       const chip = toolChip({ name: ev.name, input: prev?.input, ok: ev.ok, preview: ev.preview });
       prev ? prev.chip.replaceWith(chip) : active.toolsEl.append(chip);
@@ -449,6 +488,9 @@ function handleEvent(ev) {
     case 'calendar_changed':
       emit('calendar-changed');
       break;
+    case 'skills_changed':
+      emit('skills-changed');
+      break;
     case 'voice_preview':
       if (state.settings.voice.ttsEnabled) speaker.say(ev.text, { voice: ev.voice });
       break;
@@ -459,6 +501,7 @@ function handleEvent(ev) {
       active.body.append(metaNode(m));
       if (ttsActive() && !active.muted) speaker.flush();
       finish();
+      if (!ttsActive()) celebrate();
       refreshList();
       break;
     }
@@ -480,6 +523,7 @@ function handleEvent(ev) {
 
 function finish() {
   active = null;
+  state.toolsRunning = 0;
   if (queued) {
     const q = queued;
     queued = null;
@@ -502,4 +546,56 @@ export function continueIn(id, title) {
   currentId = id;
   if (title) $('#chatTitle').textContent = title;
   refreshList();
+}
+
+// ------------------------------------------------------- /skill commands
+// Typing "/" shows the saved skills; Tab or Enter completes the highlighted one.
+let skillList = [];
+let picker = null;
+
+export async function loadSkillList() {
+  skillList = await api.skills.list().catch(() => []);
+}
+
+function suggestSkills() {
+  const input = $('#input');
+  const m = input.value.match(/^\/([\w-]*)$/);
+  picker?.el.remove();
+  picker = null;
+  if (!m) return;
+  const matches = skillList.filter((s) => s.slug.startsWith(m[1].toLowerCase()) || s.name.toLowerCase().includes(m[1].toLowerCase())).slice(0, 6);
+  if (!matches.length) return;
+  const list = el('div', { class: 'dropdown-menu open slash-menu' });
+  matches.forEach((s, i) => list.append(el('button', { class: i === 0 ? 'sel' : '', onclick: () => complete(s) }, el('b', {}, `/${s.slug}`), el('span', { class: 'muted' }, ` ${s.description || s.name}`))));
+  $('.composer').append(list);
+  picker = { el: list, matches, index: 0 };
+}
+
+function complete(s) {
+  const input = $('#input');
+  input.value = `/${s.slug} `;
+  picker?.el.remove();
+  picker = null;
+  input.focus();
+}
+
+function slashPick(e) {
+  if (!picker) return false;
+  if (e.key === 'Escape') {
+    picker.el.remove();
+    picker = null;
+    return true;
+  }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    picker.index = (picker.index + (e.key === 'ArrowDown' ? 1 : picker.matches.length - 1)) % picker.matches.length;
+    [...picker.el.children].forEach((b, i) => b.classList.toggle('sel', i === picker.index));
+    return true;
+  }
+  if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+    e.preventDefault();
+    complete(picker.matches[picker.index]);
+    return true;
+  }
+  return false;
 }

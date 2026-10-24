@@ -176,6 +176,18 @@ function transcript(history) {
   return `[Earlier in this conversation, for context]\n${lines.join('\n\n')}\n[End of earlier messages]\n\n`;
 }
 
+// Multi-provider mode: turns another provider answered while this session was skipped (it hit a
+// limit). The session never saw them, so they are passed along with the next message.
+function missedTurns(history) {
+  const prior = history.slice(0, -1);
+  let i = prior.length - 1;
+  while (i >= 0 && !(prior[i].role === 'assistant' && prior[i].provider === 'claude-code')) i--;
+  const gap = prior.slice(i + 1);
+  if (i < 0 || !gap.some((m) => m.role === 'assistant' && m.provider && m.provider !== 'claude-code')) return '';
+  const lines = gap.slice(-12).map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').slice(0, 1500)}`);
+  return `[While you were unavailable, another model answered these messages]\n${lines.join('\n\n')}\n[End of those messages]\n\n`;
+}
+
 class Session {
   constructor(convId) {
     this.convId = convId;
@@ -368,7 +380,7 @@ class Session {
     return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
   }
 
-  send(text, { emit, signal, ctx }) {
+  send(content, { emit, signal, ctx }) {
     return new Promise((resolve, reject) => {
       const turn = {
         ctx,
@@ -398,7 +410,7 @@ class Session {
       };
       if (signal.aborted) return onAbort();
       signal.addEventListener('abort', onAbort, { once: true });
-      this.child.stdin.write(`${JSON.stringify({ type: 'user', message: { role: 'user', content: text } })}\n`);
+      this.child.stdin.write(`${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`);
       this.resetIdle();
     });
   }
@@ -418,7 +430,10 @@ class Session {
     }
     if (!t || t.settled) return;
     if (msg.type === 'result') {
-      if (msg.is_error && !t.text) {
+      // A plan's usage limit can come back as the reply text itself; it is an error (so multi-provider mode falls back).
+      const limitHit = /usage limit reached/i.test(String(msg.result || '')) && t.text.trim().length < 200;
+      if ((msg.is_error && !t.text) || limitHit) {
+        if (limitHit && t.text) t.emit({ type: 'retract', chars: t.text.length });
         t.reject(new Error(String(msg.result || msg.errors?.join('; ') || 'Claude Code error')));
         return;
       }
@@ -524,7 +539,7 @@ async function ensureSession(conv, { settings, configKey, buildPrompt, activeToo
  * One assistant turn through the conversation's warm Claude Code session. The stable prompt is built
  * once when the process starts; `buildContext(memIds)` supplies what changed since then, every turn.
  */
-async function runTurn({ conv, history, buildContext, emit, signal, ctx, ...opts }) {
+async function runTurn({ conv, history, buildContext, emit, signal, ctx, images = [], ...opts }) {
   const session0 = sessions.get(conv.id) || new Session(conv.id);
   sessions.set(conv.id, session0);
   const attempt = async () => {
@@ -533,8 +548,12 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, ...opts
     let prompt = history[history.length - 1].content;
     if (context) prompt = `<context>\n${context}\n</context>\n\n${prompt}`;
     if (!session.resumed && !session.sentAny) prompt = transcript(history) + prompt;
+    else prompt = missedTurns(history) + prompt;
     session.sentAny = true;
-    return { session, result: session.send(prompt, { emit, signal, ctx }) };
+    // Screenshots go in as image blocks next to the text.
+    const pictures = images.map((url) => String(url).match(/^data:(image\/[\w+.-]+);base64,(.+)$/)).filter(Boolean).map((m) => ({ type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } }));
+    const content = pictures.length ? [...pictures, { type: 'text', text: prompt }] : prompt;
+    return { session, result: session.send(content, { emit, signal, ctx }) };
   };
   // A process that dies before printing anything never started the turn (e.g. resuming a
   // conversation it can't load): start fresh once, with the recent conversation as context.

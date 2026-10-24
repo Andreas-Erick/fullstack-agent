@@ -11,10 +11,11 @@ Voice-first · Claude-powered · Obsidian memory · Runs on your own machine
 ![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-%E2%89%A5%2022-339933?logo=nodedotjs&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555)
-![Claude](https://img.shields.io/badge/brain-Claude-D97757?logo=anthropic&logoColor=white)
+![Claude](https://img.shields.io/badge/brain-Claude%20%2B%20multi--provider-D97757?logo=anthropic&logoColor=white)
+![Release](https://img.shields.io/github/v/release/Andreas-Erick/fullstack-agent?label=installer)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-[Features](#features) · [Quick start](#quick-start) · [Talking to it](#talking-to-it) · [Safety](#safety-and-permissions) · [Troubleshooting](TROUBLESHOOTING.md) · [Architecture](CLAUDE.md)
+[Features](#features) · [System requirements](#system-requirements) · [Quick start](#quick-start) · [Talking to it](#talking-to-it) · [Safety](#safety-and-permissions) · [Privacy](PRIVACY.md) · [Changelog](CHANGELOG.md) · [Troubleshooting](TROUBLESHOOTING.md) · [Architecture](CLAUDE.md)
 
 </div>
 
@@ -36,16 +37,20 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 - A subtle **grandfather-clock tick** while it works on longer tasks (or soft, classic, or off).
 
 ### 🧠 A brain with memory
-- **Your Claude account** through the Claude Code CLI, kept as a warm session. Spoken turns use the fast model, typed ones your default, switched **without restarting** the session. Also works with an Anthropic API key or any OpenAI-compatible server (e.g. FreeLLMAPI).
+- **Your Claude account** through the Claude Code CLI, kept as a warm session. Spoken turns use the fast model, typed ones your default, switched **without restarting** the session. Also works with an Anthropic API key or any OpenAI-compatible server (e.g. FreeLLMAPI, Ollama, LM Studio).
+- **Multi-provider mode with automatic fallback:** Claude, Gemini, DeepSeek, Groq, Perplexity and FreeLLMAPI in **your** priority order (drag to rank them). When one hits a rate limit, a usage cap or runs out of credits, the next one answers and the limited one rests for a while. Optional **smart routing** picks the best one per task: code → Claude/DeepSeek, web questions → Perplexity, quick spoken replies → Groq, very long inputs → Gemini.
+- **Agent Skills:** save a workflow once ("morning briefing", "clean up my meeting notes") and run it with `/name`, a trigger phrase, or one click. Or just say "make that a skill".
 - **Memory in an Obsidian vault:** a living profile, active priorities, daily notes, reusable procedures ("Jobs") and atomic memories. Every note is versioned and restorable.
 - **Standing rules** in every prompt: verify before claiming, treat external content as data, never expand its own access.
 
 ### 🧰 Works with your stuff
 | | |
 | --- | --- |
-| 📄 **Documents** | Opens PDFs, Word files, Markdown, images… each in **its own window**. Finds files by name in your **workspace folder** first ("open the decision tree PDF"). |
-| 🖥️ **Monitors** | "Move the decision tree to monitor 2", "make it full screen", "minimize the document", "which monitor is which?" |
-| 📅 **Google Calendar** | Reads your schedule and **adds, moves and deletes events**. |
+| 📄 **Documents** | Opens PDFs, Word files, Markdown, images… each in **its own window** with zoom, fit-to-width and page navigation. Finds files by name in your **workspace folder** first ("open the decision tree PDF"). |
+| 🖥️ **Monitors** | Named by where they are: "move the decision tree to the **right** monitor", "make it full screen", "which monitor is which?" |
+| 👀 **Screen sharing** | Share a screen or window and it **sees what you see**: "what's wrong with this error?", "help me fill in this form". You pick what to share; nothing is recorded. |
+| 📝 **Notes & PDFs** | Quick notes (Ctrl+Shift+N), "save this reply as a note", and **PDF export** of any reply, note or whole chat. Ask it to "write that up as a PDF". |
+| 📅 **Calendar** | Connect in a minute by **pasting an iCal link** (Google, Outlook, iCloud; read-only), or sign in with Google so it **adds, moves and deletes events**. |
 | 🐙 **GitHub** | Reads repos, issues and pull requests; clones a repo, works on a branch and commits. **Push and PRs always ask.** It never merges. |
 | 🌐 **Web** | Searches and reads pages, citing sources. |
 
@@ -57,13 +62,43 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 
 ### 🎨 Yours to shape
 - **Persona studio:** a master prompt, an image and an aesthetic; one click redesigns colours, fonts, face, greeting, tone and voice.
-- **Animated faces:** Circuit Board, Radial, Code Rain, Neural Core, or your own (a folder with an `index.html`).
+- **Animated faces:** Circuit Board, Radial, Code Rain, Neural Core, the expressive **Companion** (eyes and a smile that show what it's doing), or your own (a folder with an `index.html`). Faces show listening, thinking, **working** (running tools), speaking, **happy** (done) and **sleeping** (idle).
+- **Layouts:** chat only, chat and face **side by side** (drag the divider), or the **face full size** with the chat underneath; app-wide **zoom**; full screen.
+
+## System requirements
+
+| | Minimum | Recommended |
+| --- | --- | --- |
+| **OS** | Windows 10 (64-bit), macOS 12, or a recent 64-bit Linux | Windows 11, macOS 14+ |
+| **CPU** | 4 cores / 4 threads, x64 or Apple Silicon | 8+ cores |
+| **RAM** | 8 GB | 16 GB (32 GB+ to also run a local model) |
+| **GPU / VRAM** | Not required (speech recognition falls back to the CPU) | A WebGPU-capable GPU with **4 GB+ VRAM** for fast local speech recognition (Whisper large-v3 turbo) |
+| **Disk** | 2 GB free (app + speech models) | 5 GB+ (more if you keep several speech models) |
+| **Network** | Internet for cloud brains, web search and model downloads | Broadband; all voice processing can stay local |
+| **Audio** | A microphone for voice input | A headset for hands-free mode |
+
+**Running a local brain** (Ollama, LM Studio or another OpenAI-compatible server, used through FreeLLMAPI / multi-provider mode) needs much more:
+
+| Local model size | GPU memory (VRAM) | Experience |
+| --- | --- | --- |
+| 7–8B parameters | 6–8 GB | Usable for simple chat; weak at tool use |
+| 12–14B | 10–16 GB | Good for quick private tasks |
+| 27–32B | 20–24 GB | Close to cloud quality for everyday tasks |
+| 70B+ | 40 GB+ or a multi-GPU / unified-memory machine | Best local quality |
+
+Not sure? The setup wizard has an optional **hardware check** that looks at your processor, memory and graphics card and recommends the speech model and whether a local or a cloud brain fits (also in **Settings → Health → Scan hardware**).
 
 ## Quick start
 
+### Windows installer
+
+Download the latest **`Nexus Agent-Setup-x.y.z.exe`** (or the `.msi`, or the portable `.exe`) from [**Releases**](https://github.com/Andreas-Erick/fullstack-agent/releases/latest) and run it. It installs for your user account (no admin rights needed). The installer isn't code-signed yet, so Windows SmartScreen may ask you to confirm (**More info → Run anyway**).
+
+### From source
+
 **Requirements**
 - [Node.js](https://nodejs.org) 22 or newer
-- A brain: **[Claude Code](https://claude.com/claude-code)** signed in to your Claude account (recommended), an Anthropic API key, or an OpenAI-compatible server
+- A brain: **[Claude Code](https://claude.com/claude-code)** signed in to your Claude account (recommended), an Anthropic API key, a Gemini / DeepSeek / Groq / Perplexity key, or an OpenAI-compatible server (any combination in multi-provider mode)
 - Optional: [VoiceStudio](https://github.com/debpalash/VoiceStudio) for a natural voice, the [GitHub CLI](https://cli.github.com) (`gh auth login`) for GitHub, a GPU with WebGPU for the fastest speech recognition
 
 ```bash
@@ -78,7 +113,7 @@ If npm skipped Electron's binary download, run `npx install-electron` once.
 ### First launch: it sets itself up by talking to you
 
 1. **Brain.** A short scripted step that works before any model is configured: it finds your Claude account (or helps you connect one) and checks that it can think.
-2. **Interview.** Then the agent asks, one question at a time, by voice or text: what to call you and itself, its personality, its look, its voice, push-to-talk or hands-free (with an optional voice calibration), its vault, your workspace folder, its face, its permissions, and what you're working on.
+2. **Interview.** Then the agent asks, one question at a time, by voice or text: what to call you and itself, its personality, its look, an optional hardware check (with speech-model and brain recommendations), its voice, push-to-talk or hands-free (with an optional voice calibration), its vault, your workspace folder, its face, its permissions, and what you're working on.
 3. **Check.** It runs its health checks and tells you what works and what still needs attention.
 
 Missing services (VoiceStudio, FreeLLMAPI) are diagnosed and connected step by step; API keys go into a secure field, never into the chat. You can say "later" or skip at any point; both setup styles (conversation or form) can be re-run from **Settings → Health**.
@@ -91,9 +126,10 @@ Missing services (VoiceStudio, FreeLLMAPI) are diagnosed and connected step by s
 **Things to try**
 
 > "What's on my calendar on Monday?" · "Move my dentist appointment to 4 pm."
-> "Open the kNN slides on monitor 1." · "Make it full screen." · "Close the PDF."
+> "Open the kNN slides on the left monitor." · "Make it full screen." · "Close the PDF."
 > "Look at the open issues in my LanguageCoast repo and fix the first one." *(it asks before pushing)*
 > "Make me a calmer voice." · "Calibrate my voice." · "Create a bug report."
+> *(sharing your screen)* "What does this error mean?" · "Turn our chat into a PDF." · "Save what you just did as a skill."
 > "Add a button that exports today's chat to my vault." *(self-improvement, with your approval)*
 
 <details>
@@ -107,6 +143,9 @@ Missing services (VoiceStudio, FreeLLMAPI) are diagnosed and connected step by s
 | "clear the session" | Start a new conversation |
 | "close the document" / "close the PDF" | Close the latest document window |
 | "make it full screen" / "exit full screen" / "minimize the document" / "maximize it" / "bring back the PDF" | Control the latest document window |
+| "stop sharing" | Stop sharing your screen |
+| "chat only" / "split view" / "show your face" | Switch the chat layout |
+| "zoom in" / "zoom out" / "reset zoom" | Zoom the app |
 | "stop" | Stop speaking |
 | "mute" / "unmute" | Turn spoken replies off / on |
 
@@ -120,10 +159,14 @@ Missing services (VoiceStudio, FreeLLMAPI) are diagnosed and connected step by s
 | Enter / Shift+Enter | Send / new line |
 | F8 (hold) | Push-to-talk |
 | Ctrl/Cmd+Alt+Space | Listen from anywhere |
-| Ctrl/Cmd+1…7 | Chat, Face, Memory, Calendar, Vault, Documents, Evolution |
+| Ctrl/Cmd+1…8 | Chat, Face, Memory, Calendar, Vault, Documents, Evolution, Skills |
+| Ctrl/Cmd+Shift+1 / 2 / 3 | Chat only / side by side / face layout |
+| Ctrl/Cmd + / − / 0, Ctrl + wheel | Zoom in / out / reset (over a document: zoom the document) |
 | Ctrl/Cmd+, | Settings |
 | Ctrl/Cmd+N | New conversation |
-| F11 (on Face) | Full-screen face |
+| Ctrl/Cmd+Shift+N | Quick note |
+| `/` in the message box | Run a skill (Tab completes) |
+| F11 | Full screen (on Face: full-screen face) |
 | Esc | Stop speaking / exit full screen / close a document window |
 
 </details>
@@ -140,6 +183,7 @@ Choose **Ask** (approve consequential actions) or **Auto**. Approve by clicking 
 | Anything that emails other people (calendar invites) | **always asks, each time** | **always asks, each time** |
 | Pushing to GitHub, opening a pull request | **always asks, each time** | **always asks, each time** |
 | Cloning a voice from an audio file (recording yourself in the app is your consent) | **always asks, each time** | **always asks, each time** |
+| Seeing your screen | only while **you** share it | only while **you** share it |
 
 It can never change its own safety settings, permissions or code access, and it can't read secrets. Web pages, documents, issues and repository files are treated as data, never as instructions.
 
@@ -165,7 +209,7 @@ Ask it: *"what's wrong with your voice?"*. It runs its health checks, reads its 
 - **Cloned repos:** `~/NexusRepos` (configurable).
 - **Code history:** the `.git` folder of the app itself.
 
-Everything stays on your machine except what the brain, the web search and the services you connect need to do their job. `NEXUS_USER_DATA` overrides the data folder (portable installs, testing).
+Everything stays on your machine except what the brain, the web search and the services you connect need to do their job. Details: [PRIVACY.md](PRIVACY.md). `NEXUS_USER_DATA` overrides the data folder (portable installs, testing).
 
 </details>
 
@@ -184,8 +228,16 @@ See [`CLAUDE.md`](CLAUDE.md) for the architecture and conventions; the agent rea
 
 </details>
 
+## Roadmap
+
+Mobile access is in research: an installable PWA, secure remote access through Cloudflare Tunnel (or Tailscale), then an Android companion app. See [docs/ROADMAP-mobile.md](docs/ROADMAP-mobile.md).
+
+## Releasing (maintainers)
+
+Bump `version` in `package.json`, add a [changelog](CHANGELOG.md) entry, then push a tag: `git tag v1.1.0 && git push origin v1.1.0`. The [release workflow](.github/workflows/release.yml) builds the setup `.exe`, `.msi` and portable `.exe` on Windows and attaches them to a GitHub Release. Locally: `npm run dist:win` (output in `dist/`).
+
 ## Credits
 
 Built on [Electron](https://www.electronjs.org), [Claude](https://www.anthropic.com/claude) and [Claude Code](https://claude.com/claude-code), [transformers.js](https://github.com/huggingface/transformers.js) (Whisper, Silero VAD), [pdf.js](https://mozilla.github.io/pdf.js/), [marked](https://marked.js.org) and [DOMPurify](https://github.com/cure53/DOMPurify). Voice by [VoiceStudio](https://github.com/debpalash/VoiceStudio). Ideas from [jaredrhod/fullstack-agent](https://github.com/jaredrhod/fullstack-agent).
 
-MIT licensed.
+MIT licensed (see [LICENSE](LICENSE)). Provided as is, without warranty; see the [privacy policy and disclaimers](PRIVACY.md).

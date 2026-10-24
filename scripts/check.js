@@ -14,7 +14,9 @@ const esm = [];
     else esm.push(`${dir}/${e.name}`);
   }
 })('renderer/js');
-cjs.push('renderer/faces/core.js', 'scripts/recover.js');
+// The phone client (renderer/remote): app.js is a module, the service worker a classic script.
+esm.push('renderer/remote/app.js');
+cjs.push('renderer/faces/core.js', 'renderer/remote/sw.js', 'scripts/recover.js');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-check-'));
 let failed = 0;
 
