@@ -146,8 +146,8 @@ export function initSettings() {
   api.on('helperApps:event', (ev) => ev.type === 'status' && refreshHelperApps?.());
   api.on('remote:event', (ev) => {
     if (ev.type === 'tunnel') return refreshRemoteStatus?.();
-    if (ev.type !== 'paired') return;
-    toast(`Paired: ${ev.name}`);
+    if (ev.type !== 'paired' && ev.type !== 'moved') return;
+    toast(ev.type === 'moved' ? `${ev.name} now uses the secure address` : `Paired: ${ev.name}`);
     refreshRemote?.();
   });
   on('view', ({ name, section }) => {
@@ -661,99 +661,16 @@ function sttCard() {
 
 async function calendarCard() {
   const st = await api.calendar.status().catch(() => ({}));
-  const access = st.canWrite ? ' · can add and change events' : ' · read-only';
-  const googleLine = el('div', { class: `test-result ${st.signedIn ? 'ok' : ''}` }, st.signedIn ? `✓ Google connected${st.email ? ` as ${st.email}` : ''}${access}` : st.configured ? 'OAuth client added. Click “Sign in with Google”.' : 'Not connected.');
-  const signIn = (label) => el('button', {
-    class: 'btn primary',
-    onclick: async () => {
-      googleLine.className = 'test-result';
-      googleLine.textContent = 'Complete the sign-in in your browser…';
-      try {
-        await api.calendar.signIn();
-        toast('Google Calendar connected');
-        emit('status-refresh');
-        emit('calendar-changed');
-        render();
-      } catch (err) {
-        googleLine.className = 'test-result err';
-        googleLine.textContent = `✕ ${err.message}`;
-      }
-    },
-  }, label);
-  const signOut = el('button', { class: 'btn', onclick: async () => (await api.calendar.signOut(), emit('status-refresh'), render()) }, 'Sign out');
-  const importJson = el('button', {
-    class: st.configured ? 'btn' : 'btn primary',
-    onclick: async () => {
-      try {
-        const r = await api.calendar.importClient();
-        if (!r) return;
-        await loadSettings();
-        toast('OAuth client imported. Opening Google sign-in…');
-        signIn('').click();
-      } catch (err) {
-        toastError(err);
-      }
-    },
-  }, st.configured ? 'Import another JSON file…' : '⬆ Import the JSON file…');
-  const link = (label, url) => el('button', { class: 'btn small', onclick: () => api.shell.openExternal(url) }, `${label} ↗`);
-  const reconnect = st.needsReconnect ? el('div', { class: 'test-result err' }, 'This sign-in only allows reading. Reconnect and allow calendar access in Google’s screen so the agent can add and change events.') : '';
-
-  // Option A: read-only iCal links (no sign-in)
-  const feeds = el('textarea', { class: 'input', rows: 2, placeholder: 'https://calendar.google.com/calendar/ical/…/basic.ics', spellcheck: 'false' });
-  feeds.value = state.settings.calendar.icsUrls || '';
-  feeds.addEventListener('input', () => queueSave('calendar.icsUrls', feeds.value));
-  const feedOut = result();
-  const testFeed = el('button', {
-    class: 'btn',
-    onclick: async () => {
-      showResult(feedOut, true, 'Checking…');
-      try {
-        const lines = [];
-        for (const url of feeds.value.split(/\s+/).filter(Boolean)) {
-          const r = await api.calendar.testFeed(url).catch((e) => ({ error: e.message }));
-          lines.push(r.error ? `✕ ${r.error}` : `✓ ${r.name}: ${r.events} events`);
-        }
-        showResult(feedOut, !lines.some((l) => l.startsWith('✕')), lines.join('\n') || 'Paste a link first.');
-        emit('status-refresh');
-        emit('calendar-changed');
-      } catch (err) {
-        showResult(feedOut, false, `✕ ${err.message}`);
-      }
-    },
-  }, 'Test & connect');
-
+  const line = !st.vault
+    ? el('div', { class: 'test-result err' }, '✕ The schedule lives in the vault, which is off. Turn the vault on above.')
+    : el('div', { class: `test-result ${st.problems ? 'err' : 'ok'}` }, `✓ Schedule.md in your vault · ${st.recurring || 0} repeating, ${st.events || 0} single entries${st.problems ? ` · ${st.problems} line(s) couldn’t be read` : ''}`);
   return card(
     'calendar',
     'Calendar',
-    'Two ways to connect. <b>Quickest:</b> paste your calendar’s private iCal link: read-only, no sign-in, works with Google, Outlook and iCloud. <b>Full access</b> (the agent can add, move and delete events; it asks first according to your permission mode, and always before anything that emails other people): sign in with Google.',
-    toggle('calendar.enabled', 'Enable calendar', () => emit('status-refresh')),
-    field(
-      'Calendar links (iCal, one per line) — read-only',
-      feeds,
-      'Google Calendar: Settings → your calendar → “Secret address in iCal format”. Outlook: Settings → Calendar → Shared calendars → Publish → ICS link. iCloud: share the calendar as a public calendar and copy the link. Stored encrypted; treat it like a password.',
-    ),
-    el('div', { class: 'row' }, testFeed),
-    feedOut,
-    el(
-      'details',
-      { class: 'field', open: !st.signedIn && !st.feeds },
-      el('summary', { style: { cursor: 'pointer', color: 'var(--text-2)' } }, 'Google sign-in (read and write) — about 5 minutes, once'),
-      el(
-        'ol',
-        { style: { lineHeight: '2', paddingLeft: '20px', margin: '8px 0', color: 'var(--text-2)', fontSize: '13px' } },
-        el('li', {}, 'Create a project in Google Cloud (any name). ', link('Open', 'https://console.cloud.google.com/projectcreate')),
-        el('li', {}, 'Enable the Google Calendar API for it. ', link('Open', 'https://console.cloud.google.com/apis/library/calendar-json.googleapis.com')),
-        el('li', {}, 'Set up the consent screen: type “External”, then add your own Google address as a test user. ', link('Open', 'https://console.cloud.google.com/apis/credentials/consent')),
-        el('li', {}, 'Create an OAuth client ID of type “Desktop app” and click “Download JSON”. ', link('Open', 'https://console.cloud.google.com/apis/credentials')),
-        el('li', {}, 'Import that file here; the Google sign-in opens right after. ', importJson),
-      ),
-      el('details', {}, el('summary', { style: { cursor: 'pointer', fontSize: '12.5px', color: 'var(--muted)' } }, 'Or paste the client ID and secret'), text('calendar.clientId', 'OAuth Client ID', { placeholder: '…apps.googleusercontent.com' }), text('calendar.clientSecret', 'OAuth Client Secret', { type: 'password' })),
-    ),
-    el('div', { class: 'row' }, st.signedIn ? signOut : st.configured ? signIn('Sign in with Google') : '', st.needsReconnect ? signIn('Reconnect') : ''),
-    reconnect,
-    googleLine,
-    el('div', { class: 'grid2' }, text('calendar.daysAhead', 'Days ahead in context', { type: 'number' }), el('div', { style: { alignSelf: 'end' } }, toggle('calendar.allCalendars', 'Include all my Google calendars'))),
-    toggle('calendar.allowWrite', 'Let the agent add, change and delete Google events', () => render()),
+    `Nothing to connect: tell ${state.settings.agent.name} your schedule (“I have Linear Algebra every Monday at 10:00 in H1 until February”, “dentist on the 28th at 2”) and it keeps it in <b>Schedule.md</b> in its vault. You can add and edit entries in the Calendar view, or edit the note in Obsidian. Nothing leaves this computer.`,
+    toggle('calendar.enabled', 'Enable the calendar', () => emit('status-refresh')),
+    line,
+    el('div', { class: 'grid2' }, text('calendar.daysAhead', 'Days ahead in the agent’s context', { type: 'number' }), el('div', { style: { alignSelf: 'end' } }, el('button', { class: 'btn', onclick: () => switchView('calendar') }, 'Open the calendar'))),
   );
 }
 
@@ -1020,9 +937,28 @@ let refreshRemoteStatus = null;
 const TUNNEL_STATE = (t) => {
   if (!t || t.mode === 'off') return '';
   if (t.error) return `✕ Secure address: ${t.error}`;
-  if (t.connected) return `🔒 Secure address: ${t.url || 'connected'}`;
+  if (t.connected && t.check === 'fail') return `⚠ Secure address ${t.url}: ${t.warning}`;
+  if (t.connected) return `🔒 Secure address: ${t.url || 'connected'}${t.check === 'ok' ? ' · checked, it works' : t.check === 'checking' ? ' · checking…' : ''}`;
   return t.running ? '… Starting the secure address' : '';
 };
+
+// Reads the Tailscale name of this computer (and whether Serve is set up) from the tailscale CLI.
+async function detectTailscale(out) {
+  out.className = 'test-result';
+  out.textContent = 'Asking Tailscale…';
+  try {
+    const t = await api.remote.detectTailscale();
+    if (!t.installed) return showResult(out, false, '✕ Tailscale isn’t installed on this computer. Get it from tailscale.com/download (and on the phone from the Play Store), signed in with the same account.');
+    if (t.error || !t.running) return showResult(out, false, `✕ ${t.error || 'Tailscale is not connected. Open Tailscale and sign in.'}`);
+    if (!t.host) return showResult(out, false, '✕ Tailscale didn’t report a name for this computer. Turn on MagicDNS and HTTPS certificates in the Tailscale admin console (DNS page).');
+    await saveSettings({ remote: { publicHost: t.host } });
+    const serve = t.serving === false ? `\n⚠ Serve isn’t forwarding to Nexus yet. Run once in a terminal: ${t.command}` : t.serving ? '\n✓ Tailscale Serve forwards to Nexus.' : '';
+    showResult(out, t.serving !== false, `✓ This computer is ${t.host}${serve}`);
+    render();
+  } catch (err) {
+    showResult(out, false, `✕ ${err.message}`);
+  }
+}
 
 function tunnelFields() {
   const mode = get('remote.tunnel') || 'off';
@@ -1048,9 +984,15 @@ function tunnelFields() {
     if (!get('remote.accessTeam') || !get('remote.accessAud')) fields.push(el('div', { class: 'hint warn' }, 'Without Cloudflare Access, only the device token protects the address. Set up Access before relying on it.'));
   }
   if (mode === 'tailscale') {
+    const out = result();
     fields.push(
-      el('div', { class: 'hint', html: `Install Tailscale on this computer and the phone (same account), then run once: <code>tailscale serve --bg ${get('remote.port') || 7823}</code>. It prints an address like <code>https://my-pc.tail1234.ts.net</code>; enter its hostname here. Only your own devices can reach it.` }),
-      text('remote.publicHost', 'Tailscale hostname', { placeholder: 'my-pc.tail1234.ts.net', onChange: debounceAfter(refreshRemoteStatus) }),
+      el('div', { class: 'hint', html: `Install Tailscale on this computer and the phone (same account), then run once in a terminal: <code>tailscale serve --bg ${get('remote.port') || 7823}</code>. It prints an address like <code>https://my-pc.tail1234.ts.net</code>. Only your own devices can reach it.` }),
+      el('div', { class: 'row', style: { alignItems: 'flex-end' } }, el('div', { style: { flex: '1' } }, text('remote.publicHost', 'Tailscale hostname', { placeholder: 'my-pc.tail1234.ts.net', onChange: debounceAfter(refreshRemoteStatus) })), el('div', { style: { display: 'flex', gap: '6px' } },
+        el('button', { class: 'btn', onclick: () => detectTailscale(out) }, 'Detect'),
+        el('button', { class: 'btn', onclick: async () => (await api.remote.checkSecure().catch(toastError), refreshRemoteStatus?.()) }, 'Check'),
+      )),
+      out,
+      el('div', { class: 'hint' }, el('b', {}, 'On the phone: '), 'turn Tailscale on there. If the Nexus app is already paired over Wi-Fi, open it at home and tap ', el('b', {}, 'Switch to the secure address'), ' (it keeps the pairing). Otherwise pair with the QR code and pick the 🔒 secure address, or type ', el('code', {}, `https://${get('remote.publicHost') || 'my-pc.tail1234.ts.net'}`), ' in the app.'),
     );
   }
   if (mode === 'quick' || mode === 'cloudflare') fields.push(text('remote.cloudflaredPath', 'cloudflared location (optional)', { placeholder: 'Found automatically' }));

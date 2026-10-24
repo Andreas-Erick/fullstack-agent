@@ -7,7 +7,11 @@
 //    SHA-256 is stored (<userData>/remote-devices.json); revocable per device or all at once; unused
 //    for 90 days, it expires.
 //  - Every call needs the token. Host and Origin are checked (DNS rebinding, other web pages), no CORS.
-//  - Scope: chat, conversations (read) and approvals. Never settings, secrets, setup or screen sharing.
+//  - Moving to the secure address: a paired device on the local network asks for a one-time secret
+//    (POST /api/move, 2 minutes); redeemed through the tunnel (POST /api/pair { move }), it rotates
+//    that device's token, so the one that crossed the plain network stops working.
+//  - Scope: chat, conversations (read), approvals and the schedule (read). Never settings, secrets,
+//    setup or screen sharing.
 //  - Streaming: GET /api/events is a Server-Sent Events stream of chat and approval events.
 //  - The phone client (step 2) is static files from renderer/remote/, served without a token (they
 //    hold no data) under a strict Content Security Policy.
@@ -19,6 +23,7 @@ const crypto = require('crypto');
 const store = require('./store');
 const voice = require('./voice');
 const tunnel = require('./tunnel');
+const calendar = require('./calendar');
 const log = require('./logger');
 
 const ROOT = path.join(__dirname, '..');
@@ -59,6 +64,7 @@ const MAX_BODY = 64 * 1024;
 const MAX_AUDIO_SEC = 60;
 const PAIR_TTL_MS = 5 * 60 * 1000;
 const PAIR_TRIES = 5;
+const MOVE_TTL_MS = 2 * 60 * 1000;
 const TURNS_PER_MIN = 20;
 const STREAMS_PER_DEVICE = 3;
 const MAX_CONNECTIONS = 64;
@@ -72,6 +78,7 @@ let current = { enabled: false, lan: false, port: 0 };
 let lastError = '';
 let access = { team: '', aud: '' }; // Cloudflare Access application in front of the tunnel (optional)
 let pairing = null; // { code, expiresAt, tries }
+const moves = new Map(); // secret hash -> { deviceId, expiresAt }: moving a device to the secure address
 const streams = new Set(); // { res, deviceId }
 const openApprovals = new Map(); // approval id -> request; only these can be answered remotely (never secret or recording prompts)
 const turnOwners = new Map(); // requestId -> deviceId
@@ -374,7 +381,9 @@ async function info() {
   if (Number.isFinite(+f.glow)) face.glow = +f.glow;
   for (const [k, v] of Object.entries(f.states || {})) if (/^\w{1,12}$/.test(k) && Array.isArray(v) && HEX.test(v[0])) face.states[k] = [v[0], HEX.test(v[1]) ? v[1] : v[0]];
   const sleepAfterMin = Math.max(0, Math.min(240, Number(s.ui?.sleepAfterMin) || 0));
-  return { name: String(s.agent.name || 'Nexus').slice(0, 40), colors, voice: Boolean(s.voice?.baseUrl), fx, face, sleepAfterMin };
+  const t = tunnel.status();
+  const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
+  return { name: String(s.agent.name || 'Nexus').slice(0, 40), colors, voice: Boolean(s.voice?.baseUrl), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled) };
 }
 
 async function speak(req, res) {
@@ -416,13 +425,18 @@ async function route(req, res) {
 
   if (req.method === 'GET' && STATIC[p]) return serveStatic(res, STATIC[p]);
   if (req.method === 'GET' && p === '/api/ping') return json(res, 200, { app: 'nexus-agent', api: 1 });
-  if (req.method === 'POST' && p === '/api/pair') return pair(req, res);
+  if (req.method === 'POST' && p === '/api/pair') return pair(req, res, kind);
 
   const device = await authenticate(req, kind);
   if (!device) return fail(res, 401, 'Not paired, or this device was removed');
 
   if (req.method === 'GET' && p === '/api/events') return openStream(req, res, device);
   if (req.method === 'GET' && p === '/api/info') return json(res, 200, await info());
+  if (req.method === 'POST' && p === '/api/move') return startMove(res, device);
+  if (req.method === 'GET' && p === '/api/schedule') {
+    if (!underLimit('schedule', device.id, 60)) return fail(res, 429, 'Too many requests; wait a minute');
+    return schedule(url, res);
+  }
   if (req.method === 'POST' && p === '/api/speak') {
     if (!underLimit('speak', device.id, 60)) return fail(res, 429, 'Too many requests; wait a minute');
     return speak(req, res);
@@ -477,9 +491,61 @@ async function transcribe(req, res, device) {
   }
 }
 
-async function pair(req, res) {
+// The device's schedule view: occurrences in a date range (at most 62 days), read-only.
+async function schedule(url, res) {
+  const s = await store.getSettings();
+  if (!s.calendar?.enabled) return fail(res, 404, 'The calendar is turned off on the computer');
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  const from = url.searchParams.get('from') || '';
+  const to = url.searchParams.get('to') || '';
+  if (!day.test(from) || !day.test(to)) return fail(res, 400, 'from and to must be dates (YYYY-MM-DD)');
+  const span = (new Date(`${to}T00:00:00`) - new Date(`${from}T00:00:00`)) / 86400000;
+  if (!(span >= 1 && span <= 62)) return fail(res, 400, 'Ask for 1 to 62 days');
+  try {
+    const list = await calendar.events({ start: `${from}T00:00:00`, end: `${to}T00:00:00` });
+    return json(res, 200, { events: list.map(({ id, entryId, title, location, notes, allDay, start, end, openEnd, recurring, rule }) => ({ id, entryId, title, location, notes, allDay, start, end, openEnd, recurring, rule })) });
+  } catch (err) {
+    return fail(res, 503, err.message);
+  }
+}
+
+// A paired device on the local network asks to continue on the secure address.
+function startMove(res, device) {
+  const t = tunnel.status();
+  if (!t.connected || !/^https:\/\//.test(t.url)) return fail(res, 409, 'There is no secure address. Set one up on the computer (Settings → Remote access).');
+  const now = Date.now();
+  for (const [k, m] of moves) if (m.expiresAt < now || m.deviceId === device.id) moves.delete(k);
+  const secret = crypto.randomBytes(32).toString('base64url');
+  moves.set(hash(secret), { deviceId: device.id, expiresAt: now + MOVE_TTL_MS });
+  log.info('remote move started', { device: device.name });
+  return json(res, 200, { url: t.url, secret });
+}
+
+// Redeems a move secret (only through the secure address): the same device, with a new token.
+async function finishMove(res, secret) {
+  const key = /^[A-Za-z0-9_-]{43}$/.test(secret) ? hash(secret) : '';
+  const m = key && moves.get(key);
+  if (m) moves.delete(key);
+  if (!m || m.expiresAt < Date.now()) return fail(res, 403, 'This link has expired or was already used. Tap “Switch to the secure address” again.');
+  const list = await readDevices();
+  const device = list.find((d) => d.id === m.deviceId);
+  if (!device) return fail(res, 403, 'This device was removed on the computer. Pair it again.');
+  const token = crypto.randomBytes(32).toString('base64url');
+  Object.assign(device, { tokenHash: hash(token), lastSeen: Date.now(), lastVia: 'secure address' });
+  await writeDevices(list);
+  for (const st of streams) if (st.deviceId === device.id) (st.res.end(), streams.delete(st)); // they used the old token
+  log.info('remote device moved to the secure address', { device: device.name });
+  hooks.notify({ type: 'moved', name: device.name });
+  return json(res, 200, { token, deviceId: device.id, name: device.name });
+}
+
+async function pair(req, res, kind) {
   const body = await readBody(req).catch((e) => e);
   if (body instanceof Error) return fail(res, body.status || 400, body.message);
+  if (body.move != null) {
+    if (kind !== 'tunnel') return fail(res, 403, 'Open the secure address to finish the switch');
+    return finishMove(res, String(body.move));
+  }
   if (!pairing || pairing.expiresAt < Date.now()) return fail(res, 403, 'No pairing in progress. Start pairing on the desktop.');
   const code = String(body.code || '').trim();
   const secret = String(body.secret || '');
