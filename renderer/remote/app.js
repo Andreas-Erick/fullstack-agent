@@ -51,10 +51,36 @@ function el(tag, attrs = {}, ...children) {
   return n;
 }
 
+const icon = (id) => {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  use.setAttribute('href', `#i-${id}`);
+  svg.append(use);
+  return svg;
+};
+
+// Links in replies open outside the app (a new tab; in the Android app, the browser), never in place
+// of it, and only web and mail links stay clickable.
+window.DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName !== 'A') return;
+  if (!/^(https?:|mailto:)/i.test(node.getAttribute('href') || '')) return node.removeAttribute('href');
+  node.setAttribute('target', '_blank');
+  node.setAttribute('rel', 'noopener noreferrer');
+});
+
 function markdown(text) {
   const html = window.marked.parse(String(text ?? ''), { breaks: true, gfm: true });
-  return window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input', 'img'], FORBID_ATTR: ['style'] });
+  return window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input', 'img'], FORBID_ATTR: ['style'], ADD_ATTR: ['target'] });
 }
+
+const ago = (t) => {
+  const s = (Date.now() - t) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 7 * 86400) return new Date(t).toLocaleDateString(undefined, { weekday: 'long' });
+  return new Date(t).toLocaleDateString();
+};
 
 let toastTimer;
 function toast(msg) {
@@ -105,7 +131,11 @@ function showPairError(msg) {
 
 $('#pairForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const btn = $('#pairBtn');
+  if (btn.disabled) return;
   showPairError('');
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
   try {
     const res = await fetch('/api/pair', {
       method: 'POST',
@@ -121,7 +151,17 @@ $('#pairForm').addEventListener('submit', async (e) => {
     start();
   } catch (err) {
     showPairError(err.message);
+    $('#pairCode').select();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Connect';
   }
+});
+// Digits only; the sixth one connects.
+$('#pairCode').addEventListener('input', (e) => {
+  const v = e.target.value.replace(/\D/g, '').slice(0, 6);
+  if (v !== e.target.value) e.target.value = v;
+  if (v.length === 6 && document.activeElement === e.target) $('#pairForm').requestSubmit();
 });
 
 function guessName() {
@@ -188,10 +228,49 @@ function dispatch(block) {
   else if (event === 'approval.cancel') removeApproval(payload.id);
 }
 
+let connTimer;
 function setConn(ok) {
   const c = $('#conn');
   c.classList.toggle('ok', ok);
   c.title = ok ? 'Connected' : 'Reconnecting…';
+  const was = state.connected;
+  state.connected = ok;
+  // A short drop isn't worth a banner; a longer one is (timed from the first failure, not each retry).
+  if (ok) {
+    clearTimeout(connTimer);
+    renderBanner();
+  } else if (was !== false) connTimer = setTimeout(renderBanner, 2500);
+}
+
+// Plain http on another machine: the token and messages cross the network unencrypted.
+const insecure = !window.isSecureContext && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const INSECURE_KEY = 'nexus.insecureSeen';
+const insecureSeen = () => {
+  try {
+    return Boolean(sessionStorage.getItem(INSECURE_KEY));
+  } catch {
+    return false;
+  }
+};
+
+function renderBanner() {
+  const b = $('#banner');
+  b.innerHTML = '';
+  b.className = 'banner';
+  if (state.token && state.connected === false) {
+    b.classList.add('offline');
+    b.append(el('span', { class: 'spin', 'aria-hidden': 'true' }), 'Can’t reach the computer. Retrying…');
+  } else if (insecure && !insecureSeen()) {
+    b.classList.add('warn');
+    b.append(icon('lock-open'), el('span', {}, 'Not encrypted: local network only. Away from home, use the secure https address.'), el('button', { class: 'banner-x', 'aria-label': 'Dismiss', onclick: () => {
+      try {
+        sessionStorage.setItem(INSECURE_KEY, '1');
+      } catch {
+        /* private mode */
+      }
+      renderBanner();
+    } }, icon('close')));
+  } else b.classList.add('hidden');
 }
 
 // ------------------------------------------------------------------ chat
@@ -243,6 +322,7 @@ function onChat(ev) {
     case 'done':
       turn.bubble.classList.remove('streaming');
       turn.bubble.innerHTML = markdown(ev.message?.content || '');
+      turn.wrap.append(actions(ev.message?.content || ''));
       endTurn(turn);
       if (turn.mine && state.speak) say(ev.message?.content || '');
       break;
@@ -263,8 +343,31 @@ function newTurnView(requestId, mine = false) {
   const tools = el('div', { class: 'tools' });
   const wrap = el('div', { class: 'msg assistant' }, tools, bubble);
   $('#messages').append(wrap);
-  scrollDown();
+  updateEmpty();
+  scrollDown(mine);
   return { requestId, wrap, bubble, tools, text: '', running: 0, mine };
+}
+
+// Under a finished reply: copy it (as written, Markdown included).
+function actions(text) {
+  if (!text) return document.createDocumentFragment();
+  return el('div', { class: 'actions' }, el('button', { class: 'act', type: 'button', 'aria-label': 'Copy reply', onclick: () => copyText(text) }, icon('copy'), 'Copy'));
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // The clipboard API needs a secure page; on the plain local address fall back to a selection.
+    const t = el('textarea', { class: 'offscreen', readonly: '' });
+    t.value = text;
+    document.body.append(t);
+    t.select();
+    const ok = document.execCommand('copy');
+    t.remove();
+    if (!ok) return toast('Couldn’t copy on this connection.');
+  }
+  toast('Copied');
 }
 
 function renderTurn(turn) {
@@ -296,18 +399,36 @@ function addMessage(m) {
     if (m.toolCalls?.length) wrap.append(el('div', { class: 'tools' }, m.toolCalls.map((t) => el('span', { class: 'chip good' }, '⚙ ', label(t.name)))));
     const b = el('div', { class: 'bubble' });
     b.innerHTML = markdown(text);
-    wrap.append(b);
+    wrap.append(b, actions(text));
   } else {
     wrap.append(el('div', { class: 'bubble' }, text));
     if (m.remote) wrap.append(el('div', { class: 'meta' }, `from ${m.remote}`));
   }
   $('#messages').append(wrap);
+  updateEmpty();
 }
 
-function scrollDown() {
+// Follows new text only while the reader is at the bottom; scrolled up, a button jumps back down.
+let stick = true;
+function scrollDown(force = false) {
   const m = $('#messages');
-  m.scrollTop = m.scrollHeight;
+  if (force) stick = true;
+  if (stick) m.scrollTop = m.scrollHeight;
+  $('#jumpBtn').classList.toggle('hidden', stick);
 }
+$('#messages').addEventListener('scroll', () => {
+  const m = $('#messages');
+  stick = m.scrollHeight - m.scrollTop - m.clientHeight < 60;
+  $('#jumpBtn').classList.toggle('hidden', stick);
+}, { passive: true });
+$('#jumpBtn').addEventListener('click', () => {
+  const m = $('#messages');
+  stick = true;
+  m.scrollTo({ top: m.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  $('#jumpBtn').classList.add('hidden');
+});
+
+const updateEmpty = () => $('#empty').classList.toggle('hidden', $('#messages').childElementCount > 0);
 
 async function send(text) {
   if (!text.trim() || state.active) return;
@@ -364,21 +485,24 @@ $('#stopBtn').addEventListener('click', () => {
 async function loadConversation(id) {
   $('#messages').innerHTML = '';
   state.turns.clear();
+  scrollDown(true);
+  $('#empty').classList.add('hidden'); // not while the conversation loads
   if (!id) {
     $('#convTitle').textContent = 'New conversation';
-    return;
+    return updateEmpty();
   }
   try {
     const conv = await api(`/api/conversations/${encodeURIComponent(id)}`);
     $('#convTitle').textContent = conv.title || 'Conversation';
     for (const m of conv.messages) addMessage(m);
-    scrollDown();
+    scrollDown(true);
   } catch (err) {
     if (err instanceof AuthError) return;
     state.convId = null;
     store.set(CONV_KEY, null);
     $('#convTitle').textContent = 'New conversation';
   }
+  updateEmpty();
 }
 
 function openConversation(id) {
@@ -389,20 +513,31 @@ function openConversation(id) {
   loadConversation(id);
 }
 
+let convs = [];
+
 async function openDrawer() {
   $('#drawer').classList.remove('hidden');
   $('#scrim').classList.remove('hidden');
+  $('#convSearch').value = '';
   const list = $('#convList');
-  list.innerHTML = '<li class="muted">Loading…</li>';
+  list.replaceChildren(el('li', { class: 'muted' }, 'Loading…'));
   try {
-    const convs = (await api('/api/conversations')).filter((c) => !c.setup);
-    list.innerHTML = '';
-    if (!convs.length) list.append(el('li', { class: 'muted' }, 'No conversations yet.'));
-    for (const c of convs) {
-      list.append(el('li', {}, el('button', { class: `conv ${c.id === state.convId ? 'current' : ''}`, onclick: () => openConversation(c.id) }, el('span', {}, c.title || 'Conversation'), c.updatedAt ? el('small', {}, new Date(c.updatedAt).toLocaleString()) : null)));
-    }
+    convs = await api('/api/conversations');
+    renderConvs();
   } catch (err) {
-    if (!(err instanceof AuthError)) list.innerHTML = `<li class="muted">${err.message.replace(/</g, '&lt;')}</li>`;
+    if (!(err instanceof AuthError)) list.replaceChildren(el('li', { class: 'muted' }, err.message));
+  }
+}
+
+function renderConvs() {
+  const q = $('#convSearch').value.trim().toLowerCase();
+  const shown = q ? convs.filter((c) => (c.title || '').toLowerCase().includes(q)) : convs;
+  const list = $('#convList');
+  list.replaceChildren();
+  if (!shown.length) list.append(el('li', { class: 'muted' }, q ? 'No matching conversations.' : 'No conversations yet.'));
+  for (const c of shown) {
+    const current = c.id === state.convId;
+    list.append(el('li', {}, el('button', { class: `conv ${current ? 'current' : ''}`, 'aria-current': current ? 'true' : null, onclick: () => openConversation(c.id) }, el('span', {}, c.title || 'Conversation'), c.updatedAt ? el('small', {}, ago(c.updatedAt)) : null)));
   }
 }
 
@@ -411,6 +546,8 @@ function closeDrawer() {
   $('#scrim').classList.add('hidden');
 }
 
+$('#convSearch').addEventListener('input', renderConvs);
+document.addEventListener('keydown', (e) => e.key === 'Escape' && closeDrawer());
 $('#convBtn').addEventListener('click', openDrawer);
 $('#drawerClose').addEventListener('click', closeDrawer);
 $('#scrim').addEventListener('click', closeDrawer);
@@ -420,23 +557,45 @@ $('#unpairBtn').addEventListener('click', () => unpair('Disconnected. To remove 
 // ------------------------------------------------------------------ approvals
 const KIND = { self_modify: 'Change its own code', settings: 'Change a setting', delete: 'Delete something', command: 'Run a command', calendar: 'Change your calendar', invite: 'Send calendar invitations', voice: 'Change its voice', voice_clone: 'Clone a voice', repo_change: 'Change a repository', github_publish: 'Publish to GitHub' };
 
+// The buttons wait a moment before they respond, so a tap meant for something else (the card pops in
+// above the keyboard while typing) can't answer it.
+const ARM_MS = 900;
+const timers = new Map(); // approval id -> countdown interval
+
 function addApproval(a) {
   removeApproval(a.id);
-  const card = el('div', { class: 'approval', 'data-id': a.id },
-    el('div', { class: 'kind' }, KIND[a.kind] || a.kind),
+  const sources = Array.isArray(a.sources) ? a.sources.slice(0, 5).map((s) => String(s).slice(0, 200)) : [];
+  const left = el('span', { class: 'left' });
+  const buttons = [
+    el('button', { class: 'btn', type: 'button', disabled: '', onclick: () => answer(a.id, false) }, 'Deny'),
+    el('button', { class: 'btn primary', type: 'button', disabled: '', onclick: () => answer(a.id, true) }, 'Allow'),
+  ];
+  const card = el('div', { class: 'approval', 'data-id': a.id, role: 'alertdialog', 'aria-label': a.title || 'Approval needed' },
+    el('div', { class: 'kind' }, KIND[a.kind] || a.kind, left),
     el('b', {}, a.title || 'Approval needed'),
     a.detail ? el('pre', { class: 'detail' }, String(a.detail).slice(0, 1500)) : null,
-    a.tainted ? el('div', { class: 'warn' }, '⚠ This turn read outside content (web pages or documents). Make sure this is what you asked for.') : null,
-    el('div', { class: 'row' },
-      el('button', { class: 'btn', onclick: () => answer(a.id, false) }, 'Deny'),
-      el('button', { class: 'btn primary', onclick: () => answer(a.id, true) }, 'Allow'),
-    ),
+    a.tainted ? el('div', { class: 'warn' }, '⚠ This turn read outside content (web pages or documents). Make sure this is what you asked for.', sources.length ? el('ul', { class: 'sources' }, sources.map((s) => el('li', {}, s))) : null) : null,
+    el('div', { class: 'row' }, buttons),
   );
   $('#approvals').append(card);
+  setTimeout(() => buttons.forEach((b) => b.removeAttribute('disabled')), ARM_MS);
+  // Countdown to the automatic "no" on the computer.
+  const ends = Date.now() + (a.expiresIn ?? a.timeoutSec ?? 0) * 1000;
+  const tick = () => {
+    const s = Math.round((ends - Date.now()) / 1000);
+    if (s <= 0) return removeApproval(a.id);
+    left.textContent = ` · ${s}s`;
+  };
+  if (a.expiresIn ?? a.timeoutSec) {
+    tick();
+    timers.set(a.id, setInterval(tick, 1000));
+  }
   navigator.vibrate?.(80);
 }
 
 function removeApproval(id) {
+  clearInterval(timers.get(id));
+  timers.delete(id);
   document.querySelector(`.approval[data-id="${CSS.escape(String(id))}"]`)?.remove();
 }
 
@@ -481,7 +640,8 @@ async function say(md) {
 function setSpeak(on) {
   state.speak = on;
   store.set(SPEAK_KEY, on ? '1' : '0');
-  $('#speakBtn').textContent = on ? '🔊' : '🔈';
+  $('#speakBtn').replaceChildren(icon(on ? 'speaker-on' : 'speaker-off'));
+  $('#speakBtn').classList.toggle('on', on);
   $('#speakBtn').setAttribute('aria-pressed', String(on));
   if (!on) audio.pause();
 }
@@ -614,7 +774,8 @@ if (window.isSecureContext && navigator.mediaDevices?.getUserMedia) {
 
 // ------------------------------------------------------------------ face
 // A small orb with orbiting arcs; color and motion follow the agent's state.
-const STATES = { idle: ['IDLE', 0.3, 0.6], listening: ['LISTENING', 0.8, 1],thinking: ['THINKING', 2.4, 0.85], working: ['WORKING', 3.2, 0.9], 'speaking-text': ['REPLYING', 1.2, 1], speaking: ['SPEAKING', 1.2, 1] };
+const STATES = { idle: ['IDLE', 0.3, 0.6], listening: ['LISTENING', 0.8, 1], thinking: ['THINKING', 2.4, 0.85], working: ['WORKING', 3.2, 0.9], 'speaking-text': ['REPLYING', 1.2, 1], speaking: ['SPEAKING', 1.2, 1] };
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
 function setFace(s) {
   state.face = s;
@@ -638,9 +799,11 @@ function startFace() {
     const h = c.clientHeight;
     if (!w || !h) return;
     if (c.width !== Math.round(w * dpr)) (c.width = Math.round(w * dpr)), (c.height = Math.round(h * dpr));
-    const [, speed, bright] = STATES[state.face] || STATES.idle;
+    const [, fullSpeed, bright] = STATES[state.face] || STATES.idle;
+    const speed = reduceMotion.matches ? fullSpeed * 0.15 : fullSpeed;
     const talking = state.face === 'speaking' || state.face === 'speaking-text';
-    level += ((talking ? 0.35 + 0.35 * Math.abs(Math.sin(now / 90)) : 0) - level) * Math.min(1, dt * 10);
+    const beat = reduceMotion.matches ? 0.35 : 0.35 + 0.35 * Math.abs(Math.sin(now / 90));
+    level += ((talking ? beat : 0) - level) * Math.min(1, dt * 10);
     spin += dt * speed;
     const main = color('--accent');
     const accent = color('--accent2');
@@ -700,6 +863,7 @@ async function applyInfo() {
 
 async function start() {
   show('main');
+  renderBanner();
   setSpeak(state.speak);
   await applyInfo();
   if (!state.token) return;
@@ -733,6 +897,7 @@ if (android) {
   );
 }
 
+$('#pairInsecure').classList.toggle('hidden', !insecure);
 startFace();
 // Offline app shell (needs HTTPS or localhost; on the plain local network the browser doesn't allow it).
 if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});

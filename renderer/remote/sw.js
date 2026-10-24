@@ -1,6 +1,6 @@
 // Service worker for the phone client: caches the app shell only. Conversations and every /api/
 // response go straight to the network and are never stored.
-const CACHE = 'nexus-shell-v2';
+const CACHE = 'nexus-shell-v3';
 const SHELL = ['/', '/app.js', '/styles.css', '/manifest.webmanifest', '/icon.png', '/vendor/marked.js', '/vendor/purify.js'];
 
 self.addEventListener('install', (e) => {

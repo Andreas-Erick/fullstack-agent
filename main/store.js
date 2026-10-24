@@ -410,6 +410,7 @@ async function listConversations() {
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
         count: c.messages?.length || 0,
+        ...(c.setup ? { setup: true } : {}),
       };
     }),
   );

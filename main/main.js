@@ -182,8 +182,13 @@ const clampZoom = (z) => Math.min(2, Math.max(0.5, Number(z) || 1));
 
 // To the window, and (chat and approval events only) to paired devices.
 function send(channel, payload) {
-  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  toWindow(channel, payload);
   companion.publish(channel, payload);
+}
+
+// To the window only (the setup conversation never reaches paired devices).
+function toWindow(channel, payload) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
 async function registerShortcut() {
@@ -587,7 +592,7 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
   let firstTextMs = null;
   const emit = (ev) => {
     if (firstTextMs === null && ev.type === 'text') firstTextMs = Date.now() - startedAt;
-    send('chat:event', { requestId, conversationId: conv.id, ...ev });
+    (conv.setup ? toWindow : send)('chat:event', { requestId, conversationId: conv.id, ...ev });
   };
   emit({ type: 'start', userMessage: userMsg, title: conv.title });
 
