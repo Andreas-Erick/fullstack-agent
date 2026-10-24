@@ -8,6 +8,7 @@ import { initChat, newChat, sendVoice, currentConversationId } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
 import { initHandoff, handoffNote } from './handoff.js';
+import { initHud, bootScreen } from './hud.js';
 import { tryCommand } from './commands.js';
 import { startThinkingSound, stopThinkingSound, thinkingStyle } from './sounds.js';
 import { initSetup, startSetup, handleSetupVoice } from './setup.js';
@@ -52,6 +53,8 @@ async function boot() {
   if (info.platform === 'darwin') document.body.classList.add('mac');
   await loadSettings();
   syncTheme();
+  initHud();
+  const boot = bootScreen();
 
   miniFace = new FaceHost($('#miniFace'), { compact: true });
   bigFace = new FaceHost($('#bigFace'));
@@ -159,6 +162,7 @@ async function boot() {
   initSetup();
   if (!state.settings.onboarded) startSetup(); // first launch: the agent sets itself up by asking questions
   if (state.settings.onboarded) greetOnLaunch();
+  boot.done();
 }
 
 let faceList = BUILT_IN.map((f) => ({ id: f.id, title: f.title }));
