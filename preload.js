@@ -26,6 +26,7 @@ const channels = {
   approval: ['respond'],
   remote: ['status', 'pair', 'cancelPair', 'revoke', 'revokeAll', 'transcribed'],
   handoff: ['get', 'dismiss', 'skip'],
+  helperApps: ['status', 'start'],
   setup: ['start', 'skip', 'checkService'],
   diag: ['run'],
   log: ['write', 'tail', 'open', 'report'],

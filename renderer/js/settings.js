@@ -143,6 +143,7 @@ export function initSettings() {
     else if (p.status === 'ready') sttProgressEl.textContent = '✓ Speech model loaded and ready.';
     else if (p.status === 'error') sttProgressEl.textContent = `✕ ${p.error}`;
   });
+  api.on('helperApps:event', (ev) => ev.type === 'status' && refreshHelperApps?.());
   api.on('remote:event', (ev) => {
     if (ev.type === 'tunnel') return refreshRemoteStatus?.();
     if (ev.type !== 'paired') return;
@@ -160,7 +161,7 @@ async function render() {
   const root = $('#settingsRoot');
   const scroll = root.parentElement.scrollTop;
   root.innerHTML = '';
-  root.append(agentCard(), brainCard(), voiceCard(), sttCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), uiCard());
+  root.append(agentCard(), brainCard(), voiceCard(), sttCard(), helperAppsCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), uiCard());
   root.parentElement.scrollTop = scroll;
 }
 
@@ -1054,6 +1055,44 @@ function tunnelFields() {
   }
   if (mode === 'quick' || mode === 'cloudflare') fields.push(text('remote.cloudflaredPath', 'cloudflared location (optional)', { placeholder: 'Found automatically' }));
   return fields;
+}
+
+// VoiceStudio and FreeLLMAPI: Nexus starts the ones its settings use (main/helperapps.js).
+const HELPER_STATUS = { running: ['ok', '●', 'Running'], starting: ['warn', '◌', 'Starting…'], failed: ['fail', '✕', 'Failed to start'], remote: ['off', '○', 'On another computer'], stopped: ['off', '○', 'Not running'] };
+let refreshHelperApps = null;
+function helperAppsCard() {
+  const list = el('div', { class: 'health-list' });
+  const refresh = async () => {
+    const apps = await api.helperApps.status().catch(() => []);
+    list.innerHTML = '';
+    for (const a of apps) {
+      const [cls, ic, word] = HELPER_STATUS[a.status] || HELPER_STATUS.stopped;
+      const where = a.installedAt ? `Installed: ${a.installedAt}` : a.local ? 'Not found in its usual install folder; set its location below.' : '';
+      const use = a.needed ? `Used for ${a.id === 'voicestudio' ? 'the natural voice' : 'the FreeLLMAPI brain'} at ${a.url}` : 'Not used with the current settings';
+      list.append(el('div', { class: `health-item ${a.needed ? cls : 'off'}` },
+        el('span', { class: 'ic' }, ic),
+        el('div', { style: { flex: 1 } }, el('b', {}, `${a.name} · ${word}`), el('div', { class: 'd' }, [use, where, a.error].filter(Boolean).join('\n'))),
+        a.local && a.installedAt && !['running', 'starting'].includes(a.status)
+          ? el('button', { class: 'btn small', onclick: async () => (await api.helperApps.start(a.id).catch(toastError), refresh()) }, 'Start now')
+          : null,
+      ));
+    }
+  };
+  refreshHelperApps = refresh;
+  refresh();
+  return card(
+    'helperapps',
+    'Helper apps',
+    'VoiceStudio (the natural voice) and FreeLLMAPI (a local brain) are separate apps. Nexus starts the ones your settings use, in the background, so you only open Nexus. It only starts them when their address is on this computer, and only from their install folder or the location you set here.',
+    toggle('helperApps.autoStart', 'Start them with Nexus, and again when they are needed and not running'),
+    toggle('helperApps.minimize', 'Keep their windows minimized (in the taskbar)'),
+    toggle('helperApps.stopOnQuit', 'Close them when I quit Nexus (only the ones Nexus started)'),
+    list,
+    el('div', { class: 'grid2' },
+      text('helperApps.voicestudioPath', 'VoiceStudio location (optional)', { placeholder: 'Found automatically', hint: 'The program file, e.g. VoiceStudio.exe.', onChange: debounceAfter(refresh) }),
+      text('helperApps.freellmapiPath', 'FreeLLMAPI location (optional)', { placeholder: 'Found automatically', hint: 'The program file, e.g. FreeLLMAPI.exe.', onChange: debounceAfter(refresh) }),
+    ),
+  );
 }
 
 function remoteCard() {

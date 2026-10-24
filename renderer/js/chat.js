@@ -270,6 +270,7 @@ const TOOL_LABELS = {
   diagnose: '🩺 Ran diagnostics',
   read_app_log: '🩺 Read its log',
   analyze_errors: '🩺 Analyzed its errors',
+  helper_app_start: '🔌 Started a helper app',
   settings_read: '⚙ Read its settings',
   settings_update: '⚙ Changed a setting',
   Read: '💾 Read file',
