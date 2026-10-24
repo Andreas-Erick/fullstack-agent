@@ -892,7 +892,7 @@ async function docsCard() {
     'Folders the agent may open and read documents from (files you open yourself are always allowed). The Obsidian vault is always included.',
     folder('documents.workspace', 'Agent workspace folder', {
       placeholder: 'e.g. the folder with your university or work files',
-      hint: 'Where you keep the files you work on. When you ask for a file without saying where ("open the decision tree PDF"), the agent looks here first. It is always allowed.',
+      hint: 'Where you keep the files you work on. When you ask for a file without saying where ("open the quarterly report PDF"), the agent looks here first. It is always allowed.',
       onChange: () => render(),
     }),
     list,
