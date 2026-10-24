@@ -29,6 +29,14 @@ async function run() {
 
   const checks = [
     check('brain', 'AI brain', async () => {
+      if (s.llm.provider === 'auto') {
+        const list = (await require('./router').status(s)).filter((p) => p.enabled);
+        const ready = list.filter((p) => p.configured && !p.resting);
+        const resting = list.filter((p) => p.resting);
+        const line = list.map((p) => `${p.name}: ${!p.configured ? 'not set up' : p.resting ? `skipped ${p.resting.minutes} min (${p.resting.reason})` : 'ready'}`).join(' · ');
+        if (!ready.length) return { status: 'fail', detail: `Multi-provider mode, but no provider is ready. ${line}`, fix: resting.length ? 'Wait for the limits to reset, or add another provider in Settings → AI brain.' : 'Connect your Claude account or add an API key in Settings → AI brain.' };
+        return { status: ready.length === 1 ? 'warn' : 'ok', detail: `Multi-provider: ${line}`, fix: ready.length === 1 ? 'Only one provider is ready, so there is nothing to fall back to. Add another key in Settings → AI brain.' : '' };
+      }
       if (s.llm.provider === 'claude-code') {
         const st = await claudecode.status();
         if (!st.installed) return { status: 'fail', detail: 'Claude Code CLI not found.', fix: `Install: ${claudecode.installHint()}, or set its path in Settings → AI brain.` };

@@ -62,6 +62,9 @@ export const DEFAULT_THEME = {
       listening: ['#22f5a5', '#00e5ff'],
       thinking: ['#8b5cf6', '#2f7bff'],
       speaking: ['#00e5ff', '#7df9ff'],
+      working: ['#8b5cf6', '#00e5ff'],
+      happy: ['#22f5a5', '#9cfbd6'],
+      sleeping: ['#0b5f6e', '#1d3a70'],
     },
   },
 };
@@ -114,7 +117,15 @@ export function normalizeTheme(t) {
   if (Number.isFinite(+f.glow)) out.face.glow = Math.max(0, Math.min(1, +f.glow));
   // Face state colors: derived from the palette, then overridden by any the theme specifies.
   const c = out.colors;
-  out.face.states = { idle: [c.accent, c.accent2], listening: [c.success, c.accent], thinking: [c.accent3, c.accent2], speaking: [c.accent, mix(c.accent, '#ffffff', 0.45)] };
+  out.face.states = {
+    idle: [c.accent, c.accent2],
+    listening: [c.success, c.accent],
+    thinking: [c.accent3, c.accent2],
+    speaking: [c.accent, mix(c.accent, '#ffffff', 0.45)],
+    working: [c.accent3, c.accent], // running tools
+    happy: [c.success, mix(c.success, '#ffffff', 0.5)], // a reply just finished
+    sleeping: [mix(c.accent, c.bg, 0.55), mix(c.accent2, c.bg, 0.6)], // no activity for a while
+  };
   for (const s of Object.keys(out.face.states)) {
     const pair = f.states?.[s];
     if (Array.isArray(pair) && isHex(pair[0])) out.face.states[s] = [hex(pair[0]), isHex(pair[1]) ? hex(pair[1]) : hex(pair[0])];

@@ -106,6 +106,27 @@ Diagnose from the log rather than guessing.
 - **The agent says it can only read the calendar:** sign-ins from before calendar changes were supported only granted read access. Settings → Google Calendar → **Reconnect**, and allow calendar access on Google's screen. The status line then says "can add and change events". (Turning off "Let the agent add, change and delete events" hides those tools again.)
 - **Approvals for calendar changes:** adding, moving or deleting your own events follows the permission mode. Anything that makes Google email other people (invites, updates or cancellations sent to guests) always asks, once per change, even in auto mode.
 
+- **Calendar links (iCal, read-only)**: "That link is not an iCal calendar" means the page isn't an `.ics` feed: use Google's *Secret address in iCal format* (not the public HTML link), Outlook's *ICS* link. Feeds refresh every 10 minutes. Events from a feed can't be changed by the agent. Code: `main/ics.js`.
+- **Importing the OAuth JSON**: it must be a *Desktop app* client (a *Web application* client is refused).
+
+## Multi-provider brain
+
+- Settings → AI brain → **Multi-provider**: the list shows each provider's status (Ready, Not set up, or *Skipped for N min* after a rate limit / credit cap / bad key). ↺ tries a resting one again now.
+- The log line `route` shows the order chosen for a turn; `provider failed` shows why one was skipped (`kind`: rate, credits, auth, down, other) and for how long.
+- **"…after it had already used tools, so this reply was not repeated"**: a provider failed mid-task; the reply isn't re-run elsewhere so no action happens twice. Send the message again; it goes to the next provider.
+- Perplexity has no tools (no calendar, notes or memory writes); smart routing only sends it web questions. Providers without image support skip the screenshot (a notice says so).
+- Default model names for Gemini, DeepSeek, Groq and Perplexity can go out of date: use **Load models** on the provider and pick a current one.
+
+## Screen sharing
+
+- **Share screen** in the chat picks a screen or window; the red **Sharing** badge stops it. While sharing, each message carries a screenshot (turn that off under Settings → Safety) and the agent can call `look_at_screen`.
+- **macOS:** allow Nexus Agent under System Settings → Privacy & Security → Screen Recording, then restart it.
+- Sharing stops by itself when the shared window closes. Screenshots are never written to disk or into the conversation. Code: `main/screenshare.js`, `renderer/js/layout.js`.
+
+## Skills
+
+- Skills are Markdown files in `<userData>/skills/` (Skills view → Folder). Run one with `/name` in the chat, its trigger phrase, or ▶ Run. The agent saves skills with `skill_save` (replacing one asks first).
+
 ## New voices (VoiceStudio)
 
 - The agent creates voices in VoiceStudio itself: `voice_design` from a description, `voice_clone` from a recording (the user reads a script in the app, or an audio file the agent may open under Settings → Documents). Code: `main/voicestudio.js`.
@@ -119,7 +140,9 @@ Diagnose from the log rather than guessing.
 - **Workspace folder** (Settings → Documents): where you keep your files. "Open the decision tree PDF" without a location makes the agent call `find_document`, which searches the workspace first (then the other document folders) by file and folder names, in milliseconds. The workspace is always an allowed folder, and relative paths resolve into it first.
 - The agent opens each document (PDF, Word, Markdown, text, HTML, images) in **its own window** (`open_document`; up to 8, the oldest closes beyond that; opening an open one brings it forward). Windows open without taking focus, so the push-to-talk key keeps working. Close one with its Close button, Esc, by asking the agent ("close the decision tree", "close all documents"), or by saying just "close the document" / "close the PDF" (a voice command for the latest one, instant).
 - **Full screen / minimize**: "make it full screen", "exit full screen", "minimize the document", "maximize it", "bring back the PDF" act instantly on the latest document window (voice commands); for a specific one ("make the decision tree full screen") the agent uses `set_window_state`.
-- **Monitors**: numbered 1, 2, 3… from left to right. "Move the decision tree to monitor 2", "put it on the left monitor, full screen", "move yourself to monitor 1" (`move_window`: center, maximize, fullscreen, left/right half). "Which monitor is which?" flashes the numbers (`identify_monitors`). `list_monitors` reports the monitors and where each window is.
+- **Monitors**: named by position: Left / Center / Right (Center-left / Center-right with four, Far left / Far right with five, Top / Bottom when stacked; a single monitor is "Main"). "Move the decision tree to the right monitor", "put it on the left monitor, full screen", "move yourself to the center monitor" (`move_window`: center, maximize, fullscreen, left/right half). Numbers still work (1 = leftmost). "Which monitor is which?" flashes the names (`identify_monitors`). `list_monitors` reports the monitors and where each window is.
+- **Zoom in a document**: Ctrl + mouse wheel over it, the − / + buttons, or ⤢ to fit the width. In the pop-out window Ctrl + / Ctrl − / Ctrl 0 work too.
+- **PDF export** (`create_pdf`, "PDF" on a reply, ⋯ → Export this chat as PDF): saved in the workspace folder, or `Documents/Nexus Exports`, never overwriting a file. Remote images are left out on purpose (the PDF is rendered offline).
 - The Documents view has **Pop out** for the file shown there. Code: `main/docwindows.js` (windows and monitors), `renderer/viewer.html` + `js/viewer.js` (a document window), `js/docview.js` (rendering, shared with the Documents view).
 - "Access … is not allowed": the agent opens files only in the folders under Settings → Documents (plus files you opened yourself).
 

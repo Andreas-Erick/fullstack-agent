@@ -87,6 +87,7 @@ export function modal(build) {
   const wrap = document.getElementById('modal');
   const card = document.getElementById('modalCard');
   card.innerHTML = '';
+  card.className = 'modal-card glass'; // a previous modal may have widened it
   wrap.classList.remove('hidden');
   return new Promise((resolve) => {
     const close = (value) => {

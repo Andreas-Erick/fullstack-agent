@@ -5,6 +5,9 @@
 //   listening – pulses flow inward, driven by the microphone level
 //   thinking  – fast pulses in both directions, spinning segmented ring
 //   speaking  – outward bursts and a spectrum ring driven by the TTS audio
+//   working   – satellites orbit the core while tools run
+//   happy     – a burst of pulses and an expanding ring when a reply is done
+//   sleeping  – dim, barely moving, with drifting "z"s
 import { state } from './state.js';
 import { on } from './util.js';
 import { DEFAULT_THEME, hexToRgb } from './theme.js';
@@ -31,6 +34,8 @@ export class CircuitFace {
     this.pulses = [];
     this.traces = [];
     this.chips = [];
+    this.rings = []; // expanding rings (happy)
+    this.zs = []; // drifting z's (sleeping)
     this.t = 0;
     this.last = performance.now();
     this.spawnAcc = 0;
@@ -316,7 +321,40 @@ export class CircuitFace {
     } else if (st === 'speaking') {
       rate = 2 + this.level * (this.compact ? 30 : 80);
       speed = unit * 0.75;
+    } else if (st === 'working') {
+      rate = this.compact ? 8 : 20;
+      speed = unit * 0.7;
+    } else if (st === 'happy') {
+      rate = this.compact ? 4 : 10;
+      speed = unit * 0.9;
+    } else if (st === 'sleeping') {
+      rate = 0.25;
+      speed = unit * 0.15;
     }
+    // Entering a state can set off a one-time effect.
+    if (st !== this.prevState) {
+      if (st === 'happy') {
+        for (let i = 0; i < (this.compact ? 16 : 40); i++) this.spawn(1, unit * (0.9 + Math.random() * 0.4));
+        this.rings.push({ r: this.R * 1.2, a: 1 });
+      }
+      this.prevState = st;
+    }
+    this.orbit = (this.orbit || 0) + dt * (st === 'working' ? 2.6 : 0);
+    this.orbitAlpha = lerp(this.orbitAlpha || 0, st === 'working' ? 1 : 0, 1 - Math.pow(0.02, dt));
+    for (const r of this.rings) {
+      r.r += unit * 0.45 * dt;
+      r.a -= dt * 0.9;
+    }
+    this.rings = this.rings.filter((r) => r.a > 0);
+    if (st === 'sleeping') {
+      this.zAcc = (this.zAcc || 0) + dt;
+      if (this.zAcc > 1.8) {
+        this.zAcc = 0;
+        this.zs.push({ x: this.R * 0.55, y: -this.R * 0.55, t: 0 });
+      }
+    }
+    for (const z of this.zs) z.t += dt;
+    this.zs = this.zs.filter((z) => z.t < 4);
     this.spawnAcc += rate * dt;
     while (this.spawnAcc >= 1) {
       this.spawnAcc -= 1;
@@ -346,6 +384,9 @@ export class CircuitFace {
         v = freq[idx] / 255;
       } else if (st === 'listening') v = this.level * (0.5 + 0.5 * Math.sin(this.t * 9 + i * 0.7)) + 0.05;
       else if (st === 'thinking') v = 0.25 + 0.25 * Math.sin(this.t * 6 + i * 0.5);
+      else if (st === 'working') v = 0.18 + 0.22 * Math.abs(Math.sin(this.t * 4 + i * 0.9));
+      else if (st === 'happy') v = 0.3 + 0.3 * Math.sin(this.t * 5 + i * 0.3);
+      else if (st === 'sleeping') v = 0.03 + 0.02 * Math.sin(this.t * 0.6 + i * 0.2);
       else v = 0.08 + 0.06 * Math.sin(this.t * 1.6 + i * 0.35);
       this.levels[i] = lerp(this.levels[i], v, 1 - Math.pow(0.001, dt));
     }
@@ -466,10 +507,36 @@ export class CircuitFace {
       g.arc(cx, cy, R * 1.07, a0, a0 + 0.9);
       g.stroke();
     }
+
+    // Happy: expanding rings.
+    for (const ring of this.rings) {
+      g.strokeStyle = rgba(main, ring.a * 0.7);
+      g.lineWidth = 2 + ring.a * 2;
+      g.beginPath();
+      g.arc(cx, cy, ring.r, 0, Math.PI * 2);
+      g.stroke();
+    }
+    // Working: three satellites orbit the core, each with a short trail.
+    if (this.orbitAlpha > 0.02) {
+      for (let i = 0; i < 3; i++) {
+        const a = this.orbit * (1 + i * 0.25) + (i * Math.PI * 2) / 3;
+        const r = R * (1.55 + i * 0.12);
+        g.strokeStyle = rgba(accent, 0.35 * this.orbitAlpha);
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(cx, cy, r, a - 0.7, a);
+        g.stroke();
+        g.fillStyle = rgba(main, 0.95 * this.orbitAlpha);
+        g.beginPath();
+        g.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 3.2, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
     g.restore();
 
     // Core
-    const breathe = 0.5 + 0.5 * Math.sin(this.t * (this.cur.spinSpeed > 1 ? 5 : 1.6));
+    const sleeping = state.agentState === 'sleeping';
+    const breathe = 0.5 + 0.5 * Math.sin(this.t * (sleeping ? 0.7 : this.cur.spinSpeed > 1 ? 5 : 1.6));
     const coreGlow = 0.35 + energy * 0.25 + this.level * 0.4 + (this.coreFlash || 0) * 0.3 + breathe * 0.1;
     const cg = g.createRadialGradient(cx, cy, 0, cx, cy, R * 1.05);
     cg.addColorStop(0, rgba([255, 255, 255], Math.min(0.9, coreGlow * 0.5)));
@@ -522,6 +589,13 @@ export class CircuitFace {
       g.shadowBlur = 0;
     }
     g.restore();
+    // Sleeping: z's drift up from the core.
+    for (const z of this.zs) {
+      const a = Math.min(1, z.t) * (1 - z.t / 4);
+      g.font = `700 ${Math.round(R * (0.22 + z.t * 0.06))}px ${getComputedStyle(document.documentElement).getPropertyValue('--font-display') || 'sans-serif'}`;
+      g.fillStyle = rgba(accent, 0.8 * a);
+      g.fillText('z', z.x + Math.sin(z.t * 2) * R * 0.1 + z.t * R * 0.12, z.y - z.t * R * 0.25);
+    }
     g.restore();
   }
 }

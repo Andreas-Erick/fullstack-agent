@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#0a0a0f" />
+    <title>Nexus</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.png" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/vendor/marked.js"></script>
+    <script src="/vendor/purify.js"></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <!-- Pairing: shown until this device has a token -->
+    <section id="pair" class="screen hidden">
+      <img class="pair-logo" src="/icon.png" alt="" />
+      <h1>Connect to your assistant</h1>
+      <p class="muted">On your computer, open <b>Settings → Remote access</b>, click <b>Pair a device</b> and type the code here.</p>
+      <form id="pairForm" autocomplete="off">
+        <input id="pairCode" class="input code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required />
+        <input id="pairName" class="input" maxlength="40" placeholder="Name for this device (e.g. My phone)" />
+        <button class="btn primary" type="submit">Connect</button>
+        <div id="pairError" class="error hidden"></div>
+      </form>
+    </section>
+
+    <!-- Main app -->
+    <section id="main" class="screen hidden">
+      <header class="top">
+        <button id="convBtn" class="icon-btn" title="Conversations" aria-label="Conversations">☰</button>
+        <div class="title">
+          <div id="agentName" class="name">NEXUS</div>
+          <div id="convTitle" class="sub">New conversation</div>
+        </div>
+        <span id="conn" class="conn" title="Connection"></span>
+        <button id="speakBtn" class="icon-btn" title="Read replies aloud" aria-label="Read replies aloud" aria-pressed="false">🔈</button>
+        <button id="newBtn" class="icon-btn" title="New conversation" aria-label="New conversation">＋</button>
+      </header>
+
+      <div class="face-wrap">
+        <canvas id="face" aria-hidden="true"></canvas>
+        <div id="faceState" class="face-state">IDLE</div>
+      </div>
+
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div id="approvals" class="approvals"></div>
+
+      <form id="composer" class="composer">
+        <button id="micBtn" class="mic hidden" type="button" aria-label="Hold to talk" title="Hold to talk">🎙</button>
+        <textarea id="input" rows="1" placeholder="Message…" enterkeyhint="send"></textarea>
+        <button id="sendBtn" class="send" type="submit" aria-label="Send">➤</button>
+        <button id="stopBtn" class="send stop hidden" type="button" aria-label="Stop">■</button>
+      </form>
+    </section>
+
+    <!-- Conversation drawer -->
+    <aside id="drawer" class="drawer hidden" aria-label="Conversations">
+      <div class="drawer-head">
+        <b>Conversations</b>
+        <button id="drawerClose" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+      <ul id="convList" class="conv-list"></ul>
+      <button id="unpairBtn" class="btn ghost">Disconnect this device</button>
+    </aside>
+    <div id="scrim" class="scrim hidden"></div>
+    <div id="toast" class="toast hidden" role="status"></div>
+  </body>
+</html>
