@@ -32,6 +32,7 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 - **Push-to-talk or hands-free.** Hands-free uses a **neural voice detector** (Silero VAD), so breathing, coughs and keyboard noise don't trigger it, and a quick "yes" still counts.
 - **Fast, accurate local speech-to-text.** Whisper large-v3 turbo runs **on your GPU** (WebGPU), about 0.4 s for a sentence on a laptop RTX GPU, with an automatic CPU fallback.
 - **Natural voice** through [VoiceStudio](https://github.com/debpalash/VoiceStudio), spoken sentence by sentence as the reply streams in, with the system voice as a fallback.
+- **One app to open:** Nexus starts its helper apps (VoiceStudio, and FreeLLMAPI if you use it) in the background, minimized, and starts them again when they're needed. Optionally it closes them when you quit (Settings → Helper apps).
 - **Make new voices by asking:** "make me a warm, low British voice", or clone your own by reading a short script.
 - **Voice calibration** learns how your names and words get misheard and fixes them from then on.
 - **Interruptible:** talk over it (with headphones) or press the key.
@@ -111,7 +112,7 @@ Download the latest **`Nexus Agent-Setup-x.y.z.exe`** (or the `.msi`, or the por
 **Requirements**
 - [Node.js](https://nodejs.org) 22 or newer
 - A brain: **[Claude Code](https://claude.com/claude-code)** signed in to your Claude account (recommended), an Anthropic API key, a Gemini / DeepSeek / Groq / Perplexity key, or an OpenAI-compatible server (any combination in multi-provider mode)
-- Optional: [VoiceStudio](https://github.com/debpalash/VoiceStudio) for a natural voice, the [GitHub CLI](https://cli.github.com) (`gh auth login`) for GitHub, a GPU with WebGPU for the fastest speech recognition
+- Optional: [VoiceStudio](https://github.com/debpalash/VoiceStudio) for a natural voice (installed, it is started by Nexus; you don't open it yourself), the [GitHub CLI](https://cli.github.com) (`gh auth login`) for GitHub, a GPU with WebGPU for the fastest speech recognition
 
 ```bash
 git clone https://github.com/Andreas-Erick/fullstack-agent.git

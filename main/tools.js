@@ -822,6 +822,14 @@ const TOOLS = [
     run: async (a) => log.tail(a.lines || 120, a.filter || '', { level: a.level, turn: a.turn, sinceMin: a.since_minutes }),
   },
   {
+    name: 'helper_app_start',
+    group: 'mechanic',
+    description:
+      'Start one of your helper apps on this computer when it is not running: "voicestudio" (your natural voice) or "freellmapi" (a local brain). Only the app installed at its usual place or at the location the user set in Settings → Helper apps; nothing else can be started. Use it when the voice is unavailable or the user asks. Returns its status (running, starting, not_installed, remote, failed).',
+    parameters: obj({ app: { type: 'string', enum: ['voicestudio', 'freellmapi'], description: 'Which app' } }, ['app']),
+    run: async (a) => require('./helperapps').start(a.app, await store.getSettings(), { reason: 'agent' }),
+  },
+  {
     name: 'analyze_errors',
     group: 'mechanic',
     description:

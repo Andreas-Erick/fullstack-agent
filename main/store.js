@@ -162,6 +162,15 @@ const DEFAULTS = {
     accessAud: '', // the Access application's AUD tag
     cloudflaredPath: '', // empty = find cloudflared on PATH
   },
+  // VoiceStudio and FreeLLMAPI are separate apps; Nexus starts the ones its settings use (helperapps.js).
+  // Only the user changes these (never in tools.js SETTABLE: the paths are programs Nexus runs).
+  helperApps: {
+    autoStart: true, // start them with Nexus, and again when they are needed and not running
+    minimize: true, // keep their windows minimized (in the taskbar), without taking focus
+    stopOnQuit: false, // close the ones Nexus started when Nexus quits
+    voicestudioPath: '', // empty = the usual install folder
+    freellmapiPath: '',
+  },
   logging: {
     debug: false, // also write DEBUG lines (e.g. Claude Code's raw error output) to the log
   },
