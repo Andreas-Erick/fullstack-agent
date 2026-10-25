@@ -391,6 +391,10 @@ class Session {
       // "always allow" is in --allowedTools and never gets here.
       const server = connectors.toolServer(tool);
       if (turnState?.connectorsApproved?.has(server)) return { behavior: 'allow', updatedInput: input };
+      // "Allow reading": a tool whose name says it only reads runs without asking (routines need this).
+      if (this.spec.readOnly?.includes(server) && connectors.isReadOnly(tool)) return { behavior: 'allow', updatedInput: input };
+      // "Allow all but deleting": creating and changing run on their own; anything that deletes still asks.
+      if (this.spec.write?.includes(server) && !connectors.isDestructive(tool)) return { behavior: 'allow', updatedInput: input };
       const { service, action } = connectors.describeTool(tool);
       const r = await approvals.gate(turnState, 'connector', `Use ${service}: ${action}`, JSON.stringify(input, null, 2).slice(0, 1500));
       if (r.allow && turnState) (turnState.connectorsApproved ||= new Set()).add(server);
@@ -543,8 +547,12 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, mode
     allowed.push('ToolSearch', 'Skill', ...connectors.allowedKeys(cc.connectorsAllowed).map((k) => `mcp__${k}`));
   }
   const toolNames = activeTools.map((t) => t.name);
+  const readOnly = withConnectors ? connectors.allowedKeys(cc.connectorsReadOnly) : [];
+  const write = withConnectors ? connectors.allowedKeys(cc.connectorsWrite) : [];
   const spec = {
     connectors: withConnectors,
+    readOnly,
+    write,
     system: '',
     builtins,
     allowed,
@@ -562,7 +570,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, mode
   // The session restarts only when configuration changes (persona, tools…), not when the vault or
   // memories change (those reach the agent through the per-turn context) and not for a model switch
   // (Session.setModel changes it in place).
-  spec.key = crypto.createHash('sha1').update(JSON.stringify([configKey, builtins, allowed, toolNames, cwd, vault, repos, cc.effort, withConnectors])).digest('hex');
+  spec.key = crypto.createHash('sha1').update(JSON.stringify([configKey, builtins, allowed, toolNames, cwd, vault, repos, cc.effort, withConnectors, readOnly, write])).digest('hex');
   return spec;
 }
 

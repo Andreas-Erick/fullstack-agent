@@ -1,4 +1,6 @@
 // Small DOM + formatting helpers shared by all views.
+import { extractMath, restoreMath, speakableMath } from './mathtext.js';
+
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 export const api = window.nexus;
@@ -28,17 +30,28 @@ export function renderMarkdown(text, { wikilinks = false } = {}) {
   if (wikilinks) {
     src = src.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_m, target, alias) => `<a class="wikilink" data-note="${escapeHtml(target.trim())}">${escapeHtml(alias || target)}</a>`);
   }
-  const html = window.marked.parse(src, markedOpts);
+  // Formulas are taken out before Markdown (which would eat their _ and *) and rendered by KaTeX.
+  const math = window.katex ? extractMath(src) : { text: src, items: [] };
+  let html = window.marked.parse(math.text, markedOpts);
+  if (math.items.length) html = restoreMath(html, math.items, renderTex);
   return window.DOMPurify.sanitize(html, { ADD_ATTR: ['data-note', 'target'] });
+}
+
+function renderTex(tex, display) {
+  try {
+    return window.katex.renderToString(tex, { displayMode: display, throwOnError: false, output: 'htmlAndMathml', strict: 'ignore', trust: false, maxExpand: 1000 });
+  } catch {
+    return `<code>${escapeHtml(tex)}</code>`;
+  }
 }
 
 export function sanitizeHtml(html) {
   return window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input'], FORBID_ATTR: ['style'] });
 }
 
-// Plain text for speech: strip markdown, code, URLs.
+// Plain text for speech: formulas in words, strip markdown, code, URLs.
 export function speakable(md) {
-  return String(md || '')
+  return speakableMath(String(md || ''))
     .replace(/```[\s\S]*?```/g, ' (code block omitted) ')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')

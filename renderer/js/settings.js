@@ -1,5 +1,5 @@
 // Configuration dashboard. Every control auto-saves to settings.json (secrets are encrypted at rest).
-import { $, api, el, toast, toastError, confirmDialog, debounce, on, emit } from './util.js';
+import { $, api, el, toast, toastError, confirmDialog, debounce, on, emit, modal } from './util.js';
 import { state, saveSettings, loadSettings } from './state.js';
 import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice } from './voice.js';
 import { KOKORO_VOICES } from './kokorotext.js';
@@ -12,6 +12,7 @@ import { setZoom } from './layout.js';
 import { scanInto } from './hwscan.js';
 import { qrCanvas } from './qr.js';
 import { switchPersona, createPersona, removePersona } from './personas.js';
+import { LANGUAGE_NAMES } from './practice.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -170,7 +171,7 @@ async function render() {
   const root = $('#settingsRoot');
   const scroll = root.parentElement.scrollTop;
   root.innerHTML = '';
-  root.append(agentCard(), brainCard(), voiceCard(), sttCard(), helperAppsCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), uiCard());
+  root.append(agentCard(), brainCard(), voiceCard(), sttCard(), learningCard(), helperAppsCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), uiCard());
   root.parentElement.scrollTop = scroll;
 }
 
@@ -243,6 +244,7 @@ function personaBar() {
   fillSelect(sel, p.list.map((x) => [x.id, x.name || 'Unnamed']), p.active);
   sel.addEventListener('change', async () => (await switchPersona(sel.value), render()));
   const add = el('button', { class: 'btn', title: 'A fresh persona with the default prompt and look', onclick: async () => (await createPersona(), render()) }, '＋ New');
+  const fromTemplate = el('button', { class: 'btn', title: 'Ready-made personas: a STEM tutor, a polyglot coach…', onclick: () => pickTemplate() }, '🎓 Templates…');
   const dup = el('button', { class: 'btn', title: 'A copy of this persona to change', onclick: async () => (await createPersona({ copy: true }), render()) }, '⧉ Duplicate');
   const del = el('button', {
     class: 'btn danger',
@@ -254,7 +256,24 @@ function personaBar() {
       render();
     },
   }, 'Delete');
-  return field('Persona', el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, sel), add, dup, del), 'Everything below belongs to the selected persona and is saved with it.');
+  return field('Persona', el('div', { class: 'row', style: { flexWrap: 'wrap' } }, el('div', { style: { flex: 1, minWidth: '160px' } }, sel), add, fromTemplate, dup, del), 'Everything below belongs to the selected persona and is saved with it.');
+}
+
+// Ready-made personas (main/personatemplates.js): each is added as a new persona and switched to.
+async function pickTemplate() {
+  const list = await api.persona.templates().catch((err) => (toastError(err), []));
+  if (!list.length) return;
+  const id = await modal((card, close) => {
+    card.append(
+      el('h3', {}, 'Add a persona from a template'),
+      el('p', { class: 'muted' }, 'It becomes a persona of its own, with its prompt, look, face and greeting. Rename it, edit it and pick its voice afterwards.'),
+      ...list.map((t) => el('div', { class: 'template-row' }, el('div', { style: { flex: 1 } }, el('b', {}, `${t.title} · ${t.name}`), el('div', { class: 'hint' }, t.blurb)), el('button', { class: 'btn primary', onclick: () => close(t.id) }, 'Add'))),
+      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel')),
+    );
+  });
+  if (!id) return;
+  await createPersona({ template: id });
+  render();
 }
 
 // The VoiceStudio voice of this persona (and its offline voice), with a sample in its greeting.
@@ -354,17 +373,22 @@ const CONNECTOR_STATUS = { connected: ['ok', 'connected'], 'needs-auth': ['warn'
 function connectorsSection() {
   const list = el('div', { class: 'connector-list' });
   const out = result();
+  // Per connector: ask every time, allow its reading tools (list, get, search…), or allow everything.
   const allowed = () => new Set(state.settings.claudeCode.connectorsAllowed || []);
+  const reading = () => new Set(state.settings.claudeCode.connectorsReadOnly || []);
+  const writing = () => new Set(state.settings.claudeCode.connectorsWrite || []);
+  const levelOf = (key) => (allowed().has(key) ? 'all' : writing().has(key) ? 'write' : reading().has(key) ? 'read' : 'ask');
   const draw = (items) => {
     list.innerHTML = '';
     for (const c of items) {
       const [cls, label] = CONNECTOR_STATUS[c.status] || ['muted', c.status];
-      const box = el('input', { type: 'checkbox', checked: allowed().has(c.key), disabled: c.status !== 'connected' && !allowed().has(c.key) });
-      box.addEventListener('change', () => {
-        const next = allowed();
-        if (box.checked) next.add(c.key);
-        else next.delete(c.key);
-        save('claudeCode.connectorsAllowed', [...next]);
+      const level = levelOf(c.key);
+      const box = el('select', { class: 'input allow-level', disabled: c.status !== 'connected' && level === 'ask' }, ...[['ask', 'Ask every time'], ['read', 'Allow reading'], ['write', 'Allow all but deleting'], ['all', 'Allow everything']].map(([v, l]) => el('option', { value: v, selected: v === level }, l)));
+      box.addEventListener('change', async () => {
+        const lists = { all: allowed(), read: reading(), write: writing() };
+        for (const set of Object.values(lists)) set.delete(c.key);
+        lists[box.value]?.add(c.key);
+        await saveSettings({ claudeCode: { connectorsAllowed: [...lists.all], connectorsReadOnly: [...lists.read], connectorsWrite: [...lists.write] } });
       });
       list.append(
         el(
@@ -372,7 +396,7 @@ function connectorsSection() {
           { class: 'connector' },
           el('span', { class: `dot ${cls}` }),
           el('span', { class: 'name' }, c.name.replace(/^claude\.ai /, ''), el('small', { class: 'muted' }, ` · ${c.source === 'plugin' ? 'plugin' : c.source === 'connector' ? 'connector' : 'your MCP server'} · ${label}`)),
-          el('label', { class: 'allow', title: 'Its calls run without asking each time. Leave off for anything that sends, posts or deletes.' }, box, ' always allow'),
+          el('label', { class: 'allow', title: 'Allow reading: tools that only look things up (list, get, search…) run without asking; anything that creates, sends, changes or deletes still asks. Allow all but deleting: creating and changing run on their own, deleting, removing or archiving still asks. Allow everything: no questions at all, so only for services where nothing can go wrong.' }, box),
         ),
       );
     }
@@ -398,10 +422,23 @@ function connectorsSection() {
     'div',
     { class: 'field' },
     toggle('claudeCode.connectors', 'Use my Claude connectors and plugins'),
-    el('div', { class: 'hint', html: 'The agent can use the connectors on your claude.ai account (Todoist, Google Calendar, Canva, Figma…) and your Claude Code plugins, through the Claude account brain only. It looks them up when a task needs one. <b>Every call asks you first</b>, even in auto mode (one yes covers that service for the rest of the reply), unless you tick “always allow” below. What they return is treated as external content. Data you send goes to that service.' }),
+    el('div', { class: 'hint', html: 'The agent can use the connectors on your claude.ai account (Todoist, Google Calendar, Canva, Figma…) and your Claude Code plugins, through the Claude account brain only. It looks them up when a task needs one. <b>Every call asks you first</b>, even in auto mode (one yes covers that service for the rest of the reply), unless you allow it below: “Allow reading” lets it look things up without asking (what routines need) while anything that creates, sends, changes or deletes still asks. What they return is treated as external content. Data you send goes to that service.' }),
     el('div', { class: 'row' }, check),
     out,
     list,
+  );
+}
+
+// Learning: language practice. The tracker and decks live in the vault (Learning/, Languages/).
+function learningCard() {
+  const langs = [['', 'Off'], ...Object.entries(LANGUAGE_NAMES).filter(([c]) => c !== 'en').map(([c, n]) => [c, n])];
+  const englishOnly = /\.en$/i.test(state.settings.stt.localModel) && state.settings.stt.engine === 'local';
+  return card(
+    'learning',
+    'Learning',
+    'Say “help me understand…”, “coach me through this proof” or “let’s study” for understanding-first tutoring; formulas render on screen and are read aloud in words. What you understood, what is shaky and your open questions are kept in <code>Learning/</code> in the vault; vocabulary decks with spaced repetition in <code>Languages/</code>. Skills: <code>/explain</code>, <code>/proof-coach</code>, <code>/teach-back</code>, <code>/study-session</code>, <code>/drill</code>, <code>/converse</code>.',
+    select('learning.practiceLanguage', 'Language practice', langs, { hint: `While on, speech recognition listens for that language and replies are spoken by a voice for it (the “Practice” pill in the title bar ends it). The assistant turns it on when you say “let’s practice French”.${englishOnly ? ' <b>Your speech model is English-only:</b> pick a multilingual one in Voice input.' : ''}` }),
+    select('learning.practiceVoice', 'Voice during practice', [['system', 'A Windows voice for that language'], ['assistant', 'The persona’s own voice (if it speaks the language)']], { hint: 'Windows voices for other languages: Windows Settings → Time & language → Speech → Add voices. Natural voices sound best.' }),
   );
 }
 

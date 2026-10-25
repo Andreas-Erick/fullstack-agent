@@ -397,3 +397,8 @@
 
 /* ---------------------------------------------------------------- reduced motion */
 .fx-still *, .fx-still *::before, .fx-still *::after, .fx-still::after { animation: none !important; transition-duration: 0.01ms !important; }
+
+/* ---------------------------------------------------------------- skill tree */
+/* Unlocked stars breathe slowly (opacity only). */
+.fx-hud .tree-node:not(.locked) .core { animation: hud-tree-pulse 4s ease-in-out infinite; }
+@keyframes hud-tree-pulse { 50% { opacity: 0.72; } }

@@ -23,6 +23,8 @@ const FOLDERS = {
   Research: 'Findings from the web and documents, always with sources.',
   Jobs: 'Procedures for recurring tasks: steps, quality bar, lessons learned.',
   Memory: 'Atomic long-term memories about the user (one note each).',
+  Learning: 'One note per topic the user is learning: what they understood, what is shaky, misconceptions, open questions (learning_update).',
+  Languages: 'Vocabulary decks with spaced repetition, one per language (vocab_add / vocab_review).',
   Changelog: 'Changes the agent made to its own code.',
 };
 const DAILY = 'Daily Notes';
@@ -506,7 +508,7 @@ async function startupContext() {
   ];
   if (jobs.length) parts.push(`### Jobs (read the job note before doing one of these)\n${jobs.map((j) => `- ${j.name}: ${j.purpose}`).join('\n')}`);
   const folders = Object.keys(FOLDERS).map((f) => `${f}/`).join(', ');
-  parts.push(`### Vault map\nVAULT-INDEX.md, Profile.md, Active Priorities.md, Schedule.md (the user's schedule: use the calendar_* tools), ${DAILY}/, ${folders}`);
+  parts.push(`### Vault map\nVAULT-INDEX.md, Profile.md, Active Priorities.md, Schedule.md (the user's schedule: use the calendar_* tools), Habits.md (habit_* tools), Skill Tree.md (skilltree_* tools), ${DAILY}/, ${folders}`);
   return parts.join('\n\n');
 }
 

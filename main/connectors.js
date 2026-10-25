@@ -54,6 +54,27 @@ function parseMcpList(text) {
   return out;
 }
 
+// Tool names that only read: list_events, get-file, search_designs, suggest_time, whoami…
+const READ_VERBS = /^(list|get|search|read|find|fetch|query|lookup|view|describe|whoami|suggest|check|count|status)(?![a-z])/;
+
+/** True when the tool's own name says it only reads (used for connectors set to "allow reading"). */
+function isReadOnly(toolName) {
+  const server = toolServer(toolName);
+  const action = String(toolName).slice(`mcp__${server}__`.length).toLowerCase().replace(/[-_]+/g, ' ');
+  return READ_VERBS.test(action);
+}
+
+// Tool names that remove or undo things: delete-object, remove_member, archive_project, cancel_order…
+const DESTRUCTIVE_VERBS = /^(delete|remove|archive|purge|destroy|drop|cancel|revoke|clear|reset|wipe|uninstall|unsubscribe|empty|trash)(?![a-z])/;
+
+/** True when the tool's name says it deletes or undoes something (asks even at "allow all but deleting"). */
+function isDestructive(toolName) {
+  const server = toolServer(toolName);
+  const action = String(toolName).slice(`mcp__${server}__`.length).toLowerCase().replace(/[-_]+/g, ' ');
+  // Multipurpose admin tools (Todoist's project-management archives projects) can do either: they ask.
+  return DESTRUCTIVE_VERBS.test(action) || /(^| )(manage|management|admin)( |$)/.test(action);
+}
+
 /** A short view by state: { connected, needSignIn, failing, notSetUp } of display names. */
 function byStatus(list) {
   const pick = (st) => [...new Set((list || []).filter((c) => c.status === st).map((c) => c.name.replace(/^claude\.ai /, '').replace(/^plugin:[^:]+:/, '')))];
@@ -65,4 +86,4 @@ function allowedKeys(list) {
   return [...new Set((Array.isArray(list) ? list : []).map(serverKey).filter((k) => k && k !== OWN_SERVER))];
 }
 
-module.exports = { OWN_SERVER, serverKey, toolServer, isConnectorTool, describeTool, parseMcpList, byStatus, allowedKeys };
+module.exports = { OWN_SERVER, serverKey, toolServer, isConnectorTool, isReadOnly, isDestructive, describeTool, parseMcpList, byStatus, allowedKeys };

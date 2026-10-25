@@ -126,3 +126,38 @@ test('the summary the agent gets names services by state, once each', () => {
     notSetUp: ['gmail'],
   });
 });
+
+test('"allow reading": reading tools run without asking, writing tools still ask', async () => {
+  assert.ok(connectors.isReadOnly('mcp__claude_ai_Google_Calendar__list_events'));
+  assert.ok(connectors.isReadOnly('mcp__claude_ai_Plaud__get_transcript'));
+  assert.ok(!connectors.isReadOnly('mcp__claude_ai_Google_Calendar__create_event'));
+  assert.ok(!connectors.isReadOnly('mcp__shop__checkout'), 'a word that only starts like a reading verb');
+  gates.length = 0;
+  answer = false;
+  const sess = session(true);
+  sess.spec.readOnly = ['claude_ai_Google_Calendar'];
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Google_Calendar__list_events', input: {} })).behavior, 'allow');
+  assert.strictEqual(gates.length, 0, 'no question for a read');
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Google_Calendar__delete_event', input: { id: 'x' } })).behavior, 'deny');
+  assert.strictEqual(gates.length, 1, 'a write asks (and was declined here)');
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__find-tasks', input: {} })).behavior, 'deny', 'only the services set to allow reading');
+  answer = true;
+  assert.deepStrictEqual(spec({ connectors: true, connectorsReadOnly: ['claude.ai Google Calendar'] }).readOnly, ['claude_ai_Google_Calendar']);
+  assert.deepStrictEqual(spec({ connectors: false, connectorsReadOnly: ['claude_ai_Google_Calendar'] }).readOnly, [], 'nothing while connectors are off');
+});
+
+test('"allow all but deleting": writes run, deleting still asks', async () => {
+  for (const t of ['mcp__claude_ai_Todoist__delete-object', 'mcp__x__remove_member', 'mcp__x__archive-project', 'mcp__claude_ai_Todoist__project-management']) assert.ok(connectors.isDestructive(t), t);
+  for (const t of ['mcp__claude_ai_Todoist__add-tasks', 'mcp__claude_ai_Todoist__complete-tasks', 'mcp__claude_ai_Todoist__update-tasks', 'mcp__x__clearance_report']) assert.ok(!connectors.isDestructive(t), t);
+  gates.length = 0;
+  answer = false;
+  const sess = session(true);
+  sess.spec.write = ['claude_ai_Todoist'];
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__add-tasks', input: {} })).behavior, 'allow');
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__complete-tasks', input: {} })).behavior, 'allow');
+  assert.strictEqual(gates.length, 0);
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__delete-object', input: { id: '1' } })).behavior, 'deny', 'asked and declined');
+  assert.strictEqual(gates.length, 1);
+  answer = true;
+  assert.deepStrictEqual(spec({ connectors: true, connectorsWrite: ['claude.ai Todoist'] }).write, ['claude_ai_Todoist']);
+});

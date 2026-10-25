@@ -81,7 +81,8 @@ async function transcribe(wavBytes, { raw = false } = {}) {
   const form = new FormData();
   form.append('file', new Blob([wavBytes], { type: 'audio/wav' }), 'speech.wav');
   form.append('model', s.stt.remoteModel || 'whisper-1');
-  if (s.stt.language) form.append('language', s.stt.language);
+  const language = s.learning?.practiceLanguage || s.stt.language; // language practice listens for that language
+  if (language) form.append('language', language);
   if (!raw && s.stt.vocabulary?.length) form.append('prompt', s.stt.vocabulary.join(', '));
   const url = base.endsWith('/audio/transcriptions') ? base : `${base}/audio/transcriptions`;
   const res = await fetch(url, { method: 'POST', headers: authHeaders(key), body: form, signal: AbortSignal.timeout(120000) });

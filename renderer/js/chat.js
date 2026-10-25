@@ -1,6 +1,7 @@
 // Chat view: conversation history, streaming messages, tool-call chips, voice integration.
 import { $, api, el, renderMarkdown, timeAgo, toast, toastError, confirmDialog, promptDialog, on, emit } from './util.js';
 import { bargeIn, bargeInOver } from './bargein.js';
+import { practiceLanguage, quoteFilter } from './practice.js';
 import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
 import { speaker } from './voice.js';
@@ -201,6 +202,25 @@ const TOOL_LABELS = {
   skill_save: '⚡ Saved a skill',
   skill_delete: '⚡ Deleted a skill',
   look_at_screen: '🖥 Looked at your screen',
+  learning_update: '🎓 Updated your learning tracker',
+  learning_overview: '🎓 Checked your learning',
+  vocab_add: '🗂 Added to your deck',
+  vocab_review: '🗂 Picked cards to review',
+  vocab_grade: '🗂 Graded a card',
+  language_practice: '🗣 Language practice',
+  habit_status: '✅ Checked your habits',
+  habit_log: '✅ Ticked off a habit',
+  habit_add: '✅ Started tracking a habit',
+  habit_pause: '✅ Paused a habit',
+  skilltree_view: '🌌 Looked at your skill tree',
+  skilltree_update: '🌌 Updated your skill tree',
+  skilltree_remove: '🌌 Removed a skill',
+  routine_list: '⏰ Listed routines',
+  routine_save: '⏰ Saved a routine',
+  routine_delete: '⏰ Deleted a routine',
+  routine_run: '⏰ Ran a routine',
+  app_guide: '🧭 Looked up what I can do',
+  setup_add_persona: '🎭 Added a persona',
   persona_list: '🎭 Listed personas',
   persona_switch: '🎭 Switched persona',
   theme_get: '🎨 Checked my look',
@@ -424,7 +444,8 @@ export async function send(text, { voice = false, hidden = false } = {}) {
   messagesEl().append(wrap);
   scrollToBottom(true);
 
-  active = { requestId, wrap, body, bubble, toolsEl: tools, text: '', tools: new Map(), muted: false };
+  // During language practice, notes in a blockquote are shown but not spoken (practice.js).
+  active = { requestId, wrap, body, bubble, toolsEl: tools, text: '', tools: new Map(), muted: false, speech: practiceLanguage(state.settings) ? quoteFilter() : (d) => d };
   setFlag('generating', true);
   setFlag('streamingText', false);
   setCaption(text, 'user');
@@ -468,7 +489,7 @@ function handleEvent(ev) {
     case 'text':
       active.text += ev.delta;
       if (!state.streamingText) setFlag('streamingText', true);
-      if (ttsActive() && !active.muted) speaker.feed(ev.delta);
+      if (ttsActive() && !active.muted) speaker.feed(active.speech(ev.delta));
       else setCaption(active.text.slice(-280), 'assistant');
       renderActive();
       break;
@@ -525,6 +546,12 @@ function handleEvent(ev) {
       break;
     case 'skills_changed':
       emit('skills-changed');
+      break;
+    case 'habits_changed':
+      emit('habits-changed');
+      break;
+    case 'skilltree_changed':
+      emit('skilltree-changed');
       break;
     case 'voice_preview':
       if (state.settings.voice.ttsEnabled) speaker.say(ev.text, { voice: ev.voice });

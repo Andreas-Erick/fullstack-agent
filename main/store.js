@@ -60,6 +60,8 @@ const DEFAULTS = {
     // this on and picks what runs without asking: never in tools.js SETTABLE.
     connectors: false,
     connectorsAllowed: [], // server keys (e.g. claude_ai_AccuWeather) whose calls don't ask each time
+    connectorsReadOnly: [], // server keys whose reading tools (list, get, search…) don't ask; the rest still asks
+    connectorsWrite: [], // server keys where everything but deleting (delete, remove, archive…) runs without asking
   },
   anthropic: {
     apiKey: '',
@@ -185,6 +187,12 @@ const DEFAULTS = {
     enabled: true, // write a session entry to the daily note after a conversation goes quiet
     idleMinutes: 15,
     handoffOnClose: true, // on closing the app, note where we left off (handoff.js) for the next session
+  },
+  // Learning support (main/learning.js). Language practice switches speech recognition and the voice to
+  // the target language (renderer/js/voice.js); the agent turns it on and off with language_practice.
+  learning: {
+    practiceLanguage: '', // ISO code of the language being practiced; empty = off
+    practiceVoice: 'system', // system = a Windows voice for that language | assistant = keep the persona's voice (if it speaks the language)
   },
   memory: {
     vaultPath: '', // empty = <vault>/Memory

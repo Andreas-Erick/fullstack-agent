@@ -103,3 +103,11 @@ test('theme changes by the agent are validated and re-derive the face colors', (
   assert.throws(() => persona.themeChange(null, { fonts: { body: 'Comic Sans' } }), /Unknown font/);
   assert.throws(() => persona.themeChange(null, { background: { pattern: 'plaid' } }), /Unknown background/);
 });
+
+test('a template persona can be added without switching to it (setup)', async () => {
+  const before = await store.getSettings();
+  const s = await persona.create({ template: 'life-coach', activate: false });
+  assert.strictEqual(s.personas.active, before.personas.active, 'still the same persona');
+  assert.strictEqual(s.agent.name, before.agent.name);
+  assert.ok(s.personas.list.some((x) => x.name === 'Sol' && x.theme?.name === 'Sunrise'));
+});

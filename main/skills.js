@@ -2,7 +2,8 @@
 // name, by a trigger phrase or as a slash command ("/morning-briefing"). Each skill is a Markdown file
 // in <userData>/skills/ with a small frontmatter block (name, description, triggers, input) and the
 // steps as the body, so they can also be edited by hand.
-const fsp = require('fs').promises;
+const fs = require('fs');
+const fsp = fs.promises;
 const path = require('path');
 const store = require('./store');
 
@@ -40,7 +41,30 @@ function serialize(skill) {
   return `---\nname: ${one(skill.name)}\ndescription: ${one(skill.description)}\ntriggers: ${(skill.triggers || []).map(one).filter(Boolean).join(', ')}\ninput: ${one(skill.input)}\ncreated: ${skill.created}\nupdated: ${skill.updated}\n---\n${String(skill.steps || '').trim()}\n`;
 }
 
+// Skills that ship with the app (main/skills/*.md: learning workflows) are copied into the user's
+// folder once, then they are the user's to edit or delete. installed.json remembers what was offered,
+// so a deleted skill doesn't come back with the next start.
+const BUNDLED = path.join(__dirname, 'skills');
+let bundledOnce = null;
+
+async function installBundled() {
+  const marker = path.join(dir(), '.bundled.json');
+  const offered = new Set(await store.readJson(marker, []));
+  const names = (await fsp.readdir(BUNDLED).catch(() => [])).filter((f) => f.endsWith('.md'));
+  const fresh = names.filter((f) => !offered.has(f));
+  if (!fresh.length) return;
+  await fsp.mkdir(dir(), { recursive: true });
+  for (const f of fresh) {
+    const target = path.join(dir(), f);
+    await fsp.copyFile(path.join(BUNDLED, f), target, fs.constants.COPYFILE_EXCL).catch(() => {}); // never over a user's own skill
+    offered.add(f);
+  }
+  await store.writeJsonAtomic(marker, [...offered]);
+}
+
 async function list() {
+  bundledOnce ||= installBundled().catch(() => {}); // a read-only install folder must not break skills
+  await bundledOnce;
   const names = (await fsp.readdir(dir()).catch(() => [])).filter((f) => f.endsWith('.md'));
   const all = await Promise.all(names.map(async (f) => parse(await fsp.readFile(path.join(dir(), f), 'utf8').catch(() => ''), f.slice(0, -3))));
   return all.filter((s) => s.steps).sort((a, b) => a.name.localeCompare(b.name));
