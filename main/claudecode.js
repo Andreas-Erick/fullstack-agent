@@ -13,6 +13,7 @@ const bridge = require('./bridge');
 const github = require('./github');
 const approvals = require('./approvals');
 const log = require('./logger');
+const connectors = require('./connectors');
 
 const MCP_SERVER = path.join(__dirname, 'mcp-server.js');
 
@@ -97,6 +98,33 @@ function killTree(child) {
   if (!child || child.exitCode !== null) return;
   if (process.platform === 'win32') execFile('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true }, () => {});
   else child.kill('SIGTERM');
+}
+
+// ------------------------------------------------------------ connectors
+// The user's claude.ai connectors and plugin MCP servers with their state, from `claude mcp list`
+// (it checks each server; no model call, nothing counts toward the plan). The last result is kept in
+// <userData>/connectors.json so the agent knows what the user has without waiting for a check.
+const connectorsFile = () => path.join(store.dataDir(), 'connectors.json');
+let connectorsCheck = null;
+
+function listConnectors() {
+  connectorsCheck ||= (async () => {
+    const cli = await findCli();
+    if (!cli) throw new Error('Claude Code is not installed.');
+    const r = await collect(cli, ['mcp', 'list'], { timeout: 90000 });
+    if (r.code && !r.out.trim()) throw new Error((r.err || '').trim().slice(0, 300) || `claude mcp list failed (code ${r.code})`);
+    const list = connectors.parseMcpList(r.out);
+    await store.writeJsonAtomic(connectorsFile(), { at: Date.now(), list }).catch((err) => log.warn('connectors cache not written', { error: err }));
+    return list;
+  })().finally(() => (connectorsCheck = null));
+  return connectorsCheck;
+}
+
+/** The last check ({ at, list }) or null; starts a fresh check in the background when it is older than maxAgeMs. */
+async function cachedConnectors({ maxAgeMs = 24 * 3600000 } = {}) {
+  const c = await store.readJson(connectorsFile(), null);
+  if (!c || Date.now() - (c.at || 0) > maxAgeMs) listConnectors().catch((err) => log.warn('connectors check failed', { error: err }));
+  return c && Array.isArray(c.list) ? c : null;
 }
 
 // --------------------------------------------------------------- account
@@ -244,14 +272,15 @@ class Session {
     await fsp.writeFile(sysFile, spec.system, 'utf8');
     await fsp.writeFile(
       mcpFile,
-      JSON.stringify({ mcpServers: { nexus: { command: process.execPath, args: [MCP_SERVER], env: { ELECTRON_RUN_AS_NODE: '1', NEXUS_BRIDGE_URL: b.url, NEXUS_BRIDGE_TOKEN: b.token, NEXUS_TURN: bridgeId } } } }),
+      // With connectors, their tools are found on demand (ToolSearch); the app's own stay loaded.
+      JSON.stringify({ mcpServers: { nexus: { command: process.execPath, args: [MCP_SERVER], env: { ELECTRON_RUN_AS_NODE: '1', NEXUS_BRIDGE_URL: b.url, NEXUS_BRIDGE_TOKEN: b.token, NEXUS_TURN: bridgeId }, ...(spec.connectors ? { alwaysLoad: true } : {}) } } }),
       'utf8',
     );
     const args = [
       '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
       '--system-prompt-snapshot', 'off',
       '--append-system-prompt-file', sysFile,
-      '--mcp-config', mcpFile, '--strict-mcp-config',
+      '--mcp-config', mcpFile, ...(spec.connectors ? [] : ['--strict-mcp-config']),
       '--tools', spec.builtins.join(','),
       '--allowedTools', spec.allowed.join(','),
       '--permission-mode', 'default', '--permission-prompts', 'host', '--permission-prompt-tool', 'mcp__nexus__approval_prompt',
@@ -353,6 +382,18 @@ class Session {
     }
     if (tool === 'Bash') {
       const r = await approvals.gate(turnState, 'command', 'Run a command on your computer', String(input.command || ''));
+      return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
+    }
+    if (connectors.isConnectorTool(tool)) {
+      if (!this.spec.connectors) return { behavior: 'deny', message: 'Connectors are turned off in Settings.' };
+      // Connectors act in the user's accounts (send, post, create, delete), so they ask even in auto
+      // mode; one yes covers that connector for the rest of the turn. A connector the user marked
+      // "always allow" is in --allowedTools and never gets here.
+      const server = connectors.toolServer(tool);
+      if (turnState?.connectorsApproved?.has(server)) return { behavior: 'allow', updatedInput: input };
+      const { service, action } = connectors.describeTool(tool);
+      const r = await approvals.gate(turnState, 'connector', `Use ${service}: ${action}`, JSON.stringify(input, null, 2).slice(0, 1500));
+      if (r.allow && turnState) (turnState.connectorsApproved ||= new Set()).add(server);
       return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
     }
     if (tool === 'Read' || tool === 'Glob' || tool === 'Grep') {
@@ -460,6 +501,8 @@ class Session {
         const name = shortTool(block.name);
         if (name === 'approval_prompt') continue;
         if (WEB_TOOLS.includes(name)) approvals.markTainted(t.ctx?.turn, `${name} ${block.input?.url || block.input?.query || ''}`);
+        // What a connector returns (emails, documents, tasks, web results) is external content too.
+        if (connectors.isConnectorTool(name)) approvals.markTainted(t.ctx?.turn, name);
         t.tools.set(block.id, { name, input: block.input, started: Date.now() });
         t.emit({ type: 'tool_start', id: block.id, name, input: block.input });
         log.info('tool', { name, input: JSON.stringify(block.input || {}).slice(0, 300) });
@@ -493,8 +536,15 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, mode
   const allowed = ['Read', 'Glob', 'Grep', 'mcp__nexus'];
   if (settings.web.enabled) allowed.push('WebSearch', 'WebFetch');
   if (settings.code.allowSelfModify) allowed.push('Bash(npm run check)', 'Bash(node scripts/check.js)', 'Bash(npm test*)', 'Bash(node scripts/test.js*)', 'Bash(node scripts/verify.js*)', 'Bash(git status*)', 'Bash(git diff*)', 'Bash(git log*)');
+  // The user's claude.ai connectors and plugins: found with ToolSearch, plugin skills with Skill.
+  const withConnectors = Boolean(cc.connectors);
+  if (withConnectors) {
+    builtins.push('ToolSearch', 'Skill');
+    allowed.push('ToolSearch', 'Skill', ...connectors.allowedKeys(cc.connectorsAllowed).map((k) => `mcp__${k}`));
+  }
   const toolNames = activeTools.map((t) => t.name);
   const spec = {
+    connectors: withConnectors,
     system: '',
     builtins,
     allowed,
@@ -512,7 +562,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, mode
   // The session restarts only when configuration changes (persona, tools…), not when the vault or
   // memories change (those reach the agent through the per-turn context) and not for a model switch
   // (Session.setModel changes it in place).
-  spec.key = crypto.createHash('sha1').update(JSON.stringify([configKey, builtins, allowed, toolNames, cwd, vault, repos, cc.effort])).digest('hex');
+  spec.key = crypto.createHash('sha1').update(JSON.stringify([configKey, builtins, allowed, toolNames, cwd, vault, repos, cc.effort, withConnectors])).digest('hex');
   return spec;
 }
 
@@ -624,4 +674,4 @@ async function complete(prompt, { imagePath, model } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { findCli, status, openLogin, installHint, runTurn, prewarm, endSession, shutdown, complete, sweepStaleTemp };
+module.exports = { findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, shutdown, complete, sweepStaleTemp };

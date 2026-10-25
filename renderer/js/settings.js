@@ -1,7 +1,8 @@
 // Configuration dashboard. Every control auto-saves to settings.json (secrets are encrypted at rest).
 import { $, api, el, toast, toastError, confirmDialog, debounce, on, emit } from './util.js';
 import { state, saveSettings, loadSettings } from './state.js';
-import { speaker, preloadLocalModel, listMics, handsFree } from './voice.js';
+import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice } from './voice.js';
+import { KOKORO_VOICES } from './kokorotext.js';
 import { refreshList, newChat } from './chat.js';
 import { FONTS, PATTERNS, CORE_SHAPES, TRACE_STYLES, normalizeTheme, extractPalette } from './theme.js';
 import { switchView } from './nav.js';
@@ -10,6 +11,7 @@ import { BUILT_IN } from './faces/host.js';
 import { setZoom } from './layout.js';
 import { scanInto } from './hwscan.js';
 import { qrCanvas } from './qr.js';
+import { switchPersona, createPersona, removePersona } from './personas.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -135,6 +137,7 @@ function showResult(box, ok, msg) {
 
 // ------------------------------------------------------------------- render
 let sttProgressEl = null;
+let ttsProgressEl = null;
 
 export function initSettings() {
   on('stt-progress', (p) => {
@@ -142,6 +145,12 @@ export function initSettings() {
     if (p.status === 'progress' && p.file) sttProgressEl.textContent = `Downloading ${p.file.split('/').pop()} — ${Math.round(p.progress || 0)}%`;
     else if (p.status === 'ready') sttProgressEl.textContent = '✓ Speech model loaded and ready.';
     else if (p.status === 'error') sttProgressEl.textContent = `✕ ${p.error}`;
+  });
+  on('tts-progress', (p) => {
+    if (!ttsProgressEl) return;
+    if (p.status === 'progress' && p.file) ttsProgressEl.textContent = `Downloading ${p.file.split('/').pop()} — ${Math.round(p.progress || 0)}%`;
+    else if (p.status === 'ready') ttsProgressEl.textContent = `✓ Offline voice ready (${p.device}).`;
+    else if (p.status === 'error') ttsProgressEl.textContent = `✕ ${p.message}`;
   });
   api.on('helperApps:event', (ev) => ev.type === 'status' && refreshHelperApps?.());
   api.on('remote:event', (ev) => {
@@ -213,15 +222,68 @@ function agentCard() {
   return card(
     'agent',
     'Persona studio',
-    'Define who the agent is. The master prompt drives its behaviour; the image and aesthetic shape how it looks, sounds and writes. Click Generate and the whole app — colors, fonts, background, face, greeting and voice — is redesigned to match.',
+    'Define who the agent is. The master prompt drives its behaviour; the image and aesthetic shape how it looks, sounds and writes. Click Generate and the whole app — colors, fonts, background, face, greeting and voice — is redesigned to match. Keep several personas and switch between them here or in the title bar: each has its own prompt, image, theme, face, greeting and voice; memory, notes and conversations are shared.',
+    personaBar(),
     el('div', { class: 'row', style: { gap: '14px' } }, preview, el('div', { style: { flex: 1 } }, text('agent.name', 'Agent name', { placeholder: 'Nexus' })), pick, clear),
     area('agent.personality', 'Master prompt (persona)', { rows: 9, hint: 'Who the agent is, how it behaves, what it cares about. Memories, vault, calendar and tool instructions are appended automatically.' }),
     area('agent.aesthetic', 'Aesthetic · style · theme', { rows: 3, hint: 'e.g. “90s cyberpunk terminal, green phosphor”, “warm solarpunk greenhouse, botanical”, “minimal Scandinavian, calm and airy”, “art-deco luxury, gold on black”.' }),
+    faceSelect(),
+    personaVoice(),
     toggle('appearance.applyVoice', 'Let the persona pick a matching VoiceStudio voice'),
     el('div', { class: 'row' }, gen),
     out,
     themeEditor(),
   );
+}
+
+// The saved personas: pick the one to edit (and be), add, duplicate, delete.
+function personaBar() {
+  const p = state.settings.personas;
+  const sel = el('select', { class: 'input', title: 'The persona you are editing is the active one' });
+  fillSelect(sel, p.list.map((x) => [x.id, x.name || 'Unnamed']), p.active);
+  sel.addEventListener('change', async () => (await switchPersona(sel.value), render()));
+  const add = el('button', { class: 'btn', title: 'A fresh persona with the default prompt and look', onclick: async () => (await createPersona(), render()) }, '＋ New');
+  const dup = el('button', { class: 'btn', title: 'A copy of this persona to change', onclick: async () => (await createPersona({ copy: true }), render()) }, '⧉ Duplicate');
+  const del = el('button', {
+    class: 'btn danger',
+    disabled: p.list.length < 2,
+    title: p.list.length < 2 ? 'Your only persona can’t be deleted' : 'Delete this persona',
+    onclick: async () => {
+      if (!(await confirmDialog(`Delete “${state.settings.agent.name}”?`, 'Its master prompt, image, theme, face and voice choice are removed. Memory, notes and conversations stay.', 'Delete'))) return;
+      await removePersona(state.settings.personas.active);
+      render();
+    },
+  }, 'Delete');
+  return field('Persona', el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, sel), add, dup, del), 'Everything below belongs to the selected persona and is saved with it.');
+}
+
+// The VoiceStudio voice of this persona (and its offline voice), with a sample in its greeting.
+function personaVoice() {
+  const sel = el('select', { class: 'input' });
+  fillSelect(sel, [['', '(VoiceStudio default)']], state.settings.voice.voice);
+  sel.addEventListener('change', () => save('voice.voice', sel.value));
+  api.tts.voices().then((list) => fillSelect(sel, [['', '(VoiceStudio default)'], ...list.map((v) => [v.id, v.name])], state.settings.voice.voice)).catch(() => {});
+  const hear = el('button', {
+    class: 'btn',
+    title: 'Hear this persona',
+    onclick: () => speaker.say(state.settings.appearance.greeting || `Hi, I'm ${state.settings.agent.name}.`),
+  }, '🔊 Hear');
+  return el(
+    'div',
+    { class: 'grid2' },
+    field('Voice (VoiceStudio)', el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, sel), hear), 'Each persona speaks with its own voice. New voices: ask the agent to design or clone one, or create them in VoiceStudio.'),
+    select('voice.localVoice', 'Offline voice (when VoiceStudio is closed)', KOKORO_VOICES),
+  );
+}
+
+// The face of this persona: the built-in ones and the custom faces in the faces folder.
+function faceSelect() {
+  const box = select('ui.face', 'Face', BUILT_IN.map((f) => [f.id, `${f.title} — ${f.tagline}`]), { hint: 'Custom faces live in the faces folder (Face view → ＋ Custom faces) and stay on this computer; paired phones show the built-in faces.' });
+  api.faces.list().then((custom) => {
+    const s = box.querySelector('select');
+    fillSelect(s, [...BUILT_IN.map((f) => [f.id, `${f.title} — ${f.tagline}`]), ...custom.map((c) => [c.id, `${c.title} (custom)`])], state.settings.ui.face);
+  }).catch(() => {});
+  return box;
 }
 
 // Live fine-tuning of the active theme (colors, fonts, background, face).
@@ -285,6 +347,62 @@ export function shrinkImage(dataUrl, size) {
     img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
   });
+}
+
+// The user's claude.ai connectors and Claude Code plugins, used through the Claude account brain.
+const CONNECTOR_STATUS = { connected: ['ok', 'connected'], 'needs-auth': ['warn', 'needs sign-in'], failed: ['err', 'not connecting'], 'not-configured': ['muted', 'not set up'] };
+function connectorsSection() {
+  const list = el('div', { class: 'connector-list' });
+  const out = result();
+  const allowed = () => new Set(state.settings.claudeCode.connectorsAllowed || []);
+  const draw = (items) => {
+    list.innerHTML = '';
+    for (const c of items) {
+      const [cls, label] = CONNECTOR_STATUS[c.status] || ['muted', c.status];
+      const box = el('input', { type: 'checkbox', checked: allowed().has(c.key), disabled: c.status !== 'connected' && !allowed().has(c.key) });
+      box.addEventListener('change', () => {
+        const next = allowed();
+        if (box.checked) next.add(c.key);
+        else next.delete(c.key);
+        save('claudeCode.connectorsAllowed', [...next]);
+      });
+      list.append(
+        el(
+          'div',
+          { class: 'connector' },
+          el('span', { class: `dot ${cls}` }),
+          el('span', { class: 'name' }, c.name.replace(/^claude\.ai /, ''), el('small', { class: 'muted' }, ` · ${c.source === 'plugin' ? 'plugin' : c.source === 'connector' ? 'connector' : 'your MCP server'} · ${label}`)),
+          el('label', { class: 'allow', title: 'Its calls run without asking each time. Leave off for anything that sends, posts or deletes.' }, box, ' always allow'),
+        ),
+      );
+    }
+  };
+  const check = el('button', {
+    class: 'btn',
+    onclick: async () => {
+      check.disabled = true;
+      showResult(out, true, 'Checking your connectors and plugins… (each one is contacted; this can take half a minute)');
+      try {
+        const items = await api.claude.connectors();
+        const ok = items.filter((c) => c.status === 'connected').length;
+        showResult(out, true, `✓ ${ok} of ${items.length} connected. To sign in to one marked “needs sign-in”, run /mcp in Claude Code or connect it on claude.ai → Settings → Connectors.`);
+        draw(items);
+      } catch (err) {
+        showResult(out, false, `✕ ${err.message}`);
+      } finally {
+        check.disabled = false;
+      }
+    },
+  }, '🔌 Check connectors');
+  return el(
+    'div',
+    { class: 'field' },
+    toggle('claudeCode.connectors', 'Use my Claude connectors and plugins'),
+    el('div', { class: 'hint', html: 'The agent can use the connectors on your claude.ai account (Todoist, Google Calendar, Canva, Figma…) and your Claude Code plugins, through the Claude account brain only. It looks them up when a task needs one. <b>Every call asks you first</b>, even in auto mode (one yes covers that service for the rest of the reply), unless you tick “always allow” below. What they return is treated as external content. Data you send goes to that service.' }),
+    el('div', { class: 'row' }, check),
+    out,
+    list,
+  );
 }
 
 function brainCard() {
@@ -352,6 +470,7 @@ function brainCard() {
       text('claudeCode.cliPath', 'Path to the claude executable', { placeholder: 'auto-detect', hint: 'Uses your Claude subscription through Claude Code — no API key. Claude Code’s own web search and file tools are available to the agent; usage counts toward your plan’s limits.' }),
       el('div', { class: 'grid2' }, text('claudeCode.fastModel', 'Fast model', { placeholder: 'haiku' }), text('claudeCode.deepModel', 'Deep model', { placeholder: 'opus' })),
       el('div', { class: 'grid2' }, toggle('claudeCode.warmOnLaunch', 'Keep a warm session (faster replies)'), text('claudeCode.idleMinutes', 'Close idle session after (min)', { type: 'number' })),
+      connectorsSection(),
     );
   } else if (provider === 'openai') {
     const modelSel = el('select', { class: 'input' });
@@ -506,6 +625,7 @@ function providerConfig(p) {
       hint,
       el('div', { class: 'row' }, el('button', { class: 'btn small', onclick: async () => (await api.claude.login(), toast('Finish signing in in the terminal/browser window, then reopen this list.', 'info', 8000)) }, 'Connect Claude account')),
       el('div', { class: 'grid2' }, select('claudeCode.model', 'Model', [['default', 'Account default'], ['opus', 'Opus (latest)'], ['sonnet', 'Sonnet (latest)'], ['haiku', 'Haiku (fastest)'], ['fable', 'Fable (most capable)']]), text('claudeCode.fastModel', 'Fast model', { placeholder: 'haiku' })),
+      connectorsSection(),
     ];
   }
   if (p.id === 'anthropic') {
@@ -572,6 +692,19 @@ function voiceCard() {
       }
     },
   }, '🔊 Test voice');
+  ttsProgressEl = el('div', { class: 'hint' });
+  const testLocal = el('button', {
+    class: 'btn',
+    onclick: async () => {
+      ttsProgressEl.textContent = 'Loading the offline voice…';
+      try {
+        const device = await testLocalVoice(sample.value);
+        ttsProgressEl.textContent = `✓ Offline voice ready (${device}) — playing sample.`;
+      } catch (err) {
+        ttsProgressEl.textContent = `✕ ${err.message}`;
+      }
+    },
+  }, '🔊 Test offline voice');
   const speed = el('input', { type: 'range', min: '0.5', max: '2', step: '0.05', value: state.settings.voice.speed, style: { flex: 1 } });
   const speedLabel = el('span', { class: 'muted' }, `${Number(state.settings.voice.speed).toFixed(2)}×`);
   speed.addEventListener('input', () => {
@@ -585,11 +718,19 @@ function voiceCard() {
     el('div', { class: 'grid2' }, toggle('voice.ttsEnabled', 'Enable voice', () => emit('status-refresh')), toggle('voice.autoSpeak', 'Speak replies automatically')),
     text('voice.baseUrl', 'VoiceStudio URL', { placeholder: 'http://localhost:3900' }),
     text('voice.apiKey', 'API key', { type: 'password', placeholder: 'optional' }),
-    field('Voice', el('div', { class: 'row' }, voiceSel, el('button', { class: 'btn', onclick: () => loadVoices(false) }, '⟳ Load voices'))),
+    field('Voice', el('div', { class: 'row' }, voiceSel, el('button', { class: 'btn', onclick: () => loadVoices(false) }, '⟳ Load voices')), 'Saved with the current persona, like the offline voice.'),
     el('div', { class: 'grid2' }, text('voice.voice', 'Voice id (manual)', { placeholder: 'e.g. af_heart', onChange: (v) => fillSelect(voiceSel, [['', '(server default)'], ...[...voiceSel.options].slice(1).map((o) => [o.value, o.textContent])], v) }), text('voice.model', 'TTS model', { placeholder: 'tts-1' })),
     el('div', { class: 'grid2' }, field('Speed', el('div', { class: 'row' }, speed, speedLabel)), select('voice.format', 'Audio format', ['mp3', 'wav', 'opus', 'flac'])),
     field('Sample text', sample),
-    el('div', { class: 'grid2' }, toggle('voice.greetOnLaunch', 'Speak a greeting on launch'), toggle('voice.filler', 'Short spoken lines while tools run'), toggle('voice.fallbackSystemVoice', 'Fall back to the system voice')),
+    el('div', { class: 'grid2' }, toggle('voice.greetOnLaunch', 'Speak a greeting on launch'), toggle('voice.filler', 'Short spoken lines while tools run')),
+    el(
+      'div',
+      { class: 'grid2' },
+      select('voice.fallback', 'When VoiceStudio is unreachable', [['local', 'Offline voice (Kokoro, runs in the app)'], ['system', 'System voice (Windows / macOS)'], ['off', 'Stay silent']], {
+        hint: 'The offline voice downloads once (about 330 MB with a GPU, 90 MB without) and then works without internet.',
+      }),
+      select('voice.localVoice', 'Offline voice', KOKORO_VOICES),
+    ),
     el(
       'div',
       { class: 'grid2' },
@@ -599,8 +740,9 @@ function voiceCard() {
       }),
       field('Thinking sound volume', thinkingVolume()),
     ),
-    el('div', { class: 'row' }, test, el('button', { class: 'btn', onclick: () => speaker.stop() }, '■ Stop')),
+    el('div', { class: 'row' }, test, testLocal, el('button', { class: 'btn', onclick: () => speaker.stop() }, '■ Stop')),
     out,
+    ttsProgressEl,
   );
 }
 
@@ -1219,7 +1361,6 @@ function uiCard() {
     select('ui.fx', 'Visual effects', [['hud', 'Futuristic — HUD frames, ambient grid, boot sequence, animations'], ['subtle', 'Subtle — HUD frames and readouts, no motion'], ['off', 'Off — the plain look']], { hint: 'Follows the theme colors. With “reduce motion” on in your system, animations stay off.' }),
     select('ui.chatLayout', 'Chat layout', [['chat', 'Chat only (full width)'], ['split', 'Chat and face side by side'], ['face', 'Face full size, chat underneath']], { onChange: () => emit('layout') }),
     toggle('ui.captions', 'Show captions on the face'),
-    select('ui.face', 'Face', BUILT_IN.map((f) => [f.id, `${f.title} — ${f.tagline}`]), { hint: 'Paired phones and the Android app show the same face. Custom faces (and a demo of every state) are in the Face view; they stay on this computer.' }),
     text('ui.sleepAfterMin', 'Face dozes off after (minutes without activity; 0 = never)', { type: 'number' }),
   );
 }

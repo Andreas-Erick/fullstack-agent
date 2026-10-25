@@ -7,7 +7,7 @@ if not exist node_modules (
 if not exist node_modules\electron\dist\electron.exe (
   call npx install-electron || goto :error
 )
-call npm start
+if /i "%~1"=="dev" (call npm run dev) else (call npm start)
 exit /b 0
 :error
 echo Setup failed. Make sure Node.js 22.12+ is installed: https://nodejs.org

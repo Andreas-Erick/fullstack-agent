@@ -404,7 +404,8 @@ function details(e) {
   modal((card, close) => {
     card.classList.add('cal-modal');
     card.style.cssText = colorOf(e.entryId);
-    card.append(
+    // native append() would print a skipped (null) line as the text "null"
+    const parts = [
       el('div', { class: 'cal-modal-head' }, el('span', { class: 'bar' }), el('div', {}, el('h3', {}, e.title), el('div', { class: 'muted' }, `${new Date(e.start).toLocaleDateString(undefined, { dateStyle: 'full' })} · ${timeLabel(e)}`))),
       e.recurring ? el('div', { class: 'cal-meta' }, '↻ ', e.rule) : null,
       e.location ? el('div', { class: 'cal-meta' }, '📍 ', e.location) : null,
@@ -417,7 +418,8 @@ function details(e) {
         entry ? el('button', { class: 'btn', onclick: () => (close(), editor(entry)) }, 'Edit') : null,
         el('button', { class: 'btn primary', onclick: () => close() }, 'Close'),
       ),
-    );
+    ];
+    card.append(...parts.filter(Boolean));
   });
 }
 

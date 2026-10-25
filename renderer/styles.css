@@ -68,6 +68,8 @@ body.mac .titlebar { padding-left: 84px; padding-right: 14px; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-avatar { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle, rgb(var(--c1)) 0 25%, transparent 30%), conic-gradient(from 0deg, rgb(var(--c1)), rgb(var(--c2)), rgb(var(--c3)), rgb(var(--c1))); background-size: cover; background-position: center; box-shadow: 0 0 12px rgba(var(--c1), 0.6); }
 .brand-name { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.2em; font-size: 13px; color: rgb(var(--c1-soft)); text-shadow: 0 0 10px rgba(var(--c1), 0.5); }
+/* select.input: beats .input's padding (defined later), which squeezed the text in the 38px title bar. */
+select.input.persona-select { width: auto; max-width: 180px; height: 26px; padding: 0 8px; font-size: 12px; line-height: 24px; border-radius: 8px; -webkit-app-region: no-drag; }
 .brand-state { font-family: var(--font-display); font-size: 10px; letter-spacing: 0.18em; text-transform: var(--display-transform); color: var(--muted); padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; }
 .brand-state.listening { color: rgb(var(--ok)); border-color: rgba(var(--ok), 0.4); }
 .brand-state.thinking { color: rgb(var(--c3)); border-color: rgba(var(--c3), 0.5); }
@@ -382,6 +384,8 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .face-host { position: absolute; inset: 0; }
 .face-panel .face-host { position: relative; width: 100%; height: 100%; }
 .face-canvas, .face-frame { position: absolute; inset: 0; width: 100%; height: 100%; display: block; border: 0; background: transparent; }
+/* Match the face page's default color scheme, or Chromium paints an opaque white backdrop behind the iframe. */
+.face-frame { color-scheme: normal; }
 .face-select { padding: 4px 10px; border-radius: 999px; font-size: 12.5px; }
 .brand-state.alert, .face-label.alert { color: rgb(var(--err)); border-color: rgba(var(--err), 0.6); }
 
@@ -497,6 +501,14 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .prov .rank { font-family: var(--font-display); color: rgb(var(--c1)); font-size: 12px; text-align: center; }
 .prov .nm { font-size: 13.5px; display: flex; flex-direction: column; gap: 1px; }
 .prov .st { font-size: 11.5px; color: var(--muted); }
+.connector-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
+.connector { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius); }
+.connector .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connector .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
+.connector .dot.ok { background: rgb(var(--ok)); box-shadow: 0 0 6px rgb(var(--ok)); }
+.connector .dot.warn { background: rgb(var(--warn)); }
+.connector .dot.err { background: rgb(var(--err)); }
+.connector .allow { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
 .prov .st.ok { color: rgb(var(--ok)); }
 .prov .st.warn { color: rgb(var(--warn)); }
 .prov .ctl { display: flex; gap: 4px; align-items: center; }

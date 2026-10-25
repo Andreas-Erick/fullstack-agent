@@ -54,12 +54,13 @@ async function run() {
     check('tts', 'Voice output (VoiceStudio)', async () => {
       if (!s.voice.ttsEnabled) return { status: 'off', detail: 'Disabled.' };
       const p = await voice.ping();
-      if (!p.ok) return { status: s.voice.fallbackSystemVoice ? 'warn' : 'fail', detail: `VoiceStudio is unreachable at ${s.voice.baseUrl}.${s.voice.fallbackSystemVoice ? ' Using the system voice as fallback.' : ''}`, fix: require('./helperapps').installedPath('voicestudio', s) ? 'Start it from Settings → Helper apps (or ask me to); Nexus starts it by itself when "Start with Nexus" is on.' : 'Start VoiceStudio, or correct its URL in Settings → Voice output.' };
+      const fallback = { local: 'the offline voice', system: 'the system voice' }[s.voice.fallback];
+      if (!p.ok) return { status: fallback ? 'warn' : 'fail', detail: `VoiceStudio is unreachable at ${s.voice.baseUrl}.${fallback ? ` Using ${fallback} as fallback.` : ''}`, fix: require('./helperapps').installedPath('voicestudio', s) ? 'Start it from Settings → Helper apps (or ask me to); Nexus starts it by itself when "Start with Nexus" is on.' : 'Start VoiceStudio, or correct its URL in Settings → Voice output.' };
       const t0 = Date.now();
       try {
         await voice.speak('ok');
       } catch (err) {
-        return { status: s.voice.fallbackSystemVoice ? 'warn' : 'fail', detail: `VoiceStudio answers but synthesis fails: ${err.message}${s.voice.fallbackSystemVoice ? ' (using the system voice meanwhile)' : ''}`, fix: 'Check the voice id and model in Settings → Voice output, or restart VoiceStudio.' };
+        return { status: fallback ? 'warn' : 'fail', detail: `VoiceStudio answers but synthesis fails: ${err.message}${fallback ? ` (using ${fallback} meanwhile)` : ''}`, fix: 'Check the voice id and model in Settings → Voice output, or restart VoiceStudio.' };
       }
       return { detail: `${s.voice.baseUrl} · voice "${s.voice.voice || 'default'}" · synthesis ${Date.now() - t0} ms` };
     }),

@@ -59,7 +59,7 @@ export class FaceHost {
     }
     this.teardown();
     this.id = id;
-    if (id?.startsWith('custom:') && !this.compact) {
+    if (id?.startsWith('custom:')) {
       const folder = id.slice(7);
       const frame = document.createElement('iframe');
       frame.className = 'face-frame';
@@ -80,7 +80,8 @@ export class FaceHost {
   }
 
   post(name) {
-    if (!this.frame?.contentWindow) return;
+    // Skip while hidden (the chat-only layout hides the face panel).
+    if (!this.frame?.contentWindow || !this.frame.offsetParent) return;
     const t = theme();
     this.frame.contentWindow.postMessage(
       {

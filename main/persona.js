@@ -1,8 +1,10 @@
-// Persona look & feel: asks the configured model to design a theme (colors, fonts, background,
-// face shape) plus tone notes, a greeting and a voice that match the persona's master prompt,
-// aesthetic description and image.
+// Personas: switching between the user's saved personas (the list itself is personacore.js), and
+// their look & feel: asks the configured model to design a theme (colors, fonts, background, face
+// shape) plus tone notes, a greeting and a voice that match the persona's master prompt, aesthetic
+// description and image.
 const store = require('./store');
 const llm = require('./llm');
+const core = require('./personacore');
 
 function extractJson(text) {
   const s = String(text || '');
@@ -85,4 +87,75 @@ const DEFAULT_OPTIONS = {
   traces: ['circuit', 'organic', 'radial', 'constellation'],
 };
 
-module.exports = { generate, extractJson, DEFAULT_OPTIONS };
+// ------------------------------------------------- theme changes by the agent
+const COLOR_KEYS = ['bg', 'bg2', 'bg3', 'surface', 'text', 'text2', 'muted', 'accent', 'accent2', 'accent3', 'success', 'warning', 'danger'];
+const HEX = /^#[0-9a-f]{6}$/i;
+const clamp = (v, lo, hi, what) => {
+  if (!Number.isFinite(+v)) throw new Error(`${what} must be a number (${lo}–${hi}).`);
+  return Math.max(lo, Math.min(hi, +v));
+};
+const oneOf = (v, list, what) => {
+  if (!list.includes(v)) throw new Error(`Unknown ${what} "${v}". Use one of: ${list.join(', ')}`);
+  return v;
+};
+
+/**
+ * The stored theme after the agent's partial `changes` (validated; the renderer's normalizeTheme fills
+ * the rest). Colors that change re-derive the face's state colors unless the change sets those too.
+ */
+function themeChange(current, changes = {}) {
+  const t = JSON.parse(JSON.stringify(current || {}));
+  const c = changes || {};
+  if (c.name !== undefined) t.name = String(c.name).slice(0, 60);
+  if (c.colors) {
+    for (const [k, v] of Object.entries(c.colors)) {
+      if (!COLOR_KEYS.includes(k)) throw new Error(`Unknown color "${k}". Colors: ${COLOR_KEYS.join(', ')}`);
+      if (!HEX.test(String(v).trim())) throw new Error(`Color ${k} must be a hex color like #1a2b3c (got "${v}").`);
+      (t.colors ||= {})[k] = String(v).trim().toLowerCase();
+    }
+    if (t.face) delete t.face.states;
+  }
+  if (c.fonts?.display !== undefined) (t.fonts ||= {}).display = oneOf(c.fonts.display, DEFAULT_OPTIONS.fonts, 'font');
+  if (c.fonts?.body !== undefined) (t.fonts ||= {}).body = oneOf(c.fonts.body, DEFAULT_OPTIONS.fonts, 'font');
+  if (c.uppercaseDisplay !== undefined) t.uppercaseDisplay = Boolean(c.uppercaseDisplay);
+  if (c.radius !== undefined) t.radius = clamp(c.radius, 0, 28, 'radius');
+  if (c.glass?.blur !== undefined) (t.glass ||= {}).blur = clamp(c.glass.blur, 0, 40, 'glass.blur');
+  if (c.glass?.opacity !== undefined) (t.glass ||= {}).opacity = clamp(c.glass.opacity, 0.15, 0.97, 'glass.opacity');
+  if (c.background?.pattern !== undefined) (t.background ||= {}).pattern = oneOf(c.background.pattern, DEFAULT_OPTIONS.patterns, 'background pattern');
+  if (c.background?.intensity !== undefined) (t.background ||= {}).intensity = clamp(c.background.intensity, 0, 1, 'background.intensity');
+  const f = c.face || {};
+  if (f.core !== undefined) (t.face ||= {}).core = oneOf(f.core, DEFAULT_OPTIONS.cores, 'face core');
+  if (f.traces !== undefined) (t.face ||= {}).traces = oneOf(f.traces, DEFAULT_OPTIONS.traces, 'face traces');
+  if (f.density !== undefined) (t.face ||= {}).density = clamp(f.density, 0.3, 1.6, 'face.density');
+  if (f.glow !== undefined) (t.face ||= {}).glow = clamp(f.glow, 0, 1, 'face.glow');
+  return t;
+}
+
+// ------------------------------------------------------------ the persona list
+async function list() {
+  return core.summary((await store.getSettings()).personas);
+}
+
+/** Makes a saved persona (id or name) the live one. Returns the new settings. */
+async function activate(query) {
+  const s = await store.getSettings();
+  const target = core.find(s.personas, query);
+  if (!target) throw new Error(`No persona called "${query}". Personas: ${s.personas.list.map((x) => x.name).join(', ')}`);
+  if (target.id === s.personas.active) return s;
+  return store.setSettings({ ...core.patchFor(target, store.DEFAULTS), personas: { active: target.id } });
+}
+
+/** A new persona (a copy of the active one, or fresh), switched to at once. */
+async function create(opts = {}) {
+  const s = await store.getSettings();
+  const { personas, persona } = core.create(s, opts, { newId: store.newId, defaults: store.DEFAULTS });
+  return store.setSettings({ ...core.patchFor(persona, store.DEFAULTS), personas: { ...personas, active: persona.id } });
+}
+
+async function remove(id) {
+  const s = await store.getSettings();
+  const { personas, next } = core.remove(s.personas, id);
+  return store.setSettings(next ? { ...core.patchFor(next, store.DEFAULTS), personas } : { personas });
+}
+
+module.exports = { generate, extractJson, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove };

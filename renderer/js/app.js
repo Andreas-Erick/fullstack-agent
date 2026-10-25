@@ -21,6 +21,7 @@ import { initEvolution, refresh as refreshEvolution } from './evolution.js';
 import { initSkills, refresh as refreshSkills } from './skills.js';
 import { initLayout, applyLayout, setLayout, zoomBy, setZoom, quickNote, toggleAppFullscreen } from './layout.js';
 import { applyTheme } from './theme.js';
+import { switchPersona } from './personas.js';
 
 // Safety net: an unexpected error anywhere in the UI is logged (repeats at most once a minute)
 // instead of disappearing; the app keeps running.
@@ -160,6 +161,7 @@ async function boot() {
 
   // Face gallery + demo
   $('#faceSelect').onchange = () => saveSettings({ ui: { face: $('#faceSelect').value } });
+  $('#personaSelect').onchange = async () => syncPersonaSelect((await switchPersona($('#personaSelect').value)).personas);
   $('#faceDemo').onclick = () => runDemo();
   $('#faceFolder').onclick = async () => (await api.faces.openFolder(), setTimeout(refreshFaceList, 1500));
 
@@ -201,7 +203,7 @@ function greetOnLaunch() {
 // Every transcript goes: pending approval → voice command → the agent (interrupting a reply in progress).
 function setupVoiceRouting() {
   on('voice-input', async (text) => {
-    if (handleSpokenAnswer(text)) return;
+    if (handleSpokenAnswer(text)) return emit('barge-in-over'); // an approval answer: the reply goes on speaking
     if (handleSetupVoice(text)) return;
     if (await tryCommand(text, { newChat, stop: () => speaker.stop() })) return;
     sendVoice(text);
@@ -211,6 +213,21 @@ function setupVoiceRouting() {
     if (want && !handsFree.running) setMicMode('open');
     if (!want && handsFree.running) setMicMode('ptt');
   });
+}
+
+// The title-bar persona switcher, shown once there is more than one persona.
+let personaOptions = '';
+function syncPersonaSelect(p) {
+  const sel = $('#personaSelect');
+  const list = p?.list || [];
+  sel.classList.toggle('hidden', list.length < 2);
+  const key = JSON.stringify(list.map((x) => [x.id, x.name]));
+  if (key !== personaOptions) {
+    personaOptions = key;
+    sel.innerHTML = '';
+    for (const x of list) sel.append(el('option', { value: x.id }, x.name || 'Unnamed'));
+  }
+  sel.value = p?.active || '';
 }
 
 function applySettings() {
@@ -224,13 +241,14 @@ function applySettings() {
   const av = $('#brandAvatar');
   av.style.backgroundImage = s.agent.avatar ? `url(${s.agent.avatar})` : '';
   av.style.backgroundSize = 'cover';
+  syncPersonaSelect(s.personas);
   const faceId = faceList.some((f) => f.id === s.ui.face) ? s.ui.face : 'circuit';
   bigFace?.set(faceId, { avatar: s.agent.avatar, name });
-  // In the face layout the chat's face is full size (and can be a custom face); otherwise compact.
+  // In the face layout the chat's face is full size; otherwise compact (custom faces scale themselves).
   applyLayout();
   const big = $('#view-chat').classList.contains('layout-face');
   miniFace?.setCompact(!big);
-  miniFace?.set(!big && faceId.startsWith('custom:') ? 'circuit' : faceId, { avatar: s.agent.avatar, name });
+  miniFace?.set(faceId, { avatar: s.agent.avatar, name });
   if ($('#faceSelect').value !== faceId) $('#faceSelect').value = faceId;
   $$('.ptt-key').forEach((k) => (k.textContent = s.stt.pttKey));
   const hint = $('#pttHint');
