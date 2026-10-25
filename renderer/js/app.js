@@ -19,9 +19,12 @@ import { initDocs } from './docs.js';
 import { initSettings } from './settings.js';
 import { initEvolution, refresh as refreshEvolution } from './evolution.js';
 import { initSkills, refresh as refreshSkills } from './skills.js';
+import { initHabits, refresh as refreshHabits } from './habits.js';
+import { initSkillTree, refresh as refreshSkillTree } from './skilltree.js';
 import { initLayout, applyLayout, setLayout, zoomBy, setZoom, quickNote, toggleAppFullscreen } from './layout.js';
 import { applyTheme } from './theme.js';
 import { switchPersona } from './personas.js';
+import { practiceLanguage, languageName } from './practice.js';
 
 // Safety net: an unexpected error anywhere in the UI is logged (repeats at most once a minute)
 // instead of disappearing; the app keeps running.
@@ -69,6 +72,8 @@ async function boot() {
   initDocs();
   initEvolution();
   initSkills();
+  initHabits();
+  initSkillTree();
   initLayout({ miniFace });
   initApprovals();
   initRemote();
@@ -83,6 +88,8 @@ async function boot() {
     if (name === 'knowledge') refreshKnowledge();
     if (name === 'evolution') refreshEvolution();
     if (name === 'skills') refreshSkills();
+    if (name === 'habits') refreshHabits();
+    if (name === 'tree') refreshSkillTree();
     if (name === 'chat') requestAnimationFrame(() => miniFace.resize());
     if (name === 'face') requestAnimationFrame(() => bigFace.resize());
     if (name !== 'face' && document.body.classList.contains('fullscreen-face')) exitFullscreen();
@@ -161,6 +168,7 @@ async function boot() {
 
   // Face gallery + demo
   $('#faceSelect').onchange = () => saveSettings({ ui: { face: $('#faceSelect').value } });
+  $('#pillPractice').onclick = () => saveSettings({ learning: { practiceLanguage: '' } }).then(() => toast('Language practice ended'));
   $('#personaSelect').onchange = async () => syncPersonaSelect((await switchPersona($('#personaSelect').value)).personas);
   $('#faceDemo').onclick = () => runDemo();
   $('#faceFolder').onclick = async () => (await api.faces.openFolder(), setTimeout(refreshFaceList, 1500));
@@ -242,6 +250,9 @@ function applySettings() {
   av.style.backgroundImage = s.agent.avatar ? `url(${s.agent.avatar})` : '';
   av.style.backgroundSize = 'cover';
   syncPersonaSelect(s.personas);
+  const practice = practiceLanguage(s);
+  $('#pillPractice').classList.toggle('hidden', !practice);
+  $('#pillPractice span').textContent = practice ? `Practice · ${languageName(practice)}` : 'Practice';
   const faceId = faceList.some((f) => f.id === s.ui.face) ? s.ui.face : 'circuit';
   bigFace?.set(faceId, { avatar: s.agent.avatar, name });
   // In the face layout the chat's face is full size; otherwise compact (custom faces scale themselves).
@@ -307,7 +318,7 @@ function setupPushToTalk() {
 
 // --------------------------------------------------------------- shortcuts
 function setupShortcuts() {
-  const views = ['chat', 'face', 'memory', 'calendar', 'knowledge', 'docs', 'evolution', 'skills'];
+  const views = ['chat', 'face', 'memory', 'calendar', 'knowledge', 'docs', 'evolution', 'skills', 'habits'];
   window.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.shiftKey && /^Digit[1-3]$/.test(e.code)) {

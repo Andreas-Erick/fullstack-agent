@@ -44,10 +44,34 @@ const PRINT_CSS = `
   .turn.user .body { background: #eef4ff; border-radius: 8px; padding: 6px 10px; white-space: pre-wrap; }
 `;
 
-async function toHtml({ title, markdown, html }) {
+// Markdown → HTML with formulas as MathML, which Chromium draws without scripts or fonts (the PDF
+// window allows neither). The math parsing is the renderer's (renderer/js/mathtext.js): an ES module
+// without imports in a CommonJS package, so it is loaded from its source as a data: module.
+let mathtext = null;
+async function loadMathtext() {
+  const src = await fsp.readFile(path.join(__dirname, '..', 'renderer', 'js', 'mathtext.js'), 'utf8');
+  return import(`data:text/javascript;base64,${Buffer.from(src).toString('base64')}`);
+}
+
+async function markdownHtml(markdown) {
   const { marked } = await import('marked');
+  mathtext ||= loadMathtext();
+  const { extractMath, restoreMath } = await mathtext;
+  const katex = require('katex');
+  const { text, items } = extractMath(String(markdown || ''));
+  const html = marked.parse(text, { gfm: true, breaks: true });
+  return restoreMath(html, items, (tex, displayMode) => {
+    try {
+      return katex.renderToString(tex, { displayMode, output: 'mathml', throwOnError: false, strict: 'ignore', trust: false });
+    } catch {
+      return `<code>${esc(tex)}</code>`;
+    }
+  });
+}
+
+async function toHtml({ title, markdown, html }) {
   // Remote images are never fetched (the page is offline); a note stands in for them.
-  const body = (html ?? marked.parse(String(markdown || ''), { gfm: true, breaks: true })).replace(/<img\b[^>]*\bsrc="(?!data:)[^"]*"[^>]*>/gi, (tag) => `<em>[image${(tag.match(/\balt="([^"]*)"/i) || [])[1] ? `: ${tag.match(/\balt="([^"]*)"/i)[1]}` : ''}]</em>`);
+  const body = (html ?? (await markdownHtml(markdown))).replace(/<img\b[^>]*\bsrc="(?!data:)[^"]*"[^>]*>/gi, (tag) => `<em>[image${(tag.match(/\balt="([^"]*)"/i) || [])[1] ? `: ${tag.match(/\balt="([^"]*)"/i)[1]}` : ''}]</em>`);
   const when = new Date().toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' });
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}</style></head><body><header><h1>${esc(title)}</h1><div class="meta">${esc(when)}</div></header>${body}</body></html>`;
 }
@@ -88,10 +112,10 @@ async function create({ title, markdown, html, dir, file }) {
 
 /** A conversation as a printable transcript. */
 async function conversationHtml(conv) {
-  const { marked } = await import('marked');
-  return (conv.messages || [])
-    .filter((m) => !m.hidden && (m.role === 'user' || m.role === 'assistant'))
-    .map((m) => `<div class="turn ${m.role}"><div class="who">${m.role === 'user' ? 'You' : 'Assistant'} · ${esc(new Date(m.createdAt || conv.updatedAt).toLocaleString())}</div><div class="body">${m.role === 'user' ? esc(m.display || m.content) : marked.parse(String(m.content || ''), { gfm: true, breaks: true })}</div></div>`)
+  const turns = (conv.messages || []).filter((m) => !m.hidden && (m.role === 'user' || m.role === 'assistant'));
+  const bodies = await Promise.all(turns.map((m) => (m.role === 'user' ? esc(m.display || m.content) : markdownHtml(m.content))));
+  return turns
+    .map((m, i) => `<div class="turn ${m.role}"><div class="who">${m.role === 'user' ? 'You' : 'Assistant'} · ${esc(new Date(m.createdAt || conv.updatedAt).toLocaleString())}</div><div class="body">${bodies[i]}</div></div>`)
     .join('\n');
 }
 

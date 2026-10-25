@@ -1,5 +1,5 @@
 // Electron main process: window, app:// protocol, IPC wiring.
-const { app, BrowserWindow, ipcMain, protocol, shell, dialog, globalShortcut, session, systemPreferences, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, shell, dialog, globalShortcut, session, systemPreferences, Menu, Notification } = require('electron');
 const path = require('path');
 const fsp = require('fs').promises;
 
@@ -20,6 +20,7 @@ const log = require('./logger');
 const approvals = require('./approvals');
 const diagnostics = require('./diagnostics');
 const journal = require('./journal');
+const routines = require('./routines');
 const handoff = require('./handoff');
 const vaultgit = require('./vaultgit');
 const faces = require('./faces');
@@ -44,7 +45,7 @@ if (process.env.NEXUS_USER_DATA) app.setPath('userData', path.resolve(process.en
 app.commandLine.appendSwitch('force_high_performance_gpu');
 
 // Only these folders are served to the renderer over app://bundle/...
-const SERVED = ['renderer/', 'node_modules/marked/lib/', 'node_modules/dompurify/dist/', 'node_modules/@huggingface/transformers/dist/', 'node_modules/phonemizer/dist/', 'node_modules/pdfjs-dist/build/', 'node_modules/@fontsource/'];
+const SERVED = ['renderer/', 'node_modules/marked/lib/', 'node_modules/dompurify/dist/', 'node_modules/katex/dist/', 'node_modules/@huggingface/transformers/dist/', 'node_modules/phonemizer/dist/', 'node_modules/pdfjs-dist/build/', 'node_modules/@fontsource/'];
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -217,6 +218,43 @@ function send(channel, payload) {
 // To the window only (the setup conversation never reaches paired devices).
 function toWindow(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+// Routines (routines.js): each run is a turn in the routine's own conversation; the window shows the
+// result, and Windows shows a notification while the app is in the background.
+function startRoutines() {
+  routines.start({
+    run: ({ routine, text, limitMs }) =>
+      new Promise((resolve) => {
+        const requestId = `rt${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+        // A run that takes too long (a hung tool, an approval nobody answers…) is stopped.
+        const timer = setTimeout(() => {
+          activeRequests.get(requestId)?.abort();
+          done({ ok: false, error: `Stopped after ${Math.round(limitMs / 60000)} minutes.` });
+        }, limitMs);
+        let settled = false;
+        const done = (r) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(r);
+        };
+        startTurn({ conversationId: routine.conversationId, text, requestId, display: `⏰ ${routine.name}`, routine: routine.id, onFinish: done }).catch((err) => done({ ok: false, error: err.message }));
+      }),
+    notify: (ev) => {
+      toWindow('routine:event', ev);
+      if (ev.type !== 'finished' || (win && !win.isDestroyed() && win.isFocused()) || !Notification.isSupported()) return;
+      const n = new Notification({ title: `${ev.ok ? '⏰' : '⚠'} ${ev.name}`, body: ev.summary || (ev.ok ? 'Done.' : 'The routine failed.'), silent: false });
+      n.on('click', () => {
+        if (!win || win.isDestroyed()) return;
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+        toWindow('routine:event', { type: 'open', conversationId: ev.conversationId });
+      });
+      n.show();
+    },
+  });
 }
 
 async function registerShortcut() {
@@ -500,7 +538,22 @@ function registerIpc() {
   handle('persona:generate', (payload) => persona.generate(payload));
   // Saved personas: each returns the new settings (the live persona changed).
   handle('persona:switch', (id) => persona.activate(String(id || '')));
-  handle('persona:create', (opts) => persona.create({ name: String(opts?.name || ''), copy: opts?.copy === true }));
+  handle('persona:create', (opts) => persona.create({ name: String(opts?.name || ''), copy: opts?.copy === true, template: typeof opts?.template === 'string' ? opts.template : null, activate: opts?.activate !== false }));
+  handle('persona:templates', () => persona.templates());
+
+  // Habits (Habits.md in the vault) and routines (scheduled agent runs)
+  handle('habits:status', () => require('./habits').status());
+  handle('habits:log', (name, done, date) => require('./habits').log([String(name)], { done: done !== false, date: date ? String(date) : undefined }));
+  handle('habits:add', (h) => require('./habits').add({ name: String(h?.name || ''), target: Number(h?.target) || 7, note: String(h?.note || '') }));
+  handle('habits:pause', (name, paused) => require('./habits').setPaused(String(name), paused !== false));
+  handle('skilltree:view', () => require('./skilltree').view());
+  handle('skilltree:upsert', (skill) => require('./skilltree').upsert([skill && typeof skill === 'object' ? skill : {}]));
+  handle('skilltree:remove', (name) => require('./skilltree').remove(String(name)));
+  handle('routines:list', () => routines.list());
+  handle('routines:save', (r) => routines.save(r && typeof r === 'object' ? r : {}));
+  handle('routines:remove', (id) => routines.remove(String(id)));
+  handle('routines:run', (id) => routines.runNow(String(id)));
+  handle('routines:setEnabled', (id, on) => routines.setEnabled(String(id), on));
   handle('persona:remove', (id) => persona.remove(String(id || '')));
 
   // Internet
@@ -597,7 +650,8 @@ function transcribeInWindow(wav) {
 
 // One chat turn, from the window (chat:send) or a paired device (remote = the device name). Returns
 // at once; the reply streams as chat:event. Remote turns never carry a screenshot of this desktop.
-async function startTurn({ conversationId, text, requestId, voice: viaVoice = false, hidden = false, remote = null }) {
+// display: what the chat shows instead of the text (routines); onFinish({ ok, text, error }) after the turn.
+async function startTurn({ conversationId, text, requestId, voice: viaVoice = false, hidden = false, remote = null, display = '', routine = '', onFinish = null }) {
   const settings = await store.getSettings();
   let conv = conversationId ? await store.getConversation(conversationId) : null;
   if (!conv) conv = await store.createConversation();
@@ -618,12 +672,14 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
     content: slash ? skills.instructions(slash.skill, slash.args) : String(text),
     createdAt: Date.now(),
     ...(slash ? { display: String(text), skill: slash.skill.slug } : {}),
+    ...(display ? { display: String(display) } : {}),
+    ...(routine ? { routine } : {}),
     ...(images.length ? { screen: true } : {}),
     ...(hidden ? { hidden: true } : {}),
     ...(remote ? { remote } : {}),
   };
   conv.messages.push(userMsg);
-  if (!conv.setup && conv.messages.filter((m) => m.role === 'user').length === 1) conv.title = (slash ? slash.skill.name : String(text)).replace(/\s+/g, ' ').slice(0, 60);
+  if (!conv.setup && conv.messages.filter((m) => m.role === 'user').length === 1) conv.title = (slash ? slash.skill.name : display || String(text)).replace(/\s+/g, ' ').slice(0, 60);
   await store.saveConversation(conv);
 
   const controller = new AbortController();
@@ -656,19 +712,21 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
         provider: result.provider || settings.llm.provider,
         createdAt: Date.now(),
       };
-      if (deletedConversations.has(conv.id)) return;
+      if (deletedConversations.has(conv.id)) return onFinish?.({ ok: false, error: 'The conversation was deleted', conversationId: conv.id });
       const fresh = (await store.getConversation(conv.id)) || conv;
       fresh.messages.push(assistantMsg);
       if (result.sessionId) fresh.claudeSessionId = result.sessionId;
       if (result.convPatch) Object.assign(fresh, result.convPatch);
       await store.saveConversation(fresh);
       emit({ type: 'done', message: stripRaw(assistantMsg) });
+      onFinish?.({ ok: true, text: assistantMsg.content, conversationId: conv.id });
       log.info('reply', { model: result.model, voice: viaVoice, remote: Boolean(remote), firstTextMs, totalMs: Date.now() - startedAt, chars: assistantMsg.content.length, tools: (result.toolCalls || []).map((t) => t.name).join(','), text: assistantMsg.content.slice(0, 160) });
     } catch (err) {
       const aborted = controller.signal.aborted || err?.name === 'AbortError';
       if (aborted) log.info('turn interrupted', { conversation: conv.id });
       else log.error('turn failed', { provider: settings.llm.provider, model: settings.llm.provider === 'claude-code' ? settings.claudeCode.model : undefined, voice: viaVoice, ms: Date.now() - startedAt, error: err });
       emit({ type: aborted ? 'aborted' : 'error', message: aborted ? 'Stopped' : err?.message || String(err) });
+      onFinish?.({ ok: false, error: aborted ? 'Stopped' : err?.message || String(err), conversationId: conv.id });
     } finally {
       activeRequests.delete(requestId);
       if (trackChanges) recordSelfChanges(before, text).catch((e) => log.warn('self-change tracking', e.message));
@@ -750,6 +808,7 @@ app.whenReady().then(async () => {
   helperApps.init({ notify: (ev) => send('helperApps:event', ev) });
   helperApps.ensureAll(s, 'launch');
   journal.start();
+  startRoutines();
   store.sweepStaleTemp().catch(() => {});
   claudecode.sweepStaleTemp().catch(() => {});
 

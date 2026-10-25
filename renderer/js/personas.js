@@ -24,9 +24,9 @@ export async function switchPersona(id) {
   }
 }
 
-export async function createPersona({ copy = false, name = '' } = {}) {
+export async function createPersona({ copy = false, name = '', template = null } = {}) {
   try {
-    return took(await api.persona.create({ copy, name }));
+    return took(await api.persona.create({ copy, name, template }), { greet: Boolean(template) });
   } catch (err) {
     toastError(err);
     return state.settings;

@@ -4,6 +4,8 @@
 import { api, emit, speakable, toastError, logEvent } from './util.js';
 import { state, setFlag, setCaption } from './state.js';
 import { KOKORO_SAMPLE_RATE } from './kokorotext.js';
+import { mathOpen } from './mathtext.js';
+import { practiceLanguage, pickVoice, languageName } from './practice.js';
 
 let audioCtx = null;
 export function ctx() {
@@ -176,6 +178,15 @@ class Speaker {
 
   async synthesize(text, override, gen) {
     if (override?.engine === 'local') return localVoice.speak(text, { waitMs: 600000 }).catch((err) => (this.reportError(err), null));
+    // Language practice speaks with a Windows voice for that language (if one is installed).
+    const practice = practiceLanguage(state.settings);
+    if (practice && !override?.voice && state.settings.learning?.practiceVoice !== 'assistant') {
+      if (pickVoice(speechSynthesis.getVoices(), practice)) return 'system';
+      if (this.noPracticeVoice !== practice) {
+        this.noPracticeVoice = practice;
+        toastError(new Error(`No ${languageName(practice)} voice on this computer, so the usual voice speaks. Add one in Windows Settings → Time & language → Speech → Add voices.`));
+      }
+    }
     const mode = fallbackMode();
     if (this.onFallback && mode !== 'off' && Date.now() - this.fallbackSince < 120000) return this.fallback(text, gen);
     try {
@@ -258,10 +269,11 @@ class Speaker {
       u.rate = Number(state.settings.voice.speed) || 1;
       // voice.voice is a VoiceStudio id, so pick by language: the Windows default may be another
       // language pack's voice (a German voice reading English).
+      // During language practice: a voice for the practiced language.
       const voices = speechSynthesis.getVoices();
-      const lang = (state.settings.stt?.language || 'en').toLowerCase();
-      const fits = voices.filter((v) => v.lang.toLowerCase().startsWith(lang));
-      u.voice = fits.find((v) => v.default) || fits[0] || voices.find((v) => v.default) || null;
+      const lang = practiceLanguage(state.settings) || (state.settings.stt?.language || 'en').toLowerCase();
+      u.voice = pickVoice(voices, lang) || voices.find((v) => v.default) || null;
+      if (u.voice) u.lang = u.voice.lang;
       let t = 0;
       const pulse = setInterval(() => (state.synthLevel = 0.35 + 0.35 * Math.abs(Math.sin((t += 0.6)))), 80);
       // Chromium sometimes never fires onend; never let that leave the speaker (and mic) stuck.
@@ -317,7 +329,8 @@ function takeSentences(buf) {
   while ((m = rest.match(re)) && m[0].length < rest.length) {
     acc += m[0];
     rest = rest.slice(m[0].length);
-    if (acc.trim().length >= 24 || /\n\s*\n/.test(m[0])) {
+    // Never split inside a formula: "$$a. b$$" would be spoken as raw LaTeX.
+    if ((acc.trim().length >= 24 || /\n\s*\n/.test(m[0])) && !mathOpen(acc)) {
       done.push(acc.trim());
       acc = '';
     }
@@ -725,7 +738,7 @@ export async function transcribe(samples, { raw = false } = {}) {
     const timer = limitMs && setTimeout(() => (logEvent('warn', 'speech-to-text timed out; restarting it'), resetWorker('Speech-to-text took too long and was restarted')), limitMs);
     const done = (fn) => (v) => (clearTimeout(timer), fn(v));
     pending.set(id, { resolve: done(resolve), reject: done(reject) });
-    w.postMessage({ type: 'transcribe', id, audio: copy, language: s.language || 'en' }, [copy.buffer]);
+    w.postMessage({ type: 'transcribe', id, audio: copy, language: practiceLanguage(state.settings) || s.language || 'en' }, [copy.buffer]);
   });
   return cleanTranscript(text, { raw });
 }

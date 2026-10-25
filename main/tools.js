@@ -837,6 +837,249 @@ const TOOLS = [
     parameters: obj({ what_happened: str('The problem, in the user\'s words') }),
     run: async (a) => require('./envinfo').bugReport(a.what_happened || ''),
   },
+  // ------------------------------------------------------------ the guide
+  {
+    name: 'app_guide',
+    group: 'guide',
+    description:
+      'What you (the app) can do: every feature with what it does, things the user can say, where it is in the app, and whether it is set up on this computer. Call it when the user asks what you can do, how to use you, or about a feature ("how can I use you?", "what are routines?"); pass topic for one area. Never describe features from memory alone.',
+    parameters: obj({ topic: str('Optional: one area, e.g. "routines", "languages", "habits"') }),
+    run: async (a) => require('./guide').guide(a.topic || ''),
+  },
+  // ------------------------------------------------------------ learning
+  {
+    name: 'learning_update',
+    group: 'learning',
+    description:
+      'Keep the user\'s understanding tracker for a topic (Learning/<Topic>.md in the vault) current while you teach or study with them. Record what they now genuinely understand (in their words when they explained it back), what is still shaky, misconceptions they had (with the correction), open questions, and a one-line log of the session. resolved moves concepts from shaky / open questions to understood. Use it without being asked at natural points (after an explanation lands, after an exercise, at the end of a study session); it is how you follow up next time.',
+    parameters: obj(
+      {
+        topic: str('The subject, e.g. "Real Analysis", "Linear Algebra", "Rust ownership", "Spanish"'),
+        understood: arr('Concepts they now understand, e.g. "Epsilon-delta limits — δ is how close x must be to keep f(x) within ε"'),
+        shaky: arr('Concepts that are not solid yet'),
+        misconceptions: arr('Wrong ideas they had, with the correction, e.g. "Thought every continuous function is differentiable → |x| at 0"'),
+        questions: arr('Open questions to come back to'),
+        resolved: arr('Shaky concepts or open questions that are now clear'),
+        log: str('One line: what this session covered'),
+      },
+      ['topic'],
+    ),
+    run: async (a, ctx) => {
+      const r = await require('./learning').update(a.topic, a);
+      ctx.emit({ type: 'vault_changed', path: r.path });
+      return r;
+    },
+  },
+  {
+    name: 'learning_overview',
+    group: 'learning',
+    description: 'The user\'s learning topics (most recent first) with what is shaky and still open, and their vocabulary decks with cards due. With a topic: that topic\'s full tracker note. Use it before a study session or when they ask how they are doing.',
+    parameters: obj({ topic: str('Optional: one topic for its full note') }),
+    run: async (a) => {
+      const learning = require('./learning');
+      if (a.topic) {
+        const t = await learning.readTopic(a.topic);
+        if (!t.exists) return { topic: a.topic, note: 'No tracker for this topic yet; learning_update creates it.' };
+        return { path: t.rel, ...t.note };
+      }
+      const [topics, decks] = await Promise.all([learning.topics(), learning.deckSummaries()]);
+      return { topics: topics.map(({ modified, line, ...t }) => ({ ...t, updated: new Date(modified).toISOString().slice(0, 10) })), decks };
+    },
+  },
+  {
+    name: 'vocab_add',
+    group: 'learning',
+    description:
+      'Add words or phrases to the user\'s spaced-repetition deck for a language (Languages/<Language>.md). Add what they actually met or need (from a conversation, a text, a mistake), with a short meaning and, ideally, an example sentence in the target language. Phrases and collocations beat single words. Existing cards are not duplicated.',
+    parameters: obj(
+      {
+        language: str('e.g. "Spanish", "Japanese"'),
+        cards: { type: 'array', description: 'Cards to add', items: { type: 'object', properties: { front: str('The word or phrase in the target language'), back: str('Meaning in the user\'s language (short)'), example: str('An example sentence in the target language') }, required: ['front', 'back'], additionalProperties: false } },
+      },
+      ['language', 'cards'],
+    ),
+    run: async (a, ctx) => {
+      const r = await require('./learning').addCards(a.language, a.cards || []);
+      ctx.emit({ type: 'vault_changed', path: r.path });
+      return r;
+    },
+  },
+  {
+    name: 'vocab_review',
+    group: 'learning',
+    description:
+      'The cards to review now in a language deck: due ones first, then a few new ones. Quiz the user one card at a time (ask for the target-language word from the meaning, or use it in a sentence: production beats recognition), let them answer, then grade each card with vocab_grade.',
+    parameters: obj({ language: str('e.g. "Spanish"'), limit: { type: 'number', description: 'How many cards (default 10)' } }, ['language']),
+    run: async (a) => require('./learning').due(a.language, { limit: Math.max(1, Math.min(50, Number(a.limit) || 10)) }),
+  },
+  {
+    name: 'vocab_grade',
+    group: 'learning',
+    description: 'Grade one reviewed card, which schedules its next review: again (didn\'t know it; comes back today), hard (got it with effort), good (knew it), easy (instant).',
+    parameters: obj({ language: str('e.g. "Spanish"'), front: str('The card\'s front exactly as vocab_review gave it'), grade: { type: 'string', enum: ['again', 'hard', 'good', 'easy'], description: 'How well they knew it' } }, ['language', 'front', 'grade']),
+    run: async (a) => require('./learning').gradeCard(a.language, a.front, a.grade),
+  },
+  {
+    name: 'language_practice',
+    group: 'practice',
+    description:
+      'Start or end a speaking practice in a language when the user asks ("let\'s practice Spanish", "stop practice"). While it is on, speech recognition listens for that language and your replies are spoken by a voice for it, so reply in that language at their level. language: an ISO code like es, fr, de, it, pt, ja, zh, ko, ru, nl, or "off".',
+    parameters: obj({ language: str('ISO 639-1 code (es, fr, de, ja…) or "off"') }, ['language']),
+    run: async (a, ctx) => {
+      const code = String(a.language || '').trim().toLowerCase();
+      if (code !== 'off' && !/^[a-z]{2,3}(-[a-z]{2})?$/.test(code)) throw new Error('Use an ISO language code like "es" or "ja", or "off".');
+      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', code === 'off' ? 'End language practice' : `Start language practice (${code})`, 'Asked after reading external content.');
+      await store.setSettings({ learning: { practiceLanguage: code === 'off' ? '' : code } });
+      ctx.emit({ type: 'settings_changed' });
+      return code === 'off' ? { practice: 'off' } : { practice: code, note: 'Speech recognition and your voice switch to this language from your next reply.' };
+    },
+  },
+  // ------------------------------------------------------------ habits
+  {
+    name: 'habit_status',
+    group: 'habits',
+    description: 'The user\'s habits (Habits.md in the vault): which are done today, streaks, this week against the target, the last 7 days and the last four weeks. Use it for check-ins and reviews.',
+    parameters: obj({}),
+    run: async () => require('./habits').status(),
+  },
+  {
+    name: 'habit_log',
+    group: 'habits',
+    description: 'Tick off habits the user did ("I meditated", "went for a run yesterday"), or undo one (done: false). Names must be tracked habits (habit_status). Say the streak back briefly; don\'t gush.',
+    parameters: obj({ habits: arr('Habit names'), date: str('today (default), yesterday, or YYYY-MM-DD'), done: bool('false to undo') }, ['habits']),
+    run: async (a, ctx) => {
+      const r = await require('./habits').log(a.habits || [], { date: a.date, done: a.done !== false });
+      ctx.emit({ type: 'habits_changed' });
+      return r;
+    },
+  },
+  {
+    name: 'habit_add',
+    group: 'habits',
+    description: 'Start tracking a habit the user decided on (or change its target). Help them make it small and concrete first: a tiny version, an anchor ("after my morning coffee"), and how often. target = times per week (7 = daily).',
+    parameters: obj({ name: str('Short name, e.g. "Meditate"'), target: { type: 'number', description: 'Times per week, 1–7 (7 = daily)' }, note: str('The plan in a few words: when, where, the tiny version') }, ['name']),
+    run: async (a, ctx) => {
+      const r = await require('./habits').add({ name: a.name, target: a.target ?? 7, note: a.note });
+      ctx.emit({ type: 'habits_changed' });
+      return r;
+    },
+  },
+  {
+    name: 'habit_pause',
+    group: 'habits',
+    description: 'Pause a habit (or resume it with paused: false). Its history stays. Use when the user drops or changes a habit; no guilt-tripping.',
+    parameters: obj({ name: str('The habit'), paused: bool('false to resume') }, ['name']),
+    run: async (a, ctx) => {
+      const r = await require('./habits').setPaused(a.name, a.paused !== false);
+      ctx.emit({ type: 'habits_changed' });
+      return r;
+    },
+  },
+  // ------------------------------------------------------------ skill tree
+  {
+    name: 'skilltree_view',
+    group: 'skilltree',
+    description: 'The user\'s skill tree (Skill Tree.md): every skill they are growing with its progress (from the learning tracker, vocabulary decks and habits), state (locked, ready, growing, mastered), prerequisites and what blocks it, plus what is ready to work on next.',
+    parameters: obj({}),
+    run: async () => require('./skilltree').summary(),
+  },
+  {
+    name: 'skilltree_update',
+    group: 'skilltree',
+    description:
+      'Add skills to the user\'s skill tree or change them. When they set a goal or start learning something, offer to map it: the skill, the 2–5 skills it builds on (needs), and where its progress comes from (from: a learning-tracker topic, a vocabulary deck, or a habit, by their exact names). Use manual (0–1) only for what they already know from before. Fields you leave out stay as they are.',
+    parameters: obj(
+      {
+        skills: {
+          type: 'array',
+          description: 'Skills to add or change',
+          items: {
+            type: 'object',
+            properties: {
+              name: str('e.g. "Real Analysis", "Spanish B1", "Running a 10k", "Deep work"'),
+              description: str('One short line'),
+              area: str('A branch, e.g. Math, Languages, Body, Mind, Craft'),
+              needs: arr('Names of the skills this builds on'),
+              from: { type: 'array', description: 'Where progress comes from', items: { type: 'object', properties: { type: { type: 'string', enum: ['learning', 'deck', 'habit'] }, name: str('The learning topic, deck language or habit name'), target: { type: 'number', description: 'Optional: concepts understood (learning, default 12) or mature cards (deck, default 300) for 100%' } }, required: ['type', 'name'], additionalProperties: false } },
+              manual: { type: 'number', description: 'Optional 0–1: how far along they already are, from before tracking' },
+            },
+            required: ['name'],
+            additionalProperties: false,
+          },
+        },
+      },
+      ['skills'],
+    ),
+    run: async (a, ctx) => {
+      const r = await require('./skilltree').upsert(a.skills || []);
+      ctx.emit({ type: 'skilltree_changed' });
+      return r;
+    },
+  },
+  {
+    name: 'skilltree_remove',
+    group: 'skilltree',
+    description: 'Remove a skill from the tree (skills that needed it lose that prerequisite).',
+    parameters: obj({ name: str('The skill') }, ['name']),
+    run: async (a, ctx) => {
+      const r = await require('./skilltree').remove(a.name);
+      ctx.emit({ type: 'skilltree_changed' });
+      return r;
+    },
+  },
+  // ------------------------------------------------------------ routines
+  {
+    name: 'routine_list',
+    group: 'routines',
+    description: 'The user\'s routines (scheduled runs of you: what, when, next run, last result).',
+    parameters: obj({}),
+    run: async () => ({ routines: (await require('./routines').list()).map(({ id, name, when, instructions, enabled, nextRun, lastRun, lastStatus, lastSummary }) => ({ id, name, when, instructions, enabled, nextRun: nextRun ? new Date(nextRun).toLocaleString() : null, lastRun: lastRun ? new Date(lastRun).toLocaleString() : 'never', lastStatus, lastSummary })) }),
+  },
+  {
+    name: 'routine_save',
+    group: 'routines',
+    description:
+      'Create or change a routine: something you do on a schedule without being asked ("every morning at 8, check my Plaud for new recordings and summarize them"; "Sundays at 19:00, my weekly review"). Write instructions you can follow later on your own: which tools or connectors to use, what to save where (e.g. a vault note), and what to report. Each run happens in the routine\'s own conversation and the user gets a notification. Asks the user first. Give id to change an existing one.',
+    parameters: obj(
+      {
+        id: str('Only to change an existing routine (routine_list)'),
+        name: str('Short name, e.g. "Check Plaud recordings"'),
+        schedule: obj({ kind: { type: 'string', enum: ['daily', 'weekdays', 'weekly', 'interval'], description: 'How often' }, time: str('HH:MM, 24-hour (not for interval)'), days: { type: 'array', items: { type: 'number' }, description: 'weekly: 0 = Sunday … 6 = Saturday' }, hours: { type: 'number', description: 'interval: every N hours (1–168)' } }, ['kind']),
+        instructions: str('What to do on each run, step by step'),
+        enabled: bool('false to pause it'),
+      },
+      ['name', 'schedule', 'instructions'],
+    ),
+    run: async (a, ctx) => {
+      const core = require('./routinecore');
+      const schedule = core.normalizeSchedule(a.schedule);
+      await requireApproval(ctx, 'settings', `${a.id ? 'Change' : 'Create'} the routine "${a.name}" (${core.describe(schedule)})`, String(a.instructions || '').slice(0, 1500));
+      const r = await require('./routines').save({ ...a, schedule });
+      return { saved: r.name, id: r.id, when: r.when, nextRun: r.nextRun ? new Date(r.nextRun).toLocaleString() : null };
+    },
+  },
+  {
+    name: 'routine_delete',
+    group: 'routines',
+    description: 'Delete a routine (asks the user first).',
+    parameters: obj({ id: str('The routine id (routine_list)') }, ['id']),
+    run: async (a, ctx) => {
+      const r = (await require('./routines').list()).find((x) => x.id === a.id);
+      if (!r) throw new Error(`No routine with id "${a.id}".`);
+      await requireApproval(ctx, 'delete', `Delete the routine "${r.name}"`, `${r.when}: ${r.instructions.slice(0, 600)}`);
+      return require('./routines').remove(a.id);
+    },
+  },
+  {
+    name: 'routine_run',
+    group: 'routines',
+    description: 'Run a routine now, when the user asks ("check my Plaud now"). It runs in its own conversation; you get its report.',
+    parameters: obj({ id: str('The routine id (routine_list)') }, ['id']),
+    run: async (a, ctx) => {
+      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', 'Run a routine now', 'Asked after reading external content.');
+      return require('./routines').runNow(a.id);
+    },
+  },
   // ---------------------------------------------- personas and the agent's own look
   {
     name: 'persona_list',
@@ -1262,6 +1505,17 @@ const SETUP_TOOLS = [
     },
   },
   {
+    name: 'setup_add_persona',
+    group: 'setup',
+    description: 'Add a ready-made persona the user can switch to later from the title bar (it does not change who you are now): "stem-tutor" (Ada: understanding, math, proofs), "polyglot-coach" (Mira: languages), "life-coach" (Sol: goals and habits). Offer the ones that fit what the user wants to use you for.',
+    parameters: obj({ template: { type: 'string', enum: ['stem-tutor', 'polyglot-coach', 'life-coach'], description: 'Which template' } }, ['template']),
+    run: async (a, ctx) => {
+      const s = await require('./persona').create({ template: a.template, activate: false });
+      ctx.emit({ type: 'settings_changed' });
+      return { added: s.personas.list[s.personas.list.length - 1]?.name, personas: s.personas.list.map((x) => x.name), active: s.agent.name };
+    },
+  },
+  {
     name: 'setup_pick_image',
     group: 'setup',
     description: "Open a file picker on the user's screen so they can choose an image (avatar) for you. Only after they said they want to.",
@@ -1335,7 +1589,7 @@ const SETUP_TOOLS = [
 TOOLS.push(...SETUP_TOOLS);
 
 // Tools available in the setup conversation.
-const SETUP_EXTRA = ['memory_save', 'priorities_update', 'diagnose', 'voice_calibrate'];
+const SETUP_EXTRA = ['memory_save', 'priorities_update', 'diagnose', 'voice_calibrate', 'app_guide', 'habit_add', 'routine_save', 'skilltree_update', 'setup_add_persona'];
 
 const NATIVE_IN_CLAUDE_CODE = ['code', 'selfmod', 'web'];
 
@@ -1352,7 +1606,8 @@ async function activeTools(settings, { setup = false } = {}) {
     if (t.group === 'voice') return settings.voice.ttsEnabled;
     if (t.group === 'listening') return settings.stt.enabled;
     if (t.group === 'github') return settings.github?.enabled !== false && gh.connected;
-    if (t.group === 'vault') return Boolean(vault);
+    if (t.group === 'vault' || t.group === 'learning' || t.group === 'habits' || t.group === 'skilltree') return Boolean(vault);
+    if (t.group === 'practice') return settings.stt.enabled || settings.voice.ttsEnabled;
     if (t.group === 'code' || t.group === 'engineering') return settings.code.enabled;
     if (t.group === 'selfmod' || t.group === 'engineering_run') return settings.code.enabled && settings.code.allowSelfModify;
     if (t.group === 'web') return settings.web.enabled;

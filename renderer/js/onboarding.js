@@ -2,13 +2,22 @@
 // recommends the speech model and the kind of brain that fits, and a "first hello" end-to-end test
 // (voice speaks, brain answers, vault writable, mic works) with fixes for anything red.
 import { $, api, el, toast, toastError } from './util.js';
-import { state, saveSettings } from './state.js';
+import { state, saveSettings, loadSettings } from './state.js';
+import { ROUTINE_TEMPLATES } from './habits.js';
 import { speaker, listMics } from './voice.js';
 import { BUILT_IN } from './faces/host.js';
 import { scanInto } from './hwscan.js';
 
-const STEPS = ['welcome', 'hardware', 'persona', 'brain', 'voice', 'vault', 'face', 'safety', 'hello'];
-const STEP_NAMES = { welcome: 'Welcome', hardware: 'Your computer', persona: 'Personality', brain: 'Brain', voice: 'Voice', vault: 'Memory', face: 'Face', safety: 'Permissions', hello: 'First hello' };
+const STEPS = ['welcome', 'hardware', 'persona', 'brain', 'voice', 'vault', 'goals', 'face', 'safety', 'hello'];
+const STEP_NAMES = { welcome: 'Welcome', hardware: 'Your computer', persona: 'Personality', brain: 'Brain', voice: 'Voice', vault: 'Memory', goals: 'What you want', face: 'Face', safety: 'Permissions', hello: 'First hello' };
+
+// What the user wants help with → the ready-made persona that fits (main/personatemplates.js).
+const GOALS = [
+  { value: 'study', ico: '🎓', title: 'Understanding hard things', desc: 'Math, proofs, science, tech: intuition first, then rigor', template: 'stem-tutor', persona: 'Ada' },
+  { value: 'languages', ico: '🗣', title: 'Learning languages', desc: 'Conversation practice, vocabulary with spaced repetition', template: 'polyglot-coach', persona: 'Mira' },
+  { value: 'life', ico: '🌱', title: 'Goals and habits', desc: 'A coach for small steps, habits and weekly reviews', template: 'life-coach', persona: 'Sol' },
+  { value: 'work', ico: '🗂', title: 'Work and projects', desc: 'Notes, documents, schedule, tasks, research' },
+];
 let step = 0;
 const draft = {};
 
@@ -204,6 +213,51 @@ async function render() {
     beforeNext = async () => {
       await saveSettings({ obsidian: { vaultPath: draft.vault, enabled: true } });
       if (draft.register) api.obsidian.register().catch((e) => toast(`Not added to Obsidian: ${e.message}`));
+    };
+  }
+
+  if (id === 'goals') {
+    draft.goals ||= new Set();
+    draft.addPersonas ??= true;
+    draft.briefing ??= true;
+    draft.briefingTime ||= '07:45';
+    const picks = el('div', { class: 'ob-choices' });
+    const drawPicks = () => {
+      picks.innerHTML = '';
+      for (const g of GOALS) {
+        picks.append(el('button', { class: `ob-choice ${draft.goals.has(g.value) ? 'sel' : ''}`, onclick: () => (draft.goals.has(g.value) ? draft.goals.delete(g.value) : draft.goals.add(g.value), drawPicks()) }, el('span', { class: 'ico' }, g.ico), el('span', {}, el('b', {}, g.title), el('small', {}, g.desc))));
+      }
+    };
+    drawPicks();
+    const check = (key, label) => {
+      const box = el('input', { type: 'checkbox' });
+      box.checked = Boolean(draft[key]);
+      box.addEventListener('change', () => (draft[key] = box.checked));
+      return el('label', { class: 'toggle' }, box, el('span', { class: 'sw' }), el('span', {}, label));
+    };
+    const time = el('input', { class: 'input', type: 'time', value: draft.briefingTime, style: { width: '120px' } });
+    time.addEventListener('change', () => (draft.briefingTime = time.value || '07:45'));
+    body.append(
+      el('h2', {}, 'What do you want help with?'),
+      el('p', { class: 'muted' }, 'Pick any. It decides what gets set up for you now; everything else stays available (ask “how can I use you?” any time).'),
+      picks,
+      check('addPersonas', 'Add the matching ready-made personas (Ada, Mira, Sol) to switch to from the title bar'),
+      el('div', { class: 'row' }, check('briefing', 'A daily briefing every morning at'), time),
+      el('p', { class: 'hint' }, 'The briefing is a routine: the assistant prepares today’s schedule, priorities, habits and what’s due while the app is open. More routines, habits and the skill tree are in the Habits and Tree views.'),
+    );
+    beforeNext = async () => {
+      const s2 = state.settings;
+      if (draft.addPersonas) {
+        for (const g of GOALS.filter((x) => x.template && draft.goals.has(x.value))) {
+          if (!s2.personas.list.some((p) => p.name === g.persona)) await api.persona.create({ template: g.template, activate: false });
+        }
+        await loadSettings();
+      }
+      if (draft.briefing) {
+        const existing = await api.routines.list().catch(() => []);
+        const t = ROUTINE_TEMPLATES.find((x) => x.name === 'Morning briefing');
+        if (t && !existing.some((r) => r.name === 'Daily briefing')) await api.routines.save({ name: 'Daily briefing', schedule: { kind: 'daily', time: draft.briefingTime }, instructions: t.instructions });
+      }
     };
   }
 

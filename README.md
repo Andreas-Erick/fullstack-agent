@@ -57,6 +57,16 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 | 🐙 **GitHub** | Reads repos, issues and pull requests; clones a repo, works on a branch and commits. **Push and PRs always ask.** It never merges. |
 | 🌐 **Web** | Searches and reads pages, citing sources. |
 
+### 🎓 Learning, coaching and routines
+- **Understanding over memorizing:** intuition first, then the rigorous version; proofs with the strategy, every step justified and hints instead of answers while you work (`/explain`, `/proof-coach`, `/teach-back`, `/study-session`). **Formulas render** (LaTeX) and are **read aloud in words**.
+- **A learning tracker** per topic in your vault: what you understood, what's shaky, misconceptions and open questions; the assistant follows up next time.
+- **For polyglots:** vocabulary decks with **spaced repetition**, reviews by voice (`/drill`), and **speaking practice** (`/converse`): speech recognition and the voice switch to the language you practice.
+- **A life-coach side and a habit tracker:** goals into small steps, tiny anchored habits with streaks (Habits view, or just say "I went for a run"), `/goal`, `/reflect`, `/weekly-review`.
+- **A skill tree** of everything you're growing, as a constellation: progress comes from your learning tracker, decks and habits; skills unlock as their foundations grow.
+- **Routines:** the assistant works on a schedule while the app is open: a daily briefing, syncing Google Calendar or Todoist, summarizing new Plaud recordings, a daily language text. Each run notifies you.
+- **Claude connectors and plugins** (with the Claude account brain): the services on your claude.ai account, each set to ask, allow reading, allow all but deleting, or allow everything.
+- **Persona templates:** Ada (STEM tutor), Mira (polyglot coach), Sol (life coach), each with its own look, face and voice. Ask **"How can I use you?"** for a tour of everything, tailored to you.
+
 ### 📱 On your phone
 - **Chat with the same assistant** from any phone browser or the **Android app**: replies stream live, conversations are shared with the desktop, and spoken replies play on the phone.
 - **Approve from anywhere:** approval cards (with a countdown) on the phone, and on Android as **notifications with Allow / Deny**, even with the app closed.
@@ -127,7 +137,7 @@ If npm skipped Electron's binary download, run `npx install-electron` once.
 ### First launch: it sets itself up by talking to you
 
 1. **Brain.** A short scripted step that works before any model is configured: it finds your Claude account (or helps you connect one) and checks that it can think.
-2. **Interview.** Then the agent asks, one question at a time, by voice or text: what to call you and itself, its personality, its look, an optional hardware check (with speech-model and brain recommendations), its voice, push-to-talk or hands-free (with an optional voice calibration), its vault, your workspace folder, its face, its permissions, and what you're working on.
+2. **Interview.** Then the agent asks, one question at a time, by voice or text: what to call you and itself, its personality, its look, an optional hardware check (with speech-model and brain recommendations), its voice, push-to-talk or hands-free (with an optional voice calibration), its vault, your workspace folder, **what you want help with** (studying, languages, goals and habits, work: it adds the matching persona, a first habit, your languages to the skill tree and a daily briefing, as you choose), its face, its permissions, and what you're working on.
 3. **Check.** It runs its health checks and tells you what works and what still needs attention.
 
 Missing services (VoiceStudio, FreeLLMAPI) are diagnosed and connected step by step; API keys go into a secure field, never into the chat. You can say "later" or skip at any point; both setup styles (conversation or form) can be re-run from **Settings → Health**.

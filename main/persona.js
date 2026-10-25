@@ -5,6 +5,7 @@
 const store = require('./store');
 const llm = require('./llm');
 const core = require('./personacore');
+const templates = require('./personatemplates');
 
 function extractJson(text) {
   const s = String(text || '');
@@ -145,10 +146,20 @@ async function activate(query) {
   return store.setSettings({ ...core.patchFor(target, store.DEFAULTS), personas: { active: target.id } });
 }
 
-/** A new persona (a copy of the active one, or fresh), switched to at once. */
+/**
+ * A new persona (a copy of the active one, fresh, or from a template), switched to at once, or only
+ * added to the list with activate: false (setup adds template personas without changing who is talking).
+ */
 async function create(opts = {}) {
   const s = await store.getSettings();
-  const { personas, persona } = core.create(s, opts, { newId: store.newId, defaults: store.DEFAULTS });
+  let template = null;
+  if (opts.template) {
+    const t = templates.find(opts.template);
+    if (!t) throw new Error(`No persona template "${opts.template}".`);
+    template = templates.personaFields(t);
+  }
+  const { personas, persona } = core.create(s, { ...opts, template }, { newId: store.newId, defaults: store.DEFAULTS });
+  if (opts.activate === false) return store.setSettings({ personas });
   return store.setSettings({ ...core.patchFor(persona, store.DEFAULTS), personas: { ...personas, active: persona.id } });
 }
 
@@ -158,4 +169,4 @@ async function remove(id) {
   return store.setSettings(next ? { ...core.patchFor(next, store.DEFAULTS), personas } : { personas });
 }
 
-module.exports = { generate, extractJson, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove };
+module.exports = { generate, extractJson, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, templates: templates.list };
