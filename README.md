@@ -31,7 +31,7 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 ### 🎙️ Voice that feels like a conversation
 - **Push-to-talk or hands-free.** Hands-free uses a **neural voice detector** (Silero VAD), so breathing, coughs and keyboard noise don't trigger it, and a quick "yes" still counts.
 - **Fast, accurate local speech-to-text.** Whisper large-v3 turbo runs **on your GPU** (WebGPU), about 0.4 s for a sentence on a laptop RTX GPU, with an automatic CPU fallback.
-- **Natural voice** through [VoiceStudio](https://github.com/debpalash/VoiceStudio), spoken sentence by sentence as the reply streams in, with the system voice as a fallback.
+- **Natural voice** through [VoiceStudio](https://github.com/debpalash/VoiceStudio), spoken sentence by sentence as the reply streams in, with an offline neural voice ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), runs in the app) as a fallback when VoiceStudio is closed.
 - **One app to open:** Nexus starts its helper apps (VoiceStudio, and FreeLLMAPI if you use it) in the background, minimized, and starts them again when they're needed. Optionally it closes them when you quit (Settings → Helper apps).
 - **Make new voices by asking:** "make me a warm, low British voice", or clone your own by reading a short script.
 - **Voice calibration** learns how your names and words get misheard and fixes them from then on.
@@ -119,6 +119,7 @@ git clone https://github.com/Andreas-Erick/fullstack-agent.git
 cd fullstack-agent
 npm install
 npm start            # or start.bat (Windows) / ./start.sh
+npm run dev          # dev mode: DevTools open, menu bar kept (or dev.bat / ./start.sh dev)
 ```
 
 If npm skipped Electron's binary download, run `npx install-electron` once.
@@ -276,6 +277,6 @@ Bump `version` in `package.json`, add a [changelog](CHANGELOG.md) entry, then pu
 
 ## Credits
 
-Built on [Electron](https://www.electronjs.org), [Claude](https://www.anthropic.com/claude) and [Claude Code](https://claude.com/claude-code), [transformers.js](https://github.com/huggingface/transformers.js) (Whisper, Silero VAD), [pdf.js](https://mozilla.github.io/pdf.js/), [marked](https://marked.js.org) and [DOMPurify](https://github.com/cure53/DOMPurify). Secure remote access through [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) or [Tailscale](https://tailscale.com). The QR encoder follows [Project Nayuki's QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (MIT). Voice by [VoiceStudio](https://github.com/debpalash/VoiceStudio). Ideas from [jaredrhod/fullstack-agent](https://github.com/jaredrhod/fullstack-agent).
+Built on [Electron](https://www.electronjs.org), [Claude](https://www.anthropic.com/claude) and [Claude Code](https://claude.com/claude-code), [transformers.js](https://github.com/huggingface/transformers.js) (Whisper, Silero VAD, Kokoro; text handling ported from [kokoro-js](https://github.com/hexgrad/kokoro), Apache-2.0, with [phonemizer](https://github.com/xenova/phonemizer.js)), [pdf.js](https://mozilla.github.io/pdf.js/), [marked](https://marked.js.org) and [DOMPurify](https://github.com/cure53/DOMPurify). Secure remote access through [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) or [Tailscale](https://tailscale.com). The QR encoder follows [Project Nayuki's QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (MIT). Voice by [VoiceStudio](https://github.com/debpalash/VoiceStudio). Ideas from [jaredrhod/fullstack-agent](https://github.com/jaredrhod/fullstack-agent).
 
 MIT licensed (see [LICENSE](LICENSE)). Provided as is, without warranty; see the [privacy policy and disclaimers](PRIVACY.md).

@@ -19,6 +19,9 @@ const skills = require('./skills');
 const screenshare = require('./screenshare');
 const pdf = require('./pdf');
 
+// The built-in faces (renderer/js/faces/host.js BUILT_IN); custom ones are custom:<folder>.
+const FACES = ['circuit', 'radial', 'rain', 'neural', 'companion'];
+
 const arr = (description) => ({ type: 'array', items: { type: 'string' }, description });
 
 // Settings the agent may change itself (to fix its own tools). Never safety, permissions, code
@@ -27,7 +30,7 @@ const SETTABLE = {
   llm: ['baseUrl', 'model', 'temperature', 'maxTokens', 'historyLimit', 'modelMode', 'fastModel', 'deepModel', 'maxToolRounds', 'engineeringToolRounds'],
   claudeCode: ['model', 'effort', 'fastModel', 'deepModel', 'cliPath', 'idleMinutes'],
   anthropic: ['model', 'effort', 'fastModel', 'deepModel'],
-  voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'thinkingSound', 'thinkingVolume', 'filler', 'fallbackSystemVoice'],
+  voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'thinkingSound', 'thinkingVolume', 'filler', 'fallback', 'localVoice'],
   stt: ['enabled', 'engine', 'localModel', 'remoteUrl', 'remoteModel', 'language', 'pttKey', 'autoSend', 'micMode', 'micDevice', 'headphones', 'vadSensitivity'],
   calendar: ['daysAhead'],
   routing: ['smart', 'cooldownMin'],
@@ -50,6 +53,7 @@ function redact(settings) {
   }
   if (out.agent?.avatar) out.agent.avatar = '(image)';
   if (out.appearance?.theme) out.appearance.theme = `(theme "${out.appearance.theme.name}")`;
+  if (out.personas) out.personas = require('./personacore').summary(settings.personas);
   return out;
 }
 
@@ -833,6 +837,108 @@ const TOOLS = [
     parameters: obj({ what_happened: str('The problem, in the user\'s words') }),
     run: async (a) => require('./envinfo').bugReport(a.what_happened || ''),
   },
+  // ---------------------------------------------- personas and the agent's own look
+  {
+    name: 'persona_list',
+    group: 'appearance',
+    description: 'List the personas the user created (each has its own master prompt, image, theme, face, greeting and voice) and which one you are right now.',
+    parameters: obj({}),
+    run: async () => ({ personas: await require('./persona').list() }),
+  },
+  {
+    name: 'persona_switch',
+    group: 'appearance',
+    description: 'Become another of the user\'s personas when they ask ("switch to Aria", "be my study coach"). Changes your master prompt, look, face and voice; your memory, vault and conversations stay the same. It takes effect from your next reply, so finish this one briefly in your current voice. You cannot create personas or edit their master prompts; the user does that in Settings → Persona studio.',
+    parameters: obj({ persona: str('The persona\'s name or id (persona_list)') }, ['persona']),
+    run: async (a, ctx) => {
+      const persona = require('./persona');
+      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', `Switch to the persona "${a.persona}"`, 'Asked after reading external content.');
+      const s = await persona.activate(a.persona);
+      ctx.emit({ type: 'settings_changed' });
+      return { switched: true, now: s.agent.name, note: 'From your next reply on you are this persona.' };
+    },
+  },
+  {
+    name: 'theme_get',
+    group: 'appearance',
+    description: 'Your current look (the active persona\'s theme: colors, fonts, background, face shape; and the face) and the choices theme_update accepts. Call it before changing only part of the look.',
+    parameters: obj({}),
+    run: async () => {
+      const s = await store.getSettings();
+      const o = require('./persona').DEFAULT_OPTIONS;
+      return { theme: s.appearance.theme || '(the default "Neon Circuit" theme: dark navy, cyan/blue/violet accents)', face: s.ui.face, options: { faces: [...FACES, ...(await require('./faces').list().catch(() => [])).map((f) => f.id)], fonts: o.fonts, patterns: o.patterns, cores: o.cores, traces: o.traces } };
+    },
+  },
+  {
+    name: 'theme_update',
+    group: 'appearance',
+    description:
+      'Change your own look when the user asks ("make yourself darker", "go 80s synthwave", "use the companion face", "warmer colors"): colors, fonts, background, corner roundness, glass, face shape, and which face. Applies at once and is saved with the current persona. Give only what changes; for a whole new style give the full palette (bg, bg2, bg3, surface, text, text2, muted, accent, accent2, accent3, success, warning, danger) with strong text contrast. reset returns to the default theme. Say in a few words what you changed; the result has the previous theme if the user wants it back.',
+    parameters: obj({
+      name: str('Theme name, e.g. "Midnight Synthwave"'),
+      colors: obj(Object.fromEntries(['bg', 'bg2', 'bg3', 'surface', 'text', 'text2', 'muted', 'accent', 'accent2', 'accent3', 'success', 'warning', 'danger'].map((k) => [k, str('#rrggbb')]))),
+      fonts: obj({ display: str('Headings font (theme_get lists them)'), body: str('Body text font, very readable') }),
+      uppercaseDisplay: bool('Headings in UPPERCASE'),
+      radius: { type: 'number', description: 'Corner roundness 0–28 px' },
+      glass: obj({ blur: { type: 'number', description: '0–40' }, opacity: { type: 'number', description: '0.15–0.97' } }),
+      background: obj({ pattern: str('circuit | grid | dots | hex | waves | stars | none'), intensity: { type: 'number', description: '0–1' } }),
+      face_shape: obj({ core: str('octagon | circle | hexagon | diamond | triangle'), traces: str('circuit | organic | radial | constellation'), density: { type: 'number', description: '0.3–1.6' }, glow: { type: 'number', description: '0–1' } }),
+      face: str(`Which face to show: ${FACES.join(' | ')} or custom:<folder> (theme_get lists them)`),
+      reset: bool('Back to the default theme (other changes are ignored)'),
+    }),
+    run: async (a, ctx) => {
+      const persona = require('./persona');
+      const s = await store.getSettings();
+      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', 'Change my look', 'Asked after reading external content.');
+      const patch = {};
+      if (a.reset) patch.appearance = { theme: null };
+      else {
+        const { face: _f, face_shape: faceShape, reset: _r, ...rest } = a;
+        if (Object.keys(rest).length || faceShape) patch.appearance = { theme: persona.themeChange(s.appearance.theme, { ...rest, face: faceShape }) };
+      }
+      if (a.face !== undefined) {
+        const custom = (await require('./faces').list().catch(() => [])).map((f) => f.id);
+        if (!FACES.includes(a.face) && !custom.includes(a.face)) throw new Error(`Unknown face "${a.face}". Faces: ${[...FACES, ...custom].join(', ')}`);
+        patch.ui = { face: a.face };
+      }
+      if (!Object.keys(patch).length) throw new Error('Nothing to change: give colors, fonts, background, face_shape, face or reset.');
+      await store.setSettings(patch);
+      ctx.emit({ type: 'settings_changed' });
+      return { applied: true, persona: s.agent.name, previous: { theme: s.appearance.theme || 'default', face: s.ui.face } };
+    },
+  },
+  {
+    name: 'connectors_list',
+    group: 'connectors',
+    description:
+      'The user’s Claude connectors (services connected on claude.ai) and Claude Code plugins: which are connected, which need signing in, which fail, whether you may use them (the user turns that on) and which run without asking. Use it to suggest the right connector or plugin for a task, or to tell the user how to connect one. refresh checks every server again (takes up to half a minute); otherwise the last check is returned.',
+    parameters: obj({ refresh: bool('Check every server now instead of using the last check') }),
+    run: async (a) => {
+      const claudecode = require('./claudecode');
+      const connectors = require('./connectors');
+      const s = await store.getSettings();
+      let at = Date.now();
+      let list;
+      if (a.refresh) list = await claudecode.listConnectors();
+      else {
+        const c = await claudecode.cachedConnectors();
+        list = c ? c.list : await claudecode.listConnectors();
+        if (c) at = c.at;
+      }
+      const allowed = new Set(connectors.allowedKeys(s.claudeCode.connectorsAllowed));
+      return {
+        youCanUseThem: Boolean(s.claudeCode.connectors),
+        checked: new Date(at).toISOString(),
+        ...connectors.byStatus(list),
+        alwaysAllowed: list.filter((c) => allowed.has(c.key)).map((c) => c.name),
+        how: {
+          turnOn: 'Settings → AI brain → "Use my Claude connectors and plugins" (only the user can; Claude account brain only).',
+          signIn: 'Connect or sign in on claude.ai → Settings → Connectors, or run /mcp in Claude Code.',
+          add: 'New connectors: claude.ai → Settings → Connectors → Browse. New plugins: /plugin in Claude Code. Then "Check connectors" in Settings.',
+        },
+      };
+    },
+  },
   {
     name: 'settings_read',
     group: 'mechanic',
@@ -1066,7 +1172,6 @@ const SETUP_SETTABLE = [
   'obsidian.enabled', 'obsidian.vaultPath', 'ui.face', 'ui.showVisualizerInChat',
   'safety.permissionMode', 'code.allowSelfModify', 'web.enabled', 'journal.enabled', 'llm.modelMode', 'llm.voiceUsesFast', 'calendar.enabled', 'documents.workspace',
 ];
-const FACES = ['circuit', 'radial', 'rain', 'neural', 'companion'];
 const secretHint = (service) => (service === 'freellmapi' ? 'You find it in FreeLLMAPI’s configuration.' : 'You find it in VoiceStudio’s settings.');
 
 const SETUP_TOOLS = [
@@ -1088,7 +1193,7 @@ const SETUP_TOOLS = [
       return {
         agent: { name: s.agent.name, usingDefaultPersona: s.agent.personality === store.DEFAULTS.agent.personality, personaPreview: s.agent.personality.slice(0, 300), aesthetic: s.agent.aesthetic, hasImage: Boolean(s.agent.avatar) },
         brain: { provider: s.llm.provider, modelMode: s.llm.modelMode },
-        voiceOutput: { enabled: s.voice.ttsEnabled, url: s.voice.baseUrl, voiceStudioReachable: ping.ok, currentVoice: s.voice.voice || '(default)', availableVoices: voices.slice(0, 60).map((v) => v.id), note: ping.ok ? '' : 'VoiceStudio is not reachable; the system voice is used meanwhile.' },
+        voiceOutput: { enabled: s.voice.ttsEnabled, url: s.voice.baseUrl, voiceStudioReachable: ping.ok, currentVoice: s.voice.voice || '(default)', availableVoices: voices.slice(0, 60).map((v) => v.id), note: ping.ok ? '' : `VoiceStudio is not reachable; ${{ local: 'the offline voice', system: 'the system voice', off: 'nothing' }[s.voice.fallback] || 'the offline voice'} is used meanwhile.` },
         voiceInput: { enabled: s.stt.enabled, engine: s.stt.engine, micMode: s.stt.micMode, pushToTalkKey: s.stt.pttKey, headphones: s.stt.headphones },
         vault: { current: vaultNow, isDefault: !s.obsidian.vaultPath, defaultPath: obsidian.defaultVaultPath(), existingObsidianVaults: vaults.filter((v) => v.exists).map((v) => v.path) },
         faces: [...FACES, ...faces.map((f) => f.id)],
@@ -1251,6 +1356,7 @@ async function activeTools(settings, { setup = false } = {}) {
     if (t.group === 'code' || t.group === 'engineering') return settings.code.enabled;
     if (t.group === 'selfmod' || t.group === 'engineering_run') return settings.code.enabled && settings.code.allowSelfModify;
     if (t.group === 'web') return settings.web.enabled;
+    if (t.group === 'connectors') return viaClaudeCode || settings.llm.provider === 'auto';
     return true;
   });
 }

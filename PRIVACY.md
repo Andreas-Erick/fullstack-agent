@@ -28,13 +28,14 @@ Only what is needed for a feature **you** turned on is sent, and only to the ser
 
 | Feature | Sent to | What is sent |
 | --- | --- | --- |
-| AI brain | The provider(s) you configure: Anthropic (Claude API or your Claude account via Claude Code), Google (Gemini), DeepSeek, Groq, Perplexity, or a FreeLLMAPI / OpenAI-compatible server you run | Your messages, the conversation context, the system prompt (which includes your persona, relevant memories, vault excerpts, your schedule for the next days and the current date/time), tool results, and screenshots while you share your screen. In **multi-provider mode** a message can go to the next provider on your list when one is unavailable |
+| AI brain | The provider(s) you configure: Anthropic (Claude API or your Claude account via Claude Code), Google (Gemini), DeepSeek, Groq, Perplexity, or a FreeLLMAPI / OpenAI-compatible server you run | Your messages, the conversation context, the system prompt (which includes your persona, relevant memories, vault excerpts, your schedule for the next days, the current date/time and, with the Claude account brain, the names of your Claude connectors and plugins), tool results, and screenshots while you share your screen. In **multi-provider mode** a message can go to the next provider on your list when one is unavailable |
 | Screen sharing | The AI provider answering that message | A screenshot of the screen or window **you** picked, only while sharing is on (red "Sharing" badge). Not recorded, not stored |
 | Web search and pages | DuckDuckGo (default), or SearXNG, Brave or Tavily if you choose them, and the websites the agent opens | Search queries and page requests |
-| Voice output | VoiceStudio (runs on your computer) or your operating system's voice | The text to speak |
+| Voice output | VoiceStudio (runs on your computer); when it is unreachable, the offline Kokoro voice (runs in the app) or your operating system's voice | The text to speak, which stays on this computer |
 | Remote speech recognition (optional) | The transcription server you configure | Recordings of what you say |
 | GitHub | GitHub, through the GitHub CLI you signed in to | Reads, and the pushes and pull requests you approve |
-| Model downloads | Hugging Face (and a CDN for runtime files) | Downloads speech and voice-detection models once; no personal data |
+| Claude connectors and plugins (off by default) | The services you connected on claude.ai or added as Claude Code plugins (for example Todoist, Google Calendar, Canva, Slack), through Claude Code and your Claude account | What the agent puts into each call you approve (a task, a search, a design request…). Each call asks you first unless you ticked "always allow" for that service in Settings → AI brain. What the services return goes to the AI brain like any tool result |
+| Model downloads | Hugging Face (and a CDN for runtime files) | Downloads the speech, voice-detection and offline-voice models (and the offline voices) once; no personal data |
 | Remote access (preview, off by default) | Only the devices **you** pair, directly (this computer, or your local network if you allow it); no server of ours in between | Your conversations, the replies as they stream, approval requests, your schedule (read-only, only the days the phone shows), the agent's name and theme colors, and spoken replies (made by VoiceStudio on this computer) if you turn them on. Tool activity shows as names only: what a tool was given or returned (file contents, commands, notes) stays on this computer. Never settings, keys, the setup conversation or screenshots of this desktop. A device unused for 90 days is unpaired automatically. On the local network the connection is not encrypted yet. The phone keeps only its device token, the open conversation's id and the 🔈 choice, in its browser storage. Push-to-talk recordings (secure address only) are transcribed on this computer with your speech-to-text setting and not kept |
 | Secure remote address (optional) | Cloudflare (Tunnel, and Access if you set it up) or Tailscale, under **your** account | The same traffic as above, encrypted from the phone to Cloudflare's or Tailscale's network and on to this computer. Cloudflare can see the traffic it relays (it ends HTTPS at its edge); Tailscale connections are end-to-end encrypted. The temporary Cloudflare address is public: protect it with pairing and turn it off after testing |
 
@@ -43,7 +44,7 @@ The app never sells, shares or uploads data on its own initiative. The private-n
 ## Your choices
 
 - Use **local** speech recognition and a **local** model server to keep conversations entirely on your computer.
-- Turn features off in **Settings** (internet, calendar, GitHub, journaling, screen-sharing screenshots per message).
+- Turn features off in **Settings** (internet, calendar, GitHub, Claude connectors, journaling, screen-sharing screenshots per message).
 - Remove individual memories, notes, conversations and skills at any time, or clear them all in **Settings → Memory & history**.
 - Delete API keys in each provider's console. (Earlier versions could sign in to Google Calendar; that is gone, and its saved sign-in is deleted at launch. You can also remove the app at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).)
 

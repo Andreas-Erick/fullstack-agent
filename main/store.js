@@ -5,6 +5,7 @@ const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
 const { app, safeStorage } = require('electron');
+const personas = require('./personacore');
 
 const DEFAULT_PERSONALITY = `You are warm, sharp and concise. You speak like a capable co-pilot: direct, a little playful, never robotic.
 You remember what matters to the user and proactively use what you know about them, their calendar and their notes.
@@ -23,6 +24,12 @@ const DEFAULTS = {
     personaNotes: '', // tone/style notes derived from the aesthetic, injected into the system prompt
     greeting: '', // welcome line on the empty chat and spoken on launch; empty = a default greeting
     applyVoice: true, // let persona generation pick a matching VoiceStudio voice
+  },
+  // The user's saved personas (main/personacore.js). The live agent/appearance/ui.face/voice settings
+  // are the active one and are copied into its entry on every save; switching swaps them in.
+  personas: {
+    active: '', // id of the active persona
+    list: [], // [{ id, name, personality, aesthetic, avatar, theme, personaNotes, greeting, face, voice, localVoice }]
   },
   llm: {
     provider: 'openai', // 'openai' = FreeLLMAPI / OpenAI-compatible, 'claude-code' = Claude account, 'anthropic' = Claude API key, 'auto' = multi-provider (see routing)
@@ -49,6 +56,10 @@ const DEFAULTS = {
     deepModel: 'opus',
     idleMinutes: 20, // keep the warm session alive this long between turns
     warmOnLaunch: true,
+    // The user's claude.ai connectors and plugin MCP servers (main/connectors.js). Only the user turns
+    // this on and picks what runs without asking: never in tools.js SETTABLE.
+    connectors: false,
+    connectorsAllowed: [], // server keys (e.g. claude_ai_AccuWeather) whose calls don't ask each time
   },
   anthropic: {
     apiKey: '',
@@ -87,7 +98,8 @@ const DEFAULTS = {
     thinkingSound: 'grandfather', // grandfather | clock | soft | classic | off (starts after a short pause)
     thinkingVolume: 0.5,
     filler: true, // short spoken lines while tools run
-    fallbackSystemVoice: true, // use the OS voice if VoiceStudio is unreachable
+    fallback: 'local', // when VoiceStudio is unreachable: local (offline Kokoro voice) | system (the OS voice) | off
+    localVoice: 'af_heart', // Kokoro voice id (renderer/js/kokorotext.js KOKORO_VOICES)
   },
   stt: {
     enabled: true,
@@ -350,9 +362,16 @@ async function getSettings() {
   // The thinking sound used to be on/off; it is now a style.
   if (typeof merged.voice.thinkingSound === 'boolean') merged.voice.thinkingSound = merged.voice.thinkingSound ? 'grandfather' : 'off';
   if (merged.voice.thinkingSound === 'tick') merged.voice.thinkingSound = 'clock';
+  // The system-voice toggle became a choice of fallback voice (1.4); an "on" toggle gets the offline voice.
+  if ('fallbackSystemVoice' in merged.voice) {
+    if (merged.voice.fallbackSystemVoice === false) merged.voice.fallback = 'off';
+    delete merged.voice.fallbackSystemVoice;
+  }
   // Google Calendar and iCal links were replaced by the schedule in the vault (1.3).
   for (const k of ['clientId', 'clientSecret', 'allCalendars', 'allowWrite', 'icsUrls']) delete merged.calendar[k];
   for (const [section, key] of SECRET_FIELDS) merged[section][key] = decrypt(merged[section][key]);
+  // Installs from before personas (1.4) get their current persona as the first saved one.
+  merged.personas = personas.ensure(merged);
   settingsCache = merged;
   return merged;
 }
@@ -360,6 +379,8 @@ async function getSettings() {
 async function setSettings(patch) {
   const current = await getSettings();
   const next = deepMerge(current, patch);
+  // Whatever changed in the live persona (name, prompt, theme, face, voice…) is saved with it.
+  next.personas = personas.sync(next);
   settingsCache = next;
   const onDisk = JSON.parse(JSON.stringify(next));
   for (const [section, key] of SECRET_FIELDS) onDisk[section][key] = encrypt(onDisk[section][key]);

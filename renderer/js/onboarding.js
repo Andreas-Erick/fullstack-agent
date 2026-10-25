@@ -169,7 +169,7 @@ async function render() {
     body.append(
       el('h2', {}, 'Voice'),
       field('VoiceStudio URL (spoken replies)', input(s.voice.baseUrl, 'http://localhost:3900', (v) => saveSettings({ voice: { baseUrl: v } }))),
-      el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => { speaker.say(`Hello, I'm ${state.settings.agent.name}.`); out.className = 'test-result'; out.textContent = 'Speaking… (if VoiceStudio is off, the system voice is used)'; } }, '🔊 Test voice')),
+      el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => { speaker.say(`Hello, I'm ${state.settings.agent.name}.`); out.className = 'test-result'; out.textContent = 'Speaking… (if VoiceStudio is off, the offline voice is used)'; } }, '🔊 Test voice')),
       out,
       field('Microphone', mics),
       el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => testMic(meter) }, '🎙 Test mic (3 s)'), el('div', { style: { flex: 1 } }, meter)),
@@ -289,7 +289,7 @@ async function firstHello(list) {
   speaker.say(greeting);
   const synth = await api.tts.speak('ok').then(() => ({ ok: true }), (e) => ({ ok: false, error: e.message }));
   if (synth.ok) greet(true, `VoiceStudio · “${greeting}”`);
-  else if (s.voice.fallbackSystemVoice) greet(null, `VoiceStudio failed (${synth.error}) — speaking with the system voice for now. Fix it in Configuration → Voice output.`);
+  else if (s.voice.fallback !== 'off') greet(null, `VoiceStudio failed (${synth.error}) — speaking with the ${s.voice.fallback === 'system' ? 'system' : 'offline'} voice for now. Fix it in Configuration → Voice output.`);
   else greet(false, `VoiceStudio failed: ${synth.error}. Check its URL in Configuration → Voice output.`);
 
   const brain = row('Brain answers a question');

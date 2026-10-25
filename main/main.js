@@ -44,7 +44,7 @@ if (process.env.NEXUS_USER_DATA) app.setPath('userData', path.resolve(process.en
 app.commandLine.appendSwitch('force_high_performance_gpu');
 
 // Only these folders are served to the renderer over app://bundle/...
-const SERVED = ['renderer/', 'node_modules/marked/lib/', 'node_modules/dompurify/dist/', 'node_modules/@huggingface/transformers/dist/', 'node_modules/pdfjs-dist/build/', 'node_modules/@fontsource/'];
+const SERVED = ['renderer/', 'node_modules/marked/lib/', 'node_modules/dompurify/dist/', 'node_modules/@huggingface/transformers/dist/', 'node_modules/phonemizer/dist/', 'node_modules/pdfjs-dist/build/', 'node_modules/@fontsource/'];
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -460,6 +460,7 @@ function registerIpc() {
   handle('claude:login', () => claudecode.openLogin('login'));
   handle('claude:logout', () => claudecode.openLogin('logout'));
   handle('claude:installHint', () => claudecode.installHint());
+  handle('claude:connectors', () => claudecode.listConnectors());
 
   // Screen sharing (started and stopped only by the user)
   handle('screen:sources', () => screenshare.sources());
@@ -497,6 +498,10 @@ function registerIpc() {
 
   // Persona look & feel
   handle('persona:generate', (payload) => persona.generate(payload));
+  // Saved personas: each returns the new settings (the live persona changed).
+  handle('persona:switch', (id) => persona.activate(String(id || '')));
+  handle('persona:create', (opts) => persona.create({ name: String(opts?.name || ''), copy: opts?.copy === true }));
+  handle('persona:remove', (id) => persona.remove(String(id || '')));
 
   // Internet
   handle('web:search', (q) => websearch.search(q, 5));

@@ -43,7 +43,8 @@
     "dompurify": "^3.4.17",
     "mammoth": "^1.13.0",
     "marked": "^18.1.1",
-    "pdfjs-dist": "^6.4.299"
+    "pdfjs-dist": "^6.4.299",
+    "phonemizer": "^1.2.1"
   },
   "devDependencies": {
     "electron": "^45.0.0",

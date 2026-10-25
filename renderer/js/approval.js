@@ -18,6 +18,7 @@ const KIND_LABEL = {
   voice_clone: 'Clone a voice',
   repo_change: 'Change a repository (local branch)',
   github_publish: 'Publish to GitHub',
+  connector: 'Use a connected service',
 };
 let current = null;
 

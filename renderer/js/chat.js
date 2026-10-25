@@ -1,5 +1,6 @@
 // Chat view: conversation history, streaming messages, tool-call chips, voice integration.
 import { $, api, el, renderMarkdown, timeAgo, toast, toastError, confirmDialog, promptDialog, on, emit } from './util.js';
+import { bargeIn, bargeInOver } from './bargein.js';
 import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
 import { speaker } from './voice.js';
@@ -50,10 +51,10 @@ export function initChat() {
     box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
     latest.classList.add('hidden');
   };
-  on('barge-in', () => {
-    // Talking over the agent silences the rest of this reply; the new words (if any) interrupt it.
-    if (active) active.muted = true;
-  });
+  // Talking over the agent silences the rest of this reply, unless it answers an approval or turns out
+  // to be nothing (bargein.js).
+  on('barge-in', () => bargeIn(active, { approvalPending: Boolean(state.approvalPending) }));
+  on('barge-in-over', () => bargeInOver(active));
 
   refreshList().then(() => {
     if (conversations[0]) openConversation(conversations[0].id);
@@ -200,6 +201,10 @@ const TOOL_LABELS = {
   skill_save: '⚡ Saved a skill',
   skill_delete: '⚡ Deleted a skill',
   look_at_screen: '🖥 Looked at your screen',
+  persona_list: '🎭 Listed personas',
+  persona_switch: '🎭 Switched persona',
+  theme_get: '🎨 Checked my look',
+  theme_update: '🎨 Changed my look',
   setup_scan_hardware: '🖥 Checked the hardware',
   memory_save: '🧠 Saved memory',
   memory_update: '🧠 Updated memory',
@@ -237,6 +242,9 @@ const TOOL_LABELS = {
   web_fetch: '🌐 Read web page',
   WebSearch: '🌐 Searched the web',
   WebFetch: '🌐 Read web page',
+  ToolSearch: '🔌 Looked up a connector',
+  connectors_list: '🔌 Checked your connectors',
+  Skill: '⚡ Loaded a plugin skill',
   code_list_files: '💾 Listed source files',
   code_read_file: '💾 Read source',
   code_search: '💾 Searched source',
@@ -291,7 +299,14 @@ const TOOL_LABELS = {
   read_document: '📄 Read document',
   list_recent_documents: '📄 Recent documents',
 };
-const prettyTool = (n) => TOOL_LABELS[n] || `🔧 ${n}`;
+// Connector tools (mcp__<server>__<tool>, see main/connectors.js): "🔌 Todoist · find tasks".
+function connectorLabel(n) {
+  const m = /^mcp__(.+?)__(.+)$/.exec(n);
+  if (!m || m[1] === 'nexus') return '';
+  const service = m[1].replace(/^claude_ai_/, '').replace(/^plugin_[^_]+_/, '').replace(/_/g, ' ');
+  return `🔌 ${service} · ${m[2].replace(/[-_]+/g, ' ')}`;
+}
+const prettyTool = (n) => TOOL_LABELS[n] || connectorLabel(n) || `🔧 ${n}`;
 
 const FILLERS = {
   web: ['Let me look that up.', 'Searching the web.', 'One moment, checking online.'],

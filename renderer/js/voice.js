@@ -1,7 +1,9 @@
-// Voice I/O: VoiceStudio playback (sentence-chunked, in order, with the OS voice as fallback),
-// microphone capture (push-to-talk or hands-free with voice-activity detection), speech-to-text.
+// Voice I/O: VoiceStudio playback (sentence-chunked, in order, with the offline Kokoro voice or the
+// OS voice as fallback), microphone capture (push-to-talk or hands-free with voice-activity
+// detection), speech-to-text.
 import { api, emit, speakable, toastError, logEvent } from './util.js';
 import { state, setFlag, setCaption } from './state.js';
+import { KOKORO_SAMPLE_RATE } from './kokorotext.js';
 
 let audioCtx = null;
 export function ctx() {
@@ -16,6 +18,90 @@ export function ctx() {
   return audioCtx;
 }
 
+// ----------------------------------------------------------------- Offline voice
+// Kokoro in tts-worker.js, used when VoiceStudio is unreachable (voice.fallback: local | system | off).
+export const fallbackMode = () => state.settings.voice.fallback || 'local';
+
+const localVoice = {
+  worker: null,
+  ready: null, // resolves when the model is loaded, rejects if it can't be
+  device: '',
+  seq: 0,
+  pending: new Map(),
+  lastWarn: 0,
+
+  start() {
+    if (this.ready) return this.ready;
+    this.worker = new Worker(new URL('./tts-worker.js', import.meta.url), { type: 'module' });
+    this.ready = new Promise((resolve, reject) => {
+      this.worker.onmessage = (e) => {
+        const msg = e.data;
+        if (msg.type === 'progress') emit('tts-progress', msg);
+        else if (msg.type === 'ready') {
+          this.device = msg.device;
+          logEvent('info', 'offline voice ready', { device: msg.device });
+          emit('tts-progress', { status: 'ready', device: msg.device });
+          resolve();
+        } else if (msg.id && this.pending.has(msg.id)) {
+          const { done, fail } = this.pending.get(msg.id);
+          this.pending.delete(msg.id);
+          if (msg.type === 'audio') done(msg.samples);
+          else fail(new Error(msg.message));
+        } else if (msg.type === 'error') this.reset(msg.message, reject);
+      };
+      this.worker.onerror = (e) => this.reset(e.message || 'the offline voice failed to load', reject);
+    });
+    this.ready.catch(() => {});
+    this.worker.postMessage({ type: 'load' });
+    return this.ready;
+  },
+
+  // A failed load is retried on the next sentence after a minute (e.g. it was offline on first use).
+  reset(reason, reject) {
+    this.worker?.terminate();
+    this.worker = null;
+    for (const { fail } of this.pending.values()) fail(new Error(reason));
+    this.pending.clear();
+    emit('tts-progress', { status: 'error', message: reason });
+    reject?.(new Error(reason));
+    // Also after a crash once loaded: until the retry, sentences go straight to the system voice.
+    this.ready = Promise.reject(new Error(reason));
+    this.ready.catch(() => {});
+    setTimeout(() => (this.ready = null), 60000);
+  },
+
+  // Gives up (returns null) while the model is still downloading, so the system voice fills in.
+  async speak(text, { waitMs = 8000 } = {}) {
+    const ready = this.start();
+    const loaded = await Promise.race([ready.then(() => true), new Promise((r) => setTimeout(() => r(false), waitMs))]);
+    if (!loaded) return null;
+    const v = state.settings.voice;
+    const id = ++this.seq;
+    const samples = await new Promise((done, fail) => {
+      this.pending.set(id, { done, fail });
+      this.worker.postMessage({ type: 'speak', id, text, voice: v.localVoice, speed: Number(v.speed) || 1 });
+      // Generous: a sentence pair takes well under a second on the GPU, a few seconds on the CPU.
+      setTimeout(() => this.pending.has(id) && (this.pending.delete(id), fail(new Error('the offline voice took too long'))), 30000);
+    });
+    const buf = ctx().createBuffer(1, samples.length, KOKORO_SAMPLE_RATE);
+    buf.copyToChannel(samples, 0);
+    return buf;
+  },
+
+  warn(err) {
+    logEvent('warn', 'offline voice failed', err.message);
+    if (Date.now() - this.lastWarn > 60000) toastError(new Error(`Offline voice: ${err.message} — using the system voice.`));
+    this.lastWarn = Date.now();
+  },
+};
+
+// Settings → Voice output: download/load the offline voice ahead of time, then speak a sample.
+export async function testLocalVoice(text) {
+  await localVoice.start();
+  speaker.say(text, { engine: 'local' });
+  return localVoice.device;
+}
+
 // ----------------------------------------------------------------- Speaker
 class Speaker {
   constructor() {
@@ -26,7 +112,7 @@ class Speaker {
     this.batch = [];
     this.started = false;
     this.running = false;
-    this.useSystemVoice = false; // set after VoiceStudio fails; retried periodically
+    this.onFallback = false; // set after VoiceStudio fails; retried periodically
     this.lastSpokeAt = 0;
   }
 
@@ -89,30 +175,42 @@ class Speaker {
   }
 
   async synthesize(text, override, gen) {
-    const v = state.settings.voice;
-    if (this.useSystemVoice && Date.now() - this.fallbackSince < 120000) return 'system';
+    if (override?.engine === 'local') return localVoice.speak(text, { waitMs: 600000 }).catch((err) => (this.reportError(err), null));
+    const mode = fallbackMode();
+    if (this.onFallback && mode !== 'off' && Date.now() - this.fallbackSince < 120000) return this.fallback(text, gen);
     try {
       const { audio } = await api.tts.speak(text, override);
       const bytes = audio instanceof Uint8Array ? audio : new Uint8Array(audio);
       const buf = await ctx().decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
-      if (this.useSystemVoice) logEvent('info', 'VoiceStudio back online');
-      this.useSystemVoice = false;
+      if (this.onFallback) logEvent('info', 'VoiceStudio back online');
+      this.onFallback = false;
       return buf;
     } catch (err) {
       if (gen !== this.gen) return null;
       logEvent('warn', 'VoiceStudio failed', err.message);
-      if (v.fallbackSystemVoice && 'speechSynthesis' in window) {
-        if (!this.useSystemVoice && !state.setupMode) {
-          toastError(new Error(`VoiceStudio unavailable — using the system voice. (${err.message})`));
-          emit('voice-fallback', err.message);
-        }
-        this.useSystemVoice = true;
-        this.fallbackSince = Date.now();
-        return 'system';
+      if (mode === 'off') {
+        this.reportError(err);
+        return null;
       }
-      this.reportError(err);
-      return null;
+      if (!this.onFallback && !state.setupMode) {
+        toastError(new Error(`VoiceStudio unavailable — using the ${mode === 'local' ? 'offline' : 'system'} voice. (${err.message})`));
+        emit('voice-fallback', err.message);
+      }
+      this.onFallback = true;
+      this.fallbackSince = Date.now();
+      return this.fallback(text, gen);
     }
+  }
+
+  // The offline voice when it is chosen and works; the OS voice otherwise (also while the offline
+  // voice is still downloading, so a reply is never silent).
+  async fallback(text, gen) {
+    if (fallbackMode() === 'local') {
+      const buf = await localVoice.speak(text).catch((err) => (localVoice.warn(err), null));
+      if (gen !== this.gen) return null;
+      if (buf) return buf;
+    }
+    return 'speechSynthesis' in window ? 'system' : null;
   }
 
   reportError(err) {
@@ -158,9 +256,12 @@ class Speaker {
     return new Promise((resolve) => {
       const u = new SpeechSynthesisUtterance(text);
       u.rate = Number(state.settings.voice.speed) || 1;
+      // voice.voice is a VoiceStudio id, so pick by language: the Windows default may be another
+      // language pack's voice (a German voice reading English).
       const voices = speechSynthesis.getVoices();
-      const want = (state.settings.voice.voice || '').toLowerCase();
-      u.voice = voices.find((v) => want && v.name.toLowerCase().includes(want)) || voices.find((v) => v.default) || null;
+      const lang = (state.settings.stt?.language || 'en').toLowerCase();
+      const fits = voices.filter((v) => v.lang.toLowerCase().startsWith(lang));
+      u.voice = fits.find((v) => v.default) || fits[0] || voices.find((v) => v.default) || null;
       let t = 0;
       const pulse = setInterval(() => (state.synthLevel = 0.35 + 0.35 * Math.abs(Math.sin((t += 0.6)))), 80);
       // Chromium sometimes never fires onend; never let that leave the speaker (and mic) stuck.
@@ -682,6 +783,7 @@ async function finishUtterance(getSamples) {
     const samples = await getSamples();
     if (!samples?.length) {
       setCaption('');
+      emit('barge-in-over'); // nothing was said: an interrupted reply speaks again
       return;
     }
     setFlag('transcribing', true);
@@ -692,8 +794,9 @@ async function finishUtterance(getSamples) {
     if (text) {
       logEvent('info', 'heard', { text, sttMs: Math.round(performance.now() - started), audioSec: +(samples.length / 16000).toFixed(1) });
       emit('voice-input', text);
-    }
+    } else emit('barge-in-over');
   } catch (err) {
+    emit('barge-in-over');
     logEvent('error', 'speech-to-text failed', err.message);
     toastError(new Error(`Speech-to-text: ${err.message}`));
     setCaption('');

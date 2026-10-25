@@ -151,7 +151,7 @@ function sessionConfigKey(settings) {
   const { agent, appearance, voice, safety, code, web } = settings;
   return JSON.stringify([agent.name, agent.personality, agent.aesthetic, appearance.personaNotes, voice.ttsEnabled && voice.autoSpeak, safety.permissionMode, code.enabled, code.allowSelfModify, web.enabled, PROMPT_VERSION]);
 }
-const PROMPT_VERSION = 4;
+const PROMPT_VERSION = 5;
 
 async function claudeCodeOptions(settings, active, model) {
   const names = active.map((t) => t.name);

@@ -10,11 +10,13 @@ const log = require('./logger');
 
 const pending = new Map(); // id -> resolve
 
-// Shell commands, calendar changes that email other people, cloning a voice from a recording, and
-// publishing to GitHub (push, pull request) always need a human, even in auto mode.
-const ALWAYS_ASK = new Set(['command', 'invite', 'voice_clone', 'github_publish']);
-// Each of these names different people or a different recording, so one yes never covers the next.
-const EACH_TIME = new Set(['invite', 'voice_clone', 'github_publish']);
+// Shell commands, calendar changes that email other people, cloning a voice from a recording,
+// publishing to GitHub (push, pull request) and the user's connectors (their accounts in other
+// services) always need a human, even in auto mode.
+const ALWAYS_ASK = new Set(['command', 'invite', 'voice_clone', 'github_publish', 'connector']);
+// Each of these names different people, a different recording or a different service, so one yes
+// never covers the next (claudecode.js remembers a connector's yes per service for the turn).
+const EACH_TIME = new Set(['invite', 'voice_clone', 'github_publish', 'connector']);
 let sender = null;
 
 function setSender(fn) {
@@ -33,7 +35,7 @@ function markTainted(turn, source) {
 
 /**
  * @param {object} turn per-turn state from newTurn()
- * @param {string} kind self_modify | settings | delete | command | calendar | invite | voice | voice_clone | repo_change | github_publish
+ * @param {string} kind self_modify | settings | delete | command | calendar | invite | voice | voice_clone | repo_change | github_publish | connector
  * @returns {Promise<{allow: boolean, reason?: string}>}
  */
 async function gate(turn, kind, title, detail = '') {
