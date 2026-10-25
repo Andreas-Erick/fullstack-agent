@@ -151,7 +151,7 @@ function sessionConfigKey(settings) {
   const { agent, appearance, voice, safety, code, web } = settings;
   return JSON.stringify([agent.name, agent.personality, agent.aesthetic, appearance.personaNotes, voice.ttsEnabled && voice.autoSpeak, safety.permissionMode, code.enabled, code.allowSelfModify, web.enabled, PROMPT_VERSION]);
 }
-const PROMPT_VERSION = 8;
+const PROMPT_VERSION = 10;
 
 async function claudeCodeOptions(settings, active, model) {
   const names = active.map((t) => t.name);
@@ -170,6 +170,8 @@ async function claudeCodeOptions(settings, active, model) {
     cwd,
     vault,
     repos,
+    // The user's folders (workspace + the ones they added): the only other places Claude Code may read.
+    folders: require('./documents').userFolders(settings),
     model,
   };
 }

@@ -7,6 +7,8 @@ import { startListening, stopListening, toggleListening, speaker, preloadLocalMo
 import { initChat, newChat, sendVoice, currentConversationId } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
+import { initUsage } from './usage.js';
+import { initSysmon } from './sysmon.js';
 import { initHandoff, handoffNote } from './handoff.js';
 import { initHud, bootScreen } from './hud.js';
 import { tryCommand } from './commands.js';
@@ -21,7 +23,7 @@ import { initEvolution, refresh as refreshEvolution } from './evolution.js';
 import { initSkills, refresh as refreshSkills } from './skills.js';
 import { initHabits, refresh as refreshHabits } from './habits.js';
 import { initSkillTree, refresh as refreshSkillTree } from './skilltree.js';
-import { initLayout, applyLayout, setLayout, zoomBy, setZoom, quickNote, toggleAppFullscreen } from './layout.js';
+import { initLayout, applyLayout, setLayout, zoomBy, setZoom, quickNote, toggleAppFullscreen, setFullscreen, isFullscreen } from './layout.js';
 import { applyTheme } from './theme.js';
 import { switchPersona } from './personas.js';
 import { practiceLanguage, languageName } from './practice.js';
@@ -77,6 +79,12 @@ async function boot() {
   initLayout({ miniFace });
   initApprovals();
   initRemote();
+  initUsage();
+  initSysmon();
+  $('#pillAgentWin').addEventListener('click', () => api.agentWindow.open().catch((err) => toast(err.message, 'error')));
+  const showAgentWin = () => $('#pillAgentWin').classList.toggle('hidden', state.settings?.agentWindow?.enabled === false);
+  on('settings', showAgentWin);
+  showAgentWin();
   initHandoff();
   setupVoiceRouting();
 
@@ -129,11 +137,8 @@ async function boot() {
   setupPushToTalk();
   setupShortcuts();
 
-  $('#fullscreenBtn').onclick = () => (document.fullscreenElement ? exitFullscreen() : enterFullscreen());
-  document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement) document.body.classList.remove('fullscreen-face');
-    requestAnimationFrame(() => bigFace.resize());
-  });
+  $('#fullscreenBtn').onclick = () => (document.body.classList.contains('fullscreen-face') ? exitFullscreen() : enterFullscreen());
+  on('fullscreen', () => requestAnimationFrame(() => bigFace.resize()));
 
   refreshStatus();
   on('status-refresh', refreshStatus);
@@ -349,26 +354,26 @@ function setupShortcuts() {
       newChat();
     } else if (e.key === 'F11' && currentView === 'face') {
       e.preventDefault();
-      document.fullscreenElement ? exitFullscreen() : enterFullscreen();
+      isFullscreen() ? exitFullscreen() : enterFullscreen();
     } else if (e.key === 'F11') {
       e.preventDefault();
       toggleAppFullscreen();
     } else if (e.key === 'Escape' && state.playing) {
       speaker.stop();
+    } else if (e.key === 'Escape' && isFullscreen()) {
+      exitFullscreen();
     }
   });
 }
 
+// The face alone, full screen (layout.js does the window part).
 function enterFullscreen() {
   if (currentView !== 'face') switchView('face');
-  document.body.classList.add('fullscreen-face');
-  document.documentElement.requestFullscreen?.().catch(() => {});
-  requestAnimationFrame(() => bigFace.resize());
+  setFullscreen('face');
 }
 
 function exitFullscreen() {
-  document.body.classList.remove('fullscreen-face');
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  setFullscreen(null);
 }
 
 // ---------------------------------------------------------- status pills

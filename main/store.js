@@ -188,6 +188,18 @@ const DEFAULTS = {
     idleMinutes: 15,
     handoffOnClose: true, // on closing the app, note where we left off (handoff.js) for the next session
   },
+  // Extensions (main/extensions.js): MCP servers Nexus runs for the Claude account brain. Only the user
+  // changes these (never in tools.js SETTABLE: they decide what Nexus runs).
+  extensions: {
+    rea: false, // REA, reverse engineering (npx rea-agents mcp)
+    godseye: false, // God's Eye View, the live globe
+    godseyePath: '', // the user's checkout of gods-eye-view
+  },
+  // The agent window (main/agentwindow.js): a browser window the agent controls (websites, the globe).
+  // User-only, like the other permissions (never in tools.js SETTABLE).
+  agentWindow: {
+    enabled: true,
+  },
   // Learning support (main/learning.js). Language practice switches speech recognition and the voice to
   // the target language (renderer/js/voice.js); the agent turns it on and off with language_practice.
   learning: {
@@ -198,8 +210,8 @@ const DEFAULTS = {
     vaultPath: '', // empty = <vault>/Memory
   },
   documents: {
-    allowedRoots: [], // empty = Documents, Desktop, Downloads (+ Obsidian vault)
-    workspace: '', // the agent's workspace folder: searched first for files the user names, always allowed
+    allowedRoots: [], // folders the user added beyond the workspace (Settings → Documents); never set by the agent
+    workspace: '', // the agent's workspace folder: by default the only folder of the user's it may use (documents.userFolders)
   },
   ui: {
     showVisualizerInChat: true,
@@ -210,6 +222,8 @@ const DEFAULTS = {
     facePanelWidth: 300, // width of the face next to the chat in the split layout (drag the divider)
     sleepAfterMin: 10, // the face dozes off after this long without activity (0 = never)
     fx: 'hud', // visual effects (renderer/hud.css): hud = futuristic, with motion | subtle = static | off
+    showClaudeUsage: true, // title-bar meter: how much of the Claude plan is left (main/claudeusage.js)
+    showSystemStats: true, // title-bar system monitor: CPU, RAM, GPU, disk (main/sysmon.js; never sent to the AI)
   },
 };
 

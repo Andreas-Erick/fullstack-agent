@@ -25,6 +25,7 @@ const handoff = require('./handoff');
 const vaultgit = require('./vaultgit');
 const faces = require('./faces');
 const docwindows = require('./docwindows');
+const agentwindow = require('./agentwindow');
 const envinfo = require('./envinfo');
 const router = require('./router');
 const screenshare = require('./screenshare');
@@ -143,6 +144,10 @@ function createWindow() {
   if (isDev) win.webContents.openDevTools({ mode: 'detach' });
 
   guardNavigation(win.webContents);
+  // The page hides its title bar and rail only while the window really is full screen (the button,
+  // F11, Esc, or the agent's set_window_state).
+  win.on('enter-full-screen', () => toWindow('win:fullscreen', true));
+  win.on('leave-full-screen', () => toWindow('win:fullscreen', false));
   win.on('closed', () => (win = null));
   // Closing: first the agent notes where we left off (handoff.js), then the window really closes.
   handoffDone = false;
@@ -303,6 +308,16 @@ function registerIpc() {
     const z = clampZoom(factor);
     e.sender.setZoomFactor(z);
     return { ok: true, data: z };
+  });
+  // Full screen is the window's own (like set_window_state), not the page's: the page may not ask for
+  // it (the permission handler allows only the microphone and clipboard). true/false, or toggle.
+  ipcMain.handle('win:fullscreen', (e, on) => {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    if (!w) return { ok: false, error: 'No window' };
+    const next = typeof on === 'boolean' ? on : !w.isFullScreen();
+    if (next && w.isMinimized()) w.restore();
+    w.setFullScreen(next);
+    return { ok: true, data: next };
   });
   ipcMain.handle('win:overlay', (e, colors) => {
     const w = BrowserWindow.fromWebContents(e.sender);
@@ -499,6 +514,17 @@ function registerIpc() {
   handle('claude:logout', () => claudecode.openLogin('logout'));
   handle('claude:installHint', () => claudecode.installHint());
   handle('claude:connectors', () => claudecode.listConnectors());
+  // How much of the Claude plan is left (claudeusage.js); updates arrive as `claude:usage` events.
+  handle('claude:usage', () => require('./claudeusage').get());
+  // The title-bar system monitor (sysmon.js): samples only while the window watches; the numbers go
+  // to the window only, never to the AI or the log.
+  handle('system:watch', (on) => require('./sysmon').watch(Boolean(on), (stats) => toWindow('system:stats', stats)));
+  // The details panel: connected Bluetooth devices and the network adapter (while it is open), and the
+  // internet speed test (netspeed.js), only on the user's click.
+  handle('system:bluetooth', () => require('./sysmon').bluetooth());
+  handle('system:network', () => ({ ...require('./sysmon').network(), lastSpeed: require('./netspeed').last(), measuring: require('./netspeed').running() }));
+  handle('system:speedtest', () => require('./netspeed').run());
+  require('./claudeusage').onChange((s) => toWindow('claude:usage', s));
 
   // Screen sharing (started and stopped only by the user)
   handle('screen:sources', () => screenshare.sources());
@@ -511,6 +537,8 @@ function registerIpc() {
   handle('skills:list', () => skills.list());
   handle('skills:save', (skill, oldSlug) => skills.save(skill || {}, { slug: oldSlug }));
   handle('skills:delete', (slug) => skills.remove(slug));
+  handle('skills:scan', (repo) => require('./skillimport').scan(String(repo || '')).then(({ files, ...s }) => s));
+  handle('skills:import', (repo, paths) => require('./skillimport').install(String(repo || ''), Array.isArray(paths) ? paths.map(String) : []));
   handle('skills:openFolder', async () => {
     await fsp.mkdir(skills.dir(), { recursive: true });
     return shell.openPath(skills.dir());
@@ -549,6 +577,30 @@ function registerIpc() {
   handle('skilltree:view', () => require('./skilltree').view());
   handle('skilltree:upsert', (skill) => require('./skilltree').upsert([skill && typeof skill === 'object' ? skill : {}]));
   handle('skilltree:remove', (name) => require('./skilltree').remove(String(name)));
+  // Extensions (MCP servers for the Claude account brain) and the God's Eye View globe
+  handle('extensions:status', async () => require('./extensions').status(await store.getSettings()));
+  handle('extensions:check', (dir) => require('./extensions').checkGodsEye(String(dir || '')));
+  handle('extensions:install', async (parent) => {
+    if (!parent || typeof parent !== 'string') throw new Error('Choose a folder first.');
+    return require('./extensions').installGodsEye(parent, (p) => toWindow('extensions:progress', p));
+  });
+  handle('extensions:start', async () => require('./extensions').ensureGodsEye(await store.getSettings()));
+  handle('extensions:stop', () => require('./extensions').stopGodsEye());
+  handle('extensions:openGlobe', async (url) => {
+    const ext = require('./extensions');
+    await ext.ensureGodsEye(await store.getSettings());
+    return agentwindow.open(url ? String(url) : ext.GODSEYE_ORIGIN, { byAgent: false, focus: true });
+  });
+  // The agent window's toolbar (renderer/agentwindow.js); the page itself has no access to the app.
+  handle('agentWindow:state', () => agentwindow.toolbar.state());
+  handle('agentWindow:go', (text) => agentwindow.toolbar.go(String(text || '').slice(0, 2000)));
+  handle('agentWindow:back', () => agentwindow.toolbar.back());
+  handle('agentWindow:forward', () => agentwindow.toolbar.forward());
+  handle('agentWindow:reload', () => agentwindow.toolbar.reload());
+  handle('agentWindow:stop', () => agentwindow.toolbar.stop());
+  handle('agentWindow:home', () => agentwindow.toolbar.home());
+  // The title-bar button: brings the window forward, or opens it at the start page.
+  handle('agentWindow:open', () => (agentwindow.state().open ? (agentwindow.show({ focus: true }), agentwindow.state()) : agentwindow.toolbar.home()));
   handle('routines:list', () => routines.list());
   handle('routines:save', (r) => routines.save(r && typeof r === 'object' ? r : {}));
   handle('routines:remove', (id) => routines.remove(String(id)));
@@ -780,7 +832,8 @@ app.whenReady().then(async () => {
   });
   require('./tunnel').setListener((st) => send('remote:event', { type: 'tunnel', tunnel: st }));
   screenshare.setListener((st) => send('screen:state', st));
-  docwindows.init({ root: ROOT, preload: path.join(ROOT, 'preload.js'), mainWindow: () => win, guard: guardNavigation, captureConsole });
+  docwindows.init({ root: ROOT, preload: path.join(ROOT, 'preload.js'), mainWindow: () => win, agentWindow: () => agentwindow.window(), guard: guardNavigation, captureConsole });
+  agentwindow.init({ root: ROOT, preload: path.join(ROOT, 'preload.js'), mainWindow: () => win, guard: guardNavigation, captureConsole });
   documents.setPopup(docwindows);
   obsidian.setChangeListener((rel) => send('vault:changed', rel));
   log.info('==================== app start', { version: app.getVersion(), pid: process.pid });
@@ -852,6 +905,8 @@ app.on('before-quit', (e) => {
   claudecode.shutdown();
   companion.stop();
   helperApps.stopStarted(); // only if "close them when Nexus quits" is on, and only the ones it started
+  require('./extensions').stopGodsEye(); // the globe's server, only if Nexus started it
+  require('./sysmon').stop(); // its GPU reader process
   journal.stop();
   vaultgit.flushAll();
 });

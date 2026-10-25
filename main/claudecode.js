@@ -14,6 +14,7 @@ const github = require('./github');
 const approvals = require('./approvals');
 const log = require('./logger');
 const connectors = require('./connectors');
+const claudeUsage = require('./claudeusage');
 
 const MCP_SERVER = path.join(__dirname, 'mcp-server.js');
 
@@ -197,6 +198,18 @@ function inside(root, file) {
   return !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
+// The folder a Read, Glob or Grep call looks in (relative to the session's folder); a glob pattern's
+// fixed part counts when it is absolute.
+function readTarget(input, cwd) {
+  let target = input.file_path || input.notebook_path || input.path || '';
+  if (!target && path.isAbsolute(String(input.pattern || ''))) target = String(input.pattern).split(/[*?[{]/)[0] || String(input.pattern);
+  return path.resolve(cwd || '.', String(target || '.'));
+}
+
+// Claude Code keeps long tool results for this session under ~/.claude/projects/<folder name>/ and
+// reads them back; that one folder (never other projects') is readable too.
+const cliProjectDir = (cwd) => path.join(os.homedir(), '.claude', 'projects', path.resolve(cwd).replace(/[^a-zA-Z0-9]/g, '-'));
+
 function transcript(history) {
   const prior = history.slice(0, -1).slice(-12);
   if (!prior.length) return '';
@@ -253,6 +266,9 @@ class Session {
     const cli = await findCli();
     if (!cli) throw new Error('Claude Code is not installed. Install it, then connect your Claude account in Settings → AI brain.');
     const b = await bridge.start();
+    // God's Eye View's tools read its local server: start it now (in the background), not when the
+    // agent first opens the globe, or its first answers come back empty.
+    if (spec.extensions?.['gods-eye-view']) store.getSettings().then((s) => require('./extensions').ensureGodsEye(s)).catch((err) => log.warn('godseye warm start failed', { error: err }));
     this.spec = spec;
     this.requestedModel = spec.model || 'default';
     this.dead = false;
@@ -273,7 +289,7 @@ class Session {
     await fsp.writeFile(
       mcpFile,
       // With connectors, their tools are found on demand (ToolSearch); the app's own stay loaded.
-      JSON.stringify({ mcpServers: { nexus: { command: process.execPath, args: [MCP_SERVER], env: { ELECTRON_RUN_AS_NODE: '1', NEXUS_BRIDGE_URL: b.url, NEXUS_BRIDGE_TOKEN: b.token, NEXUS_TURN: bridgeId }, ...(spec.connectors ? { alwaysLoad: true } : {}) } } }),
+      JSON.stringify({ mcpServers: { nexus: { command: process.execPath, args: [MCP_SERVER], env: { ELECTRON_RUN_AS_NODE: '1', NEXUS_BRIDGE_URL: b.url, NEXUS_BRIDGE_TOKEN: b.token, NEXUS_TURN: bridgeId }, ...(spec.connectors || Object.keys(spec.extensions || {}).length ? { alwaysLoad: true } : {}) }, ...(spec.extensions || {}) } }),
       'utf8',
     );
     const args = [
@@ -331,6 +347,7 @@ class Session {
     clearTimeout(this.idleTimer);
     const wasDead = this.dead;
     this.dead = true;
+    this.afterInterrupt?.(); // nothing left to wait for
     if (this.turn && !this.turn.settled) {
       const detail = err?.message || this.stderr.trim() || `Claude Code exited (code ${code})`;
       log.error('claude session exited mid-turn', { conversation: this.convId, code, detail: detail.slice(0, 500) });
@@ -338,10 +355,32 @@ class Session {
     } else if (!wasDead && code) log.warn('claude session exited', { conversation: this.convId, code, stderr: this.stderr.slice(-300) });
   }
 
+  // Stops the current reply but keeps the process and its warm cache: the CLI ends the turn with a
+  // result that onLine swallows, and the next turn waits for it (`interrupting`), so that late result
+  // never ends the next turn. Unconfirmed within 3 seconds: the process is stopped, as before.
+  interrupt() {
+    if (!this.alive() || this.interrupting) return;
+    let done;
+    this.interrupting = new Promise((r) => (done = r));
+    const timer = setTimeout(() => {
+      log.warn('claude interrupt not confirmed; stopping the session', { conversation: this.convId });
+      this.kill();
+    }, 3000);
+    this.afterInterrupt = () => {
+      clearTimeout(timer);
+      this.afterInterrupt = null;
+      this.interrupting = null;
+      done();
+    };
+    this.child.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: crypto.randomUUID(), request: { subtype: 'interrupt' } })}\n`);
+    log.info('claude turn interrupted', { conversation: this.convId });
+  }
+
   // Stops the process; resolves once it has exited (at most 5 seconds).
   kill() {
     clearTimeout(this.idleTimer);
     const child = this.child;
+    this.afterInterrupt?.(); // a new process (or none) never sends the interrupted turn's end
     if (!this.alive()) return Promise.resolve();
     this.dead = true;
     const gone = new Promise((resolve) => {
@@ -385,7 +424,7 @@ class Session {
       return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
     }
     if (connectors.isConnectorTool(tool)) {
-      if (!this.spec.connectors) return { behavior: 'deny', message: 'Connectors are turned off in Settings.' };
+      if (!this.spec.connectors && !(connectors.toolServer(tool) in (this.spec.extensions || {}))) return { behavior: 'deny', message: 'Connectors are turned off in Settings.' };
       // Connectors act in the user's accounts (send, post, create, delete), so they ask even in auto
       // mode; one yes covers that connector for the rest of the turn. A connector the user marked
       // "always allow" is in --allowedTools and never gets here.
@@ -401,6 +440,12 @@ class Session {
       return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
     }
     if (tool === 'Read' || tool === 'Glob' || tool === 'Grep') {
+      // Only the folders the user allowed (workspace + added ones), the vault, its own code and repos.
+      const target = readTarget(input, this.spec.cwd);
+      if (!(this.spec.readRoots || []).some((r) => inside(r, target))) {
+        log.info('read outside allowed folders denied', { tool, target });
+        return { behavior: 'deny', message: `${target} is outside the folders you may use (${(this.spec.readRoots || []).join(', ')}). Only the user can allow another folder (Settings → Documents → Add folder); ask them instead of looking elsewhere.` };
+      }
       approvals.markTainted(turnState, `${tool} ${input.file_path || input.path || ''}`);
       return { behavior: 'allow', updatedInput: input };
     }
@@ -446,15 +491,21 @@ class Session {
         },
       };
       this.turn = turn;
-      const onAbort = () => {
-        // Interrupt = stop the process; the session id is kept, so the next turn resumes it.
-        this.kill();
+      const stopped = () => {
         const e = new Error('Stopped');
         e.name = 'AbortError';
         turn.reject(e);
       };
-      if (signal.aborted) return onAbort();
-      signal.addEventListener('abort', onAbort, { once: true });
+      if (signal.aborted) return stopped(); // nothing was sent yet
+      signal.addEventListener(
+        'abort',
+        () => {
+          if (turn.settled) return;
+          this.interrupt();
+          stopped();
+        },
+        { once: true },
+      );
       this.child.stdin.write(`${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`);
       this.resetIdle();
     });
@@ -473,6 +524,10 @@ class Session {
       if (msg.model) this.model = msg.model;
       return;
     }
+    // The plan's usage windows (how much is left) come with every turn; the title bar shows them.
+    if (msg.type === 'rate_limit_event') return claudeUsage.update(msg.rate_limit_info);
+    // The end of a turn that was interrupted (see interrupt()).
+    if (msg.type === 'result' && this.afterInterrupt) return this.afterInterrupt();
     if (!t || t.settled) return;
     if (msg.type === 'result') {
       // A plan's usage limit can come back as the reply text itself; it is an error (so multi-provider mode falls back).
@@ -482,6 +537,8 @@ class Session {
         t.reject(new Error(String(msg.result || msg.errors?.join('; ') || 'Claude Code error')));
         return;
       }
+      // Where the time went: the CLI's own overhead vs. waiting for the model (finding slow turns).
+      log.info('claude timing', { totalMs: msg.duration_ms, apiMs: msg.duration_api_ms, firstTokenMs: msg.ttft_ms, toRequestMs: msg.time_to_request_ms, turns: msg.num_turns });
       t.resolve({ text: t.text.trim() || String(msg.result || '').trim(), toolCalls: t.records, raw: null, model: this.model || this.spec.model, sessionId: this.sessionId });
       this.resetIdle();
       return;
@@ -531,26 +588,39 @@ class Session {
   }
 }
 
-function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, model }) {
+function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, folders = [], model }) {
   const cc = settings.claudeCode;
   const builtins = ['Read', 'Glob', 'Grep'];
   if (settings.web.enabled) builtins.push('WebSearch', 'WebFetch');
   if (settings.code.allowSelfModify) builtins.push('Edit', 'Write', 'Bash');
   else if (repos) builtins.push('Edit', 'Write');
-  const allowed = ['Read', 'Glob', 'Grep', 'mcp__nexus'];
+  // Read, Glob and Grep are not pre-allowed: inside the session's folders the CLI allows them itself,
+  // anything else comes to approve(), which checks the path against readRoots.
+  const allowed = ['mcp__nexus'];
+  const readRoots = [...new Set([cwd, vault, repos, ...folders, cwd && cliProjectDir(cwd)].filter(Boolean).map((p) => path.resolve(p)))];
   if (settings.web.enabled) allowed.push('WebSearch', 'WebFetch');
   if (settings.code.allowSelfModify) allowed.push('Bash(npm run check)', 'Bash(node scripts/check.js)', 'Bash(npm test*)', 'Bash(node scripts/test.js*)', 'Bash(node scripts/verify.js*)', 'Bash(git status*)', 'Bash(git diff*)', 'Bash(git log*)');
   // The user's claude.ai connectors and plugins: found with ToolSearch, plugin skills with Skill.
   const withConnectors = Boolean(cc.connectors);
+  // Extensions (extensions.js): MCP servers Nexus adds itself; they work with connectors off too.
+  const extensionServers = require('./extensions').mcpServers(settings);
+  const extensionKeys = Object.keys(extensionServers);
+  // Permission levels apply to every server in reach: all of them with connectors on, else the extensions.
+  const inReach = (list) => connectors.allowedKeys(list).filter((k) => withConnectors || extensionKeys.includes(k));
+  if (withConnectors || extensionKeys.length) {
+    builtins.push('ToolSearch');
+    allowed.push('ToolSearch', ...inReach(cc.connectorsAllowed).map((k) => `mcp__${k}`));
+  }
   if (withConnectors) {
-    builtins.push('ToolSearch', 'Skill');
-    allowed.push('ToolSearch', 'Skill', ...connectors.allowedKeys(cc.connectorsAllowed).map((k) => `mcp__${k}`));
+    builtins.push('Skill');
+    allowed.push('Skill');
   }
   const toolNames = activeTools.map((t) => t.name);
-  const readOnly = withConnectors ? connectors.allowedKeys(cc.connectorsReadOnly) : [];
-  const write = withConnectors ? connectors.allowedKeys(cc.connectorsWrite) : [];
+  const readOnly = inReach(cc.connectorsReadOnly);
+  const write = inReach(cc.connectorsWrite);
   const spec = {
     connectors: withConnectors,
+    extensions: extensionServers,
     readOnly,
     write,
     system: '',
@@ -561,7 +631,8 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, mode
     vault,
     codeRoot: cwd,
     repos,
-    addDirs: [vault, repos].filter(Boolean),
+    readRoots,
+    addDirs: [...new Set([vault, repos, ...folders].filter(Boolean))],
     model,
     effort: cc.effort,
     allowSelfModify: settings.code.allowSelfModify,
@@ -570,21 +641,39 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, mode
   // The session restarts only when configuration changes (persona, tools…), not when the vault or
   // memories change (those reach the agent through the per-turn context) and not for a model switch
   // (Session.setModel changes it in place).
-  spec.key = crypto.createHash('sha1').update(JSON.stringify([configKey, builtins, allowed, toolNames, cwd, vault, repos, cc.effort, withConnectors, readOnly, write])).digest('hex');
+  // Each part named, so a restart can say what changed (see ensureSession).
+  spec.keyParts = { config: configKey, builtins, allowed, tools: toolNames, folders: [cwd, vault, repos, ...readRoots], effort: cc.effort, connectors: [withConnectors, readOnly, write], extensions: extensionServers };
+  spec.key = crypto.createHash('sha1').update(JSON.stringify(Object.values(spec.keyParts))).digest('hex');
   return spec;
 }
 
-async function ensureSession(conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, model }) {
+/** Which parts of a session's configuration differ (for tools: which were added or removed). */
+function changedParts(before = {}, after = {}) {
+  const out = [];
+  for (const k of Object.keys(after)) {
+    if (JSON.stringify(before[k]) === JSON.stringify(after[k])) continue;
+    if (k === 'tools' && Array.isArray(before[k])) {
+      const added = after[k].filter((t) => !before[k].includes(t));
+      const removed = before[k].filter((t) => !after[k].includes(t));
+      out.push(`tools${added.length ? ` +${added.join(',')}` : ''}${removed.length ? ` -${removed.join(',')}` : ''}`);
+    } else out.push(k);
+  }
+  return out.join('; ');
+}
+
+async function ensureSession(conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, folders, model }) {
   let session = sessions.get(conv.id);
   if (!session) {
     session = new Session(conv.id);
     sessions.set(conv.id, session);
   }
-  const spec = sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, model });
+  const spec = sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, folders, model });
   if (session.alive() && session.key === spec.key) {
     session.setModel(model);
     return session;
   }
+  // A restart costs a cold start (several seconds); the log says why it happened.
+  if (session.alive()) log.info('claude session restarts', { conversation: conv.id, changed: changedParts(session.spec?.keyParts, spec.keyParts) });
   const p = await buildPrompt();
   spec.system = p.stable;
   spec.resume = conv.claudeSessionId || session.sessionId;
@@ -601,6 +690,7 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, images 
   const session0 = sessions.get(conv.id) || new Session(conv.id);
   sessions.set(conv.id, session0);
   const attempt = async () => {
+    await session0.interrupting; // the previous, interrupted turn must end first
     const session = await ensureSession(conv, opts);
     const context = await buildContext(session.memIds);
     let prompt = history[history.length - 1].content;
@@ -682,4 +772,4 @@ async function complete(prompt, { imagePath, model } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, shutdown, complete, sweepStaleTemp };
+module.exports = { changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, shutdown, complete, sweepStaleTemp };

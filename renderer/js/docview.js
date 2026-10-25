@@ -31,7 +31,8 @@ export async function renderDocument(doc, viewer, ctl) {
       let node;
       if (doc.kind === 'docx') node = el('div', { class: 'doc-html paper', html: sanitizeHtml(doc.data) });
       else if (doc.kind === 'markdown') node = el('div', { class: 'doc-html', html: renderMarkdown(doc.data, { wikilinks: true }) });
-      else if (doc.kind === 'html') node = el('div', { class: 'doc-html paper', html: sanitizeHtml(doc.data) });
+      // HTML pages and diagrams keep their own styles in a sandboxed frame: no scripts, no access to the app.
+      else if (doc.kind === 'html') node = el('iframe', { class: 'doc-frame', sandbox: '', referrerpolicy: 'no-referrer', srcdoc: doc.data, title: doc.name });
       else if (doc.kind === 'image') node = el('div', { class: 'doc-image' }, el('img', { src: doc.data, alt: doc.name }));
       else node = el('pre', { class: 'doc-text' }, doc.data);
       controller = showZoomable(node, viewer, tools, doc.kind === 'image');

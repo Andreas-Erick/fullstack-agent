@@ -25,6 +25,7 @@ const FOLDERS = {
   Memory: 'Atomic long-term memories about the user (one note each).',
   Learning: 'One note per topic the user is learning: what they understood, what is shaky, misconceptions, open questions (learning_update).',
   Languages: 'Vocabulary decks with spaced repetition, one per language (vocab_add / vocab_review).',
+  Diagrams: 'Diagrams and pages the agent drew (self-contained HTML + SVG, diagram_save); open them in the app or a browser.',
   Changelog: 'Changes the agent made to its own code.',
 };
 const DAILY = 'Daily Notes';

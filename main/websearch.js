@@ -160,4 +160,4 @@ async function fetchPage(url, maxChars = 20000) {
   };
 }
 
-module.exports = { search, fetchPage, htmlToText };
+module.exports = { search, fetchPage, htmlToText, assertPublic };

@@ -8,7 +8,7 @@ const { BrowserWindow, screen } = require('electron');
 
 const MAX_WINDOWS = 8;
 const docs = new Map(); // full path -> BrowserWindow
-let ctx = null; // { root, preload, mainWindow(), guard(webContents) }
+let ctx = null; // { root, preload, mainWindow(), agentWindow(), guard(webContents) }
 
 function init(options) {
   ctx = options;
@@ -49,8 +49,10 @@ function monitorOf(win) {
 function listMonitors() {
   const primary = screen.getPrimaryDisplay().id;
   const main = ctx.mainWindow();
+  const agent = agentWin();
   const windows = [
     ...(main && !main.isDestroyed() ? [{ window: 'assistant', monitor: monitorOf(main) }] : []),
+    ...(agent ? [{ window: 'agent window', monitor: monitorOf(agent) }] : []),
     ...[...docs].map(([file, w]) => ({ window: path.basename(file), monitor: monitorOf(w) })),
   ];
   return {
@@ -120,13 +122,23 @@ function place(win, display, position = 'center') {
   }
 }
 
-// "assistant"/"main"/"app" is the main window; anything else names an open document.
+// The agent window (agentwindow.js: websites and the globe), when it is open.
+const agentWin = () => ctx.agentWindow?.() || null;
+const AGENT_WINDOW = /^(the )?(agent|browser|web|website|page|globe|god'?s eye( view)?|world)( window| view)?$/;
+
+// "assistant"/"main"/"app" is the main window, "agent window"/"browser"/"globe" the agent window;
+// anything else names an open document.
 function findWindow(name) {
   const n = String(name || '').toLowerCase().trim();
   if (/^(assistant|main|app|you|yourself|nexus|chat)( window)?$/.test(n)) {
     const main = ctx.mainWindow();
     if (!main || main.isDestroyed()) throw new Error('The assistant window is not open.');
     return { win: main, label: 'the assistant window' };
+  }
+  if (AGENT_WINDOW.test(n)) {
+    const w = agentWin();
+    if (!w) throw new Error('The agent window is not open (browser_open or globe_open opens it).');
+    return { win: w, label: 'the agent window' };
   }
   const open = [...docs];
   if (!open.length) throw new Error('No document window is open.');

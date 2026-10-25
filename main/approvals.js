@@ -35,7 +35,7 @@ function markTainted(turn, source) {
 
 /**
  * @param {object} turn per-turn state from newTurn()
- * @param {string} kind self_modify | settings | delete | command | calendar | invite | voice | voice_clone | repo_change | github_publish | connector
+ * @param {string} kind self_modify | settings | delete | command | calendar | invite | voice | voice_clone | repo_change | github_publish | connector | browser
  * @returns {Promise<{allow: boolean, reason?: string}>}
  */
 async function gate(turn, kind, title, detail = '') {

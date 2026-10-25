@@ -32,22 +32,23 @@ async function workspace() {
   return s.documents.workspace ? path.resolve(s.documents.workspace) : null;
 }
 
+/**
+ * The user's folders the agent may use: the workspace folder, then the folders the user added in
+ * Settings → Documents. Nothing else by default; removing a folder from the list takes access away.
+ */
+function userFolders(settings) {
+  const d = settings?.documents || {};
+  const list = [d.workspace, ...(Array.isArray(d.allowedRoots) ? d.allowedRoots : [])].filter((p) => typeof p === 'string' && p.trim() && path.isAbsolute(p.trim()));
+  return [...new Set(list.map((p) => path.resolve(p.trim())))];
+}
+
+// Plus the vault (the agent's own memory) and Documents/Nexus Exports (only PDFs the app made, when no
+// workspace folder is set).
 async function allowedRoots() {
-  const s = await store.getSettings();
-  const roots = s.documents.allowedRoots?.length
-    ? [...s.documents.allowedRoots]
-    : ['documents', 'desktop', 'downloads'].map((k) => {
-        try {
-          return app.getPath(k);
-        } catch {
-          return null;
-        }
-      });
+  const roots = userFolders(await store.getSettings());
   const vault = await obsidian.vaultPath();
   if (vault) roots.push(vault);
-  roots.push(path.join(app.getPath('documents'), 'Nexus Exports')); // PDFs the app created
-  const ws = await workspace();
-  if (ws) roots.unshift(ws);
+  roots.push(path.join(app.getPath('documents'), 'Nexus Exports'));
   return [...new Set(roots.filter(Boolean))];
 }
 
@@ -56,20 +57,21 @@ async function resolveAllowed(p, { fromUser = false } = {}) {
   if (!p) throw new Error('A file path is required');
   let full = String(p).replace(/^~(?=$|[/\\])/, app.getPath('home'));
   if (!path.isAbsolute(full)) {
-    // A relative path: the workspace folder first (if the file is there), then the vault, then Documents.
+    // A relative path: the workspace folder first (if the file is there), then the vault.
     const ws = await workspace();
     const vault = await obsidian.vaultPath();
     const inWs = ws && path.join(ws, full);
     if (inWs && (await fsp.stat(inWs).catch(() => null))) full = inWs;
     else if (vault) full = path.join(vault, full);
-    else full = path.resolve(app.getPath('documents'), full);
+    else if (ws) full = inWs;
   }
   full = path.resolve(full);
   if (fromUser) userApproved.add(full);
   const roots = await allowedRoots();
   if (!userApproved.has(full) && !roots.some((r) => isInside(r, full))) {
+    const s = await store.getSettings();
     throw new Error(
-      `Access to "${full}" is not allowed. The agent can open files in: ${roots.join(', ')} (or files you open yourself). Add folders in Settings → Documents.`,
+      `Access to "${full}" is not allowed. The agent may only use ${s.documents.workspace ? 'the workspace folder and the folders the user added' : 'the folders the user allowed (no workspace folder is set yet)'}: ${roots.join(', ')} (and files the user opens in the app). Only the user can allow another folder, in Settings → Documents → Add folder; ask them to, don't look elsewhere.`,
     );
   }
   return full;
@@ -259,4 +261,4 @@ const getPopup = () => {
   return popup;
 };
 
-module.exports = { load, extractText, recent, clearRecent, allowedRoots, resolveAllowed, workspace, findDocuments, SUPPORTED, setPopup, popup: getPopup };
+module.exports = { load, extractText, recent, clearRecent, userFolders, allowedRoots, resolveAllowed, workspace, findDocuments, SUPPORTED, setPopup, popup: getPopup };

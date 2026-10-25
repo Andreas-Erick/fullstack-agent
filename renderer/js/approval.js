@@ -19,6 +19,7 @@ const KIND_LABEL = {
   repo_change: 'Change a repository (local branch)',
   github_publish: 'Publish to GitHub',
   connector: 'Use a connected service',
+  browser: 'Act on a website (agent window)',
 };
 let current = null;
 

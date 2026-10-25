@@ -15,6 +15,7 @@ const EXAMPLES = [
 export function initSkills() {
   $('#skillNew').onclick = () => edit();
   $('#skillFolder').onclick = () => api.skills.openFolder().catch(toastError);
+  $('#skillImport').onclick = () => importSkills();
   $('#skillSearch').addEventListener('input', render);
   on('skills-changed', refresh);
 }
@@ -48,6 +49,7 @@ function render() {
         'div',
         { class: 'skill-card glass' },
         el('h4', {}, el('span', {}, s.name), el('code', { class: 'cmd' }, `/${s.slug}`)),
+        s.source ? el('div', { class: 'hint' }, `📦 from ${s.source}${s.files?.length ? ` · ${s.files.length} files` : ''}`) : '',
         s.description ? el('div', { class: 'sdesc' }, s.description) : '',
         s.triggers.length ? el('div', { class: 'trig' }, s.triggers.map((t) => el('span', { class: 'tag' }, `“${t}”`))) : '',
         el('div', { class: 'steps' }, s.steps),
@@ -100,6 +102,57 @@ async function edit(skill = {}, { isNew = !skill.slug } = {}) {
   try {
     const saved = await api.skills.save(res, isNew ? undefined : skill.slug);
     toast(`Saved — run it with /${saved.slug}`);
+    emit('skills-changed');
+  } catch (err) {
+    toastError(err);
+  }
+}
+
+// Agent Skills from GitHub (main/skillimport.js): find the skills in a repository, pick, install.
+const SUGGESTED_REPOS = [
+  ['mattpocock/skills', 'Engineering and productivity: grilling a plan, TDD, diagnosing bugs, code review, teaching'],
+  ['cathrynlavery/diagram-design', 'Editorial diagrams in 45 types as HTML/SVG'],
+  ['morluto/rea', 'Reverse-engineering workflow (works with the REA extension)'],
+];
+
+async function importSkills(preset = '') {
+  const repo = el('input', { class: 'input', value: preset, placeholder: 'owner/repo or a github.com link' });
+  const list = el('div', { class: 'import-list' });
+  const status = el('div', { class: 'hint' });
+  let found = null;
+  const find = async () => {
+    status.textContent = 'Looking for skills…';
+    list.innerHTML = '';
+    try {
+      found = await api.skills.scan(repo.value);
+      status.textContent = `${found.repo} · ${found.license || 'no license stated'} · ${found.skills.length} skill${found.skills.length === 1 ? '' : 's'}${found.description ? ` · ${found.description}` : ''}`;
+      for (const k of found.skills) list.append(el('label', { class: 'import-row' }, el('input', { type: 'checkbox', value: k.path }), el('span', {}, el('b', {}, k.name), ` /${k.slug} · ${k.files} files, ${Math.max(1, Math.round(k.bytes / 1024))} KB`, el('div', { class: 'hint' }, k.description))));
+      if (!found.skills.length) list.append(el('p', { class: 'muted' }, 'No SKILL.md folders in this repository.'));
+    } catch (err) {
+      status.textContent = `✕ ${err.message}`;
+    }
+  };
+  const ok = await modal((card, close) => {
+    card.classList.add('wide');
+    card.append(
+      el('h3', {}, 'Import skills from GitHub'),
+      el('p', { class: 'muted' }, 'Agent Skills are folders with a SKILL.md (the format Claude Code, Codex and others use). Only their text is copied, nothing in them is run, and the repository’s license is kept with each one.'),
+      el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, repo), el('button', { class: 'btn primary', onclick: find }, 'Find skills')),
+      el('div', { class: 'row', style: { flexWrap: 'wrap', gap: '6px' } }, ...SUGGESTED_REPOS.map(([r, d]) => el('button', { class: 'btn small', title: d, onclick: () => ((repo.value = r), find()) }, r))),
+      status,
+      list,
+      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(false) }, 'Cancel'), el('button', { class: 'btn primary', onclick: () => close(true) }, 'Import selected')),
+    );
+    repo.addEventListener('keydown', (e) => e.key === 'Enter' && find());
+    if (preset) find();
+  });
+  const picked = [...list.querySelectorAll('input:checked')].map((i) => i.value);
+  if (!ok || !found || !picked.length) return;
+  toast(`Importing ${picked.length} skill${picked.length === 1 ? '' : 's'}…`);
+  try {
+    const r = await api.skills.import(found.repo, picked);
+    toast(`✓ Imported: ${r.installed.map((x) => `/${x.slug}`).join(', ')}`);
+    for (const x of r.installed.filter((y) => y.renamed)) toast(x.renamed);
     emit('skills-changed');
   } catch (err) {
     toastError(err);
