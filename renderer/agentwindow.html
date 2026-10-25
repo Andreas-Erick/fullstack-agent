@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'"
+    />
+    <title>Agent window</title>
+    <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/exo-2/400.css" />
+    <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/exo-2/600.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="js/agentwindow.js"></script>
+  </head>
+  <body class="agent-win">
+    <!-- The page itself is a separate view under this bar (main/agentwindow.js); this bar is Nexus. -->
+    <header class="aw-bar">
+      <span class="aw-who" id="awWho" title="Who is using this window"><i></i><span>You</span></span>
+      <div class="aw-nav">
+        <button class="tb" id="awBack" title="Back (Alt+Left)" disabled>←</button>
+        <button class="tb" id="awForward" title="Forward (Alt+Right)" disabled>→</button>
+        <button class="tb" id="awReload" title="Reload (F5)">⟳</button>
+        <button class="tb" id="awHome" title="Start page">⌂</button>
+      </div>
+      <form class="aw-address" id="awForm" autocomplete="off">
+        <input class="input" id="awUrl" spellcheck="false" placeholder="Search or type a web address" aria-label="Address" />
+      </form>
+      <span class="aw-notice" id="awNotice"></span>
+    </header>
+  </body>
+</html>

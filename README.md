@@ -65,6 +65,9 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 - **A skill tree** of everything you're growing, as a constellation: progress comes from your learning tracker, decks and habits; skills unlock as their foundations grow.
 - **Routines:** the assistant works on a schedule while the app is open: a daily briefing, syncing Google Calendar or Todoist, summarizing new Plaud recordings, a daily language text. Each run notifies you.
 - **Claude connectors and plugins** (with the Claude account brain): the services on your claude.ai account, each set to ask, allow reading, allow all but deleting, or allow everything.
+- **Skills from GitHub:** import Agent Skills (SKILL.md folders, e.g. mattpocock/skills) with their reference files; nothing in them is run.
+- **Diagrams:** clean HTML + SVG diagrams saved in your vault (45 types with the diagram-design skill).
+- **Extensions** (Claude account brain): **REA** to reverse engineer how apps, websites and binaries work, with evidence; **God's Eye View**, a live 3D globe of public world data (flights, ships, satellites, weather, quakes) the assistant can query and show you.
 - **Persona templates:** Ada (STEM tutor), Mira (polyglot coach), Sol (life coach), each with its own look, face and voice. Ask **"How can I use you?"** for a tour of everything, tailored to you.
 
 ### 📱 On your phone

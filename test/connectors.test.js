@@ -161,3 +161,18 @@ test('"allow all but deleting": writes run, deleting still asks', async () => {
   answer = true;
   assert.deepStrictEqual(spec({ connectors: true, connectorsWrite: ['claude.ai Todoist'] }).write, ['claude_ai_Todoist']);
 });
+
+test('extensions reach the session with connectors off, through the permission levels', async () => {
+  const s = claudecode.sessionSpec({ settings: { ...settings({ connectorsReadOnly: ['rea', 'claude_ai_Todoist'] }), extensions: { rea: true } }, configKey: 'k', activeTools: [], cwd: '/app', vault: '', repos: '', model: 'default' });
+  assert.ok(s.extensions.rea, 'the rea server is in the session');
+  assert.ok(s.builtins.includes('ToolSearch'), 'tool search for its many tools');
+  assert.deepStrictEqual(s.readOnly, ['rea'], 'levels for the extension only, not for connectors that are off');
+  gates.length = 0;
+  answer = true;
+  const sess = session(false);
+  sess.spec.extensions = s.extensions;
+  sess.spec.readOnly = s.readOnly;
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__rea__analyze_javascript_application', input: { path: '/x' } })).behavior, 'allow');
+  assert.strictEqual(gates.length, 1, 'not a reading verb: it asked');
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__find-tasks', input: {} })).behavior, 'deny', 'connectors stay off');
+});

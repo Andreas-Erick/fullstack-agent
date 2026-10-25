@@ -154,6 +154,7 @@ export function initSettings() {
     else if (p.status === 'error') ttsProgressEl.textContent = `✕ ${p.message}`;
   });
   api.on('helperApps:event', (ev) => ev.type === 'status' && refreshHelperApps?.());
+  api.on('extensions:progress', (p) => extensionProgress && (extensionProgress.textContent = `${p.step}${p.line ? `: ${p.line}` : ''}`));
   api.on('remote:event', (ev) => {
     if (ev.type === 'tunnel') return refreshRemoteStatus?.();
     if (ev.type !== 'paired' && ev.type !== 'moved') return;
@@ -171,7 +172,7 @@ async function render() {
   const root = $('#settingsRoot');
   const scroll = root.parentElement.scrollTop;
   root.innerHTML = '';
-  root.append(agentCard(), brainCard(), voiceCard(), sttCard(), learningCard(), helperAppsCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), uiCard());
+  root.append(agentCard(), brainCard(), extensionsCard(), voiceCard(), sttCard(), learningCard(), helperAppsCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), uiCard());
   root.parentElement.scrollTop = scroll;
 }
 
@@ -368,28 +369,116 @@ export function shrinkImage(dataUrl, size) {
   });
 }
 
+// Per connector or extension (by server key): ask every time, allow its reading tools (list, get,
+// search…), allow all but deleting, or allow everything (claudecode.js approve()).
+const levelLists = () => ({ all: new Set(state.settings.claudeCode.connectorsAllowed || []), read: new Set(state.settings.claudeCode.connectorsReadOnly || []), write: new Set(state.settings.claudeCode.connectorsWrite || []) });
+const levelOf = (key) => {
+  const l = levelLists();
+  return l.all.has(key) ? 'all' : l.write.has(key) ? 'write' : l.read.has(key) ? 'read' : 'ask';
+};
+async function setLevel(key, level) {
+  const l = levelLists();
+  for (const set of Object.values(l)) set.delete(key);
+  l[level]?.add(key);
+  await saveSettings({ claudeCode: { connectorsAllowed: [...l.all], connectorsReadOnly: [...l.read], connectorsWrite: [...l.write] } });
+}
+function permissionLevel(key, { disabled = false } = {}) {
+  const level = levelOf(key);
+  const box = el('select', { class: 'input allow-level', disabled }, ...[['ask', 'Ask every time'], ['read', 'Allow reading'], ['write', 'Allow all but deleting'], ['all', 'Allow everything']].map(([v, l]) => el('option', { value: v, selected: v === level }, l)));
+  box.addEventListener('change', () => setLevel(key, box.value));
+  return box;
+}
+
+// Extensions (main/extensions.js): MCP servers the app runs for the Claude account brain.
+let extensionProgress = null;
+function extensionsCard() {
+  const list = el('div', { class: 'connector-list', style: { maxHeight: 'none' } });
+  const progress = el('div', { class: 'hint' });
+  extensionProgress = progress;
+  const draw = async () => {
+    const items = await api.extensions.status().catch(() => []);
+    list.innerHTML = '';
+    for (const x of items) {
+      const on = el('input', { type: 'checkbox', checked: x.on });
+      on.addEventListener('change', async () => {
+        // A sensible starting permission for the extension (changeable next to it).
+        if (on.checked && levelOf(x.key) === 'ask' && x.defaultLevel !== 'ask') await setLevel(x.key, x.defaultLevel);
+        await save(`extensions.${x.id}`, on.checked);
+        draw();
+      });
+      const rows = [
+        el('div', { class: 'row' }, el('label', { class: 'toggle' }, on, el('span', { class: 'sw' }), el('b', {}, x.name)), el('span', { style: { flex: 1 } }), el('span', { class: 'hint' }, 'Permission'), permissionLevel(x.key)),
+        el('div', { class: 'hint' }, `${x.about} Source: ${x.source}.`),
+      ];
+      if (x.id === 'godseye') {
+        const pathInput = el('input', { class: 'input', value: x.path, placeholder: 'Folder of your gods-eye-view checkout', spellcheck: 'false' });
+        pathInput.addEventListener('change', async () => {
+          await save('extensions.godseyePath', pathInput.value.trim());
+          draw();
+        });
+        const browse = el('button', {
+          class: 'btn small',
+          onclick: async () => {
+            const d = await api.dialog.pickFolder('God’s Eye View folder');
+            if (!d) return;
+            await save('extensions.godseyePath', d);
+            draw();
+          },
+        }, 'Browse…');
+        const install = el('button', {
+          class: 'btn small',
+          onclick: async () => {
+            const parent = await api.dialog.pickFolder('Install God’s Eye View into which folder?');
+            if (!parent) return;
+            install.disabled = true;
+            progress.textContent = 'Starting…';
+            try {
+              const r = await api.extensions.install(parent);
+              await save('extensions.godseyePath', r.dir);
+              progress.textContent = `✓ Installed in ${r.dir}`;
+            } catch (err) {
+              progress.textContent = `✕ ${err.message}`;
+            }
+            install.disabled = false;
+            draw();
+          },
+        }, x.ready ? '⟳ Reinstall' : '⬇ Install it for me');
+        const status = x.ready ? (x.running ? `✓ ready · globe server running${x.startedByNexus ? ' (started by Nexus)' : ''}` : '✓ ready · the globe server starts when needed') : `✕ ${x.reason}`;
+        rows.push(
+          el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, pathInput), browse, install),
+          el(
+            'div',
+            { class: 'row', style: { flexWrap: 'wrap' } },
+            el('span', { class: 'hint' }, status),
+            el('span', { style: { flex: 1 } }),
+            x.on && x.ready ? el('button', { class: 'btn small primary', onclick: () => api.extensions.openGlobe().then(draw, toastError) }, '🌍 Open the globe') : '',
+            x.running && x.startedByNexus ? el('button', { class: 'btn small', onclick: () => api.extensions.stop().then(() => setTimeout(draw, 800)) }, 'Stop server') : '',
+          ),
+          progress,
+        );
+      }
+      list.append(el('div', { class: 'extension glass' }, ...rows));
+    }
+  };
+  draw();
+  return card(
+    'extensions',
+    'Extensions',
+    'Extra abilities for the <b>Claude account brain</b>: MCP servers the app runs for it. Their tools go through the permission level you choose, with or without Claude connectors. Changes take effect from the next conversation.',
+    list,
+  );
+}
+
 // The user's claude.ai connectors and Claude Code plugins, used through the Claude account brain.
 const CONNECTOR_STATUS = { connected: ['ok', 'connected'], 'needs-auth': ['warn', 'needs sign-in'], failed: ['err', 'not connecting'], 'not-configured': ['muted', 'not set up'] };
 function connectorsSection() {
   const list = el('div', { class: 'connector-list' });
   const out = result();
-  // Per connector: ask every time, allow its reading tools (list, get, search…), or allow everything.
-  const allowed = () => new Set(state.settings.claudeCode.connectorsAllowed || []);
-  const reading = () => new Set(state.settings.claudeCode.connectorsReadOnly || []);
-  const writing = () => new Set(state.settings.claudeCode.connectorsWrite || []);
-  const levelOf = (key) => (allowed().has(key) ? 'all' : writing().has(key) ? 'write' : reading().has(key) ? 'read' : 'ask');
   const draw = (items) => {
     list.innerHTML = '';
     for (const c of items) {
       const [cls, label] = CONNECTOR_STATUS[c.status] || ['muted', c.status];
-      const level = levelOf(c.key);
-      const box = el('select', { class: 'input allow-level', disabled: c.status !== 'connected' && level === 'ask' }, ...[['ask', 'Ask every time'], ['read', 'Allow reading'], ['write', 'Allow all but deleting'], ['all', 'Allow everything']].map(([v, l]) => el('option', { value: v, selected: v === level }, l)));
-      box.addEventListener('change', async () => {
-        const lists = { all: allowed(), read: reading(), write: writing() };
-        for (const set of Object.values(lists)) set.delete(c.key);
-        lists[box.value]?.add(c.key);
-        await saveSettings({ claudeCode: { connectorsAllowed: [...lists.all], connectorsReadOnly: [...lists.read], connectorsWrite: [...lists.write] } });
-      });
+      const box = permissionLevel(c.key, { disabled: c.status !== 'connected' && levelOf(c.key) === 'ask' });
       list.append(
         el(
           'div',
@@ -469,8 +558,10 @@ function brainCard() {
   }, '⚡ Test connection');
 
   const body = [];
+  // The plan meter (title bar), wherever the Claude account brain can answer; also under Interface.
+  const usageToggle = () => toggle('ui.showClaudeUsage', 'Show how much of my Claude plan is left (in the title bar)');
   if (provider === 'auto') {
-    body.push(...routingSection());
+    body.push(...routingSection(), usageToggle());
   } else if (provider === 'claude-code') {
     const line = el('div', { class: 'test-result' }, 'Checking Claude Code…');
     const actions = el('div', { class: 'row', style: { flexWrap: 'wrap' } });
@@ -498,6 +589,7 @@ function brainCard() {
     body.push(
       line,
       actions,
+      usageToggle(),
       el(
         'div',
         { class: 'grid2' },
@@ -917,6 +1009,8 @@ function webCard() {
     'Internet',
     'Lets the agent search the web and read pages. With the Claude account provider, Claude Code’s built-in web search is used instead.',
     toggle('web.enabled', 'Allow internet access'),
+    toggle('agentWindow.enabled', 'Agent window: let the agent open and use websites (and the globe) in a browser window you can watch'),
+    el('div', { class: 'hint' }, 'The agent window has its own sign-ins (separate from your browser), no camera, microphone or downloads, and never opens anything on this computer or your network. Clicking and typing on a page follow your permission mode; passwords and payment details are always yours to type. ', el('a', { href: '#', onclick: (e) => (e.preventDefault(), api.agentWindow.open()) }, 'Open it')),
     select('web.provider', 'Search provider', [['duckduckgo', 'DuckDuckGo (free, no key)'], ['searxng', 'SearXNG (self-hosted)'], ['brave', 'Brave Search API'], ['tavily', 'Tavily API']], { onChange: () => render() }),
     ...extra,
     el('div', { class: 'row' }, el('button', {
@@ -955,41 +1049,32 @@ async function selfCard() {
 }
 
 async function docsCard() {
-  const roots = await api.docs.roots().catch(() => []);
+  // Only the workspace folder by default; every other folder is one the user added here (and can remove).
+  const extra = state.settings.documents.allowedRoots || [];
+  const ws = state.settings.documents.workspace;
   const list = el('div', { class: 'field' });
-  const custom = state.settings.documents.allowedRoots || [];
-  const renderList = () => {
-    list.innerHTML = '';
-    list.append(el('label', {}, custom.length ? 'Allowed folders' : 'Allowed folders (defaults)'));
-    for (const r of custom.length ? custom : roots) {
-      list.append(
-        el(
-          'div',
-          { class: 'row' },
-          el('code', { style: { flex: 1, fontSize: '12px' } }, r),
-          custom.length ? el('button', { class: 'btn small', onclick: async () => (await save('documents.allowedRoots', custom.filter((x) => x !== r)), render()) }, 'Remove') : '',
-        ),
-      );
-    }
-  };
-  renderList();
+  list.append(el('label', {}, 'Folders the agent may use'));
+  const row = (p, note, action) => el('div', { class: 'row' }, el('code', { style: { flex: 1, fontSize: '12px' } }, p), note ? el('span', { class: 'hint' }, note) : '', action || '');
+  if (ws) list.append(row(ws, 'workspace'));
+  for (const r of extra) list.append(row(r, '', el('button', { class: 'btn small', onclick: async () => (await save('documents.allowedRoots', extra.filter((x) => x !== r)), render()) }, 'Remove')));
+  if (!ws && !extra.length) list.append(el('div', { class: 'hint' }, 'None yet: set a workspace folder above. Until then the agent can only use its vault and files you open yourself.'));
   const add = el('button', {
     class: 'btn',
     onclick: async () => {
-      const dir = await api.dialog.pickFolder('Allow the agent to open documents in…');
-      if (dir) {
-        await save('documents.allowedRoots', [...new Set([...(custom.length ? custom : roots), dir])]);
+      const dir = await api.dialog.pickFolder('Allow the agent to use the files in…');
+      if (dir && dir !== ws) {
+        await save('documents.allowedRoots', [...new Set([...extra, dir])]);
         render();
       }
     },
   }, '＋ Add folder');
   return card(
     'documents',
-    'Documents',
-    'Folders the agent may open and read documents from (files you open yourself are always allowed). The Obsidian vault is always included.',
+    'Documents & folder access',
+    'The agent may only use the files in its workspace folder and in folders you add below, plus its own vault (and its own code, when code access is on). Files you open yourself are always allowed. Remove a folder to take access away; it applies from the next message.',
     folder('documents.workspace', 'Agent workspace folder', {
       placeholder: 'e.g. the folder with your university or work files',
-      hint: 'Where you keep the files you work on. When you ask for a file without saying where ("open the quarterly report PDF"), the agent looks here first. It is always allowed.',
+      hint: 'Where you keep the files you work on. When you ask for a file without saying where ("open the quarterly report PDF"), the agent looks here first.',
       onChange: () => render(),
     }),
     list,
@@ -1398,6 +1483,8 @@ function uiCard() {
     select('ui.fx', 'Visual effects', [['hud', 'Futuristic — HUD frames, ambient grid, boot sequence, animations'], ['subtle', 'Subtle — HUD frames and readouts, no motion'], ['off', 'Off — the plain look']], { hint: 'Follows the theme colors. With “reduce motion” on in your system, animations stay off.' }),
     select('ui.chatLayout', 'Chat layout', [['chat', 'Chat only (full width)'], ['split', 'Chat and face side by side'], ['face', 'Face full size, chat underneath']], { onChange: () => emit('layout') }),
     toggle('ui.captions', 'Show captions on the face'),
+    toggle('ui.showClaudeUsage', 'Show how much of the Claude plan is left (title bar, when the Claude account brain is used)'),
+    toggle('ui.showSystemStats', 'Show CPU, RAM and GPU load in the title bar (click it for details; only you see these, they never go to the AI)'),
     text('ui.sleepAfterMin', 'Face dozes off after (minutes without activity; 0 = never)', { type: 'number' }),
   );
 }

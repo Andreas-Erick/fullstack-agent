@@ -18,9 +18,18 @@ const KEEP = 3;
 const als = new AsyncLocalStorage();
 let debugEnabled = false;
 
+// Writing a line is one append: the folder is made once and the file's size is tracked in memory, so
+// logging doesn't stall the main process with extra disk calls.
+let madeDir = '';
+let size = null; // bytes in nexus.log, read once
+
 function dir() {
   const d = path.join(app.getPath('userData'), 'logs');
-  fs.mkdirSync(d, { recursive: true });
+  if (madeDir !== d) {
+    fs.mkdirSync(d, { recursive: true });
+    madeDir = d;
+    size = null;
+  }
   return d;
 }
 
@@ -34,6 +43,7 @@ function rotate(f) {
     if (fs.existsSync(from)) fs.renameSync(from, path.join(dir(), `nexus.${i + 1}.log`));
   }
   fs.renameSync(f, path.join(dir(), 'nexus.1.log'));
+  size = 0;
 }
 
 // ------------------------------------------------------------ redaction
@@ -91,9 +101,11 @@ let last = { key: '', at: 0, count: 0 };
 
 function append(line) {
   const f = file();
-  const st = fs.existsSync(f) ? fs.statSync(f) : null;
-  if (st && st.size > MAX_BYTES) rotate(f);
-  fs.appendFileSync(f, `${line}\n`);
+  if (size === null) size = fs.existsSync(f) ? fs.statSync(f).size : 0;
+  if (size > MAX_BYTES) rotate(f);
+  const text = `${line}\n`;
+  fs.appendFileSync(f, text);
+  size += Buffer.byteLength(text);
 }
 
 function flushRepeats() {

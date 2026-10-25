@@ -1,6 +1,6 @@
 // Window-level UI: zoom, the chat view's layout (chat only · split · face), the resizable face panel,
 // full screen, screen sharing (picker, live preview, stop) and the quick-note box.
-import { $, $$, api, el, toast, toastError, modal, on, debounce } from './util.js';
+import { $, $$, api, el, toast, toastError, modal, on, emit, debounce } from './util.js';
 import { state, saveSettings, noteActivity } from './state.js';
 import { switchView } from './nav.js';
 import { currentConversationId } from './chat.js';
@@ -30,9 +30,7 @@ export function initLayout({ miniFace }) {
   $$('#layoutSeg button').forEach((b) => (b.onclick = () => setLayout(b.dataset.layout)));
   initSplitter();
   $('#windowFull').onclick = toggleAppFullscreen;
-  document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement) document.body.classList.remove('fullscreen-app');
-  });
+  api.on('win:fullscreen', showFullscreen);
 
   // Chat ⋯ menu
   const menu = $('#chatMenu');
@@ -131,14 +129,32 @@ function initSplitter() {
   bar.addEventListener('dblclick', () => saveSettings({ ui: { facePanelWidth: 300 } }));
 }
 
+// ------------------------------------------------------------ full screen
+// The window goes full screen (main process, win:fullscreen); the title bar and rail hide only once it
+// really is, so a failed attempt can't leave the app without them. `fullMode` says what to show then:
+// the whole app, or the face alone (face view's button).
+let fullMode = 'app';
+let isFull = false;
+
+function showFullscreen(on) {
+  isFull = Boolean(on);
+  document.body.classList.toggle('fullscreen-app', isFull && fullMode === 'app');
+  document.body.classList.toggle('fullscreen-face', isFull && fullMode === 'face');
+  if (!isFull) fullMode = 'app';
+  emit('fullscreen', isFull);
+}
+
+export const isFullscreen = () => isFull;
+
+/** mode 'app' | 'face' enters full screen, null leaves it. */
+export function setFullscreen(mode) {
+  if (mode) fullMode = mode;
+  if (mode && isFull) return showFullscreen(true); // already full screen: just switch what shows
+  api.win.fullscreen(Boolean(mode)).catch((err) => toastError(err));
+}
+
 export function toggleAppFullscreen() {
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {});
-    document.body.classList.remove('fullscreen-app');
-  } else {
-    document.body.classList.add('fullscreen-app');
-    document.documentElement.requestFullscreen?.().catch(() => {});
-  }
+  setFullscreen(isFull ? null : 'app');
 }
 
 // ------------------------------------------------------- screen sharing

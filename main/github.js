@@ -39,19 +39,30 @@ function checkRepo(repo) {
 
 // ------------------------------------------------------------- status
 let authCache = { at: 0, value: null };
+let checking = null;
 
+function checkAuth() {
+  checking ||= (async () => {
+    let value;
+    try {
+      const login = (await gh(['api', 'user', '--jq', '.login'], { timeout: 15000 })).trim();
+      value = { connected: true, login };
+    } catch (err) {
+      value = { connected: false, error: /auth login|not logged/i.test(err.message) ? 'Not signed in. Run "gh auth login" in a terminal.' : err.message };
+    }
+    authCache = { at: Date.now(), value };
+    return value;
+  })().finally(() => (checking = null));
+  return checking;
+}
+
+// Every turn asks (tools.activeTools), so a known answer comes back at once; when it is older than
+// 10 minutes it is checked again in the background (a network call that can take seconds).
 async function status({ fresh = false } = {}) {
   await refreshWorkspace();
-  if (!fresh && authCache.value && Date.now() - authCache.at < 10 * 60 * 1000) return authCache.value;
-  let value;
-  try {
-    const login = (await gh(['api', 'user', '--jq', '.login'], { timeout: 15000 })).trim();
-    value = { connected: true, login };
-  } catch (err) {
-    value = { connected: false, error: /auth login|not logged/i.test(err.message) ? 'Not signed in. Run "gh auth login" in a terminal.' : err.message };
-  }
-  authCache = { at: Date.now(), value };
-  return value;
+  if (fresh || !authCache.value) return checkAuth();
+  if (Date.now() - authCache.at > 10 * 60 * 1000) checkAuth().catch(() => {});
+  return authCache.value;
 }
 
 async function workspace() {

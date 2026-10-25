@@ -37,12 +37,18 @@
         <div class="zoom-ctl" id="zoomCtl" title="Zoom (Ctrl + / Ctrl − / Ctrl 0, or Ctrl + mouse wheel)">
           <button id="zoomOut" aria-label="Zoom out">−</button><button id="zoomReset" aria-label="Reset zoom">100%</button><button id="zoomIn" aria-label="Zoom in">+</button>
         </div>
+        <button class="pill aw-pill" id="pillAgentWin" title="Open the agent window: websites and the globe, which the agent can use and you can watch">🌐</button>
+        <button class="pill sys-pill hidden" id="pillSys" title="CPU, memory and GPU load"></button>
+        <span class="pill usage-pill hidden" id="pillUsage" title="Claude plan usage"><b class="usage-bar"><b></b></b><span>Claude</span></span>
         <span class="pill" id="pillLlm" title="AI brain"><i></i>Brain</span>
         <span class="pill" id="pillVoice" title="VoiceStudio"><i></i>Voice</span>
         <span class="pill" id="pillCal" title="Calendar"><i></i>Calendar</span>
         <span class="pill" id="pillKb" title="Obsidian vault"><i></i>Vault</span>
       </div>
     </header>
+
+    <!-- System monitor details (renderer/js/sysmon.js), opened from the title-bar meter -->
+    <div class="sys-panel hidden" id="sysPanel"></div>
 
     <div class="shell">
       <nav class="rail" id="rail">
@@ -298,6 +304,7 @@
             <div class="actions">
               <input class="input search" id="skillSearch" placeholder="Search skills…" />
               <button class="btn primary" id="skillNew">＋ New skill</button>
+              <button class="btn" id="skillImport">⬇ Import from GitHub</button>
               <button class="btn" id="skillFolder">📁 Folder</button>
             </div>
           </div>
