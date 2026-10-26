@@ -581,6 +581,18 @@ function registerIpc() {
   handle('skilltree:view', () => require('./skilltree').view());
   handle('skilltree:upsert', (skill) => require('./skilltree').upsert([skill && typeof skill === 'object' ? skill : {}]));
   handle('skilltree:remove', (name) => require('./skilltree').remove(String(name)));
+  // The memory stream (stream.js) and the Inner World (innerworld.js); window only, never to devices.
+  handle('stream:recent', async () => {
+    const stream = require('./stream');
+    return (await stream.enabled()) ? stream.recent() : null;
+  });
+  handle('stream:reflect', () => {
+    const stream = require('./stream');
+    return stream.reflect(stream.USER, { force: true });
+  });
+  handle('world:view', () => require('./innerworld').view());
+  handle('world:simulate', (force) => require('./innerworld').simulate({ force: force === true }));
+  handle('world:resident', (name) => require('./innerworld').resident(String(name || '')));
   // Extensions (MCP servers for the Claude account brain) and the God's Eye View globe
   handle('extensions:status', async () => require('./extensions').status(await store.getSettings()));
   handle('extensions:check', (dir) => require('./extensions').checkGodsEye(String(dir || '')));
@@ -869,6 +881,7 @@ app.whenReady().then(async () => {
   helperApps.ensureAll(s, 'launch');
   journal.start();
   startRoutines();
+  require('./innerworld').start({ notify: (ev) => toWindow('world:event', ev) });
   store.sweepStaleTemp().catch(() => {});
   claudecode.sweepStaleTemp().catch(() => {});
 

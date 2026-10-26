@@ -45,6 +45,8 @@ const channels = {
   persona: ['generate', 'switch', 'create', 'remove', 'templates'],
   habits: ['status', 'log', 'add', 'pause'],
   skilltree: ['view', 'upsert', 'remove'],
+  stream: ['recent', 'reflect'],
+  world: ['view', 'simulate', 'resident'],
   extensions: ['status', 'check', 'install', 'start', 'stop', 'openGlobe'],
   agentWindow: ['state', 'go', 'back', 'forward', 'reload', 'stop', 'home', 'open'],
   arch: ['get', 'build'],

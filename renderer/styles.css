@@ -299,6 +299,21 @@ body.fullscreen-face .shell, body.fullscreen-app .shell { height: 100%; }
 .mem-card .foot { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--muted); margin-top: auto; }
 .mem-card .foot .acts { display: flex; gap: 6px; opacity: 0; transition: 0.15s; }
 .mem-card:hover .foot .acts { opacity: 1; }
+/* The memory stream under the memories: a dated log, insights highlighted. */
+.stream-panel { margin-top: 22px; padding: 14px 16px; }
+.stream-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.stream-head h3 { margin: 0; font-size: 16px; }
+.stream-head .actions { margin-left: auto; display: flex; gap: 6px; }
+.stream-list { list-style: none; margin: 10px 0 0; padding: 0; max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.stream-row { display: grid; grid-template-columns: 150px 40px 1fr auto; gap: 10px; align-items: baseline; padding: 6px 8px; border-radius: 8px; font-size: 13px; }
+.stream-row:hover { background: rgba(var(--text-rgb), 0.04); }
+.stream-row .when { color: var(--muted); font-size: 11.5px; }
+.stream-row .imp { font-size: 11px; font-weight: 700; color: rgba(var(--c1), calc(0.35 + var(--imp) * 0.65)); }
+.stream-row .text { color: var(--text-2); }
+.stream-row .ev { font-size: 11px; color: var(--muted); }
+.stream-row.reflection { background: rgba(var(--c1), 0.07); }
+.stream-row.reflection .text { color: var(--text); }
+@media (max-width: 720px) { .stream-row { grid-template-columns: 1fr auto; } .stream-row .when { grid-column: 1 / -1; } }
 .tag { display: inline-block; font-size: 10.5px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line-strong); color: rgb(var(--c1-soft)); font-family: var(--font-display); letter-spacing: 0.08em; text-transform: var(--display-transform); width: fit-content; }
 mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 
@@ -615,6 +630,41 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .tree-node.mastered .core { fill: rgba(var(--node), 0.55); }
 .tree-node:focus { outline: none; }
 .tree-node:focus-visible .halo { opacity: 1; }
+
+/* Inner World: the village canvas and the day beside it. --who is a resident's accent (validated hex from main). */
+#view-world { flex-direction: column; }
+.world-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px 8px; flex-wrap: wrap; }
+.world-head .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+#view-world .chip { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--text-2); }
+.world-clock { display: flex; align-items: center; gap: 8px; }
+.world-clock input { width: 180px; accent-color: rgb(var(--c1)); }
+.world-body { position: relative; flex: 1; min-height: 0; display: flex; gap: 12px; padding: 0 16px 16px; }
+.world-canvas { flex: 1; min-width: 0; height: 100%; display: block; border-radius: var(--radius); }
+.world-panel { width: min(380px, 40%); padding: 16px 18px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.world-panel h3 { margin: 0; display: flex; align-items: center; gap: 6px; }
+.world-panel p { margin: 0; color: var(--text-2); line-height: 1.5; }
+.world-sec { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.world-sec > b, .world-grow > b { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.world-grow { padding: 8px 10px; border-radius: 10px; background: rgba(var(--c1), 0.06); border: 1px solid rgba(var(--c1), 0.18); font-size: 13px; }
+.world-news { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: rgb(var(--ok)); }
+.world-scene { --who: var(--c1); padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(var(--text-rgb), 0.03); display: flex; flex-direction: column; gap: 4px; cursor: pointer; transition: border-color 0.15s; }
+.world-scene:hover { border-color: rgba(var(--c1), 0.5); }
+.world-scene.live { border-color: rgba(var(--c3), 0.5); cursor: default; }
+.world-line { --who: var(--c2); font-size: 13px; color: var(--text-2); line-height: 1.45; }
+.world-line .who { font-weight: 700; color: rgb(var(--who)); }
+.world-outcome { font-size: 12.5px; font-style: italic; color: var(--muted); }
+.world-res { --who: var(--c2); display: grid; grid-template-columns: 12px auto 1fr; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.world-res:hover { background: rgba(var(--text-rgb), 0.05); }
+.world-res .dot, .world-swatch { width: 10px; height: 10px; border-radius: 50%; background: rgb(var(--who)); box-shadow: 0 0 8px rgba(var(--who), 0.6); display: inline-block; }
+.world-res .hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-day { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text-2); padding: 6px 0; border-top: 1px solid var(--line); }
+.world-plan { font-size: 13px; color: var(--text-2); padding: 2px 6px; border-radius: 6px; }
+.world-plan.now { background: rgba(var(--c1), 0.1); color: var(--text); }
+.world-mem { font-size: 13px; color: var(--text-2); padding: 4px 0; border-top: 1px solid var(--line); }
+.world-mem.reflection { color: var(--text); }
+.world-persona { font-size: 13px; max-height: 110px; overflow: auto; }
+.world-back { align-self: flex-start; }
+@media (max-width: 900px) { .world-body { flex-direction: column; } .world-panel { width: auto; max-height: 45%; } .world-canvas { min-height: 300px; } }
 .chip.area-0 { color: rgb(var(--c1)); border-color: rgba(var(--c1), 0.5); }
 .chip.area-1 { color: rgb(var(--c2)); border-color: rgba(var(--c2), 0.5); }
 .chip.area-2 { color: rgb(var(--c3)); border-color: rgba(var(--c3), 0.5); }

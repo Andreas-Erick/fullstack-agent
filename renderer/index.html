@@ -90,6 +90,9 @@
         <button class="rail-btn" data-view="tree" title="Skill tree — what you are growing">
           <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2" /><circle cx="13" cy="6" r="2" /><circle cx="13" cy="18" r="2" /><circle cx="20" cy="12" r="2" /><path d="M7 11l4-4M7 13l4 4M15 7l3.5 4M15 17l3.5-4" /></svg><span>Tree</span>
         </button>
+        <button class="rail-btn" data-view="world" title="Inner World — where your personas live">
+          <svg viewBox="0 0 24 24"><path d="M3 20h18" /><path d="M5 20v-7l4-3 4 3v7" /><path d="M14 20v-9l3.5-3 3.5 3v9" /><path d="M8 20v-3h2v3" /><circle cx="17.5" cy="4" r="1.2" /></svg><span>World</span>
+        </button>
         <button class="rail-btn" data-view="arch" title="Architecture — how Nexus is built, part by part">
           <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="5" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="8.5" y="16" width="7" height="5" rx="1" /><path d="M6.5 8v3.5h11V8M12 11.5V16" /></svg><span>Arch</span>
         </button>
@@ -216,6 +219,18 @@
           </div>
           <p class="muted" id="memSummary"></p>
           <div class="mem-grid" id="memGrid"></div>
+          <!-- The memory stream (main/stream.js): observations and the insights drawn from them -->
+          <div class="stream-panel glass" id="streamPanel">
+            <div class="stream-head">
+              <h3 class="display">Memory stream</h3>
+              <span class="muted" id="streamSummary"></span>
+              <div class="actions">
+                <button class="btn small" id="streamReflect" title="Draw insights from the recent observations now">✨ Reflect now</button>
+                <button class="btn small" id="streamOpen" title="Edit the stream in Obsidian">Open in vault</button>
+              </div>
+            </div>
+            <ol class="stream-list" id="streamList"></ol>
+          </div>
         </section>
 
         <!-- ============ CALENDAR ============ -->
@@ -294,6 +309,28 @@
             <svg class="tree-canvas" id="treeCanvas"><g id="treeLayer"></g></svg>
             <div class="tree-empty glass hidden" id="treeEmpty"></div>
             <aside class="tree-detail glass hidden" id="treeDetail"></aside>
+          </div>
+        </section>
+
+        <!-- ============ INNER WORLD (the personas' village, renderer/js/innerworld.js) ============ -->
+        <section class="view" id="view-world">
+          <div class="world-head">
+            <h2 class="display">Inner World</h2>
+            <span class="chip" id="worldDate"></span>
+            <div class="world-clock hidden" id="worldClockBox">
+              <input type="range" id="worldClock" min="360" max="1410" step="5" aria-label="Time of day: replay the day" />
+              <span class="hint" id="worldTime"></span>
+              <button class="btn small hidden" id="worldLive" title="Back to the real time">● Live</button>
+            </div>
+            <div class="actions">
+              <button class="btn" id="worldAsk">💬 Ask about the day</button>
+              <button class="btn" id="worldChronicle" title="The village's days as a note in your vault">📜 Chronicle</button>
+              <button class="btn primary hidden" id="worldWrite">✍ Write today</button>
+            </div>
+          </div>
+          <div class="world-body">
+            <canvas class="world-canvas" id="worldCanvas" aria-label="The village: click a building or a resident"></canvas>
+            <aside class="world-panel glass" id="worldPanel"></aside>
           </div>
         </section>
 
