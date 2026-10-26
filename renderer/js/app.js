@@ -3,7 +3,7 @@ import { $, $$, api, on, emit, el, toast, logEvent } from './util.js';
 import { state, loadSettings, saveSettings, ttsActive, raiseAlert } from './state.js';
 import { switchView, currentView } from './nav.js';
 import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
-import { startListening, stopListening, toggleListening, speaker, preloadLocalModel, setMicMode, handsFree } from './voice.js';
+import { startListening, stopListening, toggleListening, speaker, preloadLocalModel, preloadOfflineVoice, setMicMode, handsFree } from './voice.js';
 import { initChat, newChat, sendVoice, currentConversationId } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
@@ -13,7 +13,8 @@ import { initHandoff, handoffNote } from './handoff.js';
 import { initHud, bootScreen } from './hud.js';
 import { tryCommand } from './commands.js';
 import { startThinkingSound, stopThinkingSound, thinkingStyle } from './sounds.js';
-import { initSetup, startSetup, handleSetupVoice } from './setup.js';
+import { initSetup, handleSetupVoice } from './setup.js';
+import { startOnboarding } from './onboarding.js';
 import { initMemory, refresh as refreshMemory } from './memory.js';
 import { initCalendar, refresh as refreshCalendar } from './calendar.js';
 import { initKnowledge, refresh as refreshKnowledge } from './knowledge.js';
@@ -163,6 +164,7 @@ async function boot() {
   // Check what this computer can take (once, then every 30 days), then warm up the local speech model
   // so the first push-to-talk is fast. Balanced performance loads it with the first sentence instead.
   initPerf();
+  preloadOfflineVoice();
   perfReady.then(() => setTimeout(() => !isBalanced() && preloadLocalModel(), 3000));
 
   // Alerts turn the face red; vault edits by the agent refresh the open views.
@@ -190,7 +192,7 @@ async function boot() {
   // Hands-free mode, launch greeting (which also hides the first-turn warm-up), first-run setup.
   if (state.settings.stt.enabled && state.settings.stt.micMode === 'open') setMicMode('open');
   initSetup();
-  if (!state.settings.onboarded) startSetup(); // first launch: the agent sets itself up by asking questions
+  if (!state.settings.onboarded) startOnboarding(); // first launch: the guided setup (it ends with the agent's interview)
   if (state.settings.onboarded) greetOnLaunch();
   boot.done();
 }
@@ -208,7 +210,7 @@ async function refreshFaceList() {
 function greetOnLaunch() {
   const s = state.settings;
   if (s.voice.ttsEnabled && s.voice.greetOnLaunch) {
-    const name = s.agent.name || 'Nexus';
+    const name = s.agent.name || 'Siren';
     // With a note from last time, the greeting says where we left off (one short sentence).
     handoffNote().then((n) => {
       const greeting = s.appearance.greeting || `Hello, I'm ${name}. What are we working on today?`;
@@ -255,10 +257,10 @@ function syncPersonaSelect(p) {
 function applySettings() {
   const s = state.settings;
   syncTheme();
-  const name = s.agent.name || 'Nexus';
+  const name = s.agent.name || 'Siren';
   $('#brandName').textContent = name.toUpperCase();
   $('#faceName').textContent = name.toUpperCase();
-  document.title = `${name} · Nexus Agent`;
+  document.title = `${name} · Siren Assistant`;
   $('#input').placeholder = `Message ${name}…  (Enter to send, Shift+Enter for a new line)`;
   const av = $('#brandAvatar');
   av.style.backgroundImage = s.agent.avatar ? `url(${s.agent.avatar})` : '';
@@ -418,7 +420,9 @@ async function refreshStatus() {
       .then((m) => setPill('#pillLlm', 'ok', `FreeLLMAPI · ${s.llm.model || m[0]?.id || 'default model'} (${m.length} models)`))
       .catch((e) => setPill('#pillLlm', 'err', `FreeLLMAPI unreachable: ${e.message}`));
   }
-  api.tts
+  // The offline voice runs in the app, so there is no server to check.
+  if (s.voice.engine === 'local') setPill('#pillVoice', s.voice.ttsEnabled ? 'ok' : '', s.voice.ttsEnabled ? 'The offline voice (Kokoro, in the app)' : 'Voice disabled');
+  else api.tts
     .ping()
     .then((r) => setPill('#pillVoice', !r.enabled ? '' : r.ok ? 'ok' : 'err', !r.enabled ? 'Voice disabled' : r.ok ? `VoiceStudio · ${s.voice.baseUrl}` : `VoiceStudio unreachable at ${s.voice.baseUrl}`))
     .catch(() => setPill('#pillVoice', 'err', 'VoiceStudio error'));

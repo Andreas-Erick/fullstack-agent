@@ -7,17 +7,17 @@ const FEATURES = [
   {
     id: 'talk',
     title: 'Talking with me',
-    what: 'Type or talk. Push-to-talk (hold the talk key) or hands-free; I answer in a voice and my face shows what I am doing (listening, thinking, working, speaking). Voice calibration teaches me how your names and words come through.',
+    what: 'Type or talk. Push-to-talk (hold the talk key) or hands-free; I answer in a voice (the offline voice runs right in the app; VoiceStudio is an optional app with more natural, cloneable voices) and my face shows what I am doing (listening, thinking, working, speaking). Voice calibration teaches me how your names and words come through.',
     say: ['"Calibrate my voice"', '"Switch to hands-free"', '"Speak slower"'],
     where: 'Settings → Voice output and Voice input; the face (Ctrl+2); the chat layouts (Ctrl+Shift+1/2/3).',
-    status: (s) => `${s.voice.ttsEnabled ? 'voice on' : 'voice off'}; ${s.stt.enabled ? (s.stt.micMode === 'open' ? 'hands-free' : `push-to-talk (${s.stt.pttKey})`) : 'voice input off'}`,
+    status: (s) => `${s.voice.ttsEnabled ? `voice on (${s.voice.engine === 'local' ? 'offline voice' : 'VoiceStudio'})` : 'voice off'}; ${s.stt.enabled ? (s.stt.micMode === 'open' ? 'hands-free' : `push-to-talk (${s.stt.pttKey})`) : 'voice input off'}`,
   },
   {
     id: 'personas',
     title: 'Personas, look and faces',
-    what: 'Several personas, each with its own master prompt, image, theme, face, greeting and voice; switch in the title bar. Ready-made templates: Ada (STEM tutor), Mira (polyglot coach), Sol (life coach). Ask me to change my look and I restyle myself.',
+    what: 'Several personas, each with its own master prompt, image, theme, face, greeting and voice; switch in the title bar. Ready-made templates: Ada (STEM tutor), Mira (polyglot coach), Sol (life coach). Ask me to change my look and I restyle myself. Six built-in faces (Siren is the default); make your own with any AI app using the prompt in the note "Make Your Own Face" in your vault.',
     say: ['"Make yourself look like an 80s synthwave terminal"', '"Use the companion face"', '"Switch to Ada"'],
-    where: 'Settings → Persona studio (🎓 Templates…); the switcher next to my name.',
+    where: 'Settings → Persona studio (🎓 Templates…); the switcher next to my name; Face view → ＋ Custom faces.',
     status: (s) => `${s.personas.list.length} persona${s.personas.list.length === 1 ? '' : 's'}; active: ${s.agent.name}`,
   },
   {
@@ -129,7 +129,7 @@ const FEATURES = [
     title: 'Running well on lighter computers',
     what: 'I check your computer once (and every 30 days) and pick a profile. Full keeps everything. Balanced, for lighter computers, runs speech recognition on the processor with a smaller model that loads only when you talk and leaves memory after 10 quiet minutes (in-app recognition needs over 1 GB while loaded; cloud recognition avoids that), keeps the effects without motion or blur (and pauses them while the window is in the background), draws faces at 30 frames a second without glow, and keeps at most two Claude sessions alive. The system monitor panel shows what I use right now, with buttons to free each part.',
     say: ['"Why is the speech model smaller?"', '"How much memory are you using?"'],
-    where: 'Settings → Interface → Performance; click the CPU · RAM meter in the title bar → Nexus.',
+    where: 'Settings → Interface → Performance; click the CPU · RAM meter in the title bar → Siren.',
     status: (s) => `${(s.perf?.mode || 'auto') === 'auto' ? 'auto: ' : ''}${require('./perfcore').profile(s) === 'balanced' ? 'Balanced' : 'Full'}`,
   },
   {

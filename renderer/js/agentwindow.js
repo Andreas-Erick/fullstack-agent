@@ -15,7 +15,7 @@ const ICONS = {
 };
 
 let editing = false;
-let agentName = 'Nexus';
+let agentName = 'Siren';
 let current = '';
 let noticeTimer = null;
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');

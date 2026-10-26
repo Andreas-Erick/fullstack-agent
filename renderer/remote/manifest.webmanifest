@@ -1,6 +1,6 @@
 {
-  "name": "Nexus Agent",
-  "short_name": "Nexus",
+  "name": "Siren Assistant",
+  "short_name": "Siren",
   "description": "Talk to your assistant running on your computer.",
   "start_url": "/",
   "scope": "/",

@@ -6,21 +6,25 @@ const path = require('path');
 const crypto = require('crypto');
 const { app, safeStorage } = require('electron');
 const personas = require('./personacore');
+const brand = require('./brand');
 
-const DEFAULT_PERSONALITY = `You are warm, sharp and concise. You speak like a capable co-pilot: direct, a little playful, never robotic.
+// The master prompt of installs from before 2.0 that never edited theirs (see brand.LEGACY).
+const NEXUS_PERSONALITY = `You are warm, sharp and concise. You speak like a capable co-pilot: direct, a little playful, never robotic.
 You remember what matters to the user and proactively use what you know about them, their calendar and their notes.
 When you are not sure, you say so instead of guessing.`;
+const LEGACY = [...brand.LEGACY, ['agent', 'personality', NEXUS_PERSONALITY]];
 
 const DEFAULTS = {
   onboarded: false, // first-run setup wizard completed
+  privacy: { acceptedAt: 0 }, // when the user accepted the privacy policy and disclaimers in the setup wizard (user-only)
   agent: {
-    name: 'Nexus',
-    personality: DEFAULT_PERSONALITY, // the master prompt
+    name: brand.AGENT_NAME,
+    personality: brand.MASTER_PROMPT, // the master prompt
     avatar: null,
     aesthetic: '', // the overall aesthetic / style / theme the persona should embody
   },
   appearance: {
-    theme: null, // generated or edited theme object; null = default neon circuit theme
+    theme: brand.THEME, // generated or edited theme object; null = the "Neon Circuit" theme
     personaNotes: '', // tone/style notes derived from the aesthetic, injected into the system prompt
     greeting: '', // welcome line on the empty chat and spoken on launch; empty = a default greeting
     applyVoice: true, // let persona generation pick a matching VoiceStudio voice
@@ -32,7 +36,7 @@ const DEFAULTS = {
     list: [], // [{ id, name, personality, aesthetic, avatar, theme, personaNotes, greeting, face, voice, localVoice }]
   },
   llm: {
-    provider: 'openai', // 'openai' = FreeLLMAPI / OpenAI-compatible, 'claude-code' = Claude account, 'anthropic' = Claude API key, 'auto' = multi-provider (see routing)
+    provider: 'claude-code', // 'claude-code' = Claude account, 'openai' = FreeLLMAPI / OpenAI-compatible, 'anthropic' = Claude API key, 'auto' = multi-provider (see routing)
     baseUrl: 'http://localhost:3001/v1',
     apiKey: '',
     model: '',
@@ -90,6 +94,7 @@ const DEFAULTS = {
   voice: {
     ttsEnabled: true,
     autoSpeak: true,
+    engine: 'local', // local = the offline Kokoro voice in the app | voicestudio = VoiceStudio at baseUrl (falls back as below)
     baseUrl: 'http://localhost:3900',
     apiKey: '',
     model: 'tts-1',
@@ -126,7 +131,7 @@ const DEFAULTS = {
   },
   github: {
     enabled: true, // tools appear when the GitHub CLI (gh) is signed in
-    workspace: '', // where repos are cloned; empty = ~/NexusRepos
+    workspace: '', // where repos are cloned; empty = ~/SirenRepos (~/NexusRepos if that exists)
   },
   calendar: {
     enabled: true, // the schedule in the vault (Schedule.md, main/calendar.js)
@@ -137,7 +142,7 @@ const DEFAULTS = {
   },
   obsidian: {
     enabled: true,
-    vaultPath: '', // empty = the agent's own vault in Documents/Nexus Vault
+    vaultPath: '', // empty = the agent's own vault in Documents/Siren Vault (Nexus Vault if that exists)
     injectIndex: true,
     maxIndexEntries: 300,
     gitHistory: true, // version every note so agent edits can be undone
@@ -226,7 +231,7 @@ const DEFAULTS = {
   ui: {
     showVisualizerInChat: true,
     captions: true,
-    face: 'circuit', // circuit | radial | rain | neural | companion | custom:<folder>
+    face: 'siren', // siren | circuit | radial | rain | neural | companion | custom:<folder>
     zoom: 1, // whole-window zoom (Ctrl + / Ctrl − / Ctrl 0, Ctrl + wheel)
     chatLayout: 'split', // chat | split | face — what the chat view shows
     facePanelWidth: 300, // width of the face next to the chat in the split layout (drag the divider)
@@ -400,6 +405,10 @@ async function getSettings() {
   if (settingsCache) return settingsCache;
   // Installs from before the setup wizard existed are already configured.
   if (Object.keys(raw).length && raw.onboarded === undefined) raw.onboarded = true;
+  // Installs from before the rename (Nexus Agent) keep their name, look, face and voice (brand.LEGACY).
+  if (Object.keys(raw).length) {
+    for (const [section, key, value] of LEGACY) if (raw[section]?.[key] === undefined) raw[section] = { ...raw[section], [key]: value };
+  }
   const merged = deepMerge(DEFAULTS, raw);
   // The thinking sound used to be on/off; it is now a style.
   if (typeof merged.voice.thinkingSound === 'boolean') merged.voice.thinkingSound = merged.voice.thinkingSound ? 'grandfather' : 'off';

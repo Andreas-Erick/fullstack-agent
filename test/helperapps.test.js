@@ -47,6 +47,7 @@ test('which apps are needed and local', () => {
   assert.ok(!fl({ llm: { provider: 'auto' }, routing: { order: ['claude-code', 'openai'], disabled: ['openai'] } }));
   assert.ok(!fl({ llm: { provider: 'claude-code' } }));
   assert.ok(helperApps.APPS.voicestudio.needed({ voice: { ttsEnabled: true } }));
+  assert.ok(!helperApps.APPS.voicestudio.needed({ voice: { ttsEnabled: true, engine: 'local' } }), 'the offline voice needs no VoiceStudio');
   assert.ok(!helperApps.APPS.voicestudio.needed({ voice: { ttsEnabled: false } }));
 });
 

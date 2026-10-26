@@ -66,7 +66,7 @@ async function bugReport(note = '') {
   const problems = log.recentErrors(24 * 3600000);
   const fence = (lang, text) => `\`\`\`${lang}\n${text}\n\`\`\``;
   const md = [
-    `# Nexus Agent bug report`,
+    `# Siren Assistant bug report`,
     `Created ${new Date().toString()}`,
     note ? `\n**What happened (as described):** ${note}` : '',
     `\n## Environment\n${fence('json', JSON.stringify(env, null, 2))}`,

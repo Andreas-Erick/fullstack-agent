@@ -163,7 +163,7 @@ let emptyTemplate = null;
 function emptyStateNode() {
   const node = emptyTemplate.cloneNode(true);
   node.querySelectorAll('.suggestion').forEach((b) => (b.onclick = () => send(b.textContent)));
-  const name = state.settings?.agent?.name || 'Nexus';
+  const name = state.settings?.agent?.name || 'Siren';
   node.querySelector('#welcomeTitle').textContent = `${name} online`;
   node.querySelector('#welcomeGreeting').textContent = state.settings?.appearance?.greeting || '';
   node.querySelector('#pttHint').textContent = state.settings?.stt?.pttKey || 'F8';
@@ -429,7 +429,7 @@ function messageNode(m) {
 }
 
 // The telemetry line the HUD shows on a reply (hud.css): "NEXUS · 14:32:05 · OPUS 5.5".
-const agentName = () => state.settings?.agent?.name || 'Nexus';
+const agentName = () => state.settings?.agent?.name || 'Siren';
 function stamp(m) {
   const time = new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const model = String(m.model || '').replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-/g, ' ');

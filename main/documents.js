@@ -42,13 +42,13 @@ function userFolders(settings) {
   return [...new Set(list.map((p) => path.resolve(p.trim())))];
 }
 
-// Plus the vault (the agent's own memory) and Documents/Nexus Exports (only PDFs the app made, when no
+// Plus the vault (the agent's own memory) and Documents/Siren Exports (only PDFs the app made, when no
 // workspace folder is set).
 async function allowedRoots() {
   const roots = userFolders(await store.getSettings());
   const vault = await obsidian.vaultPath();
   if (vault) roots.push(vault);
-  roots.push(path.join(app.getPath('documents'), 'Nexus Exports'));
+  roots.push(require('./datadir').exportsFolder());
   return [...new Set(roots.filter(Boolean))];
 }
 

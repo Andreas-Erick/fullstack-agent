@@ -20,7 +20,7 @@ const screenshare = require('./screenshare');
 const pdf = require('./pdf');
 
 // The built-in faces (renderer/js/faces/host.js BUILT_IN); custom ones are custom:<folder>.
-const FACES = ['circuit', 'radial', 'rain', 'neural', 'companion'];
+const FACES = ['siren', 'circuit', 'radial', 'rain', 'neural', 'companion'];
 
 const arr = (description) => ({ type: 'array', items: { type: 'string' }, description });
 
@@ -386,7 +386,7 @@ const TOOLS = [
     parameters: obj({ user_name: str("What the user wants to be called"), words: arr('Names and special words they will often say, up to 6') }),
     run: async (a, ctx) => {
       const s = await store.getSettings();
-      const { script, vocabulary } = calibration.buildScript({ userName: a.user_name || '', agentName: s.agent.name || 'Nexus', words: a.words || [] });
+      const { script, vocabulary } = calibration.buildScript({ userName: a.user_name || '', agentName: s.agent.name || 'Siren', words: a.words || [] });
       const json = await approvals.askRecording({
         script,
         seconds: 60,
@@ -1526,7 +1526,7 @@ const TOOLS = [
     name: 'create_pdf',
     group: 'documents',
     description:
-      "Create a PDF the user can keep, print or send: from Markdown you write (a summary, report, letter, checklist…) or from a vault note (vault_note). Saved in the user's workspace folder (or Documents/Nexus Exports) without overwriting anything, and opened in a window unless open is false. Remote images are not included.",
+      "Create a PDF the user can keep, print or send: from Markdown you write (a summary, report, letter, checklist…) or from a vault note (vault_note). Saved in the user's workspace folder (or Documents/Siren Exports) without overwriting anything, and opened in a window unless open is false. Remote images are not included.",
     parameters: obj({ title: str('Document title (also the file name)'), content: str('Markdown content (omit when exporting a vault note)'), vault_note: str('Vault note to export instead (path or name)'), open: bool('Open it afterwards (default true)') }, ['title']),
     run: async (a) => {
       let markdown = a.content;

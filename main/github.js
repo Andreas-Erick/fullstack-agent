@@ -65,12 +65,18 @@ async function status({ fresh = false } = {}) {
   return authCache.value;
 }
 
+// Where repos are cloned by default; the folder from before the rename (NexusRepos) is kept if it exists.
+const defaultWorkspace = () => {
+  const legacy = path.join(os.homedir(), 'NexusRepos');
+  return fs.existsSync(legacy) ? legacy : path.join(os.homedir(), 'SirenRepos');
+};
+
 async function workspace() {
   const s = await store.getSettings();
-  return path.resolve(s.github?.workspace || path.join(os.homedir(), 'NexusRepos'));
+  return path.resolve(s.github?.workspace || defaultWorkspace());
 }
 
-let wsCache = path.join(os.homedir(), 'NexusRepos');
+let wsCache = defaultWorkspace();
 function localPath(repo) {
   const [owner, name] = checkRepo(repo).split('/');
   return path.join(wsCache, owner, name);

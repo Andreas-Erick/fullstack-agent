@@ -1,7 +1,7 @@
 // Service worker for the phone client: caches the app shell only. Conversations and every /api/
 // response go straight to the network and are never stored.
 const CACHE = 'nexus-shell-v4';
-const FACES = ['/js/themecore.js', '/js/visualizer.js', '/js/faces/env.js', '/js/faces/common.js', '/js/faces/radial.js', '/js/faces/rain.js', '/js/faces/neural.js', '/js/faces/companion.js'];
+const FACES = ['/js/themecore.js', '/js/visualizer.js', '/js/faces/env.js', '/js/faces/common.js', '/js/faces/radial.js', '/js/faces/rain.js', '/js/faces/neural.js', '/js/faces/companion.js', '/js/faces/siren.js'];
 const SHELL = ['/', '/app.js', '/styles.css', '/manifest.webmanifest', '/icon.png', '/vendor/marked.js', '/vendor/purify.js', ...FACES];
 
 self.addEventListener('install', (e) => {

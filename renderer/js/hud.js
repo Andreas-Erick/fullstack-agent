@@ -170,7 +170,7 @@ function reticle() {
     const up = Math.floor((Date.now() - startedAt) / 1000);
     left.replaceChildren(
       el('i', {}, 'AGENT TELEMETRY'),
-      row('DESIGNATION', s.agent?.name || 'Nexus'),
+      row('DESIGNATION', s.agent?.name || 'Siren'),
       row('STATE', document.body.dataset.agent || 'idle'),
       row('LOCAL TIME', new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })),
       row('SESSION', `${String(Math.floor(up / 3600)).padStart(2, '0')}:${String(Math.floor(up / 60) % 60).padStart(2, '0')}:${String(up % 60).padStart(2, '0')}`),
@@ -210,7 +210,7 @@ export function bootScreen() {
   const rows = lines.map(([k, [v, off]]) => el('div', { class: 'hud-boot-line' }, el('span', {}, k), el('b', { class: off ? 'off' : '' }, String(v).toUpperCase())));
   const screen = el('div', { class: 'hud-boot', role: 'status', 'aria-label': 'Starting' },
     el('div', { class: 'hud-boot-box' },
-      el('div', { class: 'hud-boot-title' }, String(s.agent?.name || 'Nexus').toUpperCase()),
+      el('div', { class: 'hud-boot-title' }, String(s.agent?.name || 'Siren').toUpperCase()),
       el('div', { class: 'hud-boot-sub' }, 'SYSTEMS CHECK // INITIALIZING'),
       rows,
       el('div', { class: 'hud-boot-bar' }, bar),

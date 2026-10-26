@@ -171,7 +171,7 @@ function nexusSection() {
   return el(
     'div',
     { class: 'sys-row' },
-    el('div', { class: 'sys-head' }, el('b', {}, 'Nexus'), el('span', {}, u ? `${(u.totalMb / 1024).toFixed(1)} GB` : '…')),
+    el('div', { class: 'sys-head' }, el('b', {}, 'Siren'), el('span', {}, u ? `${(u.totalMb / 1024).toFixed(1)} GB` : '…')),
     el('ul', { class: 'sys-list sys-nexus' }, ...lines),
     el('small', {}, `Performance: ${profile(state.settings) === 'balanced' ? 'Balanced' : 'Full'} · `, settings),
   );

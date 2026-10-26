@@ -72,7 +72,7 @@ function help(r) {
     ok: [],
     unreachable: [
       r.installedAt
-        ? `${r.name} is installed on this computer (${r.installedAt}). I can start it for you now (helper_app_start), and from now on Nexus starts it by itself (Settings → Helper apps).`
+        ? `${r.name} is installed on this computer (${r.installedAt}). I can start it for you now (helper_app_start), and from now on Siren starts it by itself (Settings → Helper apps).`
         : `Start ${r.name} on this computer the way you normally launch it, and leave it running (its window or service must stay open). If it is installed somewhere unusual, set its location in Settings → Helper apps, and Nexus will start it for you from then on.`,
       `Look at the address it shows when it starts (or in its settings). I'm currently trying ${r.url}${r.service === 'freellmapi' ? ' (the default is http://localhost:3001/v1)' : ' (the default is http://localhost:3900)'}.`,
       'If the address is different, tell me — I’ll switch to it and check again.',

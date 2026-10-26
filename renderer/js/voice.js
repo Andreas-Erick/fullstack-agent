@@ -116,6 +116,19 @@ const localVoice = {
   },
 };
 
+/** At launch: load the offline voice when it is the main voice, so the greeting needn't wait for it. */
+export function preloadOfflineVoice() {
+  const v = state.settings?.voice;
+  if (v?.ttsEnabled && v.engine === 'local') localVoice.start();
+}
+
+/** A paired phone's reply in the offline voice, as a WAV (remote.js). */
+export async function offlineVoiceWav(text) {
+  const buf = await localVoice.speak(speakable(text), { waitMs: 180000 });
+  if (!buf) throw new Error('The offline voice is not ready');
+  return encodeWav(buf.getChannelData(0), buf.sampleRate);
+}
+
 /** For the system monitor's memory section. */
 export const offlineVoiceStatus = () => ({ loaded: Boolean(localVoice.worker), device: localVoice.device });
 export const unloadOfflineVoice = () => localVoice.unload();
@@ -209,6 +222,11 @@ class Speaker {
         this.noPracticeVoice = practice;
         toastError(new Error(`No ${languageName(practice)} voice on this computer, so the usual voice speaks. Add one in Windows Settings → Time & language → Speech → Add voices.`));
       }
+    }
+    // The offline voice as the main voice: wait for it (its first download included) rather than
+    // filling in with the system voice, so the user hears one voice from the very first sentence.
+    if (state.settings.voice.engine === 'local' && !override?.voice) {
+      return localVoice.speak(text, { waitMs: 180000 }).catch((err) => (localVoice.warn(err), gen === this.gen && 'speechSynthesis' in window ? 'system' : null));
     }
     const mode = fallbackMode();
     if (this.onFallback && mode !== 'off' && Date.now() - this.fallbackSince < 120000) return this.fallback(text, gen);

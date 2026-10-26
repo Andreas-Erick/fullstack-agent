@@ -94,7 +94,7 @@ export class BaseFace {
   }
 
   setLabel(name) {
-    this.name = name || 'Nexus';
+    this.name = name || 'Siren';
     this.label = (name || 'N').trim().charAt(0).toUpperCase() || 'N';
   }
 

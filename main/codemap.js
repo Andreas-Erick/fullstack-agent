@@ -159,13 +159,16 @@ function toolsInfo(root) {
 }
 
 /** The DEFAULTS object of main/store.js, or null. Only its keys matter here, so names it refers to
- *  (constants like DEFAULT_PERSONALITY) evaluate to null instead of being looked up. */
+ *  (constants like brand.MASTER_PROMPT) evaluate to a placeholder instead of being looked up. */
 function settingsDefaults(root) {
   const text = read(root, 'main/store.js');
   const m = /^const DEFAULTS = \{/m.exec(text);
   if (!m) return null;
   const body = braceBlock(text, m.index + m[0].length - 1);
-  const anyName = new Proxy({}, { has: () => true, get: (_t, k) => (k === Symbol.unscopables ? undefined : null) });
+  // A value for any name, whose properties are that value again (brand.THEME.name…); not an object, so
+  // its "keys" never count as settings.
+  const nothing = new Proxy(function () {}, { get: (_t, k) => (k === Symbol.toPrimitive ? () => '' : nothing) });
+  const anyName = new Proxy({}, { has: () => true, get: (_t, k) => (k === Symbol.unscopables ? undefined : nothing) });
   try {
     return new Function('scope', `with (scope) { return {${body}}; }`)(anyName);
   } catch {

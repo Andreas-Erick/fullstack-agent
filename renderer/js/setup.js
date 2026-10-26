@@ -45,6 +45,21 @@ export async function startSetup() {
   }
 }
 
+// After the setup wizard: the agent's get-to-know-you interview in the setup conversation. The settings
+// are done; it asks about the user (work, goals, preferences) and keeps the answers in the profile.
+export async function startInterview() {
+  try {
+    state.setupMode = true;
+    switchView('chat');
+    const id = await api.setup.start();
+    continueIn(id, 'Getting to know each other');
+    send('Hi! I just finished the setup form, so the settings are done. Please get to know me now: who I am, what I work on, my goals and how I like to be helped. Keep it short, one question at a time, and save what you learn to my profile.', { hidden: true });
+  } catch (err) {
+    state.setupMode = false;
+    toastError(err);
+  }
+}
+
 // ---------------------------------------------------------- chat bubbles
 function bubble(text) {
   const wrap = el('div', { class: 'msg assistant' });

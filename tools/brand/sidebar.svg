@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 164 314" width="164" height="314">
+  <!-- The Windows installer's welcome/finish side panel (NSIS: 164×314). -->
+  <defs>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0c2a3a"/>
+      <stop offset="1" stop-color="#040a14"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c8913a"/>
+      <stop offset="0.5" stop-color="#f7dc8c"/>
+      <stop offset="1" stop-color="#c8913a"/>
+    </linearGradient>
+  </defs>
+  <rect width="164" height="314" fill="url(#sea)"/>
+  <g fill="none" stroke="#2dd4bf" stroke-opacity="0.18" stroke-width="2">
+    <path d="M-10 230 C20 215 50 215 82 230 C114 245 144 245 174 230"/>
+    <path d="M-10 250 C20 235 50 235 82 250 C114 265 144 265 174 250"/>
+    <path d="M-10 270 C20 255 50 255 82 270 C114 285 144 285 174 270"/>
+  </g>
+  <image href="icon.svg" x="22" y="34" width="120" height="120"/>
+  <text x="82" y="188" text-anchor="middle" font-family="Cinzel, Georgia, serif" font-size="21" font-weight="700" fill="#e3f6f6" letter-spacing="3">SIREN</text>
+  <text x="82" y="208" text-anchor="middle" font-family="Georgia, serif" font-size="10.5" fill="#a8c8cc" letter-spacing="2.5">ASSISTANT</text>
+  <path d="M52 218 L112 218" stroke="url(#gold)" stroke-width="2"/>
+</svg>

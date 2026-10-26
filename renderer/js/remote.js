@@ -2,7 +2,7 @@
 // click turns it off) and speech-to-text for push-to-talk from paired devices.
 import { $, api, on, toast, logEvent } from './util.js';
 import { state, saveSettings } from './state.js';
-import { transcribe } from './voice.js';
+import { transcribe, offlineVoiceWav } from './voice.js';
 
 let tunnel = null;
 
@@ -20,6 +20,7 @@ export function initRemote() {
   });
   api.remote.status().then((st) => ((tunnel = st.tunnel), render())).catch(() => {});
   api.on('remote:transcribe', handleTranscribe);
+  api.on('remote:speak', handleSpeak);
   render();
 }
 
@@ -50,6 +51,15 @@ function wavSamples(bytes) {
     off += 8 + size + (size % 2);
   }
   throw new Error('No audio in the recording');
+}
+
+async function handleSpeak({ id, text }) {
+  try {
+    await api.remote.spoken(id, await offlineVoiceWav(text), null);
+  } catch (err) {
+    logEvent('warn', 'remote speech failed', err?.message || String(err));
+    await api.remote.spoken(id, null, err?.message || 'The offline voice failed').catch(() => {});
+  }
 }
 
 async function handleTranscribe({ id, wav }) {

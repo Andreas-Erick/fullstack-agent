@@ -51,11 +51,12 @@ async function run() {
       if (s.llm.model && !models.some((m) => m.id === s.llm.model)) return { status: 'warn', detail: `Model "${s.llm.model}" is not offered by ${s.llm.baseUrl} (${models.length} models available).`, fix: 'Pick an available model in Settings → AI brain.' };
       return { detail: `${s.llm.baseUrl} · ${models.length} models · using ${s.llm.model || models[0]?.id}` };
     }),
-    check('tts', 'Voice output (VoiceStudio)', async () => {
+    check('tts', 'Voice output', async () => {
       if (!s.voice.ttsEnabled) return { status: 'off', detail: 'Disabled.' };
+      if (s.voice.engine === 'local') return { detail: 'The offline voice (Kokoro, runs in the app; downloaded once on first use).' };
       const p = await voice.ping();
       const fallback = { local: 'the offline voice', system: 'the system voice' }[s.voice.fallback];
-      if (!p.ok) return { status: fallback ? 'warn' : 'fail', detail: `VoiceStudio is unreachable at ${s.voice.baseUrl}.${fallback ? ` Using ${fallback} as fallback.` : ''}`, fix: require('./helperapps').installedPath('voicestudio', s) ? 'Start it from Settings → Helper apps (or ask me to); Nexus starts it by itself when "Start with Nexus" is on.' : 'Start VoiceStudio, or correct its URL in Settings → Voice output.' };
+      if (!p.ok) return { status: fallback ? 'warn' : 'fail', detail: `VoiceStudio is unreachable at ${s.voice.baseUrl}.${fallback ? ` Using ${fallback} as fallback.` : ''}`, fix: require('./helperapps').installedPath('voicestudio', s) ? 'Start it from Settings → Helper apps (or ask me to); Siren starts it by itself when "Start with Siren" is on.' : 'Start VoiceStudio, or correct its URL in Settings → Voice output.' };
       const t0 = Date.now();
       try {
         await voice.speak('ok');
@@ -134,7 +135,7 @@ async function run() {
       const auto = s.helperApps?.autoStart !== false;
       return {
         status: down.length ? 'warn' : 'ok',
-        detail: `${apps.map(line).join(' · ')}${auto ? ' · started with Nexus' : ''}`,
+        detail: `${apps.map(line).join(' · ')}${auto ? ' · started with Siren' : ''}`,
         fix: down.length ? (down.some((a) => a.installedAt) ? 'Settings → Helper apps → Start now (or ask me to start it).' : 'Install it, or set where it is in Settings → Helper apps.') : '',
       };
     }),

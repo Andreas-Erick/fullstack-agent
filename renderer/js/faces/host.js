@@ -5,6 +5,7 @@ import { RadialFace } from './radial.js';
 import { RainFace } from './rain.js';
 import { NeuralFace } from './neural.js';
 import { CompanionFace } from './companion.js';
+import { SirenFace } from './siren.js';
 import { state, setFlag, alertActive } from '../state.js';
 import { on } from '../util.js';
 import { DEFAULT_THEME } from '../themecore.js';
@@ -26,6 +27,7 @@ configureFaces({
 });
 
 export const BUILT_IN = [
+  { id: 'siren', title: 'Siren', tagline: 'A sea-nymph who sings: fins spread, a lyre halo turns, song rings ripple with her voice', Face: SirenFace },
   { id: 'circuit', title: 'Circuit Board', tagline: 'Living PCB — pulses run the traces', Face: CircuitFace },
   { id: 'radial', title: 'Radial', tagline: 'Starburst bars around a particle orb', Face: RadialFace },
   { id: 'rain', title: 'Code Rain', tagline: 'Glyph rain; a face appears when it speaks', Face: RainFace },
