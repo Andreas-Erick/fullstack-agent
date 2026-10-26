@@ -189,6 +189,14 @@ const FEATURES = [
     status: (s) => (s.remote?.enabled ? 'on' : 'off'),
   },
   {
+    id: 'watch',
+    title: 'Installing me on your Galaxy Watch',
+    what: 'The watch app (Galaxy Watch 4 or newer) is installed from this computer over Wi-Fi, once: pair the Siren phone app first; get the phone and watch apps from the same release; on the watch turn on developer options (tap Software version five times), ADB debugging and Wireless debugging, then "Pair new device"; on the computer run adb pair, adb connect and adb install Siren-Wear-x.y.z.apk. I can run those commands for you if adb is installed: you read me the pairing code. The first start brings my face over from this computer (keep the watch screen on for a moment). The full walkthrough is the vault note "Install on your Galaxy Watch".',
+    say: ['"How do I put you on my watch?"', '"Install yourself on my watch."'],
+    where: 'Settings → Remote access → Install Siren on a Galaxy Watch, and the note "Install on your Galaxy Watch" in the vault.',
+    status: (s) => (s.remote?.enabled ? 'phone link on' : 'turn on remote access first'),
+  },
+  {
     id: 'safety',
     title: 'Safety, privacy and fixing problems',
     what: 'Consequential actions ask you first (click or say "yes"); I never widen my own access. Everything stays on this computer except what goes to the AI brain and the services you use. When something breaks I diagnose it from my log and fix the cause.',

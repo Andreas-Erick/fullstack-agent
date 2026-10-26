@@ -156,13 +156,50 @@ async function restart(want) {
     });
     s.listen(want.port, want.lan ? '0.0.0.0' : '127.0.0.1', () => {
       server = s;
+      startWarming();
       log.info('remote server listening', { port: want.port, lan: want.lan });
       resolve();
     });
   });
 }
 
+// The watch's face is recorded ahead of time once a device has asked for it (a watch behind it): when the
+// face, theme or name changes, the next check records the new one, so the watch gets it in seconds
+// instead of waiting ~25 s (and the watch screen sleeping meanwhile).
+const WARM_MS = 2 * 60 * 1000;
+let warmTimer = null;
+let warming = false;
+
+async function markWatch(id) {
+  const list = await readDevices();
+  const d = list.find((x) => x.id === id);
+  if (!d || d.watch) return;
+  d.watch = true;
+  await writeDevices(list).catch(() => {});
+}
+
+async function warmFace() {
+  if (warming || !server) return;
+  warming = true;
+  try {
+    if (!(await readDevices()).some((d) => d.watch)) return;
+    await facecapture.frames(await store.getSettings());
+  } catch (err) {
+    log.warn('face frames not recorded ahead', { error: err });
+  } finally {
+    warming = false;
+  }
+}
+
+function startWarming() {
+  clearInterval(warmTimer);
+  warmTimer = setInterval(() => warmFace(), WARM_MS);
+  warmTimer.unref?.();
+  setTimeout(() => warmFace(), 20000).unref?.();
+}
+
 async function stop() {
+  clearInterval(warmTimer);
   tunnel.stop();
   facelinks.revoke();
   for (const st of streams) st.res.end();
@@ -555,6 +592,7 @@ async function route(req, res) {
   // The face as recorded loops, for the watch (facecapture.js); unchanged → 304.
   if (req.method === 'GET' && p === '/api/face/frames') {
     if (!underLimit('frames', device.id, 6)) return fail(res, 429, 'Too many requests; wait a minute');
+    markWatch(device.id).catch(() => {});
     const { key, data } = await facecapture.frames(await store.getSettings());
     if (req.headers['if-none-match'] === `"${key}"`) {
       res.writeHead(304, { ETag: `"${key}"`, 'Cache-Control': 'no-cache' });

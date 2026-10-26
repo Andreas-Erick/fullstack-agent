@@ -19,4 +19,6 @@
     <string name="nothing_today">Nothing more scheduled today.</string>
     <string name="no_habits">No habits yet. Ask Siren to start one.</string>
     <string name="all_day">all day</string>
+    <string name="face_coming">Bringing her face from your computer…</string>
+    <string name="face_failed">Her face didn\'t arrive.</string>
 </resources>

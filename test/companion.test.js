@@ -327,6 +327,9 @@ test('the watch face pack: paired devices only, cached by its key', async () => 
   assert.strictEqual(Buffer.from(await r.arrayBuffer()).toString(), 'SRF1');
   r = await fetch(`${base}/api/face/frames`, { headers: { ...auth, 'If-None-Match': '"k1"' } });
   assert.strictEqual(r.status, 304, 'unchanged: nothing sent again');
+  await new Promise((res) => setTimeout(res, 50));
+  const dev = JSON.parse(fs.readFileSync(devicesFile, 'utf8')).find((d) => d.name === 'Watch phone');
+  assert.strictEqual(dev.watch, true, 'a device that asked for the face gets it recorded ahead from now on');
 });
 
 test('view-only devices read but cannot chat, approve, talk or check habits off', async () => {

@@ -24,6 +24,7 @@ The same app, laid out for big screens: on a tablet (upright or sideways), in De
 
 `android/wear` is a small watch app for the Galaxy Watch 4 and newer (Wear OS 3+; the older Tizen watches can't run it). Tap Siren to ask by voice: the question goes **through the Siren app on your phone** (Bluetooth, Google's Wear Data Layer) to your computer, and the answer is spoken by the watch and shown on it. **Today** shows what's still coming on your schedule and your habits; tap one to check it off. **New chat** starts a fresh conversation (the watch keeps its own, apart from the phone's).
 
+- **Install walkthrough** in the app too: Settings → Remote access → Install Siren on a Galaxy Watch, and the vault note "Install on your Galaxy Watch" (`main/guides/`).
 - **Nothing to pair on the watch:** it uses the phone's pairing. The phone app must be installed and connected to your computer. It works wherever the phone works, including over the phone's Tailscale.
 - **App lock (phone):** in the app's menu, "Lock Siren with fingerprint, face or screen lock" asks for the phone's own unlock when the app opens and after 30 seconds away; the app is then also hidden from screenshots and the recent-apps preview. It needs a screen lock on the phone. Shares and push-to-talk wait until you unlock.
 - **Approvals on the wrist:** turn on "Notify me about approvals and replies while the app is closed" in the phone app's menu. The phone's Allow / Deny notifications then appear on the watch by themselves.

@@ -12,11 +12,13 @@ import android.os.Handler;
 import android.os.Looper;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -72,6 +74,9 @@ public class WatchActivity extends Activity {
     private String voiceText;
     private MediaPlayer player;
     private TextView status;
+    private TextView faceNote; // while her face is on its way, or why it isn't (small, under the face)
+    private boolean faceRequested;
+    private static final String TAG = "SirenWatch";
     private TextView question;
     private TextView answer;
     private ScrollView scroll;
@@ -103,7 +108,7 @@ public class WatchActivity extends Activity {
         col.setPadding(pad, pad / 2, pad, pad);
 
         // The persona's face (once the phone has brought it) over the built-in ring.
-        int size = (int) (getResources().getDisplayMetrics().widthPixels * 0.46f);
+        int size = (int) (getResources().getDisplayMetrics().widthPixels * 0.56f);
         FrameLayout stage = new FrameLayout(this);
         stage.setLayoutParams(new LinearLayout.LayoutParams(size, size));
         ring = new SirenRing(this);
@@ -117,6 +122,9 @@ public class WatchActivity extends Activity {
         stage.setContentDescription(getString(R.string.tap_to_ask));
         col.addView(stage);
 
+        faceNote = text("", 11, muted);
+        faceNote.setVisibility(View.GONE);
+        col.addView(faceNote);
         status = text(getString(R.string.tap_to_ask), 13, accent);
         status.setTypeface(Typeface.DEFAULT_BOLD);
         status.setLetterSpacing(0.08f);
@@ -165,11 +173,38 @@ public class WatchActivity extends Activity {
             for (DataItem i : items) applyLook(DataMapItem.fromDataItem(i).getDataMap());
             items.release();
         });
+        readFaceItem();
+        // Ask the phone for anything newer. The first time, the computer records her face (it usually has
+        // it ready); the screen stays on meanwhile, since the watch loads it only while Siren is open.
+        if (!face.hasFace()) {
+            setFaceNote(getString(R.string.face_coming));
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+        faceRequested = true;
+        link.request("/siren/face", "/siren/face", new JSONObject(), 120_000, (r) -> {
+            faceRequested = false;
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            Log.i(TAG, "face request answered: " + (r.body != null ? r.body.toString() : r.problem + " " + r.error));
+            if (r.body != null) {
+                readFaceItem(); // in case the change arrived before the listener saw it
+                if (!face.hasFace()) main.postDelayed(this::readFaceItem, 4000);
+            } else if (!face.hasFace()) {
+                setFaceNote(getString(R.string.face_failed) + " " + problem(r));
+            }
+        });
+    }
+
+    private void readFaceItem() {
         Wearable.getDataClient(this).getDataItems(Uri.parse("wear://*/siren/face")).addOnSuccessListener((items) -> {
+            Log.i(TAG, "face items on the watch: " + items.getCount());
             for (DataItem i : items) loadFace(DataMapItem.fromDataItem(i).getDataMap());
             items.release();
-        });
-        link.request("/siren/face", "/siren/face", new JSONObject(), 120_000, (r) -> {});
+        }).addOnFailureListener((e) -> Log.w(TAG, "reading the face item failed", e));
+    }
+
+    private void setFaceNote(String s) {
+        faceNote.setText(s);
+        faceNote.setVisibility(s.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     private final DataClient.OnDataChangedListener dataListener = (events) -> {
@@ -211,21 +246,34 @@ public class WatchActivity extends Activity {
 
     private void loadFace(DataMap map) {
         Asset pack = map.getAsset("pack");
-        if (pack == null) return;
+        if (pack == null) {
+            Log.w(TAG, "face item without a pack");
+            return;
+        }
         Wearable.getDataClient(this).getFdForAsset(pack).addOnSuccessListener((fd) -> new Thread(() -> {
             byte[] bytes;
             try (InputStream in = fd.getInputStream()) {
                 bytes = readAll(in, 8 * 1024 * 1024);
             } catch (Exception e) {
+                Log.w(TAG, "reading the face pack failed", e);
+                main.post(() -> setFaceNote(getString(R.string.face_failed)));
                 return;
             }
             main.post(() -> {
-                if (face.load(bytes)) {
+                boolean ok = face.load(bytes);
+                Log.i(TAG, "face pack " + bytes.length + " bytes, " + (ok ? "playing" : "not a face pack"));
+                if (ok) {
                     face.setVisibility(View.VISIBLE);
                     ring.setVisibility(View.INVISIBLE);
+                    setFaceNote("");
+                } else {
+                    setFaceNote(getString(R.string.face_failed));
                 }
             });
-        }, "siren-face").start());
+        }, "siren-face").start()).addOnFailureListener((e) -> {
+            Log.w(TAG, "getting the face pack from the phone failed", e);
+            setFaceNote(getString(R.string.face_failed));
+        });
     }
 
     private String idleLabel() {
@@ -294,6 +342,7 @@ public class WatchActivity extends Activity {
     protected void onPause() {
         link.stop();
         Wearable.getDataClient(this).removeListener(dataListener);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         Wearable.getChannelClient(this).unregisterChannelCallback(voiceChannel);
         voiceId = null;
         stopPlayer();
