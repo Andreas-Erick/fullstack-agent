@@ -33,7 +33,7 @@ const state = {
   turns: new Map(), // requestId -> turn view, for turns started elsewhere in this conversation
   held: [], // events that arrived while our own send was in flight
   face: 'idle',
-  name: 'Nexus',
+  name: 'Siren',
   view: 'chat', // chat | sched
   convTitle: '',
   secureUrl: '', // the computer's https address, when it has one
@@ -878,7 +878,7 @@ if (window.isSecureContext && navigator.mediaDevices?.getUserMedia) {
 // The same face the desktop shows: its built-in faces are served from /js/ and fed with this phone's
 // state through faces/env.js. The small orb further down is the fallback if they can't be loaded.
 const STATES = { idle: ['IDLE', 0.3, 0.6], listening: ['LISTENING', 0.8, 1], thinking: ['THINKING', 2.4, 0.85], working: ['WORKING', 3.2, 0.9], 'speaking-text': ['REPLYING', 1.2, 1], speaking: ['SPEAKING', 1.2, 1], happy: ['DONE', 0.9, 1], sleeping: ['ASLEEP', 0.05, 0.35] };
-const FACE_MODULES = { circuit: ['./js/visualizer.js', 'CircuitFace'], radial: ['./js/faces/radial.js', 'RadialFace'], rain: ['./js/faces/rain.js', 'RainFace'], neural: ['./js/faces/neural.js', 'NeuralFace'], companion: ['./js/faces/companion.js', 'CompanionFace'] };
+const FACE_MODULES = { circuit: ['./js/visualizer.js', 'CircuitFace'], radial: ['./js/faces/radial.js', 'RadialFace'], rain: ['./js/faces/rain.js', 'RainFace'], neural: ['./js/faces/neural.js', 'NeuralFace'], companion: ['./js/faces/companion.js', 'CompanionFace'], siren: ['./js/faces/siren.js', 'SirenFace'] };
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const faceView = { id: '', obj: null, themeFns: new Set(), orb: false };
 state.happyUntil = 0;

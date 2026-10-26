@@ -168,7 +168,7 @@ async function verify() {
   try {
     const res = await fetch(`${url}/api/ping`, { signal: AbortSignal.timeout(10000) });
     const body = await res.json().catch(() => ({}));
-    if (body.app !== 'nexus-agent') throw new Error(`it answered ${res.status} but not as Nexus`);
+    if (body.app !== 'nexus-agent') throw new Error(`it answered ${res.status} but not as Siren`);
     if (state.url === url) update({ check: 'ok', warning: '' });
   } catch (err) {
     const why = err.name === 'TimeoutError' ? 'no answer within 10 seconds' : err.cause?.code || err.message;

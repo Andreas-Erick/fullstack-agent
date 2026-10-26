@@ -9,10 +9,10 @@ const log = require('./logger');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-/** Where exports go: the workspace folder if one is set, else Documents/Nexus Exports. */
+/** Where exports go: the workspace folder if one is set, else Documents/Siren Exports (Nexus Exports before the rename). */
 async function exportsDir() {
   const s = await store.getSettings();
-  return s.documents.workspace ? path.resolve(s.documents.workspace) : path.join(app.getPath('documents'), 'Nexus Exports');
+  return s.documents.workspace ? path.resolve(s.documents.workspace) : require('./datadir').exportsFolder();
 }
 
 function safeName(title) {

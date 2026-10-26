@@ -40,8 +40,8 @@ test('create, switch back and forth, and every persona keeps its own look', asyn
   assert.notStrictEqual(coach, core.FIRST_ID);
   assert.strictEqual(s.agent.name, 'Coach');
   assert.strictEqual(s.agent.personality, store.DEFAULTS.agent.personality, 'a fresh persona starts from the default prompt');
-  assert.strictEqual(s.appearance.theme, null);
-  assert.strictEqual(s.ui.face, 'circuit');
+  assert.deepStrictEqual(s.appearance.theme, store.DEFAULTS.appearance.theme, 'and the default look (Siren)');
+  assert.strictEqual(s.ui.face, 'siren');
 
   await store.setSettings({ agent: { personality: 'You are a strict study coach.' }, ui: { face: 'companion' }, voice: { voice: 'coach-voice' } });
   s = await persona.activate('aria'); // by name, any case
@@ -55,7 +55,7 @@ test('create, switch back and forth, and every persona keeps its own look', asyn
   assert.strictEqual(s.agent.personality, 'You are a strict study coach.');
   assert.strictEqual(s.ui.face, 'companion');
   assert.strictEqual(s.voice.voice, 'coach-voice');
-  assert.strictEqual(s.appearance.theme, null);
+  assert.strictEqual(s.appearance.theme.name, 'Siren');
 });
 
 test('duplicate copies the active persona under a free name', async () => {

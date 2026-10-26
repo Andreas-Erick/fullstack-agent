@@ -383,7 +383,7 @@ async function turnContext(settings, activeToolNames, sessionMemIds, { query = '
 
 // First-run setup: the agent interviews the user one question at a time and configures itself.
 function buildSetup(settings) {
-  const name = settings.agent.name || 'Nexus';
+  const name = settings.agent.name || 'Siren';
   const stable = `You are ${name}, a personal AI assistant that was just installed on the user's computer. Right now you are configuring yourself together with the user, through a friendly interview — like a new colleague's first conversation. Your replies are spoken aloud.
 
 ## How to run the interview

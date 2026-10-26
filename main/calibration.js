@@ -17,7 +17,7 @@ const TEMPLATES = [
 ];
 
 /** Builds the script. Every special word sits between ordinary words, so it can be located afterwards. */
-function buildScript({ userName = '', agentName = 'Nexus', words = [] } = {}) {
+function buildScript({ userName = '', agentName = 'Siren', words = [] } = {}) {
   const extra = [...new Set(words.map((w) => String(w).trim()).filter(Boolean))]
     .filter((w) => w.toLowerCase() !== agentName.toLowerCase() && w.toLowerCase() !== userName.toLowerCase())
     .slice(0, 6);

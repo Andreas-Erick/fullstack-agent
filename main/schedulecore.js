@@ -267,7 +267,7 @@ function parse(text) {
   return { entries, problems, sections };
 }
 
-function template(name = 'Nexus') {
+function template(name = 'Siren') {
   return [
     '---',
     'type: schedule',

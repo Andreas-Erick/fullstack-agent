@@ -70,7 +70,7 @@ function prepareSession() {
   ses.setPermissionRequestHandler((_wc, _permission, cb) => cb(false));
   ses.setPermissionCheckHandler(() => false);
   // Some sites refuse browsers that call themselves Electron; the page sees a plain Chrome.
-  ses.setUserAgent(ses.getUserAgent().replace(/\s(Electron|nexus-agent|Nexus ?Agent)\/\S+/gi, ''));
+  ses.setUserAgent(ses.getUserAgent().replace(/\s(Electron|nexus-agent|Nexus ?Agent|siren-assistant|Siren ?Assistant)\/\S+/gi, ''));
   ses.on('will-download', (e, item) => {
     e.preventDefault();
     say(`Downloads are off in this window (${item.getFilename()}). Open the page in your browser to download it.`);

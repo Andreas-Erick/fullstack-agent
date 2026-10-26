@@ -14,7 +14,7 @@
     state: 'idle',
     level: 0,
     samples: new Array(64).fill(0),
-    env: { name: 'Nexus', colors: {}, states: {}, alert: null },
+    env: { name: 'Siren', colors: {}, states: {}, alert: null },
     init(onUpdate) {
       window.addEventListener('message', (e) => {
         const m = e.data;

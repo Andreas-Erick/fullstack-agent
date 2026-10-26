@@ -84,7 +84,7 @@ function add(input, { source = 'agent' } = {}) {
     // A rule repeating every 2+ weeks/days/months counts from its first day: today unless given.
     if (e.repeat && e.repeat.interval > 1 && !e.from) e.from = core.ymd(new Date());
     e.id = newId(e, new Set(list.map((x) => x.id)));
-    await save(core.addEntry(text || core.template(s.agent.name || 'Nexus'), e), `${source}: schedule add`);
+    await save(core.addEntry(text || core.template(s.agent.name || 'Siren'), e), `${source}: schedule add`);
     log.info('schedule add', { id: e.id, repeats: Boolean(e.repeat) });
     return forList(e);
   });

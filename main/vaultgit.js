@@ -7,7 +7,7 @@ const path = require('path');
 const store = require('./store');
 const log = require('./logger');
 
-const ID = ['-c', 'user.name=Nexus Agent', '-c', 'user.email=nexus-agent@localhost', '-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', '-c', 'core.quotepath=false'];
+const ID = ['-c', 'user.name=Siren Assistant', '-c', 'user.email=nexus-agent@localhost', '-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', '-c', 'core.quotepath=false'];
 const timers = new Map();
 const pendingMsgs = new Map();
 

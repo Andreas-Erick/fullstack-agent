@@ -34,7 +34,7 @@ export async function detect({ first = false } = {}) {
   if (patch.ui) emit('layout');
   logEvent('info', 'performance check', { detected, ramGB: hw.ramGB, vramGB: hw.vramGB, profile: profile(state.settings) });
   if (first && detected === 'low' && (state.settings.perf.mode || 'auto') === 'auto') {
-    toast(`Nexus runs in Balanced mode on this computer (${hw.reason}): a lighter speech model, effects without motion, calmer faces. Settings → Interface → Performance.`, 'info', 14000);
+    toast(`Siren runs in Balanced mode on this computer (${hw.reason}): a lighter speech model, effects without motion, calmer faces. Settings → Interface → Performance.`, 'info', 14000);
   }
   return state.settings.perf;
 }

@@ -218,7 +218,7 @@ function showShareState(st) {
 async function pickScreen() {
   const st = await api.screen.state();
   if (st.permission === 'denied' || st.permission === 'restricted') {
-    toast('Screen sharing needs permission: System Settings → Privacy & Security → Screen Recording → allow Nexus Agent, then restart the app.', 'error', 12000);
+    toast('Screen sharing needs permission: System Settings → Privacy & Security → Screen Recording → allow Siren Assistant, then restart the app.', 'error', 12000);
     return;
   }
   let sources;
@@ -235,7 +235,7 @@ async function pickScreen() {
       for (const s of list) grid.append(el('button', { class: 'screen-src', title: s.name, onclick: () => close(s) }, el('img', { src: s.thumb, alt: '' }), el('span', {}, s.name)));
     };
     group('Screens', sources.filter((s) => s.kind === 'screen'));
-    group('Windows', sources.filter((s) => s.kind === 'window' && !/^Nexus Agent|· Nexus Agent$/.test(s.name)));
+    group('Windows', sources.filter((s) => s.kind === 'window' && !/^(Siren Assistant|Nexus Agent)|· (Siren Assistant|Nexus Agent)$/.test(s.name)));
     card.classList.add('wide');
     card.append(
       el('h3', {}, 'Share your screen'),

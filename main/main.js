@@ -3,6 +3,9 @@ const { app, BrowserWindow, ipcMain, protocol, shell, dialog, globalShortcut, se
 const path = require('path');
 const fsp = require('fs').promises;
 
+// The data folder first (and the move from the app's former name), before anything reads it.
+require('./datadir').setup();
+
 const store = require('./store');
 const memory = require('./memory');
 const calendar = require('./calendar');
@@ -41,8 +44,6 @@ const ROOT = path.join(__dirname, '..');
 process.on('uncaughtException', (err) => log.error('uncaught exception', err?.stack || String(err)));
 process.on('unhandledRejection', (err) => log.error('unhandled rejection', err?.stack || String(err)));
 const isDev = process.argv.includes('--dev');
-// Optional override of the data folder (portable installs, testing).
-if (process.env.NEXUS_USER_DATA) app.setPath('userData', path.resolve(process.env.NEXUS_USER_DATA));
 // Laptops with integrated + dedicated graphics: run WebGPU (local Whisper) on the dedicated GPU.
 app.commandLine.appendSwitch('force_high_performance_gpu');
 
@@ -127,7 +128,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#0a0a0f',
-    title: 'Nexus Agent',
+    title: 'Siren Assistant',
     icon: path.join(ROOT, 'assets', 'icon.ico'),
     titleBarStyle: 'hidden',
     ...(isMac ? { trafficLightPosition: { x: 14, y: 15 } } : { titleBarOverlay: { color: '#0a0a0f', symbolColor: '#7df9ff', height: 44 } }), // = --titlebar in styles.css
@@ -171,7 +172,7 @@ function createWindow() {
     crashes.push(now);
     while (crashes.length && now - crashes[0] > 60000) crashes.shift();
     if (crashes.length <= 3) setTimeout(() => win && !win.isDestroyed() && win.loadURL('app://bundle/renderer/index.html'), 500);
-    else dialog.showErrorBox('Nexus Agent', 'The window keeps crashing. Restart the app; if it persists, run the diagnose tool or check the log (Settings → Data).');
+    else dialog.showErrorBox('Siren Assistant', 'The window keeps crashing. Restart the app; if it persists, run the diagnose tool or check the log (Settings → Data).');
   });
   captureConsole(win.webContents, 'window');
   win.webContents.on('unresponsive', () => log.warn('window not responding'));
@@ -384,6 +385,14 @@ function registerIpc() {
     pendingTranscripts.delete(id);
     clearTimeout(p.timer);
     error ? p.reject(new Error(String(error))) : p.resolve(String(text || ''));
+    return true;
+  });
+  handle('remote:spoken', (id, wav, error) => {
+    const p = pendingTranscripts.get(id);
+    if (!p) return false;
+    pendingTranscripts.delete(id);
+    clearTimeout(p.timer);
+    error || !wav ? p.reject(new Error(String(error || 'No audio'))) : p.resolve(Buffer.from(wav));
     return true;
   });
 
@@ -665,6 +674,12 @@ function registerIpc() {
     return conv.id;
   });
   handle('setup:checkService', (service, url) => require('./services').check(service, { url }));
+  // The feature guide (main/guide.js) for the onboarding tour: the same entries the agent explains.
+  handle('guide:features', async () => {
+    const { FEATURES, guide } = require('./guide');
+    const now = new Map(((await guide().catch(() => null))?.features || []).map((f) => [f.id, f.status]));
+    return FEATURES.map((f) => ({ id: f.id, title: f.title, what: f.what, say: f.say, where: f.where, status: now.get(f.id) || '' }));
+  });
   handle('setup:skip', async () => {
     await store.setSettings({ onboarded: true });
     log.info('setup skipped');
@@ -705,20 +720,23 @@ function registerIpc() {
 }
 
 // Push-to-talk from a paired device: the window transcribes it with the user's speech-to-text
-// (local Whisper runs there) and answers through remote:transcribed.
+// (local Whisper runs there) and answers through remote:transcribed. Likewise the offline voice: the
+// window speaks a reply into a WAV for the device (remote:speak → remote:spoken).
 const pendingTranscripts = new Map(); // id -> { resolve, reject, timer }
-function transcribeInWindow(wav) {
+function askWindow(channel, payload, what) {
   if (!win || win.isDestroyed()) return Promise.reject(new Error('The assistant window is closed'));
   const id = require('crypto').randomUUID();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingTranscripts.delete(id);
-      reject(new Error('Speech-to-text took too long'));
+      reject(new Error(`${what} took too long`));
     }, 90000);
     pendingTranscripts.set(id, { resolve, reject, timer });
-    win.webContents.send('remote:transcribe', { id, wav: new Uint8Array(wav) });
+    win.webContents.send(channel, { id, ...payload });
   });
 }
+const transcribeInWindow = (wav) => askWindow('remote:transcribe', { wav: new Uint8Array(wav) }, 'Speech-to-text');
+const speakInWindow = (text) => askWindow('remote:speak', { text: String(text).slice(0, 4000) }, 'The offline voice');
 
 // One chat turn, from the window (chat:send) or a paired device (remote = the device name). Returns
 // at once; the reply streams as chat:event. Remote turns never carry a screenshot of this desktop.
@@ -850,6 +868,7 @@ app.whenReady().then(async () => {
     abortTurn: (requestId) => activeRequests.get(requestId)?.abort(),
     respondApproval: (id, allow, reason) => approvals.respond(id, allow, reason),
     transcribe: transcribeInWindow,
+    synthesize: speakInWindow,
     notify: (ev) => send('remote:event', ev),
   });
   require('./tunnel').setListener((st) => send('remote:event', { type: 'tunnel', tunnel: st }));

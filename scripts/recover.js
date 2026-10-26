@@ -6,7 +6,7 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const git = (...args) => execFileSync('git', ['-c', 'user.name=Nexus Agent', '-c', 'user.email=nexus-agent@localhost', ...args], { cwd: root, encoding: 'utf8' });
+const git = (...args) => execFileSync('git', ['-c', 'user.name=Siren Assistant', '-c', 'user.email=nexus-agent@localhost', ...args], { cwd: root, encoding: 'utf8' });
 
 const arg = process.argv[2];
 try {

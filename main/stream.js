@@ -102,7 +102,7 @@ function reflect(loc, { force = false, who, threshold } = {}) {
     if (!(p.due || (force && p.fresh.length >= 2))) return [];
     const settings = await store.getSettings();
     const llm = require('./llm');
-    const prompt = core.reflectionPrompt(records, { subject: loc.subject, who: who || `${settings.agent.name || 'Nexus'}, an AI assistant` });
+    const prompt = core.reflectionPrompt(records, { subject: loc.subject, who: who || `${settings.agent.name || 'Siren'}, an AI assistant` });
     let timer;
     const limit = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error('Reflection took too long.')), REFLECT_LIMIT_MS)));
     try {

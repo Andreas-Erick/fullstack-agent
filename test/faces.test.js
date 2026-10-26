@@ -16,7 +16,7 @@ function servedFaceFiles() {
 
 test('the phone is served every built-in face and its helpers', () => {
   const served = servedFaceFiles();
-  for (const f of ['renderer/js/visualizer.js', 'renderer/js/faces/radial.js', 'renderer/js/faces/rain.js', 'renderer/js/faces/neural.js', 'renderer/js/faces/companion.js', 'renderer/js/faces/env.js', 'renderer/js/faces/common.js', 'renderer/js/themecore.js']) {
+  for (const f of ['renderer/js/visualizer.js', 'renderer/js/faces/radial.js', 'renderer/js/faces/rain.js', 'renderer/js/faces/neural.js', 'renderer/js/faces/companion.js', 'renderer/js/faces/siren.js', 'renderer/js/faces/env.js', 'renderer/js/faces/common.js', 'renderer/js/themecore.js']) {
     assert.ok(served.includes(f), `${f} is not served to the phone`);
   }
   // Every face in the desktop gallery has a module on the phone.

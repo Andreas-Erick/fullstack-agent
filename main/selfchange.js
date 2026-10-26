@@ -8,7 +8,7 @@ const path = require('path');
 const { app } = require('electron');
 const store = require('./store');
 
-const AUTHOR = ['-c', 'user.name=Nexus Agent', '-c', 'user.email=nexus-agent@localhost', '-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false'];
+const AUTHOR = ['-c', 'user.name=Siren Assistant', '-c', 'user.email=nexus-agent@localhost', '-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false'];
 const PREFIX = '[self-change]';
 
 async function root() {

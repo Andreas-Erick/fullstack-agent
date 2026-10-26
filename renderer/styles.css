@@ -481,6 +481,28 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .ob-choice small { color: var(--muted); }
 .ob-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
 .ob-check { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.ob-hero { display: grid; grid-template-columns: 180px 1fr; gap: 20px; align-items: center; }
+.ob-hero p { margin: 8px 0 0; }
+.ob-face { width: 180px; height: 180px; position: relative; }
+.ob-face canvas, .ob-face iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+@media (max-width: 640px) { .ob-hero { grid-template-columns: 1fr; } .ob-face { margin: 0 auto; } }
+.ob-points { display: flex; flex-direction: column; gap: 10px; }
+.ob-point { display: flex; gap: 12px; align-items: flex-start; }
+.ob-point .ico { font-size: 20px; line-height: 1.3; flex: none; width: 26px; text-align: center; }
+.ob-point b { display: block; }
+.ob-point p { margin: 2px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.ob-tour { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.ob-feature { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: rgba(var(--well), 0.4); color: var(--text); font: inherit; cursor: pointer; transition: 0.15s; }
+.ob-feature:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+.ob-feature .ico { font-size: 22px; }
+.ob-feature p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ob-feature-more { display: none; flex-direction: column; gap: 4px; margin-top: 4px; }
+.ob-feature-more small { color: var(--text2, var(--muted)); font-size: 11.5px; line-height: 1.45; }
+.ob-feature-more .st { color: rgb(var(--c1-soft)); }
+.ob-feature.open { border-color: rgb(var(--c1)); background: rgba(var(--c1), 0.08); }
+.ob-feature.open p { -webkit-line-clamp: unset; }
+.ob-feature.open .ob-feature-more { display: flex; }
+.ob-nav .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
 .ob-check .ic { width: 20px; flex: none; }
 .mic-meter { height: 8px; border-radius: 8px; background: rgba(var(--text-rgb), 0.1); overflow: hidden; }
 .mic-meter i { display: block; height: 100%; width: 0; background: rgb(var(--ok)); transition: width 0.08s; }

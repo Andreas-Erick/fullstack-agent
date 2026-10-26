@@ -40,8 +40,10 @@ let onChange = () => {};
 const ymd = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const hm = (d = new Date()) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+// The agent's own vault. Installs from before the rename keep theirs (Nexus Vault) where it is.
 function defaultVaultPath() {
-  return path.join(app.getPath('documents'), 'Nexus Vault');
+  const legacy = path.join(app.getPath('documents'), 'Nexus Vault');
+  return fs.existsSync(legacy) ? legacy : path.join(app.getPath('documents'), 'Siren Vault');
 }
 
 // ------------------------------------------------------------- templates
@@ -147,6 +149,23 @@ async function writeIfMissing(file, text) {
   return true;
 }
 
+// Guide notes that come with the app (main/guides/*.md, e.g. the prompt for making your own face): each
+// is put into Notes/ once. A list in .obsidian remembers which, so a guide the user deleted stays gone.
+const GUIDES = path.join(__dirname, 'guides');
+
+async function placeGuides(dir, agentName) {
+  const seenFile = path.join(dir, '.obsidian', 'siren-guides.json');
+  const seen = await store.readJson(seenFile, []);
+  const names = (await fsp.readdir(GUIDES).catch(() => [])).filter((f) => f.endsWith('.md') && !seen.includes(f));
+  if (!names.length) return;
+  for (const name of names) {
+    const text = (await fsp.readFile(path.join(GUIDES, name), 'utf8')).replace(/\{\{name\}\}/g, agentName);
+    await writeIfMissing(path.join(dir, 'Notes', name), text);
+  }
+  await store.writeJsonAtomic(seenFile, [...seen, ...names]);
+  await refreshFolderIndex(dir, 'Notes').catch(() => {});
+}
+
 // Builds the structure without ever overwriting existing files (safe on adopted vaults).
 async function scaffold(dir, agentName) {
   await fsp.mkdir(path.join(dir, '.obsidian'), { recursive: true });
@@ -159,6 +178,7 @@ async function scaffold(dir, agentName) {
     await fsp.mkdir(path.join(dir, f), { recursive: true });
     if (await writeIfMissing(path.join(dir, f, `${f}.md`), folderIndexTemplate(f))) await refreshFolderIndex(dir, f);
   }
+  await placeGuides(dir, agentName);
   // Older versions created Home.md as the map; point it at the index.
   const home = path.join(dir, 'Home.md');
   if (fs.existsSync(home)) {
@@ -177,7 +197,7 @@ async function vaultPath() {
     if (!fs.existsSync(dir)) await fsp.mkdir(dir, { recursive: true });
     if (scaffolded !== dir) {
       scaffolded = dir;
-      await scaffold(dir, s.agent.name || 'Nexus');
+      await scaffold(dir, s.agent.name || 'Siren');
     }
     return dir;
   } catch (err) {

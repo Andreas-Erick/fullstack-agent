@@ -1,21 +1,21 @@
 # Privacy policy and disclaimers
 
-*Last updated: October 24, 2026 · applies to Nexus Agent 1.1 and later*
+*Last updated: October 26, 2026 · applies to Siren Assistant 2.0 (formerly Nexus Agent) and later*
 
-Nexus Agent is a desktop app that runs on your own computer. It has **no server of its own, no account system, no analytics and no telemetry**. The project's authors never receive your data. This page explains what stays on your computer, what goes to the third-party services **you** choose to connect, and the limits of what the software promises.
+Siren Assistant is a desktop app for Windows and macOS that runs on your own computer. It has **no server of its own, no account system, no analytics and no telemetry**. The project's authors never receive your data. This page explains what stays on your computer, what goes to the third-party services **you** choose to connect, and the limits of what the software promises.
 
 ## What stays on your computer
 
 | Data | Where | Notes |
 | --- | --- | --- |
 | Your schedule | `Schedule.md` in the vault | Plain Markdown you can read and edit; never sent anywhere except as part of the agent's context and to devices you paired |
-| Settings | App data folder (`%APPDATA%\Nexus Agent`, `~/Library/Application Support/Nexus Agent`, `~/.config/Nexus Agent`) | API keys and tokens are encrypted with your operating system's keychain (Electron `safeStorage`) where available |
+| Settings | App data folder (`%APPDATA%\Siren Assistant`, `~/Library/Application Support/Siren Assistant`, `~/.config/Siren Assistant`; the folder of the app's former name, Nexus Agent, is moved there on the first start of 2.0) | API keys and tokens are encrypted with your operating system's keychain (Electron `safeStorage`) where available |
 | Conversations | App data folder → `conversations/` | Plain JSON. Screenshots from screen sharing are **never** stored in them |
-| Memory, notes, journal, profile, priorities | Your Obsidian vault (default `Documents/Nexus Vault`) | Plain Markdown, versioned with a local git history |
+| Memory, notes, journal, profile, priorities | Your Obsidian vault (default `Documents/Siren Vault`; an existing `Documents/Nexus Vault` stays where it is) | Plain Markdown, versioned with a local git history |
 | Skills | App data folder → `skills/` | Plain Markdown |
 | Logs and bug reports | App data folder → `logs/` | Known key formats are masked. Bug reports stay local until **you** decide to share one |
 | Speech recognition (default) | Runs locally (Whisper via transformers.js) | Your voice is not sent anywhere in the default "local" mode |
-| PDF exports | Your workspace folder or `Documents/Nexus Exports` | |
+| PDF exports | Your workspace folder or `Documents/Siren Exports` (`Nexus Exports` if you already had it) | |
 | Paired devices (remote access) | App data folder → `remote-devices.json` | Device name, dates, how and from which IP address it last connected, and a SHA-256 of its token; never the token itself |
 | Memory stream | `Stream/` in the vault (one note per month), and `stream-access.json` in the app data folder (when each record was last recalled) | Small observations the assistant notes and the insights it draws from them (by your AI provider, in the background). The most relevant ones go into the agent's context with each message. Turn it off in Settings → Memory & history |
 | Inner World (off until you wake it) | `Inner World/` in the vault (Chronicle, each resident's memories, Rehearsals), `innerworld.json` and `innerworld-activity.json` (how many tools the assistant used per village place and day, counts only, the last 14 days) in the app data folder | Fiction written by your AI provider once a day: your personas' names and prompts, how far your real progress has come (counts such as concepts understood or a habit streak), where the assistant mostly worked yesterday (place names and counts, never what the work was) and the residents' memories go into that call. Rehearsals send the scene you describe. Never sent to paired devices |
@@ -33,7 +33,7 @@ Only what is needed for a feature **you** turned on is sent, and only to the ser
 | AI brain | The provider(s) you configure: Anthropic (Claude API or your Claude account via Claude Code), Google (Gemini), DeepSeek, Groq, Perplexity, or a FreeLLMAPI / OpenAI-compatible server you run | Your messages, the conversation context, the system prompt (which includes your persona, relevant memories, vault excerpts, your schedule for the next days, the current date/time and, with the Claude account brain, the names of your Claude connectors and plugins), tool results, and screenshots while you share your screen. In **multi-provider mode** a message can go to the next provider on your list when one is unavailable |
 | Screen sharing | The AI provider answering that message | A screenshot of the screen or window **you** picked, only while sharing is on (red "Sharing" badge). Not recorded, not stored |
 | Web search and pages | DuckDuckGo (default), or SearXNG, Brave or Tavily if you choose them, and the websites the agent opens | Search queries and page requests |
-| Voice output | VoiceStudio (runs on your computer); when it is unreachable, the offline Kokoro voice (runs in the app) or your operating system's voice | The text to speak, which stays on this computer |
+| Voice output | The offline Kokoro voice (default; runs in the app), or VoiceStudio if you choose it (runs on your computer; when it is unreachable, the offline voice or your operating system's voice) | The text to speak, which stays on this computer |
 | Remote speech recognition (optional) | The transcription server you configure | Recordings of what you say |
 | GitHub | GitHub, through the GitHub CLI you signed in to | Reads, and the pushes and pull requests you approve |
 | Routines (only the ones you set up) | Whatever their instructions use: the AI brain, and any connector or website they call | Routines run on their own on a schedule while the app is open, with the same tools and approvals as a chat; an approval nobody answers is declined. They are listed (and can be paused or deleted) in the Habits view |
@@ -43,10 +43,14 @@ Only what is needed for a feature **you** turned on is sent, and only to the ser
 | Agent window (on by default; Settings → Internet) | The websites the agent or you open in it | What a page needs from any browser, and what the agent types into it (each click or entry follows your permission mode; it never types passwords or payment details). It has its own sign-ins, separate from your browser and stored in the app's data folder; no camera, microphone, location or downloads, and nothing on this computer or your local network except the globe. What pages show goes to the AI brain like any web page |
 | Claude connectors and plugins (off by default) | The services you connected on claude.ai or added as Claude Code plugins (for example Todoist, Google Calendar, Canva, Slack), through Claude Code and your Claude account | What the agent puts into each call you approve (a task, a search, a design request…). Each call asks you first unless you ticked "always allow" for that service in Settings → AI brain. What the services return goes to the AI brain like any tool result |
 | Model downloads | Hugging Face | Downloads the speech, voice-detection and offline-voice models (and the offline voices) once; no personal data. The runtime that runs them ships with the app. |
-| Remote access (preview, off by default) | Only the devices **you** pair, directly (this computer, or your local network if you allow it); no server of ours in between | Your conversations, the replies as they stream, approval requests, your schedule (read-only, only the days the phone shows), the agent's name and theme colors, and spoken replies (made by VoiceStudio on this computer) if you turn them on. Tool activity shows as names only: what a tool was given or returned (file contents, commands, notes) stays on this computer. Never settings, keys, the setup conversation or screenshots of this desktop. A device unused for 90 days is unpaired automatically. On the local network the connection is not encrypted yet. The phone keeps only its device token, the open conversation's id and the 🔈 choice, in its browser storage. Push-to-talk recordings (secure address only) are transcribed on this computer with your speech-to-text setting and not kept |
+| Remote access (preview, off by default) | Only the devices **you** pair, directly (this computer, or your local network if you allow it); no server of ours in between | Your conversations, the replies as they stream, approval requests, your schedule (read-only, only the days the phone shows), the agent's name and theme colors, and spoken replies (made on this computer by the offline voice or VoiceStudio) if you turn them on. Tool activity shows as names only: what a tool was given or returned (file contents, commands, notes) stays on this computer. Never settings, keys, the setup conversation or screenshots of this desktop. A device unused for 90 days is unpaired automatically. On the local network the connection is not encrypted yet. The phone keeps only its device token, the open conversation's id and the 🔈 choice, in its browser storage. Push-to-talk recordings (secure address only) are transcribed on this computer with your speech-to-text setting and not kept |
 | Secure remote address (optional) | Cloudflare (Tunnel, and Access if you set it up) or Tailscale, under **your** account | The same traffic as above, encrypted from the phone to Cloudflare's or Tailscale's network and on to this computer. Cloudflare can see the traffic it relays (it ends HTTPS at its edge); Tailscale connections are end-to-end encrypted. The temporary Cloudflare address is public: protect it with pairing and turn it off after testing |
 
 The app never sells, shares or uploads data on its own initiative. The private-network block in web fetching, the approval gate for consequential actions, and the "external content is data" rule are described in the [README](README.md#safety-and-permissions).
+
+## Accepting this policy
+
+The setup wizard shows a short version of this page and asks you to accept it before you continue; the app only records when you did (`privacy.acceptedAt` in your settings, on this computer).
 
 ## Your choices
 
@@ -57,17 +61,17 @@ The app never sells, shares or uploads data on its own initiative. The private-n
 
 ## Disclaimers
 
-- **Provided "as is".** Nexus Agent is open-source software under the MIT License, without warranty of any kind. To the maximum extent permitted by law, the authors are not liable for any damages arising from its use. See [LICENSE](LICENSE).
+- **Provided "as is".** Siren Assistant is open-source software under the MIT License, without warranty of any kind. To the maximum extent permitted by law, the authors are not liable for any damages arising from its use. See [LICENSE](LICENSE).
 - **AI output can be wrong.** Language models make mistakes and can state false things confidently. Check important information (medical, legal, financial, safety-related) with a qualified source. The agent is not a professional adviser.
 - **Actions on your behalf.** The agent can add to your schedule, write notes, change files in its workspace, push code to GitHub and change its own code, within the permissions you set. Consequential actions ask for approval in "Ask" mode; in "Auto" mode many do not. You are responsible for what you approve and for the permission mode you choose.
 - **Self-modification.** Code changes the agent makes to itself are recorded and can be reverted, but they can still break the app; `npm run recover` undoes the last change. Installing an update replaces the app's files, including changes the agent made to itself.
 - **Third-party services and costs.** You are responsible for complying with the terms of every service you connect (including acceptable-use policies and rate limits) and for any charges they bill. Multi-provider mode can send a message to a paid provider when a free one is unavailable; order and switch providers in Settings → AI brain.
 - **Other people's data.** If you share your screen, calendar, documents or voice recordings that contain other people's information, make sure you are allowed to. Only clone a voice that is yours or whose owner agreed.
-- **Not for high-risk use.** Do not use Nexus Agent where a failure could cause injury, significant financial loss or harm to others.
+- **Not for high-risk use.** Do not use Siren Assistant where a failure could cause injury, significant financial loss or harm to others.
 
 ## Children
 
-Nexus Agent is not directed at children, and the AI providers it connects to set their own minimum ages.
+Siren Assistant is not directed at children, and the AI providers it connects to set their own minimum ages.
 
 ## Changes and contact
 

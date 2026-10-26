@@ -13,7 +13,7 @@ const MAX_FILE_BYTES = 400000;
 const MAX_SKILL_BYTES = 8000000;
 const MAX_SKILL_FILES = 400;
 const SCAN_TTL_MS = 15 * 60000;
-const HEADERS = { 'User-Agent': 'Nexus-Agent (skill import)', Accept: 'application/vnd.github+json' };
+const HEADERS = { 'User-Agent': 'Siren-Assistant (skill import)', Accept: 'application/vnd.github+json' };
 
 /** "owner/repo", "https://github.com/owner/repo", "…/tree/main/skills" → { owner, repo }. */
 function parseRepo(input) {

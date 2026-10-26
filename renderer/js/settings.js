@@ -228,7 +228,7 @@ function agentCard() {
     'Persona studio',
     'Define who the agent is. The master prompt drives its behaviour; the image and aesthetic shape how it looks, sounds and writes. Click Generate and the whole app — colors, fonts, background, face, greeting and voice — is redesigned to match. Keep several personas and switch between them here or in the title bar: each has its own prompt, image, theme, face, greeting and voice; memory, notes and conversations are shared.',
     personaBar(),
-    el('div', { class: 'row', style: { gap: '14px' } }, preview, el('div', { style: { flex: 1 } }, text('agent.name', 'Agent name', { placeholder: 'Nexus' })), pick, clear),
+    el('div', { class: 'row', style: { gap: '14px' } }, preview, el('div', { style: { flex: 1 } }, text('agent.name', 'Agent name', { placeholder: 'Siren' })), pick, clear),
     area('agent.personality', 'Master prompt (persona)', { rows: 9, hint: 'Who the agent is, how it behaves, what it cares about. Memories, vault, calendar and tool instructions are appended automatically.' }),
     area('agent.aesthetic', 'Aesthetic · style · theme', { rows: 3, hint: 'e.g. “90s cyberpunk terminal, green phosphor”, “warm solarpunk greenhouse, botanical”, “minimal Scandinavian, calm and airy”, “art-deco luxury, gold on black”.' }),
     faceSelect(),
@@ -445,7 +445,7 @@ function extensionsCard() {
             draw();
           },
         }, x.ready ? '⟳ Reinstall' : '⬇ Install it for me');
-        const status = x.ready ? (x.running ? `✓ ready · globe server running${x.startedByNexus ? ' (started by Nexus)' : ''}` : '✓ ready · the globe server starts when needed') : `✕ ${x.reason}`;
+        const status = x.ready ? (x.running ? `✓ ready · globe server running${x.startedByNexus ? ' (started by Siren)' : ''}` : '✓ ready · the globe server starts when needed') : `✕ ${x.reason}`;
         rows.push(
           el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, pathInput), browse, install),
           el(
@@ -844,9 +844,10 @@ function voiceCard() {
   });
   return card(
     'voice',
-    'Voice output · VoiceStudio',
-    'Local OpenAI-compatible TTS (<code>/v1/audio/speech</code>). Replies are spoken sentence-by-sentence while they stream.',
+    'Voice output',
+    'Replies are spoken sentence by sentence while they stream. The offline voice (Kokoro) runs in the app: free, private and without internet once downloaded. VoiceStudio is a separate app with more natural, cloneable voices (a local OpenAI-compatible <code>/v1/audio/speech</code> server).',
     el('div', { class: 'grid2' }, toggle('voice.ttsEnabled', 'Enable voice', () => emit('status-refresh')), toggle('voice.autoSpeak', 'Speak replies automatically')),
+    el('div', { class: 'grid2' }, select('voice.engine', 'Voice', [['local', 'Offline voice (Kokoro, in the app)'], ['voicestudio', 'VoiceStudio (separate app)']], { onChange: () => emit('status-refresh') }), select('voice.localVoice', 'Offline voice', KOKORO_VOICES)),
     text('voice.baseUrl', 'VoiceStudio URL', { placeholder: 'http://localhost:3900' }),
     text('voice.apiKey', 'API key', { type: 'password', placeholder: 'optional' }),
     field('Voice', el('div', { class: 'row' }, voiceSel, el('button', { class: 'btn', onclick: () => loadVoices(false) }, '⟳ Load voices')), 'Saved with the current persona, like the offline voice.'),
@@ -860,7 +861,6 @@ function voiceCard() {
       select('voice.fallback', 'When VoiceStudio is unreachable', [['local', 'Offline voice (Kokoro, runs in the app)'], ['system', 'System voice (Windows / macOS)'], ['off', 'Stay silent']], {
         hint: 'The offline voice downloads once (about 330 MB with a GPU, 90 MB without) and then works without internet.',
       }),
-      select('voice.localVoice', 'Offline voice', KOKORO_VOICES),
     ),
     el(
       'div',
@@ -955,7 +955,7 @@ async function githubCard() {
     'GitHub',
     `Lets ${state.settings.agent.name} read your repositories, issues and pull requests, and work on them when you ask: it clones a repo into the folder below, changes it on a new branch and commits there (approved per your permission mode). <b>Pushing and opening a pull request always ask you first</b>, it never touches the default branch directly and never merges. Uses the GitHub CLI: install it and run <code>gh auth login</code> once.`,
     toggle('github.enabled', 'Enable GitHub', () => render()),
-    folder('github.workspace', 'Repos folder', { placeholder: st.workspace || '~/NexusRepos', hint: 'Where repositories are cloned. Keep it out of OneDrive/Dropbox.' }),
+    folder('github.workspace', 'Repos folder', { placeholder: st.workspace || '~/SirenRepos', hint: 'Where repositories are cloned. Keep it out of OneDrive/Dropbox.' }),
     line,
   );
 }
@@ -1125,7 +1125,7 @@ async function dataCard() {
     el(
       'div',
       { class: 'hint' },
-      `Nexus Agent v${info.version} · Electron ${info.electron} · ${info.platform} · `,
+      `Siren Assistant v${info.version} · Electron ${info.electron} · ${info.platform} · `,
       el('a', { href: '#', onclick: (e) => (e.preventDefault(), api.shell.openExternal('https://github.com/Andreas-Erick/fullstack-agent/blob/main/PRIVACY.md')) }, 'Privacy & disclaimers'),
     ),
   );
@@ -1232,7 +1232,7 @@ async function detectTailscale(out) {
     if (t.error || !t.running) return showResult(out, false, `✕ ${t.error || 'Tailscale is not connected. Open Tailscale and sign in.'}`);
     if (!t.host) return showResult(out, false, '✕ Tailscale didn’t report a name for this computer. Turn on MagicDNS and HTTPS certificates in the Tailscale admin console (DNS page).');
     await saveSettings({ remote: { publicHost: t.host } });
-    const serve = t.serving === false ? `\n⚠ Serve isn’t forwarding to Nexus yet. Run once in a terminal: ${t.command}` : t.serving ? '\n✓ Tailscale Serve forwards to Nexus.' : '';
+    const serve = t.serving === false ? `\n⚠ Serve isn’t forwarding to Siren yet. Run once in a terminal: ${t.command}` : t.serving ? '\n✓ Tailscale Serve forwards to Siren.' : '';
     showResult(out, t.serving !== false, `✓ This computer is ${t.host}${serve}`);
     render();
   } catch (err) {
@@ -1272,7 +1272,7 @@ function tunnelFields() {
         el('button', { class: 'btn', onclick: async () => (await api.remote.checkSecure().catch(toastError), refreshRemoteStatus?.()) }, 'Check'),
       )),
       out,
-      el('div', { class: 'hint' }, el('b', {}, 'On the phone: '), 'turn Tailscale on there. If the Nexus app is already paired over Wi-Fi, open it at home and tap ', el('b', {}, 'Switch to the secure address'), ' (it keeps the pairing). Otherwise pair with the QR code and pick the 🔒 secure address, or type ', el('code', {}, `https://${get('remote.publicHost') || 'my-pc.tail1234.ts.net'}`), ' in the app.'),
+      el('div', { class: 'hint' }, el('b', {}, 'On the phone: '), 'turn Tailscale on there. If the Siren app is already paired over Wi-Fi, open it at home and tap ', el('b', {}, 'Switch to the secure address'), ' (it keeps the pairing). Otherwise pair with the QR code and pick the 🔒 secure address, or type ', el('code', {}, `https://${get('remote.publicHost') || 'my-pc.tail1234.ts.net'}`), ' in the app.'),
     );
   }
   if (mode === 'quick' || mode === 'cloudflare') fields.push(text('remote.cloudflaredPath', 'cloudflared location (optional)', { placeholder: 'Found automatically' }));
@@ -1305,10 +1305,10 @@ function helperAppsCard() {
   return card(
     'helperapps',
     'Helper apps',
-    'VoiceStudio (the natural voice) and FreeLLMAPI (a local brain) are separate apps. Nexus starts the ones your settings use, in the background, so you only open Nexus. It only starts them when their address is on this computer, and only from their install folder or the location you set here.',
-    toggle('helperApps.autoStart', 'Start them with Nexus, and again when they are needed and not running'),
+    'VoiceStudio (the natural voice) and FreeLLMAPI (a local brain) are separate apps. Siren starts the ones your settings use, in the background, so you only open Siren. It only starts them when their address is on this computer, and only from their install folder or the location you set here.',
+    toggle('helperApps.autoStart', 'Start them with Siren, and again when they are needed and not running'),
     toggle('helperApps.minimize', 'Keep their windows minimized (in the taskbar)'),
-    toggle('helperApps.stopOnQuit', 'Close them when I quit Nexus (only the ones Nexus started)'),
+    toggle('helperApps.stopOnQuit', 'Close them when I quit Siren (only the ones Siren started)'),
     list,
     el('div', { class: 'grid2' },
       text('helperApps.voicestudioPath', 'VoiceStudio location (optional)', { placeholder: 'Found automatically', hint: 'The program file, e.g. VoiceStudio.exe.', onChange: debounceAfter(refresh) }),

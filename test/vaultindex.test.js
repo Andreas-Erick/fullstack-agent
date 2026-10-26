@@ -37,3 +37,14 @@ test('search ranks matching notes across many files', async () => {
   assert.strictEqual(hits[0].title, 'Eigenvalues');
   assert.ok(hits.every((h) => !h.title.startsWith('Filler')));
 });
+
+test('guide notes are placed once; one the user deleted stays deleted', async () => {
+  const note = path.join(vault, 'Notes', 'Make Your Own Face.md');
+  assert.ok(fs.existsSync(note), 'the face guide is in Notes/');
+  assert.match(fs.readFileSync(note, 'utf8'), /Make your own face[\s\S]*Nexus can wear any face/);
+  fs.rmSync(note);
+  // A new start scaffolds again (another vault path would; here call through a fresh module).
+  const again = load('main/obsidian.js');
+  await again.vaultPath();
+  assert.ok(!fs.existsSync(note));
+});

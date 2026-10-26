@@ -46,8 +46,9 @@ const STATIC = {
   '/js/faces/rain.js': 'renderer/js/faces/rain.js',
   '/js/faces/neural.js': 'renderer/js/faces/neural.js',
   '/js/faces/companion.js': 'renderer/js/faces/companion.js',
+  '/js/faces/siren.js': 'renderer/js/faces/siren.js',
 };
-const FACES = ['circuit', 'radial', 'rain', 'neural', 'companion'];
+const FACES = ['siren', 'circuit', 'radial', 'rain', 'neural', 'companion'];
 const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 // On every response. HSTS is added for the tunnel address (HTTPS at the edge).
@@ -383,7 +384,7 @@ async function info() {
   const sleepAfterMin = Math.max(0, Math.min(240, Number(s.ui?.sleepAfterMin) || 0));
   const t = tunnel.status();
   const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
-  return { name: String(s.agent.name || 'Nexus').slice(0, 40), colors, voice: Boolean(s.voice?.baseUrl), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled) };
+  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled) };
 }
 
 async function speak(req, res) {
@@ -391,7 +392,12 @@ async function speak(req, res) {
   if (body instanceof Error) return fail(res, body.status || 400, body.message);
   const text = String(body.text || '').trim().slice(0, 4000);
   if (!text) return fail(res, 400, 'Nothing to say');
-  const { mime, audio } = await voice.speak(text).catch((err) => ({ err }));
+  const s = await store.getSettings();
+  // The offline voice (the default) runs in the desktop window; VoiceStudio falls back to it when chosen.
+  const offline = () => hooks.synthesize(text).then((wav) => ({ mime: 'audio/wav', audio: wav }));
+  const viaStudio = s.voice?.engine !== 'local';
+  let { mime, audio } = await (viaStudio ? voice.speak(text) : offline()).catch((err) => ({ err }));
+  if (!audio && viaStudio && (s.voice?.fallback || 'local') === 'local') ({ mime, audio } = await offline().catch((err) => ({ err })));
   if (!audio) return fail(res, 502, 'The voice is not available right now');
   res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   res.end(Buffer.from(audio));

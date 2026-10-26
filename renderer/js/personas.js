@@ -7,7 +7,7 @@ import { speaker } from './voice.js';
 function took(settings, { greet = false } = {}) {
   state.settings = settings;
   emit('settings', settings);
-  const name = settings.agent.name || 'Nexus';
+  const name = settings.agent.name || 'Siren';
   toast(`🎭 ${name}`);
   // The new persona says hello in its own voice.
   if (greet && settings.voice.ttsEnabled && settings.voice.autoSpeak) speaker.say(settings.appearance.greeting || `Hi, ${name} here.`);

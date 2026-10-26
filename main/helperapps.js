@@ -19,7 +19,7 @@ const APPS = {
   voicestudio: {
     name: 'VoiceStudio',
     url: (s) => s.voice?.baseUrl,
-    needed: (s) => Boolean(s.voice?.ttsEnabled),
+    needed: (s) => Boolean(s.voice?.ttsEnabled && s.voice.engine !== 'local'),
     readyMs: 180000, // loads its speech models onto the GPU
     candidates: { win32: ['%LOCALAPPDATA%\\Programs\\VoiceStudio\\VoiceStudio.exe'], darwin: ['/Applications/VoiceStudio.app'] },
   },

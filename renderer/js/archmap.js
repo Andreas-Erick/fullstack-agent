@@ -1086,7 +1086,7 @@ function crumbs() {
   if (sig === lastCrumbs) return;
   lastCrumbs = sig;
   const box = $('#archCrumbs');
-  box.replaceChildren(el('button', { onclick: () => fitAll() }, 'Nexus'), ...path.flatMap((n) => [el('span', { class: 'sep' }, '›'), el('button', { class: `lvl-${n.level}`, title: LEVEL[n.level], onclick: () => dive(n) }, n.name)]));
+  box.replaceChildren(el('button', { onclick: () => fitAll() }, 'Siren'), ...path.flatMap((n) => [el('span', { class: 'sep' }, '›'), el('button', { class: `lvl-${n.level}`, title: LEVEL[n.level], onclick: () => dive(n) }, n.name)]));
 }
 
 // ------------------------------------------------------------ hover tip (only when the label is too small to read)
@@ -1350,7 +1350,7 @@ function showLearn() {
         el('div', { class: 'arch-chips' }, ...p.where.map(byIdOrNull).filter(Boolean).map((n) => chip(n)), ...(p.evidence || []).slice(0, 12).map((f) => byId.get(`f:${f}`)).filter(Boolean).map((n) => chip(n))),
       ),
     ),
-    s?.undescribed?.length ? el('div', { class: 'arch-note warn' }, `Not described yet: ${s.undescribed.join(', ')}. Click one on the map to ask Nexus to describe it.`) : '',
+    s?.undescribed?.length ? el('div', { class: 'arch-note warn' }, `Not described yet: ${s.undescribed.join(', ')}. Click one on the map to ask Siren to describe it.`) : '',
     el(
       'div',
       { class: 'arch-sec' },
