@@ -3,6 +3,10 @@
 // first use and cached by the browser cache afterwards; text never leaves the computer.
 import { StyleTextToSpeech2Model, AutoTokenizer, Tensor, env } from 'app://bundle/node_modules/@huggingface/transformers/dist/transformers.min.js';
 import { KOKORO_MODEL, voiceUrl, toPhonemes, styleOffset, kokoroVoice } from './kokorotext.js';
+// The ONNX runtime comes from the app (node_modules/onnxruntime-web, the version transformers.js pins),
+// not from a CDN: works offline and runs no code fetched at run time.
+const ORT = 'app://bundle/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify';
+if (env.backends?.onnx?.wasm) env.backends.onnx.wasm.wasmPaths = { mjs: `${ORT}.mjs`, wasm: `${ORT}.wasm` };
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;

@@ -47,7 +47,7 @@ if (process.env.NEXUS_USER_DATA) app.setPath('userData', path.resolve(process.en
 app.commandLine.appendSwitch('force_high_performance_gpu');
 
 // Only these folders are served to the renderer over app://bundle/...
-const SERVED = ['renderer/', 'node_modules/marked/lib/', 'node_modules/dompurify/dist/', 'node_modules/katex/dist/', 'node_modules/@huggingface/transformers/dist/', 'node_modules/phonemizer/dist/', 'node_modules/pdfjs-dist/build/', 'node_modules/@fontsource/'];
+const SERVED = ['renderer/', 'node_modules/marked/lib/', 'node_modules/dompurify/dist/', 'node_modules/katex/dist/', 'node_modules/@huggingface/transformers/dist/', 'node_modules/onnxruntime-web/dist/', 'node_modules/phonemizer/dist/', 'node_modules/pdfjs-dist/build/', 'node_modules/@fontsource/'];
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',

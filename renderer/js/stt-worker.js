@@ -3,6 +3,10 @@
 import { pipeline, env } from 'app://bundle/node_modules/@huggingface/transformers/dist/transformers.min.js';
 
 env.allowLocalModels = false;
+// The ONNX runtime comes from the app (node_modules/onnxruntime-web, the version transformers.js pins),
+// not from a CDN: works offline and runs no code fetched at run time.
+const ORT = 'app://bundle/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify';
+if (env.backends?.onnx?.wasm) env.backends.onnx.wasm.wasmPaths = { mjs: `${ORT}.mjs`, wasm: `${ORT}.wasm` };
 env.useBrowserCache = true;
 // Prefer the dedicated GPU over integrated graphics (onnxruntime requests its own adapter).
 if (env.backends?.onnx?.webgpu) env.backends.onnx.webgpu.powerPreference = 'high-performance';

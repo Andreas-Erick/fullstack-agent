@@ -68,6 +68,7 @@
       "!node_modules/sharp/**",
       "!node_modules/@img/**",
       "!node_modules/onnxruntime-web/**",
+      "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.*",
       "scripts/**",
       "test/**",
       "docs/ENGINEERING.md",

@@ -524,8 +524,24 @@ async function getConversation(id) {
   return readJson(path.join(convDir(), `${safeConvId(id)}.json`), null);
 }
 
+// Full tool exchanges (`raw`: tool calls, results, thinking) are only replayed to the model for the
+// last replies (llm.js: 6 on the Claude API, the history window on the OpenAI path). Older replies keep
+// their text and tool list; dropping their raw part keeps long conversations from growing by megabytes.
+const RAW_REPLIES_KEPT = 16;
+
+function trimRaw(messages, keep = RAW_REPLIES_KEPT) {
+  let replies = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'assistant') continue;
+    if (++replies > keep && m.raw) delete m.raw;
+  }
+  return messages;
+}
+
 async function saveConversation(conv, { touch = true } = {}) {
   if (touch) conv.updatedAt = Date.now();
+  if (Array.isArray(conv.messages)) trimRaw(conv.messages);
   await writeJsonAtomic(path.join(convDir(), `${safeConvId(conv.id)}.json`), conv);
   (await loadIndex()).set(conv.id, summarize(conv));
   saveIndexSoon();
@@ -582,6 +598,7 @@ module.exports = {
   readJson,
   writeJsonAtomic,
   writeTextAtomic,
+  trimRaw,
   settingsRecovery: () => settingsRecovered,
   SECRET_FIELDS,
   sweepStaleTemp,

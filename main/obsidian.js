@@ -33,7 +33,8 @@ const PROFILE_AGENT_SECTIONS = ['Key People', 'How I Think', 'Health', 'Interest
 const PROFILE_SECTIONS = ['Who I Am', 'Key People', 'Projects', 'How I Think', 'Health', 'Interests', 'Beliefs', 'Daily Routine', 'Goals'];
 const IDX_START = '<!-- nexus:index:start -->';
 const IDX_END = '<!-- nexus:index:end -->';
-const contentCache = new Map(); // fullPath -> { mtime, text }
+// fullPath -> { mtime, text }; about 16M characters at most (~32 MB), least recently read notes go first.
+const contentCache = new (require('./lru').SizedLru)(16e6);
 let onChange = () => {};
 
 const ymd = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
