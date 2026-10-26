@@ -1098,6 +1098,7 @@ async function dataCard() {
     toggle('innerWorld.enabled', 'Inner World: your personas live a small fictional day in a village that grows with your progress (a few model calls a day)'),
     toggle('innerWorld.townsfolk', 'Inner World: two villagers of its own live there too'),
     select('innerWorld.season', 'Inner World season', [['auto', 'Follow the calendar'], ['spring', 'Always spring'], ['summer', 'Always summer'], ['autumn', 'Always autumn'], ['winter', 'Always winter']]),
+    select('innerWorld.art', 'Inner World art', [['rendered', 'Rendered 3D models (Kenney, CC0)'], ['drawn', 'Drawn by code']]),
     el('div', { class: 'row' }, el('span', { class: 'muted', style: { flex: 1 } }, `${mems.length} memories · ${convs.length} conversations`)),
     el(
       'div',

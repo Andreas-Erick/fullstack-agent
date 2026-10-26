@@ -45,7 +45,8 @@ Replay the last weeks of growth: buildings rising level by level, the seasons tu
 snapshot of the levels (start storing them in `innerworld.json` now so there is history to replay).
 
 ## Art direction note
-Everything is procedural so it reacts to the data. If a hand-painted look is wanted later, the
-middle path is a hybrid: keep the procedural layout, data and animation, and draw buildings, trees
-and props from sprite sheets (a CC0 isometric set, or commissioned / generated art with a clear
-licence), several variants per level. See the trade-offs discussed with the user on 2026-10-26.
+Built (2026-10-26): the hybrid. Buildings, trees and small things are sprites rendered in Blender from
+Kenney's CC0 kits (`tools/world-art/`); layout, data, animation and interiors stay procedural. Next
+steps for the art: more building variety (two designs per level), crops on the fields (pumpkins in
+autumn), a watermill on the river and a windmill by the fields, recolouring roofs from the persona's
+theme (the generated roofs take any colour), rendered residents.
