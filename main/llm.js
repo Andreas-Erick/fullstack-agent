@@ -243,8 +243,8 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText });
     return claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
   }
-  const { system } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText });
-  if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), history, emit, signal, active, system, ctx, images });
+  const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText });
+  if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), conv, history, emit, signal, active, system, stable, context, ctx, images });
   return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active, system, ctx, images });
 }
 
@@ -447,8 +447,7 @@ async function openaiStream({ base, key, payload, signal, emit }) {
 
 // Compaction for small-context models: older turns are folded into a rolling summary stored on the
 // conversation (instead of silently dropping them); recent turns stay verbatim.
-async function compactHistory(settings, conv, history) {
-  const limit = Math.max(4, settings.llm.historyLimit || 30);
+async function compactHistory(settings, conv, history, limit = Math.max(4, settings.llm.historyLimit || 30)) {
   if (!settings.llm.compaction || !conv || history.length <= limit) return { summary: conv?.summary || '', patch: null };
   const cutoff = history.length - limit; // messages before this index are summarized
   const doneUpTo = conv.summaryUpTo || 0;
@@ -589,12 +588,23 @@ function anthropicClient(settings) {
   return new Anthropic({ apiKey: settings.anthropic.apiKey, maxRetries: 2 });
 }
 
-function anthropicHistory(history) {
+// The Claude API conversation: the last `limit` messages (older ones live in the rolling summary), and
+// the full tool exchanges (tool calls, results, thinking) only for the last `rawReplies` replies; older
+// replies are sent as their text. Keeps long conversations inside the context window and cheaper.
+const API_HISTORY = 60;
+const API_RAW_REPLIES = 6;
+
+function anthropicHistory(history, { limit = API_HISTORY, rawReplies = API_RAW_REPLIES } = {}) {
+  const recent = history.slice(-limit);
+  const replies = recent.filter((m) => m.role === 'assistant');
+  const rawFrom = replies.length - rawReplies;
+  let reply = 0;
   const out = [];
-  for (const m of history) {
+  for (const m of recent) {
     if (m.role === 'user') out.push({ role: 'user', content: m.content });
     else if (m.role === 'assistant') {
-      if (m.raw?.provider === 'anthropic' && Array.isArray(m.raw.messages) && m.raw.messages.length) out.push(...m.raw.messages);
+      const keepRaw = reply++ >= rawFrom;
+      if (keepRaw && m.raw?.provider === 'anthropic' && Array.isArray(m.raw.messages) && m.raw.messages.length) out.push(...m.raw.messages);
       else if (m.content) out.push({ role: 'assistant', content: m.content });
     }
   }
@@ -627,7 +637,18 @@ function imageBlock(url) {
   return m ? { type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } } : null;
 }
 
-async function runAnthropic({ settings, history, emit, signal, active, system, ctx, images = [] }) {
+// Prompt caching: the tools, the stable system prompt and the conversation so far are cache prefixes
+// (they are the same on every tool round of a turn, and the stable prompt across turns).
+const CACHE = { type: 'ephemeral' };
+
+function withCacheMark(message) {
+  const content = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : [...message.content];
+  if (!content.length) return message;
+  content[content.length - 1] = { ...content[content.length - 1], cache_control: CACHE };
+  return { ...message, content };
+}
+
+async function runAnthropic({ settings, conv, history, emit, signal, active, system, stable, context, ctx, images = [] }) {
   const client = anthropicClient(settings);
   const a = settings.anthropic;
   const model = a.model || 'claude-opus-5-5';
@@ -638,7 +659,13 @@ async function runAnthropic({ settings, history, emit, signal, active, system, c
   if (a.fallbacks && !isHaiku) betas.push('server-side-fallback-2026-07-01');
 
   const apiTools = active.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters, eager_input_streaming: true }));
+  if (apiTools.length) apiTools[apiTools.length - 1] = { ...apiTools[apiTools.length - 1], cache_control: CACHE };
+  // Older turns beyond the window are folded into a rolling summary (stored on the conversation).
+  const compacted = await compactHistory(settings, conv, history, API_HISTORY);
+  const summary = compacted.summary ? `## Earlier in this conversation (summary)\n${compacted.summary}\n\n` : '';
+  const systemBlocks = stable != null ? [{ type: 'text', text: stable, cache_control: CACHE }, { type: 'text', text: `${summary}${context || ''}` }] : [{ type: 'text', text: `${system}${summary ? `\n\n${summary}` : ''}` }];
   const messages = anthropicHistory(history);
+  if (messages.length) messages[messages.length - 1] = withCacheMark(messages[messages.length - 1]);
   const last = messages[messages.length - 1];
   const pictures = images.map(imageBlock).filter(Boolean);
   if (pictures.length && last?.role === 'user' && typeof last.content === 'string') messages[messages.length - 1] = { role: 'user', content: [...pictures, { type: 'text', text: last.content }] };
@@ -652,7 +679,7 @@ async function runAnthropic({ settings, history, emit, signal, active, system, c
     const params = {
       model,
       max_tokens: Number(a.maxTokens) || 64000,
-      system,
+      system: systemBlocks,
       messages: [...messages, ...turnMessages],
       thinking: { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'drop_block' } },
       output_config: { effort: turnEffort(a.effort, ctx) },
@@ -741,7 +768,8 @@ async function runAnthropic({ settings, history, emit, signal, active, system, c
   // assistant turn whose tool calls never got results (aborted or out of rounds).
   const dangling = (m) => m.role === 'user' || (Array.isArray(m.content) && m.content.some((b) => b.type === 'tool_use'));
   while (turnMessages.length && dangling(turnMessages[turnMessages.length - 1])) turnMessages.pop();
-  return { text: fullText.trim(), toolCalls: toolRecords, raw: turnMessages.length ? { provider: 'anthropic', messages: stripImages(turnMessages) } : null, model: servedModel };
+  return { text: fullText.trim(), toolCalls: toolRecords, raw: turnMessages.length ? { provider: 'anthropic', messages: stripImages(turnMessages) } : null, model: servedModel, convPatch: compacted.patch };
 }
 
-module.exports = { runTurn, listModels, testConnection, complete, prewarm, effectiveModel };
+module.exports = {
+  anthropicHistory, runTurn, listModels, testConnection, complete, prewarm, effectiveModel };

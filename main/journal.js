@@ -24,6 +24,8 @@ async function sweep() {
     const idleMs = (s.journal.idleMinutes ?? 15) * 60000;
     for (const c of await store.listConversations()) {
       if (Date.now() - c.updatedAt < idleMs) continue;
+      // From the index alone: nothing new since the last journal entry (the common case) → skip.
+      if (c.count - (c.journaledUpTo || 0) < 2) continue;
       const conv = await store.getConversation(c.id);
       const from = conv?.journaledUpTo || 0;
       const fresh = (conv?.messages || []).slice(from);

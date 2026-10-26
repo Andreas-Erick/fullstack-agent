@@ -295,7 +295,8 @@ async function writeNote(ref, content, mode = 'overwrite', { source = 'agent' } 
     text = mode === 'append' ? `${old.replace(/\s*$/, '')}\n\n${text}\n` : insertAfterFrontmatter(old, text);
   } else if (!exists) text = withFrontmatter(rel, text);
   if (exists) text = touchUpdated(text);
-  await fsp.writeFile(full, text, 'utf8');
+  // Atomic: a crash mid-write leaves the old note or the new one, never half of it.
+  await store.writeTextAtomic(full, text);
   contentCache.delete(full);
   await afterChange(root, rel, `${source}: ${exists ? 'update' : 'create'} ${rel}`);
   return { path: toPosix(path.relative(root, full)), created: !exists, mode };
@@ -350,7 +351,7 @@ async function refreshFolderIndex(root, folder) {
   let text = fs.existsSync(idx) ? await fsp.readFile(idx, 'utf8') : folderIndexTemplate(folder);
   const block = `${IDX_START}\n${lines.join('\n') || '_(empty)_'}\n${IDX_END}`;
   text = text.includes(IDX_START) && text.includes(IDX_END) ? text.replace(new RegExp(`${IDX_START}[\\s\\S]*?${IDX_END}`), block) : `${text.trimEnd()}\n\n${block}\n`;
-  await fsp.writeFile(idx, text, 'utf8');
+  await store.writeTextAtomic(idx, text);
   contentCache.delete(idx);
 }
 
@@ -388,7 +389,7 @@ async function logSession({ date = ymd(), time = hm(), topic, outcome, done, inP
     text = `${text.slice(0, insertAt).replace(/\s*$/, '')}\n${indexLine}\n${text.slice(insertAt)}`;
   } else text += `\n## Index\n${indexLine}\n`;
   text += `\n## Session ${sessionNo} — ${time}: ${topic}\n### What got done\n${bullets(done)}\n### Still in progress\n${bullets(inProgress)}\n### Decisions\n${bullets(decisions)}\n### Notes touched\n${bullets((notesTouched || []).map((n) => (n.startsWith('[[') ? n : `[[${n.replace(/\.md$/, '')}]]`)))}\n${profileUpdates?.length ? `### Profile updates\n${bullets(profileUpdates)}\n` : ''}\n---\n`;
-  await fsp.writeFile(full, text, 'utf8');
+  await store.writeTextAtomic(full, text);
   contentCache.delete(full);
   await afterChange(root, rel, `daily note ${date}`);
   return { path: rel, session: sessionNo };
@@ -423,7 +424,7 @@ async function updateProfile(section, content, mode = 'append', { anySection = f
   if (!re.test(text)) text = text.replace('## Profile Updates', `## ${section}\n\n## Profile Updates`);
   text = text.replace(re, (_m, head, body) => `${head}${mode === 'replace' ? `${content.trim()}\n` : `${body.trimEnd()}${body.trim() ? '\n' : ''}${content.trim()}\n`}`);
   text = `${text.trimEnd()}\n- ${ymd()}: ${mode === 'replace' ? 'rewrote' : 'added to'} **${section}** — ${content.trim().replace(/\s+/g, ' ').slice(0, 120)}\n`;
-  await fsp.writeFile(full, text, 'utf8');
+  await store.writeTextAtomic(full, text);
   contentCache.delete(full);
   await afterChange(root, 'Profile.md', `profile: ${section}`);
   return { section, mode };
@@ -455,7 +456,7 @@ async function addJobLesson(name, lesson) {
   let text = await fsp.readFile(full, 'utf8');
   const line = `- ${ymd()}: ${String(lesson).trim()}`;
   text = text.includes('## Lessons learned') ? text.replace(/## Lessons learned\n?/, (m) => `${m}${line}\n`) : `${text.trimEnd()}\n\n## Lessons learned\n${line}\n`;
-  await fsp.writeFile(full, text, 'utf8');
+  await store.writeTextAtomic(full, text);
   contentCache.delete(full);
   const rel = toPosix(path.relative(root, full));
   await afterChange(root, rel, `job lesson ${name}`);
@@ -556,7 +557,7 @@ async function registerVault() {
     json.vaults ||= {};
   } else await fsp.mkdir(path.dirname(file), { recursive: true });
   json.vaults[require('crypto').randomBytes(8).toString('hex')] = { path: root, ts: Date.now() };
-  await fsp.writeFile(file, JSON.stringify(json), 'utf8');
+  await store.writeTextAtomic(file, JSON.stringify(json));
   log.info('vault registered in obsidian.json', root);
   return { registered: true };
 }
