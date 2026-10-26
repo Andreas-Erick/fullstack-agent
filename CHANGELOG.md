@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 2.0.2 — 2026-10-27
+
+The watch shows her face reliably, the pairing QR code opens the app, and many fixes found by measuring every screen.
 
 - Her face on the watch, reliably. *(The computer records the watch's face ahead of time once a watch has asked for it, so it arrives in seconds; the watch keeps its screen on while the first face comes, says what is happening ("Bringing her face from your computer…") or why it didn't arrive, and tries again. The face is a little bigger on the round screen.)*
 - The pairing QR code opens the Siren app. *(Scanned with an Android phone that has the app, the link opens in the app with the address filled in; without the app it pairs in the browser as before.)*
