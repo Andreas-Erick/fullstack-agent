@@ -1,20 +1,29 @@
-# Proposes updates as pull requests: npm packages (grouped, weekly), the pinned GitHub Actions and the
-# Android Gradle dependencies. Security updates come as soon as an advisory is published.
+# Proposes updates as pull requests, once a month and grouped: at most one pull request (one branch) per
+# ecosystem: npm packages, the pinned GitHub Actions, the Android Gradle build. Security updates for a
+# published advisory still come right away. Merge or close them; the branches go away with the PR.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 1
     groups:
       npm:
         patterns: ['*']
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns: ['*']
   - package-ecosystem: gradle
     directory: /android
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      android:
+        patterns: ['*']
