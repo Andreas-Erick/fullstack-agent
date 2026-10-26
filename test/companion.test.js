@@ -17,6 +17,7 @@ const calls = [];
 let share = true; // remote.shareData
 const turns = []; // what hooks.startTurn was asked
 const habitLogs = [];
+const alerts = []; // hooks.notify events
 let uiFace = ''; // ui.face on the desktop
 const facesDir = path.join(dir, 'faces');
 fs.mkdirSync(path.join(facesDir, 'Aurora', 'img'), { recursive: true });
@@ -71,7 +72,7 @@ function freePort() {
 }
 
 test.before(async () => {
-  companion.init({ startTurn: async (t) => (turns.push(t), { conversationId: 'c1' }), abortTurn() {}, respondApproval: () => true, transcribe: async () => '', notify() {} });
+  companion.init({ startTurn: async (t) => (turns.push(t), { conversationId: 'c1' }), abortTurn() {}, respondApproval: () => true, transcribe: async () => '', notify: (ev) => alerts.push(ev) });
   const port = await freePort();
   await companion.apply({ remote: { enabled: true, lan: true, port } });
   base = `http://127.0.0.1:${port}`;
@@ -326,4 +327,49 @@ test('the watch face pack: paired devices only, cached by its key', async () => 
   assert.strictEqual(Buffer.from(await r.arrayBuffer()).toString(), 'SRF1');
   r = await fetch(`${base}/api/face/frames`, { headers: { ...auth, 'If-None-Match': '"k1"' } });
   assert.strictEqual(r.status, 304, 'unchanged: nothing sent again');
+});
+
+test('view-only devices read but cannot chat, approve, talk or check habits off', async () => {
+  const token = await pairDevice('Kitchen tablet');
+  const auth = { Authorization: `Bearer ${token}` };
+  const id = JSON.parse(fs.readFileSync(devicesFile, 'utf8')).find((d) => d.name === 'Kitchen tablet').id;
+  assert.strictEqual(await companion.setReadOnly(id, true), true);
+  assert.strictEqual((await companion.status()).devices.find((d) => d.id === id).readOnly, true);
+  assert.strictEqual((await (await fetch(`${base}/api/info`, { headers: auth })).json()).readOnly, true);
+  assert.strictEqual((await fetch(`${base}/api/conversations`, { headers: auth })).status, 200, 'reading works');
+  const before = turns.length;
+  for (const [p, body] of [['/api/chat', { text: 'hi' }], ['/api/chat/r1/abort', {}], ['/api/approvals/a1', { allow: true }], ['/api/data/habits/log', { name: 'Run' }]]) {
+    assert.strictEqual((await post(p, body, auth)).status, 403, p);
+  }
+  assert.strictEqual(turns.length, before, 'no turn started');
+  // The approval stream skips view-only devices.
+  companion.publish('approval:request', { id: 'ap1', title: 'Run a command', timeoutSec: 60 });
+  const stream = await fetch(`${base}/api/events`, { headers: auth });
+  const reader = stream.body.getReader();
+  const first = new TextDecoder().decode((await reader.read()).value);
+  assert.ok(!first.includes('approval'), 'no approval replayed to a view-only device');
+  await reader.cancel();
+  companion.publish('approval:cancel', { id: 'ap1' });
+  await companion.setReadOnly(id, false);
+  assert.strictEqual((await post('/api/chat', { text: 'hi' }, auth)).status, 200, 'full access again');
+});
+
+test('a paired device on a network it never used raises an alert; its usual networks do not', async () => {
+  tunnelState = { mode: 'tailscale', connected: true, host: 'pc.tail1234.ts.net', url: 'https://pc.tail1234.ts.net' };
+  try {
+    const token = await pairDevice('Travel phone');
+    const auth = { Authorization: `Bearer ${token}` };
+    alerts.length = 0;
+    const from = async (ip) => viaHost('pc.tail1234.ts.net', '/api/info', { headers: { ...auth, 'cf-connecting-ip': ip } });
+    assert.strictEqual((await from('198.51.100.7')).status, 200);
+    assert.deepStrictEqual(alerts.map((a) => a.type), ['new-network'], 'a network the device never used');
+    assert.strictEqual(alerts[0].name, 'Travel phone');
+    assert.strictEqual((await from('198.51.22.9')).status, 200);
+    assert.strictEqual(alerts.length, 1, 'the same /16 network: no new alert');
+    assert.strictEqual((await fetch(`${base}/api/info`, { headers: auth })).status, 200);
+    assert.strictEqual(alerts.length, 1, 'the network it paired from is known');
+    assert.ok(alerts.every((a) => !('token' in a)), 'alerts carry no secrets');
+  } finally {
+    tunnelState = { mode: 'off' };
+  }
 });

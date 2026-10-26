@@ -585,3 +585,9 @@ body.face-full .face-full-btn { top: max(14px, env(safe-area-inset-top)); bottom
 @keyframes hud-cascade { from { opacity: 0; transform: translateY(10px) scale(0.985); } }
 .fx-still .panel.enter::before, .fx-still .panel.enter > * { animation: none; }
 @media (prefers-reduced-motion: reduce) { .panel.enter::before, .panel.enter > * { animation: none !important; } }
+
+/* View-only devices (/api/info readOnly): reading only. */
+.view-only-note { display: none; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); font-size: 13px; color: var(--muted); text-align: center; border-top: 1px solid var(--line); }
+body.view-only .view-only-note { display: block; }
+body.view-only #composer, body.view-only #approvals, body.view-only #recBar { display: none !important; }
+body.wide .view-only-note { grid-area: comp; }

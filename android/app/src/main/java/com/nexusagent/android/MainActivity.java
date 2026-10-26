@@ -11,6 +11,8 @@ import android.os.Bundle;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
+import android.view.WindowManager;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.inputmethod.EditorInfo;
@@ -57,6 +59,13 @@ public class MainActivity extends Activity {
     private PermissionRequest pendingPermission;
     /** "#pair=…" for the next page load only (from a pairing link entered on the setup screen). */
     private String pendingPair;
+    // The app lock (AppLock): while locked, the page is hidden under lockView and intents wait.
+    private boolean locked;
+    private boolean prompting;
+    private long leftAt;
+    private View lockView;
+    private Intent deferredIntent;
+    private AppLock.Result pendingConfirm;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -79,6 +88,8 @@ public class MainActivity extends Activity {
         origin = Prefs.server(this);
         if (origin == null) showSetup(null, null);
         else showWeb();
+        applySecure();
+        if (Prefs.appLock(this) && AppLock.available(this)) lock();
         handleIntent(getIntent());
     }
 
@@ -87,6 +98,82 @@ public class MainActivity extends Activity {
         super.onResume();
         foreground = true;
         if (web != null) web.onResume();
+        if (!locked && Prefs.appLock(this) && leftAt > 0 && System.currentTimeMillis() - leftAt > AppLock.RELOCK_MS) lock();
+    }
+
+    @Override
+    protected void onStop() {
+        leftAt = System.currentTimeMillis();
+        super.onStop();
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != AppLock.REQ_CONFIRM || pendingConfirm == null) return;
+        AppLock.Result r = pendingConfirm;
+        pendingConfirm = null;
+        r.done(result == RESULT_OK);
+    }
+
+    // ------------------------------------------------------------ app lock
+    /** With the lock on, the app's screen stays out of screenshots and the recent-apps preview. */
+    private void applySecure() {
+        if (Prefs.appLock(this)) getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+    }
+
+    private void confirm(String title, AppLock.Result r) {
+        pendingConfirm = r;
+        AppLock.authenticate(this, title, (ok) -> {
+            pendingConfirm = null;
+            r.done(ok);
+        });
+    }
+
+    private void lock() {
+        locked = true;
+        // Everything under the lock is hidden, also from screen readers (not just covered).
+        for (int i = 0; i < root.getChildCount(); i++) if (root.getChildAt(i) != lockView) root.getChildAt(i).setVisibility(View.INVISIBLE);
+        if (lockView == null) {
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setGravity(Gravity.CENTER);
+            box.setBackground(Hud.background(this));
+            box.setClickable(true); // nothing underneath can be touched
+            TextView t = text(getString(R.string.lock_locked), 18, getColor(R.color.text));
+            Hud.title(t);
+            Button b = new Button(this);
+            b.setText(getString(R.string.lock_unlock));
+            Hud.button(b, true);
+            b.setOnClickListener((v) -> promptUnlock());
+            box.addView(t);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(20);
+            box.addView(b, lp);
+            lockView = box;
+        }
+        if (lockView.getParent() == null) root.addView(lockView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        promptUnlock();
+    }
+
+    private void promptUnlock() {
+        if (prompting) return;
+        prompting = true;
+        confirm(getString(R.string.lock_title), (ok) -> {
+            prompting = false;
+            if (ok) unlock();
+        });
+    }
+
+    private void unlock() {
+        locked = false;
+        if (lockView != null) root.removeView(lockView);
+        for (int i = 0; i < root.getChildCount(); i++) root.getChildAt(i).setVisibility(View.VISIBLE);
+        Intent waiting = deferredIntent;
+        deferredIntent = null;
+        if (waiting != null) handleIntent(waiting);
     }
 
     @Override
@@ -353,6 +440,10 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------ intents
     private void handleIntent(Intent intent) {
         if (intent == null) return;
+        if (locked) {
+            deferredIntent = intent; // a share or push-to-talk waits for the unlock
+            return;
+        }
         if (Intent.ACTION_SEND.equals(intent.getAction())) {
             String text = intent.getStringExtra(Intent.EXTRA_TEXT);
             if (text != null && PAIR_LINK.matcher(text.trim()).matches()) showSetup(null, text.trim()); // the user confirms the address
@@ -409,6 +500,29 @@ public class MainActivity extends Activity {
                     ConnectionService.start(MainActivity.this);
                 }
             });
+        }
+
+        @JavascriptInterface
+        public boolean lockAvailable() {
+            return trusted() && AppLock.available(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public boolean lockEnabled() {
+            return trusted() && Prefs.appLock(MainActivity.this);
+        }
+
+        /** Turning the lock on or off asks for the phone's unlock first; the page hears back either way. */
+        @JavascriptInterface
+        public void setLock(boolean on) {
+            if (!trusted()) return;
+            runOnUiThread(() -> confirm(getString(on ? R.string.lock_on_title : R.string.lock_off_title), (ok) -> {
+                if (ok) {
+                    Prefs.setAppLock(MainActivity.this, on);
+                    applySecure();
+                }
+                runJs("window.nexusLockChanged && nexusLockChanged(" + Prefs.appLock(MainActivity.this) + ")");
+            }));
         }
 
         /**

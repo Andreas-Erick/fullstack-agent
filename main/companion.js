@@ -72,6 +72,9 @@ const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascr
 // frame-src 'self': only a custom face's short-lived link (/f/…, see facelinks.js), in a sandboxed frame.
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const FACE_LINK = /^\/f\/([A-Za-z0-9_-]{32})\/(.*)$/;
+// What a view-only device may not do (all POSTs): chat, stop a reply, answer approvals, push-to-talk,
+// check a habit off. Reading, the voice for replies and moving to the secure address stay allowed.
+const VIEW_ONLY_BLOCKED = /^\/api\/(chat(\/.*)?|approvals\/.*|transcribe|data\/.*)$/;
 // On every response. HSTS is added for the tunnel address (HTTPS at the edge).
 const HEADERS = {
   'X-Content-Type-Options': 'nosniff',
@@ -189,7 +192,7 @@ function urls() {
 }
 
 async function status() {
-  const devices = (await readDevices()).map(({ id, name, createdAt, lastSeen, lastVia, lastIp }) => ({ id, name, createdAt, lastSeen, lastVia, lastIp, connected: [...streams].some((s) => s.deviceId === id) }));
+  const devices = (await readDevices()).map(({ id, name, createdAt, lastSeen, lastVia, lastIp, readOnly }) => ({ id, name, createdAt, lastSeen, lastVia, lastIp, readOnly: readOnly === true, connected: [...streams].some((s) => s.deviceId === id) }));
   return { enabled: current.enabled, listening: Boolean(server), lan: current.lan, port: current.port, urls: urls(), error: lastError, tunnel: tunnel.status(), access: Boolean(access.team && access.aud), devices, pairing: pairing && pairing.expiresAt > Date.now() ? { code: pairing.code, expiresAt: pairing.expiresAt } : null };
 }
 
@@ -219,6 +222,20 @@ async function revoke(id) {
   return Boolean(device);
 }
 
+// View only (Settings → Remote access): the device can read (chat history, the schedule, its screens)
+// but not chat, answer approvals, check habits off or use push-to-talk. Its open streams are closed so
+// it reconnects under the new rule (and stops getting approval cards).
+async function setReadOnly(id, on) {
+  const list = await readDevices();
+  const device = list.find((d) => d.id === id);
+  if (!device) return false;
+  device.readOnly = Boolean(on);
+  await writeDevices(list);
+  for (const st of streams) if (st.deviceId === id) (st.res.end(), streams.delete(st));
+  log.info('remote device access changed', { device: device.name, readOnly: device.readOnly });
+  return true;
+}
+
 // "Remove all devices" (e.g. a phone was lost): every token stops working at once.
 async function revokeAll() {
   const n = (await readDevices()).length;
@@ -241,7 +258,7 @@ function publish(channel, payload) {
   const out = channel === 'chat:event' ? chatForDevice(payload) : channel === 'approval:request' ? approvalForDevice(openApprovals.get(payload.id)) : payload;
   if (!out) return;
   const data = sse(channel, out);
-  for (const st of streams) st.res.write(data);
+  for (const st of streams) if (!(st.readOnly && channel.startsWith('approval:'))) st.res.write(data);
 }
 
 const sse = (channel, payload) => `event: ${channel.replace(':', '.')}\ndata: ${JSON.stringify(payload)}\n\n`;
@@ -358,10 +375,28 @@ async function authenticate(req, kind) {
   const from = clientAddress(req, kind);
   if (!device.lastSeen || Date.now() - device.lastSeen > 5 * 60 * 1000 || device.lastIp !== from.ip) {
     if (device.lastIp && device.lastIp !== from.ip) log.info('remote device address changed', { device: device.name, via: from.via });
+    // A network this device was never seen on (a stolen token used elsewhere looks like this): tell the user.
+    const net = netOf(from.ip);
+    const known = Array.isArray(device.nets) ? device.nets : [];
+    if (net && !known.includes(net)) {
+      if (known.length) {
+        log.warn('remote device on a new network', { device: device.name, via: from.via });
+        hooks.notify({ type: 'new-network', name: device.name, via: from.via, ip: from.ip });
+      }
+      device.nets = [...known, net].slice(-20);
+    }
     Object.assign(device, { lastSeen: Date.now(), lastVia: from.via, lastIp: from.ip });
     writeDevices(list).catch(() => {});
   }
   return device;
+}
+
+/** The network an address belongs to, coarsely: IPv4 /16, IPv6 /48 (a phone's address changes within one). */
+function netOf(ip) {
+  const s = String(ip || '');
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(s)) return s.split('.').slice(0, 2).join('.');
+  if (s.includes(':')) return s.toLowerCase().split(':').slice(0, 3).join(':');
+  return '';
 }
 
 function underLimit(bucket, deviceId, perMin) {
@@ -510,8 +545,9 @@ async function route(req, res) {
   const device = await authenticate(req, kind);
   if (!device) return fail(res, 401, 'Not paired, or this device was removed');
 
+  if (device.readOnly && req.method === 'POST' && VIEW_ONLY_BLOCKED.test(p)) return fail(res, 403, 'This device is view only (Settings → Remote access on the computer)');
   if (req.method === 'GET' && p === '/api/events') return openStream(req, res, device);
-  if (req.method === 'GET' && p === '/api/info') return json(res, 200, await info());
+  if (req.method === 'GET' && p === '/api/info') return json(res, 200, { ...(await info()), readOnly: device.readOnly === true });
   if (req.method === 'GET' && p === '/api/face') {
     if (!underLimit('face', device.id, 30)) return fail(res, 429, 'Too many requests; wait a minute');
     return faceLink(res, device);
@@ -689,10 +725,11 @@ async function pair(req, res, kind) {
   }
   pairing = null;
   const token = crypto.randomBytes(32).toString('base64url');
-  const device = { id: store.newId('dev'), name: String(body.name || 'Device').replace(/[^\w .()-]/g, '').slice(0, 40) || 'Device', tokenHash: hash(token), createdAt: Date.now(), lastSeen: Date.now() };
+  const from = clientAddress(req, kind);
+  const device = { id: store.newId('dev'), name: String(body.name || 'Device').replace(/[^\w .()-]/g, '').slice(0, 40) || 'Device', tokenHash: hash(token), createdAt: Date.now(), lastSeen: Date.now(), lastVia: from.via, lastIp: from.ip, nets: netOf(from.ip) ? [netOf(from.ip)] : [] };
   await writeDevices([...(await readDevices()), device]);
   log.info('remote device paired', { device: device.name });
-  hooks.notify({ type: 'paired', name: device.name });
+  hooks.notify({ type: 'paired', name: device.name, via: from.via });
   return json(res, 200, { token, deviceId: device.id, name: device.name });
 }
 
@@ -700,8 +737,8 @@ function openStream(req, res, device) {
   if ([...streams].filter((s) => s.deviceId === device.id).length >= STREAMS_PER_DEVICE) return fail(res, 429, 'Too many open streams');
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Content-Type-Options': 'nosniff' });
   res.write(': connected\n\n');
-  for (const a of openApprovals.values()) res.write(sse('approval:request', approvalForDevice(a)));
-  const st = { res, deviceId: device.id };
+  if (!device.readOnly) for (const a of openApprovals.values()) res.write(sse('approval:request', approvalForDevice(a)));
+  const st = { res, deviceId: device.id, readOnly: device.readOnly === true };
   streams.add(st);
   const ping = setInterval(() => res.write(': ping\n\n'), 25000);
   req.on('close', () => {
@@ -732,4 +769,4 @@ async function chat(req, res, device) {
   return json(res, 200, { requestId, conversationId: r.conversationId });
 }
 
-module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, publish };
+module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish };

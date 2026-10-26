@@ -89,6 +89,15 @@ final class Prefs {
         sp(c).edit().putBoolean("background", on).apply();
     }
 
+    /** The app lock (AppLock): the phone's unlock before the conversations show. */
+    static boolean appLock(Context c) {
+        return sp(c).getBoolean("appLock", false);
+    }
+
+    static void setAppLock(Context c, boolean on) {
+        sp(c).edit().putBoolean("appLock", on).apply();
+    }
+
     static String token(Context c) {
         String stored = sp(c).getString("token", null);
         if (stored == null) return null;

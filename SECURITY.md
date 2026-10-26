@@ -29,7 +29,9 @@ Especially welcome are reports about anything that gets around the app's safety 
   `main/facelinks.js`) that opens more than the active face's folder or lets the face reach the
   client's page, token or network.
 - **The Android and watch apps** (`android/`): another app reaching the phone's relay for the watch
-  (`WearRelayService`), approving from a locked phone, or the watch app getting network access.
+  (`WearRelayService`), approving from a locked phone, getting past the app lock (`AppLock`), or the
+  watch app getting network access. A view-only device chatting, approving or checking habits off.
+- **Data at rest**: conversation files readable without the user's keychain when encryption is on.
 - **Approvals** (`main/approvals.js`): actions that should ask but don't, including through web pages,
   documents or other external content ("prompt injection") that make the agent act on its own.
 - **Self-modification**: the agent widening its own access (settings it may change, path checks,
@@ -37,6 +39,11 @@ Especially welcome are reports about anything that gets around the app's safety 
 - **Files and network**: reading or writing outside the allowed folders, reaching private network
   addresses through web fetching, secrets ending up in logs, notes or conversations.
 - **The renderer**: script injection through replies, documents or notes.
+
+Hardening already in place for installed copies: Electron fuses (`package.json` `build.electronFuses`:
+`NODE_OPTIONS`, the inspector flags and `file://` privileges are off; run-as-node stays on because the
+MCP bridge and the self-change checks run the app's own binary as Node), pinned GitHub Actions, Dependabot
+and a dependency audit (`.github/workflows/security.yml`).
 
 Out of scope: problems that need an attacker who already controls your user account or computer, and
 the behaviour of the AI providers and services you connect (report those to them).

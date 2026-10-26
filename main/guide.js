@@ -183,7 +183,7 @@ const FEATURES = [
   {
     id: 'remote',
     title: 'Your phone, tablet and Galaxy Watch',
-    what: 'Pair a phone or tablet (the Android app, or any browser) to talk to me away from the desk: chat, voice, the same face, approvals, and your day: Today, habits to check off, learning, memories, notes, the skill tree and the Inner World. On a tablet or in Samsung DeX the chat and those screens sit side by side. Your custom face and formulas show there as on the desktop, and the face has a full-screen mode. On a Galaxy Watch (4 or newer), tap me and ask; I answer on your wrist in my voice and with my face, through the phone app. Over Wi-Fi or a secure address (Tailscale or Cloudflare).',
+    what: 'Pair a phone or tablet (the Android app, or any browser) to talk to me away from the desk: chat, voice, the same face, approvals, and your day: Today, habits to check off, learning, memories, notes, the skill tree and the Inner World. On a tablet or in Samsung DeX the chat and those screens sit side by side. Your custom face and formulas show there as on the desktop, and the face has a full-screen mode. A device can be made view only, and the Android app can lock with your fingerprint, face or screen lock. On a Galaxy Watch (4 or newer), tap me and ask; I answer on your wrist in my voice and with my face, through the phone app. Over Wi-Fi or a secure address (Tailscale or Cloudflare).',
     say: ['"How do I use you from my phone?"'],
     where: 'Settings → Remote access.',
     status: (s) => (s.remote?.enabled ? 'on' : 'off'),

@@ -7,7 +7,7 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
-const { ROOT, stub, load, quietLog } = require('./helpers');
+const { ROOT, stub, load, quietLog, tmpDir } = require('./helpers');
 
 stub({ './logger': quietLog });
 const helperApps = load('main/helperapps.js');
@@ -33,8 +33,11 @@ function fakeApp(port, delay = 300) {
 }
 test.after(() => children.forEach((c) => c.kill()));
 
-// process.execPath stands in for the installed program (it exists and, on Windows, ends in .exe).
-const voiceSettings = (port, extra = {}) => ({ voice: { ttsEnabled: true, baseUrl: `http://127.0.0.1:${port}` }, helperApps: { autoStart: true, minimize: false, voicestudioPath: process.execPath, ...extra } });
+// A stand-in for the installed program, of the kind the platform launches: an .exe on Windows (this
+// Node binary), an .app bundle on macOS (an empty folder is enough for the path check), any file elsewhere.
+const PROGRAM = process.platform === 'darwin' ? path.join(tmpDir('nexus-helperapp-'), 'VoiceStudio.app') : process.execPath;
+if (process.platform === 'darwin') fs.mkdirSync(PROGRAM, { recursive: true });
+const voiceSettings = (port, extra = {}) => ({ voice: { ttsEnabled: true, baseUrl: `http://127.0.0.1:${port}` }, helperApps: { autoStart: true, minimize: false, voicestudioPath: PROGRAM, ...extra } });
 
 test('which apps are needed and local', () => {
   assert.ok(helperApps.isLocal('http://localhost:3900'));
@@ -52,7 +55,7 @@ test('which apps are needed and local', () => {
 });
 
 test('a user-set location must be an existing program; a wrong one never falls back', () => {
-  assert.strictEqual(helperApps.installedPath('voicestudio', { helperApps: { voicestudioPath: process.execPath } }), process.execPath);
+  assert.strictEqual(helperApps.installedPath('voicestudio', { helperApps: { voicestudioPath: PROGRAM } }), PROGRAM);
   assert.strictEqual(helperApps.installedPath('voicestudio', { helperApps: { voicestudioPath: path.join(ROOT, 'does-not-exist.exe') } }), null);
   if (process.platform === 'win32') assert.strictEqual(helperApps.installedPath('voicestudio', { helperApps: { voicestudioPath: path.join(ROOT, 'package.json') } }), null, 'not a program');
 });
@@ -72,7 +75,7 @@ test('starts the app, waits until it answers, and does not start it twice', asyn
 test('never starts an app on another computer, or one that is not installed', async () => {
   helperApps.init({ spawnApp: fakeApp(1) });
   launches = 0;
-  const remote = await helperApps.start('voicestudio', { voice: { ttsEnabled: true, baseUrl: 'http://gpu-box.example:3900' }, helperApps: { voicestudioPath: process.execPath } });
+  const remote = await helperApps.start('voicestudio', { voice: { ttsEnabled: true, baseUrl: 'http://gpu-box.example:3900' }, helperApps: { voicestudioPath: PROGRAM } });
   assert.strictEqual(remote.status, 'remote');
   const port = await freePort();
   const missing = await helperApps.start('voicestudio', voiceSettings(port, { voicestudioPath: path.join(ROOT, 'nope.exe') }));

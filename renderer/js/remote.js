@@ -3,6 +3,7 @@
 import { $, api, on, toast, logEvent } from './util.js';
 import { state, saveSettings } from './state.js';
 import { transcribe, offlineVoiceWav } from './voice.js';
+import { switchView } from './nav.js';
 
 let tunnel = null;
 
@@ -14,6 +15,9 @@ export function initRemote() {
   });
   on('settings', render);
   api.on('remote:event', (ev) => {
+    if (ev.type === 'paired') toast(`New device paired: ${ev.name}. Not you? Remove it in Settings → Remote access.`);
+    if (ev.type === 'new-network') toast(`${ev.name} connected from a new network (${ev.via}, ${ev.ip}). Not you? Remove it in Settings → Remote access.`);
+    if (ev.type === 'open-settings') switchView('settings');
     if (ev.type !== 'tunnel') return;
     tunnel = ev.tunnel;
     render();

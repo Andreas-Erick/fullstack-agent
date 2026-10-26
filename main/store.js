@@ -16,7 +16,9 @@ const LEGACY = [...brand.LEGACY, ['agent', 'personality', NEXUS_PERSONALITY]];
 
 const DEFAULTS = {
   onboarded: false, // first-run setup wizard completed
-  privacy: { acceptedAt: 0 }, // when the user accepted the privacy policy and disclaimers in the setup wizard (user-only)
+  // acceptedAt: when the user accepted the privacy policy and disclaimers in the setup wizard; encryptConversations:
+  // conversations sealed with the OS keychain on disk (both user-only, never SETTABLE)
+  privacy: { acceptedAt: 0, encryptConversations: true },
   agent: {
     name: brand.AGENT_NAME,
     personality: brand.MASTER_PROMPT, // the master prompt
@@ -338,6 +340,21 @@ function writeTextAtomic(file, text) {
   return next;
 }
 
+/** Reads and rewrites a file inside its write queue (fn returns the new text, or null to leave it); true if written. */
+function updateInQueue(file, fn) {
+  let wrote = false;
+  const next = (writeQueues.get(file) || Promise.resolve()).catch(() => {}).then(async () => {
+    const text = await fn();
+    if (text == null) return;
+    await writeNow(file, String(text));
+    wrote = true;
+  });
+  writeQueues.set(file, next);
+  const clear = () => writeQueues.get(file) === next && writeQueues.delete(file);
+  next.then(clear, clear);
+  return next.then(() => wrote);
+}
+
 async function writeNow(file, text) {
   await fsp.mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
@@ -425,6 +442,7 @@ async function getSettings() {
   // Installs from before personas (1.4) get their current persona as the first saved one.
   merged.personas = personas.ensure(merged);
   settingsCache = merged;
+  setSealing(merged.privacy?.encryptConversations !== false);
   return merged;
 }
 
@@ -437,6 +455,7 @@ async function setSettings(patch) {
   const onDisk = JSON.parse(JSON.stringify(next));
   for (const [section, key] of SECRET_FIELDS) onDisk[section][key] = encrypt(onDisk[section][key]);
   await writeJsonAtomic(settingsFile(), onDisk);
+  setSealing(next.privacy?.encryptConversations !== false);
   return next;
 }
 
@@ -467,6 +486,63 @@ async function setSecretBlob(name, value) {
 // ---------- Conversations ----------
 function convDir() {
   return path.join(dataDir(), 'conversations');
+}
+
+// Sealed at rest (privacy.encryptConversations, on by default): every conversation file and the index are
+// stored as { sealed: 'v1', data } encrypted with the OS keychain (safeStorage: DPAPI on Windows, the
+// Keychain on macOS, the secret service on Linux), readable only by this user on this computer. Plain files
+// (older versions, or no keychain) are still read, and rewritten in the chosen form in the background.
+let sealing = true;
+let resealTimer = null;
+let resealedFor = null; // the mode the folder was last brought into
+
+const canSeal = () => sealing && safeStorage.isEncryptionAvailable();
+
+function setSealing(on) {
+  sealing = on;
+  if (resealedFor === canSeal()) return;
+  clearTimeout(resealTimer);
+  resealTimer = setTimeout(() => resealConversations().catch((err) => console.error(`[store] resealing conversations: ${err.message}`)), 5000);
+  resealTimer.unref?.();
+}
+
+function sealText(data) {
+  if (!canSeal()) return JSON.stringify(data, null, 2);
+  return JSON.stringify({ sealed: 'v1', data: safeStorage.encryptString(JSON.stringify(data)).toString('base64') });
+}
+
+function unseal(raw, file) {
+  if (raw?.sealed !== 'v1') return raw;
+  try {
+    return JSON.parse(safeStorage.decryptString(Buffer.from(String(raw.data), 'base64')));
+  } catch (err) {
+    // Another Windows user, a reset keychain: unreadable here, reported, never overwritten.
+    console.error(`[store] can't decrypt ${path.basename(file)}: ${err.message}`);
+    return null;
+  }
+}
+
+const readConvFile = async (file, fallback = null) => unseal(await readJson(file, fallback), file);
+const writeConvFile = (file, data) => writeTextAtomic(file, sealText(data));
+
+/** Brings every conversation file into the chosen form (sealed or plain), each inside its file's write queue. */
+async function resealConversations() {
+  const want = canSeal();
+  const names = (await fsp.readdir(convDir()).catch(() => [])).filter((n) => n.endsWith('.json'));
+  let changed = 0;
+  for (const name of names) {
+    const file = path.join(convDir(), name);
+    const done = await updateInQueue(file, async () => {
+      const raw = await readJson(file, null);
+      if (!raw || (raw.sealed === 'v1') === want) return null;
+      const data = unseal(raw, file);
+      return data ? sealText(data) : null;
+    });
+    if (done) changed++;
+  }
+  resealedFor = want;
+  if (changed) console.log(`[store] ${want ? 'sealed' : 'unsealed'} ${changed} conversation files`);
+  return changed;
 }
 
 function newId(prefix = '') {
@@ -500,14 +576,14 @@ const summarize = (c) => ({
 function loadIndex() {
   indexLoad ||= (async () => {
     await fsp.mkdir(convDir(), { recursive: true });
-    const saved = await readJson(path.join(convDir(), INDEX), null);
+    const saved = await readConvFile(path.join(convDir(), INDEX), null);
     const map = new Map((Array.isArray(saved?.items) ? saved.items : []).filter((x) => x && typeof x.id === 'string').map((x) => [x.id, x]));
     const ids = new Set((await fsp.readdir(convDir())).filter((n) => n.endsWith('.json') && n !== INDEX).map((n) => n.slice(0, -5)));
     let changed = false;
     for (const id of map.keys()) if (!ids.has(id)) (map.delete(id), (changed = true));
     for (const id of ids) {
       if (map.has(id)) continue;
-      const c = await readJson(path.join(convDir(), `${id}.json`), null);
+      const c = await readConvFile(path.join(convDir(), `${id}.json`), null);
       if (c?.id) (map.set(c.id, summarize(c)), (changed = true));
     }
     convIndex = map;
@@ -520,7 +596,7 @@ function loadIndex() {
 function saveIndexSoon() {
   clearTimeout(indexTimer);
   indexTimer = setTimeout(() => {
-    if (convIndex) writeJsonAtomic(path.join(convDir(), INDEX), { version: 1, items: [...convIndex.values()] }).catch(() => {});
+    if (convIndex) writeConvFile(path.join(convDir(), INDEX), { version: 1, items: [...convIndex.values()] }).catch(() => {});
   }, 500);
   indexTimer.unref?.();
 }
@@ -531,7 +607,7 @@ async function listConversations() {
 }
 
 async function getConversation(id) {
-  return readJson(path.join(convDir(), `${safeConvId(id)}.json`), null);
+  return readConvFile(path.join(convDir(), `${safeConvId(id)}.json`), null);
 }
 
 // Full tool exchanges (`raw`: tool calls, results, thinking) are only replayed to the model for the
@@ -552,7 +628,7 @@ function trimRaw(messages, keep = RAW_REPLIES_KEPT) {
 async function saveConversation(conv, { touch = true } = {}) {
   if (touch) conv.updatedAt = Date.now();
   if (Array.isArray(conv.messages)) trimRaw(conv.messages);
-  await writeJsonAtomic(path.join(convDir(), `${safeConvId(conv.id)}.json`), conv);
+  await writeConvFile(path.join(convDir(), `${safeConvId(conv.id)}.json`), conv);
   (await loadIndex()).set(conv.id, summarize(conv));
   saveIndexSoon();
   return conv;
@@ -589,6 +665,7 @@ async function exportConversations() {
 }
 
 module.exports = {
+  resealConversations,
   DEFAULTS,
   dataDir,
   getSettings,

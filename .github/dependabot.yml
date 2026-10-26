@@ -1,0 +1,20 @@
+# Proposes updates as pull requests: npm packages (grouped, weekly), the pinned GitHub Actions and the
+# Android Gradle dependencies. Security updates come as soon as an advisory is published.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm:
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gradle
+    directory: /android
+    schedule:
+      interval: weekly
