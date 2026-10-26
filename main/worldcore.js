@@ -6,16 +6,53 @@
 // residents' memories are memory streams (streamcore.js), as in "Generative Agents".
 // Pure (no Electron, no I/O): innerworld.js gathers the evidence, calls the model and stores the days.
 
+// x, y: where the place stands on the meadow (0..1, y = 0 at the far edge by the horizon).
 const PLACES = [
-  { id: 'garden', name: 'The Garden', icon: '🌿', x: 0.5, y: 0.5, about: 'The commons in the middle of the village.', base: () => true, value: (e) => e.days, steps: [7, 30], unit: 'days the world has lived' },
-  { id: 'hearth', name: 'The Hearth', icon: '🏠', x: 0.5, y: 0.16, about: 'Where the residents live, eat and talk late into the evening.', base: () => true, value: (e) => e.personas, steps: [2, 4], unit: 'personas living here' },
-  { id: 'library', name: 'The Library', icon: '📚', x: 0.17, y: 0.3, about: 'Shelves for everything you are coming to understand.', base: (e) => e.topics > 0, value: (e) => e.understood, steps: [10, 30], unit: 'concepts understood', start: 'Rises when you track a learning topic ("help me understand…").' },
-  { id: 'cafe', name: 'The Language Café', icon: '☕', x: 0.83, y: 0.3, about: 'Small tables, many languages, strong coffee.', base: (e) => e.decks > 0, value: (e) => e.mature, steps: [50, 200], unit: 'mature vocabulary cards', start: 'Opens with your first vocabulary deck.' },
-  { id: 'grounds', name: 'The Training Grounds', icon: '🏃', x: 0.17, y: 0.72, about: 'A track, a pull-up bar, a bench in the sun.', base: (e) => e.habits > 0, value: (e) => e.streak, steps: [7, 30], unit: 'days in your best habit streak', start: 'Laid out when you start tracking a habit.' },
-  { id: 'observatory', name: 'The Observatory', icon: '🔭', x: 0.83, y: 0.72, about: 'Where the skill constellations are charted.', base: (e) => e.skills > 0, value: (e) => e.mastered, steps: [1, 5], unit: 'skills mastered', start: 'Built when you map a skill in the skill tree.' },
-  { id: 'archive', name: 'The Archive', icon: '🗄', x: 0.33, y: 0.9, about: 'Every memory, filed and cross-referenced.', base: (e) => e.memories > 0, value: (e) => e.memories, steps: [25, 100], unit: 'memories kept', start: 'Starts with the first thing your assistant remembers about you.' },
-  { id: 'stage', name: 'The Stage', icon: '🎭', x: 0.67, y: 0.9, about: 'Where rehearsals are played out before the real thing.', base: () => true, value: (e) => e.rehearsals, steps: [3, 10], unit: 'rehearsals' },
+  { id: 'lookout', name: 'The Lookout', icon: '🦅', x: 0.88, y: 0.06, about: 'A watchtower over the valley; ravens carry messages out to the wider world.', base: () => true, value: (e) => e.scouting, steps: [25, 150], unit: 'trips out to the web and your connected services' },
+  { id: 'hearth', name: 'The Hearth', icon: '🏠', x: 0.5, y: 0.1, about: 'Where the residents live, eat and talk late into the evening.', base: () => true, value: (e) => e.personas, steps: [2, 4], unit: 'personas living here' },
+  { id: 'library', name: 'The Library', icon: '📚', x: 0.2, y: 0.2, about: 'Shelves for everything you are coming to understand.', base: (e) => e.topics > 0, value: (e) => e.understood, steps: [10, 30], unit: 'concepts understood', start: 'Rises when you track a learning topic ("help me understand…").' },
+  { id: 'cafe', name: 'The Language Café', icon: '☕', x: 0.79, y: 0.3, about: 'Small tables, many languages, strong coffee.', base: (e) => e.decks > 0, value: (e) => e.mature, steps: [50, 200], unit: 'mature vocabulary cards', start: 'Opens with your first vocabulary deck.' },
+  { id: 'workshop', name: 'The Workshop', icon: '⚒', x: 0.28, y: 0.5, about: 'A forge and a workbench: where code, documents and plans are made.', base: () => true, value: (e) => e.crafting, steps: [50, 300], unit: 'pieces of work made together (code, documents, notes)' },
+  { id: 'garden', name: 'The Garden', icon: '🌿', x: 0.56, y: 0.5, about: 'The commons in the middle of the village. A flower blooms for every habit you kept today.', base: () => true, value: (e) => e.days, steps: [7, 30], unit: 'days the world has lived' },
+  { id: 'grounds', name: 'The Training Grounds', icon: '🏃', x: 0.14, y: 0.76, about: 'A banner for every habit, raised high on the days you keep it.', base: (e) => e.habits > 0, value: (e) => e.streak, steps: [7, 30], unit: 'days in your best habit streak', start: 'Laid out when you start tracking a habit.' },
+  { id: 'observatory', name: 'The Observatory', icon: '🔭', x: 0.86, y: 0.66, about: 'Where the skill constellations are charted: at night your skill tree shines in the sky.', base: (e) => e.skills > 0, value: (e) => e.mastered, steps: [1, 5], unit: 'skills mastered', start: 'Built when you map a skill in the skill tree.' },
+  { id: 'archive', name: 'The Archive', icon: '🗄', x: 0.38, y: 0.9, about: 'Every memory, filed and cross-referenced.', base: (e) => e.memories > 0, value: (e) => e.memories, steps: [25, 100], unit: 'memories kept', start: 'Starts with the first thing your assistant remembers about you.' },
+  { id: 'stage', name: 'The Stage', icon: '🎭', x: 0.68, y: 0.9, about: 'Where rehearsals are played out before the real thing.', base: () => true, value: (e) => e.rehearsals, steps: [3, 10], unit: 'rehearsals' },
 ];
+
+// What the assistant is doing, as a place in the village: each tool it uses sends the active persona
+// there (live, in the view) and is counted (the Workshop and the Lookout grow with it; the narrator
+// hears how the day went). Covers the app's own tools and Claude Code's native ones.
+const WORK = [
+  [/^(code_|self_change|run_tests|analyze_errors|read_app_log|diagnose|github_|diagram_save|pdf_|Edit$|Write$|MultiEdit$|NotebookEdit$|Bash$|PowerShell$|Glob$|Grep$|TodoWrite$)/, 'workshop', 'at the forge, building something'],
+  [/^(web_|browser_|globe_|WebSearch$|WebFetch$|look_at_screen|connectors_list)/, 'lookout', 'up the Lookout, scouting the web'],
+  [/^mcp__(?!nexus__)/, 'lookout', 'sending a raven to a connected service'],
+  [/^(memory_|stream_|vault_|daily_note|priorities_|profile_|job_|history_search)/, 'archive', 'in the Archive, filing notes'],
+  [/^(learning_|open_document|close_document|documents?_|doc_|read_document|Read$)/, 'library', 'in the Library, reading'],
+  [/^(vocab_|language_practice)/, 'cafe', 'at the Café, practicing words'],
+  [/^habit_/, 'grounds', 'at the Training Grounds'],
+  [/^(skilltree_|calendar_|routine_)/, 'observatory', 'at the Observatory, charting what comes next'],
+  [/^rehearsal_/, 'stage', 'on the Stage, rehearsing'],
+  [/^(world_)/, 'garden', 'strolling through the village'],
+  [/^(persona_|theme_|voice_|settings_|skill_|app_guide|capabilities_for)/, 'hearth', 'at the Hearth, tidying up'],
+];
+
+/** Where in the village a tool belongs: { place, label }. Unknown tools are mulled over in the Garden. */
+function workFor(tool) {
+  const name = String(tool || '').replace(/^mcp__nexus__/, '');
+  for (const [re, place, label] of WORK) if (re.test(name)) return { place, label };
+  return { place: 'garden', label: 'in the Garden, thinking it over' };
+}
+
+/** A day's activity counts ({ place: n }) as narrator news: what the Keeper and the assistant did. */
+function workLines(counts, who) {
+  const names = Object.fromEntries(PLACES.map((p) => [p.id, p.name]));
+  const top = Object.entries(counts || {})
+    .filter(([id, n]) => names[id] && n > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
+  return top.length ? [`Yesterday ${who} worked with the Keeper mostly in ${top.map(([id, n]) => `${names[id]} (${n}×)`).join(', ')}.`] : [];
+}
 const PLACE_IDS = PLACES.map((p) => p.id);
 const LEVEL_NAMES = ['foundation', 'built', 'growing', 'flourishing'];
 
@@ -31,7 +68,7 @@ const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 /** Each place's level (0 = foundation … 3 = flourishing) and what grows it, from the evidence counts. */
 function places(evidence) {
-  const e = Object.fromEntries(['days', 'personas', 'topics', 'understood', 'decks', 'mature', 'habits', 'streak', 'skills', 'mastered', 'memories', 'rehearsals'].map((k) => [k, num(evidence?.[k])]));
+  const e = Object.fromEntries(['days', 'personas', 'topics', 'understood', 'decks', 'mature', 'habits', 'streak', 'skills', 'mastered', 'memories', 'rehearsals', 'crafting', 'scouting'].map((k) => [k, num(evidence?.[k])]));
   return PLACES.map((p) => {
     const value = p.value(e);
     const level = p.base(e) ? 1 + p.steps.filter((s) => value >= s).length : 0;
@@ -97,6 +134,7 @@ ${placeLines}
 
 NEWS IN THE VILLAGE (real changes since yesterday)
 ${ctx.news.length ? ctx.news.map((n) => `- ${n}`).join('\n') : '- Nothing new was built.'}
+${(ctx.work || []).map((n) => `- ${n} (Let it color that resident's day: tired from the forge, full of what they saw from the Lookout… never what the work was.)`).join('\n')}
 
 YESTERDAY
 ${ctx.yesterday || 'This is the first day anyone remembers. The residents are just settling in.'}
@@ -183,4 +221,4 @@ function chronicle(day) {
   return `${out.join('\n')}\n`;
 }
 
-module.exports = { PLACES, PLACE_IDS, TOWNSFOLK, MAX_RESIDENTS, places, news, residents, dayPrompt, parseDay, whereAt, minutes, chronicle };
+module.exports = { PLACES, PLACE_IDS, TOWNSFOLK, MAX_RESIDENTS, places, news, residents, workFor, workLines, dayPrompt, parseDay, whereAt, minutes, chronicle };

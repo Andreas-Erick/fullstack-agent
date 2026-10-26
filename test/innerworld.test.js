@@ -92,6 +92,27 @@ test('the narrator\'s day is validated against residents and places', () => {
   assert.throws(() => core.parseDay(null, RES), /did not answer/);
 });
 
+test('the assistant’s work has a place in the village', () => {
+  assert.strictEqual(core.workFor('Edit').place, 'workshop');
+  assert.strictEqual(core.workFor('mcp__nexus__code_grep').place, 'workshop', 'app tools through Claude Code');
+  assert.strictEqual(core.workFor('WebSearch').place, 'lookout');
+  assert.strictEqual(core.workFor('mcp__claude_ai_Todoist__find-tasks').place, 'lookout', 'connectors send a raven');
+  assert.strictEqual(core.workFor('memory_save').place, 'archive');
+  assert.strictEqual(core.workFor('habit_log').place, 'grounds');
+  assert.strictEqual(core.workFor('rehearsal_run').place, 'stage');
+  assert.strictEqual(core.workFor('something_new').place, 'garden');
+  for (const t of ['Edit', 'WebSearch', 'memory_save', 'habit_log']) assert.ok(core.PLACE_IDS.includes(core.workFor(t).place));
+  assert.deepStrictEqual(core.workLines({}, 'Ada'), []);
+  assert.match(core.workLines({ workshop: 12, archive: 3, nowhere: 9 }, 'Ada')[0], /Ada worked with the Keeper mostly in The Workshop \(12×\), The Archive \(3×\)\./);
+});
+
+test('the Workshop and the Lookout grow with the work', () => {
+  const none = core.places({});
+  assert.strictEqual(level(none, 'workshop'), 1);
+  assert.strictEqual(level(core.places({ crafting: 60, scouting: 200 }), 'workshop'), 2);
+  assert.strictEqual(level(core.places({ crafting: 60, scouting: 200 }), 'lookout'), 3);
+});
+
 test('where a resident is at a time of day', () => {
   const plan = [{ start: '08:00', place: 'garden', activity: 'Tea' }, { start: '12:00', place: 'library', activity: 'Reading' }];
   assert.strictEqual(core.whereAt(plan, 7 * 60).activity, 'asleep');
@@ -167,6 +188,18 @@ test('a day is written once, remembered by the residents and kept in the chronic
   const ada = await world.resident('ada');
   assert.ok(ada.records.length >= 1);
   await assert.rejects(world.resident('Nobody'), /Nobody called/);
+});
+
+test('tools are counted by place and reach the view', async () => {
+  const before = (await world.view()).details.work.today.workshop || 0;
+  world.noteTool('Edit');
+  world.noteTool('mcp__nexus__code_grep');
+  world.noteTool('WebFetch');
+  await new Promise((r) => setTimeout(r, 20));
+  const v = await world.view();
+  assert.strictEqual(v.details.work.today.workshop, before + 2);
+  assert.strictEqual(v.details.work.today.lookout, 1);
+  assert.ok(Array.isArray(v.details.topics) && v.details.topics[0].name === 'Linear algebra');
 });
 
 test('asleep: nothing is written', async () => {

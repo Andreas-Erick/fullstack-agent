@@ -30,7 +30,47 @@ async function state() {
 const saveState = (s) => store.writeJsonAtomic(file(), s);
 
 // ------------------------------------------------------------------ evidence and residents
+// The assistant's work: every tool it uses is counted by place (worldcore.workFor) per day, in
+// <userData>/innerworld-activity.json (counts only, never what the work was), and shown live.
+const activityFile = () => path.join(store.dataDir(), 'innerworld-activity.json');
+const KEEP_ACTIVITY_DAYS = 14;
+let activity = null;
+let activityTimer = null;
+
+async function activityLog() {
+  if (!activity) {
+    const a = await store.readJson(activityFile(), {});
+    activity = { days: a.days && typeof a.days === 'object' ? a.days : {}, total: a.total && typeof a.total === 'object' ? a.total : {} };
+  }
+  return activity;
+}
+
+/** A tool started in a turn: count it and tell the window where the active persona went. */
+function noteTool(name) {
+  const work = core.workFor(name);
+  notify({ type: 'work', ...work, tool: String(name || '').slice(0, 80) });
+  activityLog()
+    .then((a) => {
+      const day = (a.days[today()] ||= {});
+      day[work.place] = (day[work.place] || 0) + 1;
+      a.total[work.place] = (a.total[work.place] || 0) + 1;
+      clearTimeout(activityTimer);
+      activityTimer = setTimeout(() => {
+        const keep = Object.keys(a.days).sort().slice(-KEEP_ACTIVITY_DAYS);
+        a.days = Object.fromEntries(keep.map((d) => [d, a.days[d]]));
+        store.writeJsonAtomic(activityFile(), a).catch((err) => log.warn('inner world activity save failed', { error: err }));
+      }, 3000);
+      activityTimer.unref?.();
+    })
+    .catch(() => {}); // counting is a nicety; it must never disturb a turn
+}
+
 async function evidence(st, settings) {
+  return (await gather(st, settings)).counts;
+}
+
+/** The counts that level the buildings, and the details the village is painted from. */
+async function gather(st, settings) {
   const safe = (p, fallback) => Promise.resolve().then(p).catch(() => fallback);
   const learning = require('./learning');
   const [topics, decks, habits, tree, mems, records] = await Promise.all([
@@ -42,7 +82,10 @@ async function evidence(st, settings) {
     safe(() => stream.readAll(stream.USER), []),
   ]);
   const active = habits.habits.filter((h) => !h.paused);
-  return {
+  const work = await activityLog().catch(() => ({ days: {}, total: {} }));
+  const counts = {
+    crafting: work.total.workshop || 0,
+    scouting: work.total.lookout || 0,
     days: st.dayCount,
     personas: settings.personas?.list?.length || 1,
     topics: topics.length,
@@ -56,6 +99,18 @@ async function evidence(st, settings) {
     memories: mems.length + records.length,
     rehearsals: st.rehearsals.length,
   };
+  const clip = (s, n = 40) => String(s || '').slice(0, n);
+  const details = {
+    topics: topics.slice(0, 12).map((t) => ({ name: clip(t.topic), understood: t.understood || 0, shaky: t.shakyCount || 0 })),
+    decks: decks.slice(0, 8).map((d) => ({ name: clip(d.language), mature: d.mature || 0, total: d.total || 0, due: d.dueCount || 0 })),
+    habits: active.slice(0, 10).map((h) => ({ name: clip(h.name), done: Boolean(h.doneToday), streak: h.streak || 0, unit: h.streakUnit === 'days' ? 'd' : 'wk' })),
+    skills: tree.skills.slice(0, 40).map((s) => ({ name: clip(s.name), state: s.state, progress: s.progress || 0, area: clip(s.area, 24), needs: (s.needs || []).slice(0, 6) })),
+    memories: mems.length,
+    records: records.length,
+    insights: records.filter((r) => r.kind === 'reflection').length,
+    work: { today: work.days[today()] || {}, total: work.total },
+  };
+  return { counts, details };
 }
 
 const fileName = (name) => String(name).replace(/[\\/:*?"<>|#^[\]]/g, '').trim() || 'Resident';
@@ -103,7 +158,10 @@ function simulate({ force = false } = {}) {
         return { ...r, memories: top.filter((x) => x.kind !== 'reflection').map((x) => x.text), reflections: records.filter((x) => x.kind === 'reflection').slice(-2).map((x) => x.text) };
       }),
     );
-    const prompt = core.dayPrompt({ date, weekday: weekday(date), residents: withMemories, places, news, yesterday: yesterday ? `${yesterday.date}: ${yesterday.summary}` : '' });
+    const work = await activityLog().catch(() => ({ days: {} }));
+    const lastWorkDay = Object.keys(work.days).filter((d) => d < date).sort().pop();
+    const activeName = residents.find((r) => r.id === settings.personas?.active)?.name || residents[0]?.name || 'the assistant';
+    const prompt = core.dayPrompt({ date, weekday: weekday(date), residents: withMemories, places, news, work: lastWorkDay ? core.workLines(work.days[lastWorkDay], activeName) : [], yesterday: yesterday ? `${yesterday.date}: ${yesterday.summary}` : '' });
 
     const llm = require('./llm');
     let limitTimer;
@@ -178,11 +236,13 @@ async function view() {
   const settings = await store.getSettings();
   const st = await state();
   const vault = Boolean(await obsidian.vaultPath().catch(() => null));
-  const places = core.places(await evidence(st, settings));
+  const { counts, details } = await gather(st, settings);
+  const places = core.places(counts);
   const residents = await residentsNow(settings);
   const date = today();
   const day = [...st.days].reverse().find((d) => d.date === date) || null;
   return {
+    details,
     enabled: Boolean(settings.innerWorld?.enabled),
     vault,
     date,
@@ -262,4 +322,4 @@ function start(opts = {}) {
   setTimeout(() => check().catch(() => {}), 90000).unref?.();
 }
 
-module.exports = { start, simulate, view, resident, status, recordRehearsal, progress, residentStream, CHRONICLE };
+module.exports = { start, simulate, view, resident, status, recordRehearsal, progress, noteTool, residentStream, CHRONICLE };
