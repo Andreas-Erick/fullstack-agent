@@ -3,17 +3,133 @@
 // deck, books for concepts understood… Static parts are drawn into the cached scene; moving parts are
 // registered as emitters (smoke, forge fire, fountain, floating books, ravens, flames, magic light) and
 // animated every frame by scene.js. Lights (windows, lamps) glow at night.
+// With rendered art (sprites.js, innerWorld.art = 'rendered') a place is its sprite, the moving parts come
+// from the sprite's named points, and only the parts that show the user's data are drawn on top.
 import { W, HZ, box, house, tower, prop, banner, poly, rgba, mix, shadowAt, windowOn, doorOn } from './art.js';
+import { sprite, drawSprite, point } from './sprites.js';
 
 const ACCENTS = (P) => [P.c1, P.c3, P.ok, P.warn, P.c2];
 
 /** Draw a place. ctx: { P, level, details, lights, emitters }. Returns its top (world y). */
 export function drawPlace(c, id, site, ctx) {
   const z = site.h * HZ;
+  const sp = ctx.rendered && id !== 'grounds' ? sprite(ctx.level === 0 && !ALWAYS.has(id) ? 'construction' : `${id}-${Math.max(1, Math.min(3, ctx.level))}`, ctx.P.season) : null;
+  if (sp) return spritePlace(c, id, site, z, ctx, sp);
   if (ctx.level === 0 && !ALWAYS.has(id)) return construction(c, site, z, ctx);
   return (BUILD[id] || BUILD.garden)(c, site, z, ctx);
 }
 const ALWAYS = new Set(['garden', 'hearth', 'stage', 'lookout', 'workshop']);
+
+// ------------------------------------------------------------ rendered art
+function spritePlace(c, id, s, z, ctx, sp) {
+  const { P, emitters, lights, level } = ctx;
+  const at = W(s.gx, s.gy, z);
+  // A soft contact shadow (the renders have none on the ground).
+  shadowAt(c, at.x + 6, at.y + 4, (s.a + s.b) * 22, (s.a + s.b) * 9, 0.16);
+  const top = drawSprite(c, sp, at.x, at.y);
+  if (sp.glow && ctx.level > 0) lights.push({ kind: 'sprite', img: sp.glow, x: at.x - sp.ax * sp.k, y: at.y - sp.ay * sp.k, w: sp.w * sp.k, h: sp.h * sp.k });
+  // The moving parts, from the sprite's named points.
+  for (const name of Object.keys(sp.points)) {
+    const p = point(sp, name, at.x, at.y);
+    if (name.startsWith('smoke')) emitters.push({ kind: 'smoke', ...p, heavy: id === 'workshop', place: id });
+    else if (name === 'forge') emitters.push({ kind: 'forge', ...p, place: 'workshop' });
+    else if (name === 'orb' && level >= 3) emitters.push({ kind: 'magic', ...p, tone: id === 'observatory' ? P.c2 : P.c1 });
+    else if (name === 'fountain') emitters.push({ kind: 'fountain', x: p.x, y: p.y, base: p.y + 16 });
+    else if (name === 'ravens') emitters.push({ kind: 'ravens', ...p, place: 'lookout' });
+    else if (name === 'spot') emitters.push({ kind: 'spot', ...p, place: 'stage' });
+  }
+  OVERLAY[id]?.(c, s, z, ctx, sp, at);
+  return top;
+}
+
+// What the renders can't know: the user's data, drawn on top of the sprite.
+const OVERLAY = {
+  library(c, s, z, { P, details, emitters }, sp, at) {
+    const { gx, gy } = s;
+    for (let k = 0; k < Math.min(3, details.topics?.length || 1); k++) {
+      const p = W(gx + 1.5 - k * 0.35, gy + 1.5, z);
+      for (let j = 0; j < 3; j++) poly(c, [{ x: p.x - 5, y: p.y - j * 3 }, { x: p.x + 5, y: p.y - j * 3 }, { x: p.x + 5, y: p.y - j * 3 - 3 }, { x: p.x - 5, y: p.y - j * 3 - 3 }], rgba(ACCENTS(P)[(k + j) % 5]), rgba(P.outline, 0.6));
+    }
+    const books = Math.min(14, (details.topics || []).reduce((n, x) => n + x.understood, 0));
+    // Around the tower's top, where they can be seen above the hall.
+    const orb = point(sp, 'orb', at.x, at.y);
+    if (books && orb) emitters.push({ kind: 'books', x: orb.x, y: orb.y + 22, n: books, r: 30 });
+  },
+  cafe(c, s, z, ctx) {
+    deckTables(c, s, z, ctx, 1.95);
+  },
+  garden(c, s, z, ctx) {
+    flowerBeds(c, s, z, ctx);
+  },
+  workshop(c, s, z, { P }) {
+    const { gx, gy } = s;
+    const an = W(gx - 0.6, gy + 1.45, z);
+    shadowAt(c, an.x + 3, an.y + 1, 9, 3);
+    box(c, P, gx - 0.6, gy + 1.45, 0.12, 0.08, z, 6, { left: P.rockDark, right: [60, 56, 54], top: P.rock });
+    box(c, P, gx - 0.6, gy + 1.45, 0.28, 0.12, z + 6, 4, { left: [90, 90, 96], right: [64, 64, 70], top: [140, 140, 148] });
+  },
+};
+
+// A table with a parasol for each vocabulary deck, in front of the tavern.
+function deckTables(c, s, z, { P, details }, front = 1.55) {
+  const { gx, gy } = s;
+  const decks = details.decks?.length ? details.decks : [{ name: '' }];
+  decks.slice(0, 4).forEach((d, i) => {
+    const tx = gx - 1.1 + i * 0.8;
+    const ty = gy + front + (i % 2) * 0.3;
+    const p = W(tx, ty, z);
+    shadowAt(c, p.x + 3, p.y + 1, 10, 4);
+    for (const dx of [-7, 7]) poly(c, [{ x: p.x + dx - 2, y: p.y }, { x: p.x + dx + 2, y: p.y }, { x: p.x + dx + 2, y: p.y - 5 }, { x: p.x + dx - 2, y: p.y - 5 }], rgba(P.woodShade));
+    poly(c, [{ x: p.x - 0.8, y: p.y }, { x: p.x + 0.8, y: p.y }, { x: p.x + 0.8, y: p.y - 9 }, { x: p.x - 0.8, y: p.y - 9 }], rgba(P.timberDark));
+    c.beginPath();
+    c.ellipse(p.x, p.y - 9, 7, 3, 0, 0, Math.PI * 2);
+    c.fillStyle = rgba(P.woodLight);
+    c.fill();
+    c.strokeStyle = rgba(P.outline, 0.6);
+    c.stroke();
+    poly(c, [{ x: p.x - 0.6, y: p.y - 9 }, { x: p.x + 0.6, y: p.y - 9 }, { x: p.x + 0.6, y: p.y - 26 }, { x: p.x - 0.6, y: p.y - 26 }], rgba(P.timberDark));
+    c.beginPath();
+    c.moveTo(p.x - 12, p.y - 22);
+    c.quadraticCurveTo(p.x, p.y - 34, p.x + 12, p.y - 22);
+    c.quadraticCurveTo(p.x, p.y - 19, p.x - 12, p.y - 22);
+    c.fillStyle = rgba(ACCENTS(P)[i % 5]);
+    c.fill();
+    c.strokeStyle = rgba(P.outline, 0.6);
+    c.stroke();
+  });
+}
+
+// Flower beds around the plaza: a bloom for each habit kept today, buds for the others.
+function flowerBeds(c, s, z, { P, level, details }) {
+  const { gx, gy } = s;
+  const habits = details.habits || [];
+  const beds = Math.max(4, Math.min(8, habits.length || 4));
+  for (let i = 0; i < beds; i++) {
+    const ang = (i / beds) * Math.PI * 2 + 0.4;
+    const p = W(gx + Math.cos(ang) * 2.3, gy + Math.sin(ang) * 2.3, z);
+    c.beginPath();
+    c.ellipse(p.x, p.y, 13, 6, 0, 0, Math.PI * 2);
+    c.fillStyle = rgba(P.soil);
+    c.fill();
+    c.strokeStyle = rgba(P.stoneShade);
+    c.lineWidth = 2;
+    c.stroke();
+    const h = habits[i];
+    const bloom = h ? h.done : level >= 2;
+    for (let k = 0; k < 6; k++) {
+      const fx = p.x - 8 + (k % 3) * 8;
+      const fy = p.y - 2 + Math.floor(k / 3) * 3;
+      c.beginPath();
+      c.arc(fx, fy - 4, bloom ? 2.6 : 1.6, 0, Math.PI * 2);
+      c.fillStyle = rgba(bloom ? ACCENTS(P)[(i + k) % 5] : P.leafDark);
+      c.fill();
+      c.beginPath();
+      c.arc(fx + 1.5, fy - 1, 1.8, 0, Math.PI * 2);
+      c.fillStyle = rgba(P.leaf);
+      c.fill();
+    }
+  }
+}
 
 function construction(c, s, z, { P }) {
   const { gx, gy, a, b } = s;

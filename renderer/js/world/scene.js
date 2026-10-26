@@ -2,10 +2,19 @@
 // (tiles and objects back to front, in diagonal rows), then every frame: the sky with its sun, moon,
 // clouds and your skill constellations; the island through the camera; water, the waterfall, smoke,
 // sparks, the fountain, floating books, ravens, flames; the residents; night light; weather; names.
-import { W, TW, TH, HZ, tile, tree, prop, person, rgba, mix } from './art.js';
+import { W, TW, TH, HZ, tile, tree, prop, person, rgba, mix, shadowAt } from './art.js';
 import { N, noise2, rng } from './map.js';
 import { drawPlace } from './places.js';
 import { drawInterior } from './interiors.js';
+import { sprite, count, drawSprite, point } from './sprites.js';
+
+// Rendered art for a tree or a small thing, picked steadily by its place on the map; null = draw by code.
+function natureSprite(family, gx, gy, season) {
+  const n = count(family);
+  if (!n) return null;
+  const pick = Math.floor(Math.abs(Math.sin(gx * 12.9898 + gy * 78.233) * 43758.5453) % 1 * n);
+  return sprite(`${family}-${pick}`, season);
+}
 
 const DEPTH = 6; // how far the cliffs hang below the island (levels)
 
@@ -67,9 +76,31 @@ export function buildIsland(data, scale, region = bounds()) {
   // Things that stand on the ground, each drawn right after the row of tiles it stands on.
   const rows = Array.from({ length: 2 * N }, () => []);
   const rowOf = (gx, gy) => Math.max(0, Math.min(2 * N - 1, Math.floor(gx) + Math.floor(gy)));
-  for (const t of map.trees) rows[rowOf(t.gx, t.gy)].push({ k: t.gx + t.gy, draw: () => tree(c, P, t, t.h * HZ) });
-  for (const p of map.props) rows[rowOf(p.gx, p.gy)].push({ k: p.gx + p.gy, draw: () => prop(c, P, p.kind, p.gx, p.gy, p.h * HZ, lights, p.seed) });
-  for (const l of roadLamps(map)) rows[rowOf(l.gx, l.gy)].push({ k: l.gx + l.gy, draw: () => prop(c, P, 'lamp', l.gx, l.gy, l.h * HZ, lights) });
+  const art = data.rendered;
+  const drawTree = (t) => {
+    const sp = art && natureSprite(`tree-${t.kind}`, t.gx, t.gy, P.season);
+    if (!sp) return tree(c, P, t, t.h * HZ);
+    const p = W(t.gx, t.gy, t.h * HZ);
+    shadowAt(c, p.x + 8 * t.k, p.y + 2, 15 * t.k, 5.5 * t.k);
+    drawSprite(c, sp, p.x, p.y, 0.78 * t.k);
+  };
+  const drawProp = (p) => {
+    const sp = art && natureSprite(`prop-${p.kind}`, p.gx, p.gy, P.season);
+    if (!sp) return prop(c, P, p.kind, p.gx, p.gy, p.h * HZ, lights, p.seed);
+    const at = W(p.gx, p.gy, p.h * HZ);
+    drawSprite(c, sp, at.x, at.y, 0.7);
+  };
+  const drawLamp = (l) => {
+    const sp = art && sprite('prop-lamp-0', P.season);
+    if (!sp) return prop(c, P, 'lamp', l.gx, l.gy, l.h * HZ, lights);
+    const at = W(l.gx, l.gy, l.h * HZ);
+    drawSprite(c, sp, at.x, at.y, 0.8);
+    const q = point(sp, 'light', at.x, at.y, 0.8);
+    if (q) lights.push({ kind: 'lamp', x: q.x, y: q.y, r: 34, tone: P.lamp });
+  };
+  for (const t of map.trees) rows[rowOf(t.gx, t.gy)].push({ k: t.gx + t.gy, draw: () => drawTree(t) });
+  for (const p of map.props) rows[rowOf(p.gx, p.gy)].push({ k: p.gx + p.gy, draw: () => drawProp(p) });
+  for (const l of roadLamps(map)) rows[rowOf(l.gx, l.gy)].push({ k: l.gx + l.gy, draw: () => drawLamp(l) });
   for (const p of data.places) {
     const s = map.sites[p.id];
     if (!s) continue;
@@ -77,7 +108,7 @@ export function buildIsland(data, scale, region = bounds()) {
     rows[row].push({
       k: s.gx + s.a + s.gy + s.b,
       draw: () => {
-        const ctx = { P, level: p.level, details: data.details || {}, lights, emitters: [] };
+        const ctx = { P, level: p.level, details: data.details || {}, lights, emitters: [], rendered: art };
         const inside = data.interior === p.id;
         const top = inside ? drawInterior(c, p.id, s, ctx) : drawPlace(c, p.id, s, ctx);
         for (const e of ctx.emitters) emitters.push({ ...e, place: e.place || p.id });
@@ -211,7 +242,13 @@ export function frame(ctx, f) {
   ctx.translate(-cam.x, -cam.y);
   if (lamps > 0.02) {
     for (const l of island.lights) {
-      if (l.kind === 'window') {
+      if (l.kind === 'sprite') {
+        ctx.globalAlpha = Math.min(1, lamps * 1.1);
+        ctx.drawImage(l.img, l.x, l.y, l.w, l.h);
+        ctx.globalAlpha = Math.min(1, lamps * 0.45);
+        ctx.drawImage(l.img, l.x - l.w * 0.02, l.y - l.h * 0.02, l.w * 1.04, l.h * 1.04); // a soft halo
+        ctx.globalAlpha = 1;
+      } else if (l.kind === 'window') {
         ctx.beginPath();
         l.quad.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
         ctx.closePath();

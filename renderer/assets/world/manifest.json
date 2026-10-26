@@ -1,0 +1,903 @@
+{
+ "scale": 3.0,
+ "source": "Rendered from Kenney's Fantasy Town Kit 2.0 and Nature Kit (CC0, www.kenney.nl) by tools/world-art/render.py",
+ "sprites": {
+  "archive-1": {
+   "ax": 227.8,
+   "ay": 300.9,
+   "footprint": [
+    2.8,
+    3.6
+   ],
+   "h": 419,
+   "variants": {
+    "glow": "archive-1.glow.webp",
+    "summer": "archive-1.summer.webp",
+    "winter": "archive-1.winter.webp"
+   },
+   "w": 465
+  },
+  "archive-2": {
+   "ax": 227.8,
+   "ay": 300.9,
+   "footprint": [
+    2.8,
+    3.6
+   ],
+   "h": 419,
+   "variants": {
+    "glow": "archive-2.glow.webp",
+    "summer": "archive-2.summer.webp",
+    "winter": "archive-2.winter.webp"
+   },
+   "w": 465
+  },
+  "archive-3": {
+   "ax": 227.8,
+   "ay": 389.0,
+   "footprint": [
+    2.8,
+    3.6
+   ],
+   "h": 507,
+   "variants": {
+    "glow": "archive-3.glow.webp",
+    "summer": "archive-3.summer.webp",
+    "winter": "archive-3.winter.webp"
+   },
+   "w": 465
+  },
+  "cafe-1": {
+   "ax": 211.7,
+   "ay": 297.2,
+   "footprint": [
+    2.6,
+    3.2
+   ],
+   "h": 407,
+   "points": {
+    "smoke": [
+     334.1,
+     93.6
+    ]
+   },
+   "variants": {
+    "glow": "cafe-1.glow.webp",
+    "summer": "cafe-1.summer.webp",
+    "winter": "cafe-1.winter.webp"
+   },
+   "w": 442
+  },
+  "cafe-2": {
+   "ax": 211.7,
+   "ay": 385.8,
+   "footprint": [
+    2.6,
+    3.2
+   ],
+   "h": 496,
+   "points": {
+    "smoke": [
+     334.1,
+     94.0
+    ]
+   },
+   "variants": {
+    "glow": "cafe-2.glow.webp",
+    "summer": "cafe-2.summer.webp",
+    "winter": "cafe-2.winter.webp"
+   },
+   "w": 442
+  },
+  "cafe-3": {
+   "ax": 211.7,
+   "ay": 385.8,
+   "footprint": [
+    2.6,
+    3.2
+   ],
+   "h": 496,
+   "points": {
+    "smoke": [
+     334.1,
+     94.0
+    ]
+   },
+   "variants": {
+    "glow": "cafe-3.glow.webp",
+    "summer": "cafe-3.summer.webp",
+    "winter": "cafe-3.winter.webp"
+   },
+   "w": 478
+  },
+  "construction": {
+   "ax": 171.4,
+   "ay": 195.4,
+   "footprint": [
+    2,
+    2
+   ],
+   "h": 300,
+   "variants": {
+    "summer": "construction.summer.webp",
+    "winter": "construction.winter.webp"
+   },
+   "w": 289
+  },
+  "garden-1": {
+   "ax": 181.0,
+   "ay": 276.1,
+   "footprint": [
+    5.2,
+    5.2
+   ],
+   "h": 415,
+   "points": {
+    "fountain": [
+     181.0,
+     196.7
+    ]
+   },
+   "variants": {
+    "glow": "garden-1.glow.webp",
+    "summer": "garden-1.summer.webp",
+    "winter": "garden-1.winter.webp"
+   },
+   "w": 362
+  },
+  "garden-2": {
+   "ax": 269.0,
+   "ay": 276.1,
+   "footprint": [
+    5.2,
+    5.2
+   ],
+   "h": 415,
+   "points": {
+    "fountain": [
+     269.0,
+     196.7
+    ]
+   },
+   "variants": {
+    "glow": "garden-2.glow.webp",
+    "summer": "garden-2.summer.webp",
+    "winter": "garden-2.winter.webp"
+   },
+   "w": 538
+  },
+  "garden-3": {
+   "ax": 269.0,
+   "ay": 276.1,
+   "footprint": [
+    5.2,
+    5.2
+   ],
+   "h": 415,
+   "points": {
+    "fountain": [
+     269.0,
+     196.7
+    ]
+   },
+   "variants": {
+    "glow": "garden-3.glow.webp",
+    "summer": "garden-3.summer.webp",
+    "winter": "garden-3.winter.webp"
+   },
+   "w": 538
+  },
+  "hearth-1": {
+   "ax": 222.9,
+   "ay": 265.2,
+   "footprint": [
+    3.4,
+    3.8
+   ],
+   "h": 397,
+   "points": {
+    "smoke": [
+     309.3,
+     94.0
+    ]
+   },
+   "variants": {
+    "glow": "hearth-1.glow.webp",
+    "summer": "hearth-1.summer.webp",
+    "winter": "hearth-1.winter.webp"
+   },
+   "w": 417
+  },
+  "hearth-2": {
+   "ax": 273.5,
+   "ay": 364.1,
+   "footprint": [
+    3.4,
+    3.8
+   ],
+   "h": 467,
+   "points": {
+    "smoke": [
+     237.5,
+     57.9
+    ],
+    "smoke2": [
+     439.1,
+     167.7
+    ]
+   },
+   "variants": {
+    "glow": "hearth-2.glow.webp",
+    "summer": "hearth-2.summer.webp",
+    "winter": "hearth-2.winter.webp"
+   },
+   "w": 547
+  },
+  "hearth-3": {
+   "ax": 273.5,
+   "ay": 363.9,
+   "footprint": [
+    3.4,
+    3.8
+   ],
+   "h": 509,
+   "points": {
+    "smoke": [
+     237.5,
+     57.7
+    ],
+    "smoke2": [
+     439.1,
+     167.5
+    ],
+    "smoke3": [
+     338.3,
+     217.9
+    ]
+   },
+   "variants": {
+    "glow": "hearth-3.glow.webp",
+    "summer": "hearth-3.summer.webp",
+    "winter": "hearth-3.winter.webp"
+   },
+   "w": 547
+  },
+  "library-1": {
+   "ax": 172.5,
+   "ay": 391.4,
+   "footprint": [
+    3.2,
+    3.2
+   ],
+   "h": 516,
+   "points": {
+    "orb": [
+     172.5,
+     48.9
+    ]
+   },
+   "variants": {
+    "glow": "library-1.glow.webp",
+    "summer": "library-1.summer.webp",
+    "winter": "library-1.winter.webp"
+   },
+   "w": 345
+  },
+  "library-2": {
+   "ax": 172.5,
+   "ay": 479.5,
+   "footprint": [
+    3.2,
+    3.2
+   ],
+   "h": 604,
+   "points": {
+    "orb": [
+     172.5,
+     48.8
+    ]
+   },
+   "variants": {
+    "glow": "library-2.glow.webp",
+    "summer": "library-2.summer.webp",
+    "winter": "library-2.winter.webp"
+   },
+   "w": 345
+  },
+  "library-3": {
+   "ax": 266.3,
+   "ay": 567.6,
+   "footprint": [
+    3.2,
+    3.2
+   ],
+   "h": 692,
+   "points": {
+    "orb": [
+     266.3,
+     48.7
+    ]
+   },
+   "variants": {
+    "glow": "library-3.glow.webp",
+    "summer": "library-3.summer.webp",
+    "winter": "library-3.winter.webp"
+   },
+   "w": 439
+  },
+  "lookout-1": {
+   "ax": 102.0,
+   "ay": 460.0,
+   "footprint": [
+    2,
+    2
+   ],
+   "h": 505,
+   "points": {
+    "ravens": [
+     102.0,
+     -7.4
+    ]
+   },
+   "variants": {
+    "glow": "lookout-1.glow.webp",
+    "summer": "lookout-1.summer.webp",
+    "winter": "lookout-1.winter.webp"
+   },
+   "w": 204
+  },
+  "lookout-2": {
+   "ax": 102.0,
+   "ay": 504.0,
+   "footprint": [
+    2,
+    2
+   ],
+   "h": 549,
+   "points": {
+    "ravens": [
+     102.0,
+     -7.4
+    ]
+   },
+   "variants": {
+    "glow": "lookout-2.glow.webp",
+    "summer": "lookout-2.summer.webp",
+    "winter": "lookout-2.winter.webp"
+   },
+   "w": 204
+  },
+  "lookout-3": {
+   "ax": 102.0,
+   "ay": 548.1,
+   "footprint": [
+    2,
+    2
+   ],
+   "h": 593,
+   "points": {
+    "ravens": [
+     102.0,
+     -7.5
+    ]
+   },
+   "variants": {
+    "glow": "lookout-3.glow.webp",
+    "summer": "lookout-3.summer.webp",
+    "winter": "lookout-3.winter.webp"
+   },
+   "w": 204
+  },
+  "observatory-1": {
+   "ax": 159.5,
+   "ay": 297.5,
+   "footprint": [
+    2.8,
+    2.8
+   ],
+   "h": 359,
+   "points": {
+    "orb": [
+     159.5,
+     71.4
+    ]
+   },
+   "variants": {
+    "glow": "observatory-1.glow.webp",
+    "summer": "observatory-1.summer.webp",
+    "winter": "observatory-1.winter.webp"
+   },
+   "w": 319
+  },
+  "observatory-2": {
+   "ax": 159.5,
+   "ay": 341.7,
+   "footprint": [
+    2.8,
+    2.8
+   ],
+   "h": 451,
+   "points": {
+    "orb": [
+     159.5,
+     71.6
+    ]
+   },
+   "variants": {
+    "glow": "observatory-2.glow.webp",
+    "summer": "observatory-2.summer.webp",
+    "winter": "observatory-2.winter.webp"
+   },
+   "w": 319
+  },
+  "observatory-3": {
+   "ax": 181.6,
+   "ay": 385.7,
+   "footprint": [
+    2.8,
+    2.8
+   ],
+   "h": 495,
+   "points": {
+    "orb": [
+     181.6,
+     71.5
+    ]
+   },
+   "variants": {
+    "glow": "observatory-3.glow.webp",
+    "summer": "observatory-3.summer.webp",
+    "winter": "observatory-3.winter.webp"
+   },
+   "w": 341
+  },
+  "prop-bush-0": {
+   "ax": 44.0,
+   "ay": 50.3,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 83,
+   "variants": {
+    "summer": "prop-bush-0.summer.webp",
+    "winter": "prop-bush-0.winter.webp"
+   },
+   "w": 88
+  },
+  "prop-bush-1": {
+   "ax": 69.0,
+   "ay": 77.1,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 122,
+   "variants": {
+    "summer": "prop-bush-1.summer.webp",
+    "winter": "prop-bush-1.winter.webp"
+   },
+   "w": 138
+  },
+  "prop-flowers-0": {
+   "ax": 23.0,
+   "ay": 48.1,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 70,
+   "variants": {
+    "summer": "prop-flowers-0.summer.webp",
+    "winter": "prop-flowers-0.winter.webp"
+   },
+   "w": 51
+  },
+  "prop-flowers-1": {
+   "ax": 28.5,
+   "ay": 34.4,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 59,
+   "variants": {
+    "summer": "prop-flowers-1.summer.webp",
+    "winter": "prop-flowers-1.winter.webp"
+   },
+   "w": 62
+  },
+  "prop-flowers-2": {
+   "ax": 25.1,
+   "ay": 34.8,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 58,
+   "variants": {
+    "summer": "prop-flowers-2.summer.webp",
+    "winter": "prop-flowers-2.winter.webp"
+   },
+   "w": 53
+  },
+  "prop-lamp-0": {
+   "ax": 24.5,
+   "ay": 153.6,
+   "footprint": [
+    0.4,
+    0.4
+   ],
+   "h": 170,
+   "points": {
+    "light": [
+     24.5,
+     31.9
+    ]
+   },
+   "variants": {
+    "summer": "prop-lamp-0.summer.webp",
+    "winter": "prop-lamp-0.winter.webp"
+   },
+   "w": 49
+  },
+  "prop-rock-0": {
+   "ax": 45.0,
+   "ay": 44.1,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 77,
+   "variants": {
+    "summer": "prop-rock-0.summer.webp",
+    "winter": "prop-rock-0.winter.webp"
+   },
+   "w": 90
+  },
+  "prop-rock-1": {
+   "ax": 45.0,
+   "ay": 35.4,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 68,
+   "variants": {
+    "summer": "prop-rock-1.summer.webp",
+    "winter": "prop-rock-1.winter.webp"
+   },
+   "w": 90
+  },
+  "prop-rock-2": {
+   "ax": 92.5,
+   "ay": 167.3,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 224,
+   "variants": {
+    "summer": "prop-rock-2.summer.webp",
+    "winter": "prop-rock-2.winter.webp"
+   },
+   "w": 185
+  },
+  "prop-stump-0": {
+   "ax": 46.8,
+   "ay": 45.2,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 79,
+   "variants": {
+    "summer": "prop-stump-0.summer.webp",
+    "winter": "prop-stump-0.winter.webp"
+   },
+   "w": 90
+  },
+  "prop-stump-1": {
+   "ax": 64.3,
+   "ay": 74.3,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 117,
+   "variants": {
+    "summer": "prop-stump-1.summer.webp",
+    "winter": "prop-stump-1.winter.webp"
+   },
+   "w": 131
+  },
+  "stage-1": {
+   "ax": 211.2,
+   "ay": 320.3,
+   "footprint": [
+    3.2,
+    4
+   ],
+   "h": 430,
+   "points": {
+    "spot": [
+     232.8,
+     274.2
+    ]
+   },
+   "variants": {
+    "glow": "stage-1.glow.webp",
+    "summer": "stage-1.summer.webp",
+    "winter": "stage-1.winter.webp"
+   },
+   "w": 457
+  },
+  "stage-2": {
+   "ax": 228.0,
+   "ay": 320.7,
+   "footprint": [
+    3.2,
+    4
+   ],
+   "h": 439,
+   "points": {
+    "spot": [
+     249.6,
+     274.6
+    ]
+   },
+   "variants": {
+    "glow": "stage-2.glow.webp",
+    "summer": "stage-2.summer.webp",
+    "winter": "stage-2.winter.webp"
+   },
+   "w": 474
+  },
+  "stage-3": {
+   "ax": 267.8,
+   "ay": 320.8,
+   "footprint": [
+    3.2,
+    4
+   ],
+   "h": 459,
+   "points": {
+    "spot": [
+     289.4,
+     274.7
+    ]
+   },
+   "variants": {
+    "glow": "stage-3.glow.webp",
+    "summer": "stage-3.summer.webp",
+    "winter": "stage-3.winter.webp"
+   },
+   "w": 514
+  },
+  "tree-birch-0": {
+   "ax": 99.1,
+   "ay": 247.6,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 302,
+   "variants": {
+    "autumn": "tree-birch-0.autumn.webp",
+    "summer": "tree-birch-0.summer.webp",
+    "winter": "tree-birch-0.winter.webp"
+   },
+   "w": 166
+  },
+  "tree-birch-1": {
+   "ax": 58.0,
+   "ay": 264.5,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 305,
+   "variants": {
+    "autumn": "tree-birch-1.autumn.webp",
+    "summer": "tree-birch-1.summer.webp",
+    "winter": "tree-birch-1.winter.webp"
+   },
+   "w": 116
+  },
+  "tree-oak-0": {
+   "ax": 88.0,
+   "ay": 214.0,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 269,
+   "variants": {
+    "autumn": "tree-oak-0.autumn.webp",
+    "summer": "tree-oak-0.summer.webp",
+    "winter": "tree-oak-0.winter.webp"
+   },
+   "w": 176
+  },
+  "tree-oak-1": {
+   "ax": 89.5,
+   "ay": 282.9,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 339,
+   "variants": {
+    "autumn": "tree-oak-1.autumn.webp",
+    "summer": "tree-oak-1.summer.webp",
+    "winter": "tree-oak-1.winter.webp"
+   },
+   "w": 179
+  },
+  "tree-oak-2": {
+   "ax": 101.0,
+   "ay": 236.5,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 297,
+   "variants": {
+    "autumn": "tree-oak-2.autumn.webp",
+    "summer": "tree-oak-2.summer.webp",
+    "winter": "tree-oak-2.winter.webp"
+   },
+   "w": 202
+  },
+  "tree-oak-3": {
+   "ax": 89.5,
+   "ay": 204.1,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 260,
+   "variants": {
+    "autumn": "tree-oak-3.autumn.webp",
+    "summer": "tree-oak-3.summer.webp",
+    "winter": "tree-oak-3.winter.webp"
+   },
+   "w": 179
+  },
+  "tree-pine-0": {
+   "ax": 85.0,
+   "ay": 232.3,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 286,
+   "variants": {
+    "autumn": "tree-pine-0.autumn.webp",
+    "summer": "tree-pine-0.summer.webp",
+    "winter": "tree-pine-0.winter.webp"
+   },
+   "w": 170
+  },
+  "tree-pine-1": {
+   "ax": 68.0,
+   "ay": 207.8,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 253,
+   "variants": {
+    "autumn": "tree-pine-1.autumn.webp",
+    "summer": "tree-pine-1.summer.webp",
+    "winter": "tree-pine-1.winter.webp"
+   },
+   "w": 136
+  },
+  "tree-pine-2": {
+   "ax": 54.8,
+   "ay": 238.7,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 277,
+   "variants": {
+    "autumn": "tree-pine-2.autumn.webp",
+    "summer": "tree-pine-2.summer.webp",
+    "winter": "tree-pine-2.winter.webp"
+   },
+   "w": 106
+  },
+  "tree-pine-3": {
+   "ax": 69.5,
+   "ay": 233.8,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 280,
+   "variants": {
+    "autumn": "tree-pine-3.autumn.webp",
+    "summer": "tree-pine-3.summer.webp",
+    "winter": "tree-pine-3.winter.webp"
+   },
+   "w": 139
+  },
+  "workshop-1": {
+   "ax": 172.5,
+   "ay": 282.8,
+   "footprint": [
+    2.6,
+    3
+   ],
+   "h": 389,
+   "points": {
+    "forge": [
+     114.9,
+     266.4
+    ],
+    "smoke": [
+     251.7,
+     58.8
+    ]
+   },
+   "variants": {
+    "glow": "workshop-1.glow.webp",
+    "summer": "workshop-1.summer.webp",
+    "winter": "workshop-1.winter.webp"
+   },
+   "w": 345
+  },
+  "workshop-2": {
+   "ax": 172.6,
+   "ay": 282.8,
+   "footprint": [
+    2.6,
+    3
+   ],
+   "h": 389,
+   "points": {
+    "forge": [
+     115.0,
+     266.4
+    ],
+    "smoke": [
+     251.8,
+     58.8
+    ]
+   },
+   "variants": {
+    "glow": "workshop-2.glow.webp",
+    "summer": "workshop-2.summer.webp",
+    "winter": "workshop-2.winter.webp"
+   },
+   "w": 410
+  },
+  "workshop-3": {
+   "ax": 247.6,
+   "ay": 282.8,
+   "footprint": [
+    2.6,
+    3
+   ],
+   "h": 389,
+   "points": {
+    "forge": [
+     190.0,
+     266.4
+    ],
+    "smoke": [
+     326.8,
+     58.8
+    ]
+   },
+   "variants": {
+    "glow": "workshop-3.glow.webp",
+    "summer": "workshop-3.summer.webp",
+    "winter": "workshop-3.winter.webp"
+   },
+   "w": 485
+  }
+ }
+}

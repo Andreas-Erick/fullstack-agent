@@ -14,6 +14,7 @@ import { state, saveSettings } from './state.js';
 import { fxLevel } from './hud.js';
 import { buildMap, route, along } from './world/map.js';
 import { seasonOf } from './world/season.js';
+import { loadSprites, spritesReady } from './world/sprites.js';
 import { palette, W, HZ } from './world/art.js';
 import { buildIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf, bounds as sceneBounds } from './world/scene.js';
 
@@ -60,6 +61,12 @@ export function initInnerWorld() {
   new ResizeObserver(resize).observe(canvas);
   setupCamera();
   setupMinimap();
+  // The rendered art (renderer/assets/world): once loaded, the island is painted with it.
+  loadSprites().then((ok) => {
+    if (!ok) return logEvent('warn', 'inner world sprites unavailable', {});
+    islandKey = '';
+    if (currentView === 'world') draw();
+  });
   $('#worldClock').addEventListener('input', (e) => {
     const v = Number(e.target.value);
     scrub = Math.abs(v - nowMinutes()) < 3 ? null : v;
@@ -231,7 +238,8 @@ function sceneData() {
   const key = places.map((p) => `${p.id}:${p.x}:${p.y}`).join('|');
   if (key !== mapKey) ((map = buildMap(places)), (mapKey = key));
   const details = { ...data.details, residents: data.residents.map((r) => r.name), lastRehearsal: data.rehearsals?.[0]?.title || '' };
-  return { map, P, places, details, interior };
+  const rendered = (state.settings?.innerWorld?.art || 'rendered') === 'rendered' && spritesReady();
+  return { map, P, places, details, interior, rendered };
 }
 
 // The part of the island the camera sees, with a margin, at the camera's zoom (sharp when zoomed in).
@@ -240,7 +248,7 @@ const BUDGET = () => (lite() ? 8e6 : 16e6);
 
 function ensureIsland(force = false) {
   const d = sceneData();
-  const key = JSON.stringify([d.places.map((p) => p.level), d.details, interior, P.key]);
+  const key = JSON.stringify([d.places.map((p) => p.level), d.details, interior, P.key, d.rendered]);
   const all = islandBounds();
   const tl = toWorld(cam, size.w, size.h, { x: 0, y: 0 });
   const br = toWorld(cam, size.w, size.h, { x: size.w, y: size.h });
