@@ -1,5 +1,5 @@
 // Configuration dashboard. Every control auto-saves to settings.json (secrets are encrypted at rest).
-import { $, api, el, toast, toastError, confirmDialog, debounce, on, emit, modal } from './util.js';
+import { $, api, el, escapeHtml, toast, toastError, confirmDialog, debounce, on, emit, modal } from './util.js';
 import { state, saveSettings, loadSettings } from './state.js';
 import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice } from './voice.js';
 import { KOKORO_VOICES } from './kokorotext.js';
@@ -165,8 +165,8 @@ export function initSettings() {
   });
   on('view', ({ name, section }) => {
     if (name !== 'settings') return;
-    render();
-    if (section) setTimeout(() => $(`#set-${section}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    // Scroll once the cards exist (several of them load data first).
+    render().then(() => section && $(`#set-${section}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   });
 }
 
@@ -174,7 +174,7 @@ async function render() {
   const root = $('#settingsRoot');
   const scroll = root.parentElement.scrollTop;
   root.innerHTML = '';
-  root.append(agentCard(), brainCard(), extensionsCard(), voiceCard(), sttCard(), learningCard(), helperAppsCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), uiCard());
+  root.append(agentCard(), brainCard(), extensionsCard(), voiceCard(), sttCard(), learningCard(), helperAppsCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), worldCard(), uiCard());
   root.parentElement.scrollTop = scroll;
 }
 
@@ -969,7 +969,7 @@ async function obsidianCard() {
     `${state.settings.agent.name}'s Obsidian vault`,
     'The agent’s own second brain: a real Obsidian vault it reads <b>and writes</b> — research, notes, journal, its memories (Memory/) and a changelog of its self-changes. Open it in Obsidian any time.',
     toggle('obsidian.enabled', 'Enable the vault', after),
-    folder('obsidian.vaultPath', 'Vault folder', { placeholder: def, hint: `Leave empty for the agent’s own vault (<code>${def}</code>). You can also point it at an existing vault.`, onChange: after }),
+    folder('obsidian.vaultPath', 'Vault folder', { placeholder: def, hint: `Leave empty for the agent’s own vault (<code>${escapeHtml(def)}</code>). You can also point it at an existing vault.`, onChange: after }),
     adoptField(known, after),
     toggle('obsidian.gitHistory', 'Keep a version history of every note (undo any agent edit)'),
     el('div', { class: 'grid2' }, toggle('journal.enabled', 'Auto-journal: log each conversation to the daily note'), text('journal.idleMinutes', 'Journal after (minutes quiet)', { type: 'number' })),
@@ -1044,7 +1044,7 @@ async function selfCard() {
     'Ask the agent for new features and it implements them by editing its own source code. Every change is syntax-checked and recorded so you can review, revert or restore any version from the <b>Evolution</b> view.',
     toggle('code.enabled', 'Let the agent read its own source code'),
     toggle('code.allowSelfModify', 'Let the agent modify its own code (tracked & revertible)', () => render()),
-    folder('code.rootPath', 'Code root', { placeholder: root, hint: `Leave empty for this app’s own source (<code>${root}</code>).` }),
+    folder('code.rootPath', 'Code root', { placeholder: root, hint: `Leave empty for this app’s own source (<code>${escapeHtml(root)}</code>).` }),
     el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => switchView('evolution') }, '⑂ Open Evolution history')),
     line,
   );
@@ -1084,6 +1084,18 @@ async function docsCard() {
   );
 }
 
+function worldCard() {
+  return card(
+    'world',
+    'Inner World',
+    'A small village where your personas live a fictional day, growing with your real progress (World in the rail). Its chronicle and the residents’ memories are notes in your vault under “Inner World/”.',
+    toggle('innerWorld.enabled', 'Awake: every morning a narrator writes the village’s day (one model call a day, plus an occasional one when a resident reflects)'),
+    toggle('innerWorld.townsfolk', 'Two villagers of its own live there too (Wren the archivist and Bram the gardener)'),
+    select('innerWorld.season', 'Season', [['auto', 'Follow the calendar'], ['spring', 'Always spring'], ['summer', 'Always summer'], ['autumn', 'Always autumn'], ['winter', 'Always winter']]),
+    select('innerWorld.art', 'Art', [['rendered', 'Rendered 3D models (Kenney, CC0)'], ['drawn', 'Drawn by code']]),
+  );
+}
+
 async function dataCard() {
   const [mems, convs, info, memDir] = await Promise.all([api.memory.list().catch(() => []), api.conv.list().catch(() => []), api.app.info(), api.memory.dir().catch(() => '')]);
   const danger = (label, title, msg, fn) =>
@@ -1091,14 +1103,10 @@ async function dataCard() {
   return card(
     'data',
     'Memory & history',
-    `Data folder: <code>${info.dataDir}</code>`,
+    `Data folder: <code>${escapeHtml(info.dataDir)}</code>`,
     folder('memory.vaultPath', 'Memory vault folder', { placeholder: memDir, hint: 'One Markdown file per memory — editable in any text editor or even inside your Obsidian vault.' }),
     toggle('memory.stream', 'Memory stream: the assistant notes small observations (Stream/ in the vault) and recalls the most relevant ones with each message'),
     toggle('memory.reflect', 'Reflect on the stream: once enough has happened, draw a few insights from it in the background (one model call)'),
-    toggle('innerWorld.enabled', 'Inner World: your personas live a small fictional day in a village that grows with your progress (a few model calls a day)'),
-    toggle('innerWorld.townsfolk', 'Inner World: two villagers of its own live there too'),
-    select('innerWorld.season', 'Inner World season', [['auto', 'Follow the calendar'], ['spring', 'Always spring'], ['summer', 'Always summer'], ['autumn', 'Always autumn'], ['winter', 'Always winter']]),
-    select('innerWorld.art', 'Inner World art', [['rendered', 'Rendered 3D models (Kenney, CC0)'], ['drawn', 'Drawn by code']]),
     el('div', { class: 'row' }, el('span', { class: 'muted', style: { flex: 1 } }, `${mems.length} memories · ${convs.length} conversations`)),
     el(
       'div',

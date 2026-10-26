@@ -215,7 +215,7 @@ function showEarlier() {
   for (const m of page) frag.append(messageNode(m));
   box.insertBefore(frag, anchor);
   updateEarlierButton();
-  box.scrollTop += box.scrollHeight - before;
+  box.scrollTo({ top: box.scrollTop + box.scrollHeight - before, behavior: 'instant' }); // .messages scrolls smoothly; this must not
 }
 
 // ------------------------------------------------------------------ messages

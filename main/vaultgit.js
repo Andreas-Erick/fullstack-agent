@@ -56,6 +56,20 @@ async function flush(root) {
   await git(root, ['add', '-A']);
   const subject = msgs.length === 1 ? msgs[0] : `${msgs.length} changes: ${[...new Set(msgs)].slice(0, 3).join('; ')}`;
   await git(root, ['commit', '-q', '-m', subject.slice(0, 200)]);
+  maintain(root).catch((e) => log.warn('vault git gc', e.message));
+}
+
+// The history only grows: about once a week, after a commit, git packs it (gc --auto does nothing when
+// there is little to do). The time of the last run is a marker file inside .git.
+const GC_EVERY_MS = 7 * 24 * 3600000;
+
+async function maintain(root, now = Date.now()) {
+  const marker = path.join(root, '.git', 'nexus-last-gc');
+  const last = await fsp.stat(marker).then((s) => s.mtimeMs, () => 0);
+  if (now - last < GC_EVERY_MS) return false;
+  await fsp.writeFile(marker, new Date(now).toISOString());
+  await git(root, ['gc', '--auto', '--quiet']);
+  return true;
 }
 
 async function flushAll() {
@@ -89,4 +103,4 @@ async function restore(root, rel, version) {
   return { restored: rel, version };
 }
 
-module.exports = { ensure, commitSoon, flushAll, history, showVersion, restore };
+module.exports = { ensure, commitSoon, flushAll, history, showVersion, restore, maintain };

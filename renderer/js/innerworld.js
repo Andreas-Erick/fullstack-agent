@@ -77,6 +77,7 @@ export function initInnerWorld() {
   $('#worldWrite').onclick = () => write(Boolean(data?.day));
   $('#worldAsk').onclick = () => ask('What happened in the Inner World today? Tell me about your day.');
   $('#worldChronicle').onclick = () => data && api.obsidian.openInObsidian(data.chronicle).catch(toastError);
+  $('#worldSettings').onclick = () => switchView('settings', 'world');
   $('#worldFit').onclick = () => (interior ? leave() : flyTo(home));
   $('#worldLeave').onclick = () => leave();
   $('#worldFollowStop').onclick = () => stopFollowing();
@@ -871,6 +872,23 @@ function todayPanel() {
           el('span', { class: 'hint' }, p ? `${r.mood ? `${r.mood} · ` : ''}${p.activity} · ${placeById(p.place)?.name || ''}` : r.npc ? 'villager' : 'persona'),
         );
       }),
+    ),
+  );
+  // Every building, reachable without the canvas (keyboard, screen readers).
+  out.push(
+    el(
+      'div',
+      { class: 'world-sec' },
+      el('b', {}, 'Places'),
+      ...data.places.map((p) =>
+        el(
+          'button',
+          { class: 'world-res world-place', onclick: () => select({ type: 'place', id: p.id }), 'aria-label': `${p.name}, ${p.stage}${p.level ? `, level ${p.level} of 3` : ''}` },
+          el('span', { class: 'icon', 'aria-hidden': 'true' }, p.icon),
+          el('span', { class: 'name' }, p.name),
+          el('span', { class: 'hint' }, p.level ? `level ${p.level} of 3 · ${p.hint}` : p.hint),
+        ),
+      ),
     ),
   );
   const work = Object.entries(data.details?.work?.today || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);

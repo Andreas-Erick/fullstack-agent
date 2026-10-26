@@ -65,7 +65,7 @@ const FEATURES = [
     title: 'The Inner World and rehearsals',
     what: 'A small fantasy village where your personas (and two villagers) live a fictional day: every morning a narrator writes their plans, meetings and conversations, and each of them remembers it. It mirrors you: the Library grows with what you understand, the Café with your vocabulary, the Training Grounds fly a banner per habit (raised when kept today), the Garden blooms for each habit kept, and at night your skill tree shines as constellations. Whatever I am doing right now you can watch: at the forge when I write code, up the Lookout when I search the web. On its Stage I can rehearse a conversation you are preparing for, with characters who have their own hidden goals, and debrief it.',
     say: ['"What did you do today in the Inner World?"', '"Help me rehearse asking for a raise"', '"Rehearse my thesis defense with a skeptical examiner"'],
-    where: 'World view (rail); Inner World/ in the vault (Chronicle, residents’ memories, Rehearsals).',
+    where: 'World view (rail; ⚙ there or Settings → Inner World for season, art and villagers); Inner World/ in the vault (Chronicle, residents’ memories, Rehearsals).',
     status: (s, f) => (!f.vault ? 'needs the vault' : s.innerWorld?.enabled ? 'awake' : 'asleep: wake it in the World view (rehearsals work anyway)'),
   },
   {

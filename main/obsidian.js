@@ -352,21 +352,28 @@ async function deleteNote(ref) {
   await fsp.rename(full, path.join(trash, `${Date.now()}-${path.basename(full)}`));
   contentCache.delete(full);
   const rel = toPosix(path.relative(root, full));
-  await afterChange(root, rel, `delete ${rel}`);
+  await afterChange(root, rel, `delete ${rel}`, { deleted: true });
   return { deleted: rel, movedTo: '.trash' };
 }
 
-async function afterChange(root, rel, message) {
+async function afterChange(root, rel, message, { deleted = false } = {}) {
   const top = rel.split('/')[0];
-  if (FOLDERS[top] && rel !== `${top}/${top}.md`) await refreshFolderIndex(root, top).catch(() => {});
+  // The folder's list changes only when a note is added or removed: editing one of a thousand daily
+  // notes doesn't walk the folder again.
+  const known = folderNotes.get(path.join(root, top));
+  const listChanged = deleted || !known || !known.has(rel);
+  if (FOLDERS[top] && rel !== `${top}/${top}.md` && listChanged) await refreshFolderIndex(root, top).catch(() => {});
   require('./vaultgit').commitSoon(root, message);
   onChange(rel);
 }
 
 // Keeps the auto-generated list in <Folder>/<Folder>.md in sync with the folder's notes.
+const folderNotes = new Map(); // <root>/<folder> -> Set of vault-relative note paths, as last listed
+
 async function refreshFolderIndex(root, folder) {
   const idx = path.join(root, folder, `${folder}.md`);
   const files = (await walk(path.join(root, folder), { exts: ['.md'], ignore: IGNORE })).filter((f) => f !== idx);
+  folderNotes.set(path.join(root, folder), new Set(files.map((f) => toPosix(path.relative(root, f)))));
   const lines = files
     .map((f) => toPosix(path.relative(path.join(root, folder), f)).replace(/\.md$/, ''))
     .sort((a, b) => a.localeCompare(b))
@@ -487,13 +494,17 @@ async function addJobLesson(name, lesson) {
 }
 
 // --------------------------------------------------------------- search
+const SEARCH_BATCH = 24;
+
 async function search(query, limit = 10) {
   const root = await requireVault();
   const terms = queryTerms(query);
   if (!terms.length) return [];
   const files = await walk(root, { exts: ['.md'], ignore: IGNORE });
   const results = [];
-  for (const full of files) {
+  // Several notes at a time (reads overlap instead of queuing one by one); the note cache keeps
+  // repeated searches off the disk.
+  const scoreOne = async (full) => {
     try {
       const { text } = await readCached(full);
       const title = path.basename(full, '.md');
@@ -502,8 +513,9 @@ async function search(query, limit = 10) {
     } catch {
       /* unreadable note */
     }
-  }
-  return results.sort((a, b) => b.score - a.score).slice(0, limit);
+  };
+  for (let i = 0; i < files.length; i += SEARCH_BATCH) await Promise.all(files.slice(i, i + SEARCH_BATCH).map(scoreOne));
+  return results.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, limit);
 }
 
 async function status() {
