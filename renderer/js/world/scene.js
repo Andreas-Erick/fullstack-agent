@@ -179,7 +179,7 @@ export function frame(ctx, f) {
   L.scale(cam.z, cam.z);
   L.translate(-cam.x, -cam.y);
   L.drawImage(island.canvas, island.minX, island.minY, island.canvas.width / island.scale, island.canvas.height / island.scale);
-  if (f.anim) waterMotion(L, P, island, f.t);
+  if (f.anim && P.season !== 'winter') waterMotion(L, P, island, f.t);
   waterfall(L, P, island, f.t, f.anim);
   for (const e of island.emitters) emitter(L, P, e, f);
   for (const p of [...f.residents].sort((a, b) => a.y - b.y)) {
@@ -585,7 +585,37 @@ function weather(c, f) {
       c.fillRect(0, y - 40, w, 80);
     }
   }
+  if (f.anim) seasonal(c, f);
   clouds(c, f, nightAt(f.minute), 'front');
+}
+
+// The season in the air: a few snowflakes, falling leaves or blossom petals drifting by.
+function seasonal(c, f) {
+  const { w, h, t, P } = f;
+  const kind = P.season;
+  if (kind === 'summer' || (kind === 'winter' && f.weather === 'snow')) return;
+  const r = rng(23);
+  const n = kind === 'winter' ? 60 : 26;
+  for (let i = 0; i < n; i++) {
+    const speed = kind === 'winter' ? 40 : 26 + r() * 14;
+    const x = (r() * w + Math.sin(t / 1300 + i) * 30 + (t / 1000) * (kind === 'winter' ? 4 : 18)) % w;
+    const y = (r() * h + (t / 1000) * speed) % h;
+    if (kind === 'winter') {
+      c.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      c.fillRect(x, y, 2, 2);
+      continue;
+    }
+    const spin = t / 400 + i;
+    c.save();
+    c.translate(x, y);
+    c.rotate(spin);
+    c.scale(1, Math.abs(Math.cos(spin)) * 0.8 + 0.2);
+    c.beginPath();
+    c.ellipse(0, 0, kind === 'autumn' ? 4 : 3, kind === 'autumn' ? 2.2 : 2, 0, 0, Math.PI * 2);
+    c.fillStyle = kind === 'autumn' ? rgba([[218, 112, 50], [234, 164, 62], [196, 70, 46], [226, 192, 82]][i % 4], 0.9) : rgba(i % 3 ? [250, 196, 214] : [255, 236, 244], 0.9);
+    c.fill();
+    c.restore();
+  }
 }
 
 /** Names under the places, readable on any background (screen space). */

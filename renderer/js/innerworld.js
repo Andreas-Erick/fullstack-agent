@@ -13,6 +13,7 @@ import { send } from './chat.js';
 import { state, saveSettings } from './state.js';
 import { fxLevel } from './hud.js';
 import { buildMap, route, along } from './world/map.js';
+import { seasonOf } from './world/season.js';
 import { palette, W, HZ } from './world/art.js';
 import { buildIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf, bounds as sceneBounds } from './world/scene.js';
 
@@ -57,59 +58,8 @@ export function initInnerWorld() {
   canvas = $('#worldCanvas');
   ctx = canvas.getContext('2d');
   new ResizeObserver(resize).observe(canvas);
-  let drag = null;
-  canvas.addEventListener('pointerdown', (e) => {
-    drag = { x: e.clientX, y: e.clientY, cam: { ...cam }, moved: false };
-    canvas.setPointerCapture(e.pointerId);
-  });
-  canvas.addEventListener('pointermove', (e) => {
-    if (drag && cam) {
-      const dx = e.clientX - drag.x;
-      const dy = e.clientY - drag.y;
-      if (Math.hypot(dx, dy) > 4) drag.moved = true;
-      if (drag.moved) {
-        cam = { ...drag.cam, x: drag.cam.x - dx / cam.z, y: drag.cam.y - dy / cam.z };
-        flight = null;
-        canvas.style.cursor = 'grabbing';
-        draw();
-        return;
-      }
-    }
-    const h = hit(e);
-    canvas.title = h?.type === 'star' ? `${h.id} · ${h.state}${h.state === 'mastered' ? '' : ` · ${Math.round(h.progress * 100)}%`} (your skill tree)` : h?.type === 'place' ? 'Click for details · double-click to step inside' : '';
-    if (h?.id !== hover?.id) ((hover = h), draw());
-    canvas.style.cursor = h ? 'pointer' : 'grab';
-  });
-  canvas.addEventListener('pointerup', (e) => {
-    const was = drag;
-    drag = null;
-    canvas.style.cursor = 'grab';
-    if (was?.moved) return scheduleRebuild();
-    const h = hit(e);
-    if (h?.type === 'star') return switchView('tree');
-    select(h);
-  });
-  canvas.addEventListener('dblclick', (e) => {
-    const h = hit(e);
-    if (h?.type === 'place') enter(h.id);
-  });
-  canvas.addEventListener(
-    'wheel',
-    (e) => {
-      e.preventDefault();
-      if (!cam) return;
-      const r = canvas.getBoundingClientRect();
-      const s = { x: e.clientX - r.left, y: e.clientY - r.top };
-      const before = toWorld(cam, size.w, size.h, s);
-      const z = Math.max(home.z * 0.85, Math.min(home.z * 4.5, cam.z * (e.deltaY < 0 ? 1.12 : 0.89)));
-      cam = { z, x: before.x - (s.x - size.w / 2) / z, y: before.y - (s.y - size.h / 2) / z };
-      flight = null;
-      if (interior && cam.z < home.z * 1.6) leave();
-      draw();
-      scheduleRebuild();
-    },
-    { passive: false },
-  );
+  setupCamera();
+  setupMinimap();
   $('#worldClock').addEventListener('input', (e) => {
     const v = Number(e.target.value);
     scrub = Math.abs(v - nowMinutes()) < 3 ? null : v;
@@ -122,6 +72,7 @@ export function initInnerWorld() {
   $('#worldChronicle').onclick = () => data && api.obsidian.openInObsidian(data.chronicle).catch(toastError);
   $('#worldFit').onclick = () => (interior ? leave() : flyTo(home));
   $('#worldLeave').onclick = () => leave();
+  $('#worldFollowStop').onclick = () => stopFollowing();
   on('world-changed', refresh);
   on('settings', () => {
     P = null;
@@ -185,6 +136,8 @@ const minutes = (t) => {
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 };
 const placeById = (id) => data?.places.find((p) => p.id === id);
+// The season: the real date on the user's half of the world, unless they chose one.
+const season = () => seasonOf(new Date(), { choice: state.settings?.innerWorld?.season || 'auto', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
 const activeResident = () => data?.residents.find((r) => r.active) || data?.residents.find((r) => !r.npc);
 // Live work shows only in "live" time, while it lasts.
 const liveNow = () => (scrub === null && live && (!live.done || Date.now() - live.done < LIVE_LINGER_MS) ? live : null);
@@ -273,7 +226,7 @@ function resize() {
 
 // The data the picture depends on; when it changes, the island is painted again.
 function sceneData() {
-  P ||= palette();
+  P ||= palette(season());
   const places = data.places.map((p) => ({ id: p.id, x: p.x, y: p.y, name: p.name, level: p.level }));
   const key = places.map((p) => `${p.id}:${p.x}:${p.y}`).join('|');
   if (key !== mapKey) ((map = buildMap(places)), (mapKey = key));
@@ -359,6 +312,293 @@ function leave() {
   flyTo(home);
 }
 
+// ------------------------------------------------------------ camera controls
+// Drag to pan (it glides on when you let go), two fingers or a trackpad pinch to zoom, the wheel to
+// zoom around the pointer, arrow keys / WASD, + and − to zoom, 0 for the whole island, Esc to step out.
+let glide = null; // { vx, vy } screen px per ms, slowing down
+let follow = null; // a resident's name while the camera follows them
+
+const clampZ = (z) => Math.max(home.z * 0.85, Math.min(home.z * 4.5, z));
+
+/** Zoom by `factor` keeping the world point under screen point `s` in place. */
+function zoomAt(s, factor) {
+  if (!cam) return;
+  const before = toWorld(cam, size.w, size.h, s);
+  const z = clampZ(cam.z * factor);
+  cam = { z, x: before.x - (s.x - size.w / 2) / z, y: before.y - (s.y - size.h / 2) / z };
+  flight = null;
+  if (interior && cam.z < home.z * 1.6) leave();
+  draw();
+  scheduleRebuild();
+}
+
+function panBy(dx, dy) {
+  if (!cam) return;
+  cam = { ...cam, x: cam.x - dx / cam.z, y: cam.y - dy / cam.z };
+  flight = null;
+  stopFollowing();
+  draw();
+  scheduleRebuild();
+}
+
+function setupCamera() {
+  const pointers = new Map();
+  let drag = null;
+  let pinch = null;
+  const local = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  canvas.addEventListener('pointerdown', (e) => {
+    pointers.set(e.pointerId, local(e));
+    canvas.setPointerCapture(e.pointerId);
+    glide = null;
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, anchor: toWorld(cam, size.w, size.h, mid), z: cam.z };
+      drag = null;
+    } else drag = { start: local(e), last: local(e), cam: { ...cam }, moved: false, samples: [] };
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const p = local(e);
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, p);
+    if (pinch && pointers.size === 2 && cam) {
+      const [a, b] = [...pointers.values()];
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const z = clampZ((pinch.z * Math.hypot(a.x - b.x, a.y - b.y)) / pinch.dist);
+      cam = { z, x: pinch.anchor.x - (mid.x - size.w / 2) / z, y: pinch.anchor.y - (mid.y - size.h / 2) / z };
+      flight = null;
+      stopFollowing();
+      draw();
+      return;
+    }
+    if (drag && cam) {
+      if (Math.hypot(p.x - drag.start.x, p.y - drag.start.y) > 4) drag.moved = true;
+      if (drag.moved) {
+        cam = { ...drag.cam, x: drag.cam.x - (p.x - drag.start.x) / cam.z, y: drag.cam.y - (p.y - drag.start.y) / cam.z };
+        flight = null;
+        stopFollowing();
+        drag.samples.push({ t: performance.now(), x: p.x, y: p.y });
+        drag.samples = drag.samples.filter((s) => performance.now() - s.t < 90);
+        canvas.style.cursor = 'grabbing';
+        draw();
+        return;
+      }
+    }
+    const h = hit(e);
+    canvas.title = h?.type === 'star' ? `${h.id} · ${h.state}${h.state === 'mastered' ? '' : ` · ${Math.round(h.progress * 100)}%`} (your skill tree)` : h?.type === 'place' ? 'Click for details · double-click to step inside' : h?.type === 'resident' ? `${h.id} · click for their day` : '';
+    if (h?.id !== hover?.id) ((hover = h), draw());
+    canvas.style.cursor = h ? 'pointer' : 'grab';
+  });
+  const end = (e) => {
+    pointers.delete(e.pointerId);
+    if (pinch) {
+      if (pointers.size < 2) ((pinch = null), scheduleRebuild());
+      return;
+    }
+    const was = drag;
+    drag = null;
+    canvas.style.cursor = 'grab';
+    if (!was) return;
+    if (was.moved) {
+      // Let go while moving: glide on and slow down.
+      const s = was.samples;
+      if (s.length >= 2 && !document.body.classList.contains('fx-still')) {
+        const dt = s[s.length - 1].t - s[0].t || 1;
+        const vx = (s[s.length - 1].x - s[0].x) / dt;
+        const vy = (s[s.length - 1].y - s[0].y) / dt;
+        if (Math.hypot(vx, vy) > 0.15) ((glide = { vx, vy, at: performance.now() }), loop(true));
+      }
+      return scheduleRebuild();
+    }
+    if (e.type === 'pointercancel') return;
+    const h = hit(e);
+    if (h?.type === 'star') return switchView('tree');
+    select(h);
+  };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('dblclick', (e) => {
+    const h = hit(e);
+    if (h?.type === 'place') enter(h.id);
+  });
+  canvas.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      // A trackpad pinch arrives as a wheel event with ctrlKey; mouse wheels and two-finger scrolls zoom smoothly.
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      glide = null;
+      stopFollowing();
+      zoomAt(local(e), Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0012)));
+    },
+    { passive: false },
+  );
+  document.addEventListener('keydown', (e) => {
+    if (currentView !== 'world' || !cam || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '') || document.activeElement?.isContentEditable || document.querySelector('.modal:not(.hidden)')) return;
+    const step = 70;
+    const center = { x: size.w / 2, y: size.h / 2 };
+    const keys = {
+      ArrowLeft: () => panBy(step, 0), a: () => panBy(step, 0),
+      ArrowRight: () => panBy(-step, 0), d: () => panBy(-step, 0),
+      ArrowUp: () => panBy(0, step), w: () => panBy(0, step),
+      ArrowDown: () => panBy(0, -step), s: () => panBy(0, -step),
+      '+': () => zoomAt(center, 1.2), '=': () => zoomAt(center, 1.2),
+      '-': () => zoomAt(center, 1 / 1.2),
+      0: () => (interior ? leave() : flyTo(home)),
+      Escape: () => (follow ? stopFollowing() : interior ? leave() : selected ? select(null) : null),
+    };
+    const fn = keys[e.key];
+    if (!fn) return;
+    e.preventDefault();
+    fn();
+  });
+}
+
+// Each frame: glide on after a drag, and keep a followed resident in view.
+function moveCamera(people) {
+  if (glide && cam) {
+    const now = performance.now();
+    const dt = Math.min(50, now - glide.at);
+    glide.at = now;
+    cam = { ...cam, x: cam.x - (glide.vx * dt) / cam.z, y: cam.y - (glide.vy * dt) / cam.z };
+    const decay = Math.exp(-dt / 260);
+    glide.vx *= decay;
+    glide.vy *= decay;
+    if (Math.hypot(glide.vx, glide.vy) < 0.02) ((glide = null), scheduleRebuild());
+  }
+  if (follow && cam && !flight) {
+    const p = people.find((x) => x.name === follow);
+    if (!p) return stopFollowing();
+    const k = 0.12;
+    cam = { ...cam, x: cam.x + (p.x - cam.x) * k, y: cam.y + (p.y - 20 - cam.y) * k };
+    if (Math.hypot(p.x - cam.x, p.y - 20 - cam.y) > 4) scheduleRebuild();
+  }
+}
+
+function followResident(name) {
+  follow = name;
+  glide = null;
+  if (cam.z < home.z * 2.2) flyTo({ ...cam, z: home.z * 2.4 });
+  $('#worldFollow').classList.remove('hidden');
+  $('#worldFollowName').textContent = name;
+  loop(true);
+}
+
+function stopFollowing() {
+  if (!follow) return;
+  follow = null;
+  $('#worldFollow').classList.add('hidden');
+}
+
+// ------------------------------------------------------------ minimap
+// The whole island in the corner, the camera's view drawn on it; click or drag to go there.
+let mini = null; // { canvas, key, b (world bounds), k (scale) }
+
+function setupMinimap() {
+  const box = $('#worldMini');
+  let down = false;
+  const go = (e) => {
+    if (!mini || !cam) return;
+    const r = box.getBoundingClientRect();
+    const x = (e.clientX - r.left) / mini.k + mini.b.minX;
+    const y = (e.clientY - r.top) / mini.k + mini.b.minY;
+    cam = { ...cam, x, y };
+    flight = null;
+    glide = null;
+    stopFollowing();
+    draw();
+    scheduleRebuild();
+  };
+  box.addEventListener('pointerdown', (e) => ((down = true), box.setPointerCapture(e.pointerId), go(e)));
+  box.addEventListener('pointermove', (e) => down && go(e));
+  box.addEventListener('pointerup', () => (down = false));
+}
+
+function drawMinimap() {
+  const box = $('#worldMini');
+  if (!box || !map || !P || !data?.enabled || size.w < 520) return box?.classList.add('hidden');
+  box.classList.remove('hidden');
+  const W0 = 176;
+  const H0 = 112;
+  const dpr = size.dpr;
+  const key = `${mapKey}|${P.key}|${data.places.map((p) => p.level).join()}`;
+  if (mini?.key !== key) {
+    // World bounds of the island's tiles.
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let y = 0; y < map.N; y++) {
+      for (let x = 0; x < map.N; x++) {
+        if (!map.tile(x, y)) continue;
+        const p = W(x + 0.5, y + 0.5, map.hgt(x, y) * HZ);
+        minX = Math.min(minX, p.x - 24);
+        maxX = Math.max(maxX, p.x + 24);
+        minY = Math.min(minY, p.y - 40);
+        maxY = Math.max(maxY, p.y + 20);
+      }
+    }
+    const k = Math.min(W0 / (maxX - minX), H0 / (maxY - minY));
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(W0 * dpr);
+    cv.height = Math.round(H0 * dpr);
+    const c = cv.getContext('2d');
+    c.setTransform(dpr * k, 0, 0, dpr * k, -minX * k * dpr + ((W0 - (maxX - minX) * k) / 2) * dpr, -minY * k * dpr + ((H0 - (maxY - minY) * k) / 2) * dpr);
+    const colors = { 1: P.grass, 2: P.dirt, 3: P.cobble, 4: P.water, 5: P.sand, 6: P.cobble, 7: P.crop, 8: P.wood };
+    for (let y = 0; y < map.N; y++) {
+      for (let x = 0; x < map.N; x++) {
+        const t = map.tile(x, y);
+        if (!t) continue;
+        const z = map.hgt(x, y) * HZ;
+        c.beginPath();
+        for (const [dx, dy] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+          const p = W(x + dx, y + dy, z);
+          c.lineTo(p.x, p.y);
+        }
+        c.closePath();
+        c.fillStyle = `rgb(${colors[t].join(',')})`;
+        c.fill();
+        c.strokeStyle = c.fillStyle;
+        c.lineWidth = 1 / k;
+        c.stroke();
+      }
+    }
+    for (const p of data.places) {
+      const s = map.sites[p.id];
+      if (!s) continue;
+      const q = W(s.gx, s.gy, s.h * HZ);
+      c.beginPath();
+      c.arc(q.x, q.y - 8, (p.level ? 5 + p.level * 1.5 : 4) / k / 3, 0, Math.PI * 2);
+      c.fillStyle = p.level ? `rgb(${P.roof.join(',')})` : 'rgba(255, 255, 255, 0.5)';
+      c.fill();
+      c.strokeStyle = 'rgba(30, 24, 20, 0.8)';
+      c.lineWidth = 1.5 / k;
+      c.stroke();
+    }
+    const offX = (W0 - (maxX - minX) * k) / 2;
+    const offY = (H0 - (maxY - minY) * k) / 2;
+    mini = { canvas: cv, key, k, b: { minX: minX - offX / k, minY: minY - offY / k } };
+  }
+  if (box.width !== Math.round(W0 * dpr)) ((box.width = Math.round(W0 * dpr)), (box.height = Math.round(H0 * dpr)));
+  const c = box.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, W0, H0);
+  c.drawImage(mini.canvas, 0, 0, W0, H0);
+  // The camera's view.
+  const tl = toWorld(cam, size.w, size.h, { x: 0, y: 0 });
+  const br = toWorld(cam, size.w, size.h, { x: size.w, y: size.h });
+  const x0 = (tl.x - mini.b.minX) * mini.k;
+  const y0 = (tl.y - mini.b.minY) * mini.k;
+  c.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+  c.lineWidth = 1.5;
+  c.strokeRect(x0, y0, (br.x - tl.x) * mini.k, (br.y - tl.y) * mini.k);
+  c.fillStyle = 'rgba(255, 255, 255, 0.08)';
+  c.fillRect(x0, y0, (br.x - tl.x) * mini.k, (br.y - tl.y) * mini.k);
+}
+
 // ------------------------------------------------------------ residents
 // Where a resident stands at a place: beside it (or inside, when looking in), side by side.
 function spot(placeId, j) {
@@ -374,7 +614,7 @@ function spot(placeId, j) {
 const groundZ = (g) => map.hgt(Math.floor(g.x), Math.floor(g.y)) * HZ;
 
 const colorOf = (r, i) => {
-  P ||= palette(); // the side panel can ask before the first draw
+  P ||= palette(season()); // the side panel can ask before the first draw
   const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(r.color || '');
   return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : P[TONES[i % 4]];
 };
@@ -463,18 +703,23 @@ function loop(once = false) {
       }
     }
     draw();
-    if (flight || (animated() && currentView === 'world' && !document.hidden)) frameId = requestAnimationFrame(() => setTimeout(step, lite() ? 66 : 33));
+    if (currentView !== 'world' || document.hidden) return;
+    // Camera motion runs at the display's rate; the village's own animation at 30 (15 on Balanced).
+    if (flight || glide || follow) frameId = requestAnimationFrame(step);
+    else if (animated()) frameId = requestAnimationFrame(() => setTimeout(step, lite() ? 66 : 33));
   };
-  if (once || animated() || flight) step();
+  if (once || animated() || flight || glide || follow) step();
   else draw();
 }
 
 function draw() {
   if (!ctx || !size.w || !data?.places) return;
   if (!cam) cam = { ...home };
-  ensureIsland();
+  if (P && P.season !== season()) P = null; // a new season (or the setting changed): repaint
   const m = at();
   const people = positions(m).filter((p) => !p.asleep);
+  moveCamera(people);
+  ensureIsland();
   const l = liveNow();
   const f = {
     w: size.w,
@@ -511,6 +756,7 @@ function draw() {
     const me = hits.people.find((p) => p.name === activeResident()?.name);
     if (me) bubble(ctx, f, me.x, me.top, `${l.label}…`, { live: true });
   }
+  drawMinimap();
 }
 
 // ------------------------------------------------------------ interaction
@@ -724,6 +970,7 @@ async function residentPanel(box, name) {
     el(
       'div',
       { class: 'row' },
+      el('button', { class: 'btn small primary', onclick: () => followResident(r.name) }, '👁 Follow'),
       el('button', { class: 'btn small', onclick: () => ask(info.active ? 'What did you do today in the Inner World?' : `What has ${r.name} been up to in the Inner World lately?`) }, 'Ask about their day'),
       el('button', { class: 'btn small', onclick: () => api.obsidian.openInObsidian(r.note).catch(toastError) }, 'Their memories in the vault'),
     ),

@@ -332,9 +332,11 @@
             <canvas class="world-canvas" id="worldCanvas" aria-label="The village: click a building, a resident or a star"></canvas>
             <div class="world-now hidden" id="worldNow" aria-live="polite"></div>
             <div class="world-cam">
-              <button class="btn small hidden" id="worldLeave" title="Step back outside">← Outside</button>
-              <button class="btn small" id="worldFit" title="Show the whole island">⤢ Whole island</button>
+              <button class="btn small hidden" id="worldLeave" title="Step back outside (Esc)">← Outside</button>
+              <button class="btn small" id="worldFit" title="Show the whole island (0)">⤢ Whole island</button>
+              <span class="world-follow hidden" id="worldFollow">👁 Following <b id="worldFollowName"></b> <button class="icon-btn" id="worldFollowStop" title="Stop following (Esc)">✕</button></span>
             </div>
+            <canvas class="world-mini hidden" id="worldMini" title="The whole island: click or drag to go there"></canvas>
             <aside class="world-panel glass" id="worldPanel"></aside>
           </div>
         </section>
