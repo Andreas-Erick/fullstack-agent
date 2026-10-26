@@ -18,7 +18,7 @@ the Android Keystore and app backups are off. No third-party libraries.
 
 ## Tailscale (the secure address from anywhere)
 
-If the app can't reach `https://<your-pc>.<tailnet>.ts.net`, the usual causes are on the computer, not the phone: Tailscale Serve isn't forwarding the address to Siren, or HTTPS isn't enabled for your tailnet yet. On the desktop, open **Settings → Remote access → Tailscale → Detect**: it finds both and fixes them (**Set up Serve for me**; if Tailscale asks, it opens the page where you enable HTTPS once). On the phone, the Tailscale app must be connected with the same account.
+If the app can't reach `https://<your-pc>.<tailnet>.ts.net`, the usual causes are on the computer, not the phone: Tailscale Serve isn't forwarding the address to Siren, or HTTPS isn't enabled for your tailnet yet. On the desktop, **Settings → Remote access → Tailscale** shows a checklist that checks each step and fixes what is missing (**Set up Serve for me**; enabling HTTPS once). Step by step, with troubleshooting: [docs/TAILSCALE.md](../docs/TAILSCALE.md). On the phone, the Tailscale app must be connected with the same account.
 
 ## Install
 

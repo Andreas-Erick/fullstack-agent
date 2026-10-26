@@ -176,7 +176,7 @@ function serveOutcome(code, output) {
   if (link) return { enableUrl: link[0] };
   if (code === 0) return { ok: true };
   const line = String(output).split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() || `tailscale exited with code ${code}`;
-  return { error: /access denied|permission|operator/i.test(line) ? `${line} (Tailscale needs this computer's administrator once: run "tailscale set --operator=$USER" on macOS/Linux, or start Tailscale as the signed-in user on Windows.)` : line };
+  return { error: /access denied|permission|operator/i.test(line) ? `${line} (Tailscale needs this computer's administrator once: run "sudo tailscale set --operator=$USER" in a terminal on macOS/Linux, or start Tailscale as the signed-in user on Windows.)` : line };
 }
 
 async function setupTailscaleServe(port) {

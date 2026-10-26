@@ -467,8 +467,9 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .log-view { max-height: 320px; overflow: auto; font-family: var(--font-mono); font-size: 11.5px; white-space: pre-wrap; background: rgba(var(--well), 0.7); border: 1px solid var(--line); border-radius: 10px; padding: 10px; color: var(--text-2); }
 
 /* ================= Onboarding ================= */
-.onboarding { position: fixed; inset: 0; z-index: 45; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(var(--c1), 0.08), rgba(var(--bg-rgb), 0.96) 70%); backdrop-filter: blur(6px); }
-.ob-card { width: min(760px, 94vw); max-height: 90vh; overflow: auto; padding: 28px 32px; display: flex; flex-direction: column; gap: 14px; background: var(--glass-strong); }
+/* The overlay scrolls, not the card: the HUD frame sits 1px outside the card, which made a scrolling card show scrollbars. */
+.onboarding { position: fixed; inset: 0; z-index: 45; display: grid; place-items: safe center; overflow-y: auto; padding: 4vh 0; background: radial-gradient(ellipse at center, rgba(var(--c1), 0.08), rgba(var(--bg-rgb), 0.96) 70%); backdrop-filter: blur(6px); }
+.ob-card { width: min(760px, 94vw); padding: 28px 32px; display: flex; flex-direction: column; gap: 14px; background: var(--glass-strong); }
 .ob-steps { display: flex; gap: 6px; }
 .ob-steps span { flex: 1; height: 4px; border-radius: 4px; background: rgba(var(--text-rgb), 0.12); }
 .ob-steps span.on { background: rgb(var(--c1)); box-shadow: 0 0 8px rgba(var(--c1), 0.6); }
@@ -1065,3 +1066,15 @@ body.agent .aw-frame::before { border-color: rgba(var(--c1), 0.85); box-shadow: 
 .sys-speed-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 6px; }
 .sys-speed-foot small { color: var(--muted); font-size: 11px; min-width: 0; }
 .sys-speed-foot .btn { flex: none; white-space: nowrap; }
+
+/* Settings → Remote access → Tailscale: the step-by-step checklist (settings.js tailscaleGuide). */
+.ts-guide { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: rgba(var(--well), 0.35); }
+.ts-step { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; padding: 8px 0; border-top: 1px solid var(--line); }
+.ts-step:first-of-type { border-top: 0; }
+.ts-num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; border: 1px solid var(--line-strong); color: var(--muted); }
+.ts-step.ok .ts-num { background: rgba(var(--ok), 0.18); border-color: rgba(var(--ok), 0.6); color: rgb(var(--ok)); }
+.ts-step.fail .ts-num { background: rgba(var(--warn), 0.16); border-color: rgba(var(--warn), 0.6); color: rgb(var(--warn)); }
+.ts-step.ok .ts-body > b { color: var(--muted); }
+.ts-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ts-body .hint { margin: 0; line-height: 1.5; }
+.ts-body .row { margin-top: 4px; }

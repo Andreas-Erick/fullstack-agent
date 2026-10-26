@@ -382,6 +382,7 @@ async function render() {
   card.append(nav);
   $('#onboarding').innerHTML = '';
   $('#onboarding').append(card);
+  $('#onboarding').scrollTop = 0; // the overlay scrolls (long steps); each step starts at its top
 }
 
 function go(delta) {
@@ -483,21 +484,28 @@ async function firstHello(list) {
   const s = state.settings;
   const greet = row('Voice speaks the greeting');
   const greeting = s.appearance.greeting || `Hello, I'm ${s.agent.name}. What are we working on today?`;
-  if (!s.voice.ttsEnabled) greet(null, 'Voice is off. Turn it on any time in Config → Voice output.');
-  else if (s.voice.engine === 'local') {
-    try {
-      await testLocalVoice(greeting);
-      greet(true, `The offline voice · “${greeting}”`);
-    } catch (e) {
-      greet(false, `The offline voice didn’t load (${e.message}). It retries on the next sentence; check your internet for the first download.`);
+  // The voice runs alongside the other checks: its first download can take a minute.
+  const voiceDone = (async () => {
+    if (!s.voice.ttsEnabled) greet(null, 'Voice is off. Turn it on any time in Config → Voice output.');
+    else if (s.voice.engine === 'local') {
+      greet(null, 'Loading the offline voice…');
+      const off = on('tts-progress', (p) => p.status === 'progress' && p.file && greet(null, `Downloading the voice once — ${Math.round(p.progress || 0)}%`));
+      try {
+        await testLocalVoice(greeting);
+        greet(true, `The offline voice · “${greeting}”`);
+      } catch (e) {
+        greet(false, `The offline voice didn’t load (${e.message}). It retries on the next sentence; check your internet for the first download.`);
+      } finally {
+        off();
+      }
+    } else {
+      speaker.say(greeting);
+      const synth = await api.tts.speak('ok').then(() => ({ ok: true }), (e) => ({ ok: false, error: e.message }));
+      if (synth.ok) greet(true, `VoiceStudio · “${greeting}”`);
+      else if (s.voice.fallback !== 'off') greet(null, `VoiceStudio failed (${synth.error}) — speaking with the ${s.voice.fallback === 'system' ? 'system' : 'offline'} voice for now. Fix it in Config → Voice output.`);
+      else greet(false, `VoiceStudio failed: ${synth.error}. Check its URL in Config → Voice output.`);
     }
-  } else {
-    speaker.say(greeting);
-    const synth = await api.tts.speak('ok').then(() => ({ ok: true }), (e) => ({ ok: false, error: e.message }));
-    if (synth.ok) greet(true, `VoiceStudio · “${greeting}”`);
-    else if (s.voice.fallback !== 'off') greet(null, `VoiceStudio failed (${synth.error}) — speaking with the ${s.voice.fallback === 'system' ? 'system' : 'offline'} voice for now. Fix it in Config → Voice output.`);
-    else greet(false, `VoiceStudio failed: ${synth.error}. Check its URL in Config → Voice output.`);
-  }
+  })();
 
   const brain = row('Brain answers a question');
   try {
@@ -518,5 +526,6 @@ async function firstHello(list) {
   } catch (e) {
     mic(false, `${e.message} — allow microphone access for this app${navigator.platform.startsWith('Mac') ? ' (System Settings → Privacy & Security → Microphone)' : ''}.`);
   }
+  await voiceDone;
   list.append(el('p', { class: 'muted', style: { marginTop: '12px' } }, 'All set. Want her to get to know you? A short conversation about your work, goals and how you like to be helped, which she keeps in your profile.'));
 }

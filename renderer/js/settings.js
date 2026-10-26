@@ -1222,54 +1222,80 @@ const TUNNEL_STATE = (t) => {
   return t.running ? '… Starting the secure address' : '';
 };
 
-// Reads the Tailscale name of this computer, whether HTTPS is on for the tailnet and whether Serve
-// forwards to Siren, from the tailscale CLI; then offers the one fix that is missing.
+// Tailscale, step by step (docs/TAILSCALE.md is the long version). Each step on this computer is
+// checked live through the tailscale CLI (remote:detectTailscale) and the end-to-end check
+// (remote:checkSecure); the step that is missing gets the button that fixes it. The phone's steps
+// can't be checked from here, so they are explained.
 const TAILSCALE_DNS = 'https://login.tailscale.com/admin/dns';
-async function detectTailscale(out, fix) {
-  out.className = 'test-result';
-  out.textContent = 'Asking Tailscale…';
-  fix.replaceChildren();
-  try {
-    const t = await api.remote.detectTailscale();
-    if (!t.installed) return showResult(out, false, '✕ Tailscale isn’t installed on this computer. Get it from tailscale.com/download (and on the phone from the Play Store), signed in with the same account.');
-    if (t.error || !t.running) return showResult(out, false, `✕ ${t.error || 'Tailscale is not connected. Open Tailscale and sign in.'}`);
-    if (!t.host) return showResult(out, false, '✕ Tailscale didn’t report a name for this computer. Turn on MagicDNS in the Tailscale admin console (DNS page).');
-    await saveSettings({ remote: { publicHost: t.host } });
-    if (t.https === false) {
-      showResult(out, false, `✓ This computer is ${t.host}\n✕ HTTPS is off for your tailnet, so https://${t.host} can’t work yet. Turn on “HTTPS Certificates” once on Tailscale’s DNS page, then set up Serve below.`);
-      fix.append(el('button', { class: 'btn', onclick: () => api.shell.openExternal(TAILSCALE_DNS) }, '🌐 Open Tailscale’s DNS page'), serveButton(out, fix));
-    } else if (t.serving === false) {
-      showResult(out, false, `✓ This computer is ${t.host}\n⚠ Tailscale Serve doesn’t forward to Siren yet.`);
-      fix.append(serveButton(out, fix));
-    } else showResult(out, true, `✓ This computer is ${t.host}${t.serving ? '\n✓ Tailscale Serve forwards to Siren.' : ''}`);
-    render();
-  } catch (err) {
-    showResult(out, false, `✕ ${err.message}`);
-  }
-}
+const TAILSCALE_DOWNLOAD = 'https://tailscale.com/download';
+const TAILSCALE_GUIDE = 'https://github.com/Andreas-Erick/fullstack-agent/blob/main/docs/TAILSCALE.md';
 
-// Runs `tailscale serve --bg --yes <port>` (your tailnet only, never the internet).
-function serveButton(out, fix) {
-  const b = el('button', {
-    class: 'btn primary',
-    onclick: async () => {
-      b.disabled = true;
-      showResult(out, true, 'Setting up Tailscale Serve…');
-      const r = await api.remote.setupTailscale().catch((e) => ({ error: e.message }));
-      b.disabled = false;
-      if (r.enableUrl) {
-        showResult(out, false, 'Tailscale wants HTTPS turned on for your tailnet first. A page opened in your browser: click Enable there, then press “Set up Serve” again.');
-        api.shell.openExternal(r.enableUrl);
-      } else if (r.error) showResult(out, false, `✕ ${r.error}`);
-      else {
-        showResult(out, true, '✓ Tailscale Serve now forwards your secure address to Siren. Checking it…');
-        await api.remote.checkSecure().catch(() => {});
-        refreshRemoteStatus?.();
-        detectTailscale(out, fix);
-      }
-    },
-  }, '🔒 Set up Serve for me');
-  return b;
+function tailscaleGuide() {
+  const box = el('div', { class: 'ts-guide' });
+  const port = get('remote.port') || 7823;
+  const step = (n, state, title, help, ...actions) =>
+    el('div', { class: `ts-step ${state}` },
+      el('span', { class: 'ts-num' }, state === 'ok' ? '✓' : state === 'fail' ? '✕' : String(n)),
+      el('div', { class: 'ts-body' }, el('b', {}, title), el('div', { class: 'hint', html: help }), actions.length ? el('div', { class: 'row' }, ...actions) : ''),
+    );
+  const btn = (label, onclick, primary = false) => el('button', { class: `btn small ${primary ? 'primary' : ''}`, onclick }, label);
+  const link = (label, url) => btn(label, () => api.shell.openExternal(url));
+  const note = el('div', { class: 'test-result hidden' });
+
+  async function draw() {
+    box.replaceChildren(el('div', { class: 'muted' }, 'Checking Tailscale on this computer…'));
+    const t = await api.remote.detectTailscale().catch((err) => ({ installed: false, error: err.message }));
+    if (t.host && t.host !== get('remote.publicHost')) await saveSettings({ remote: { publicHost: t.host } });
+    const remote = await api.remote.status().catch(() => ({}));
+    const reach = remote.tunnel?.check; // 'ok' | 'fail' | 'checking' | ''
+    const on = get('remote.enabled');
+    const signedIn = t.installed && t.running && !t.error;
+    const host = t.host || get('remote.publicHost') || 'your-pc.tailXXXX.ts.net';
+    const steps = [
+      step(1, on ? 'ok' : 'fail', 'Remote access is on',
+        on ? 'Siren listens for paired devices on port ' + port + '.' : 'Turn on <b>Turn on remote access</b> at the top of this card first.'),
+      step(2, t.installed ? 'ok' : 'fail', 'Tailscale is installed on this computer',
+        t.installed ? 'Found it.' : 'Tailscale is a free app (for personal use) that connects your own devices to each other through an encrypted private network, from anywhere, without opening any port on your router. Install it on this computer, then come back and press <b>Check again</b>.',
+        ...(t.installed ? [] : [link('⬇ Download Tailscale', TAILSCALE_DOWNLOAD)])),
+      step(3, !t.installed ? '' : signedIn && t.host ? 'ok' : 'fail', 'Signed in, with a name for this computer',
+        signedIn && t.host ? `This computer is <code>${t.host}</code> in your tailnet (your private Tailscale network).` : !t.installed ? 'After installing: open Tailscale and sign in (Google, Microsoft, Apple or GitHub account). Use the <b>same account</b> on the phone later.' : t.error || !t.running ? `Tailscale isn’t connected: open it (system tray / menu bar) and sign in, or click Connect. ${t.error ? `(${t.error})` : ''}` : 'Tailscale gave this computer no name: turn on <b>MagicDNS</b> on Tailscale’s DNS page (it gives every device a name like <code>my-pc.tail1234.ts.net</code>).',
+        ...(signedIn && !t.host ? [link('🌐 Open the DNS page', TAILSCALE_DNS)] : [])),
+      step(4, !signedIn ? '' : t.https ? 'ok' : 'fail', 'HTTPS is enabled for your tailnet (once)',
+        t.https ? 'Tailscale can give this computer a real HTTPS certificate, which the phone needs (browsers allow the microphone only on https).' : 'One switch in your Tailscale account: on the DNS page, scroll to <b>HTTPS Certificates</b> and click <b>Enable</b>. It is free and only affects your own devices. (The next step can also open the exact page for you.)',
+        ...(signedIn && !t.https ? [link('🌐 Open the DNS page', TAILSCALE_DNS)] : [])),
+      step(5, !signedIn ? '' : t.serving ? 'ok' : t.serving === null ? '' : 'fail', 'Tailscale Serve forwards the address to Siren',
+        t.serving ? `<code>https://${host}</code> leads to Siren on this computer, for your devices only (never the internet).` : `Serve is Tailscale’s built-in forwarder: it answers <code>https://${host}</code> with the HTTPS certificate and passes the requests to Siren (port ${port}). Click the button; if Tailscale asks you to enable HTTPS first, the page opens: click Enable there, then click the button again. (By hand: <code>tailscale serve --bg ${port}</code>.)`,
+        ...(signedIn && !t.serving ? [btn('🔒 Set up Serve for me', async (e) => {
+          e.target.disabled = true;
+          showResult(note, true, 'Setting up Tailscale Serve…');
+          const r = await api.remote.setupTailscale().catch((err) => ({ error: err.message }));
+          if (r.enableUrl) {
+            showResult(note, false, 'Tailscale wants HTTPS enabled for your tailnet first. The page opened in your browser: click Enable, then click “Set up Serve for me” again.');
+            api.shell.openExternal(r.enableUrl);
+          } else if (r.error) showResult(note, false, `✕ ${r.error}`);
+          else {
+            showResult(note, true, '✓ Serve is set up. Checking the address end to end…');
+            await api.remote.checkSecure().catch(() => {});
+            refreshRemoteStatus?.();
+          }
+          draw();
+        }, true)] : [])),
+      step(6, !t.serving ? '' : reach === 'ok' ? 'ok' : reach === 'fail' ? 'fail' : '', 'The secure address answers',
+        reach === 'ok' ? `Opened <code>https://${host}</code> from this computer: it works.` : reach === 'fail' ? `${escapeHtml(remote.tunnel?.warning || 'It didn’t answer.')} Check that steps 1–5 are ✓ and that “Reach it from anywhere” above is set to Tailscale.` : 'Siren opens the address from this computer, the way the phone will.',
+        ...(t.serving ? [btn('Test it', async () => (await api.remote.checkSecure().catch(toastError), refreshRemoteStatus?.(), draw()))] : [])),
+      step(7, '', 'On the phone: Tailscale, same account, switched on',
+        'Install <b>Tailscale</b> from the Play Store (or App Store), sign in with the <b>same account</b> as this computer, and switch it on (it shows as a VPN; that is Tailscale’s private network, your other apps keep using the internet normally). The phone then appears next to this computer in the Tailscale app.'),
+      step(8, '', 'Connect the Siren app (or the phone’s browser)',
+        `<b>New phone:</b> click <b>Pair a device</b> below; in the QR code choose the 🔒 secure address and scan it. In the Android app you can also type <code>https://${host}</code> on the first screen, then enter the six-digit code.<br><b>Already paired over Wi-Fi:</b> open the app at home and tap <b>Switch to the secure address</b> (it keeps the pairing). From then on it works anywhere, on mobile data too, as long as Tailscale is on on both devices.`),
+    ];
+    box.replaceChildren(
+      el('div', { class: 'row' }, el('b', { style: { flex: '1' } }, 'Set up Tailscale, step by step'), btn('⟳ Check again', draw), link('📖 Full guide', TAILSCALE_GUIDE)),
+      ...steps,
+      note,
+    );
+  }
+  draw();
+  return box;
 }
 
 function tunnelFields() {
@@ -1296,17 +1322,10 @@ function tunnelFields() {
     if (!get('remote.accessTeam') || !get('remote.accessAud')) fields.push(el('div', { class: 'hint warn' }, 'Without Cloudflare Access, only the device token protects the address. Set up Access before relying on it.'));
   }
   if (mode === 'tailscale') {
-    const out = result();
-    const fix = el('div', { class: 'row' });
     fields.push(
-      el('div', { class: 'hint', html: `Install Tailscale on this computer and the phone, signed in with the same account, then press <b>Detect</b>: it finds this computer’s address (like <code>https://my-pc.tail1234.ts.net</code>) and sets up what is missing with one click. Only your own devices can reach it. (By hand: <code>tailscale serve --bg ${get('remote.port') || 7823}</code>.)` }),
-      el('div', { class: 'row', style: { alignItems: 'flex-end' } }, el('div', { style: { flex: '1' } }, text('remote.publicHost', 'Tailscale hostname', { placeholder: 'my-pc.tail1234.ts.net', onChange: debounceAfter(refreshRemoteStatus) })), el('div', { style: { display: 'flex', gap: '6px' } },
-        el('button', { class: 'btn', onclick: () => detectTailscale(out, fix) }, 'Detect'),
-        el('button', { class: 'btn', onclick: async () => (await api.remote.checkSecure().catch(toastError), refreshRemoteStatus?.()) }, 'Check'),
-      )),
-      out,
-      fix,
-      el('div', { class: 'hint' }, el('b', {}, 'On the phone: '), 'turn Tailscale on there. If the Siren app is already paired over Wi-Fi, open it at home and tap ', el('b', {}, 'Switch to the secure address'), ' (it keeps the pairing). Otherwise pair with the QR code and pick the 🔒 secure address, or type ', el('code', {}, `https://${get('remote.publicHost') || 'my-pc.tail1234.ts.net'}`), ' in the app.'),
+      el('div', { class: 'hint' }, 'Tailscale links your own devices (this computer and your phone) through a private, end-to-end encrypted network, from anywhere and without touching your router. Only devices signed in to your Tailscale account can reach Siren, and the phone gets a real https:// address, which push-to-talk needs.'),
+      tailscaleGuide(),
+      text('remote.publicHost', 'Tailscale address of this computer (filled in automatically)', { placeholder: 'my-pc.tail1234.ts.net', onChange: debounceAfter(refreshRemoteStatus) }),
     );
   }
   if (mode === 'quick' || mode === 'cloudflare') fields.push(text('remote.cloudflaredPath', 'cloudflared location (optional)', { placeholder: 'Found automatically' }));

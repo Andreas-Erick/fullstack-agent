@@ -86,3 +86,25 @@ test('the performance setting is the user\'s: it has a default and the agent can
   const settable = /const SETTABLE = \{([\s\S]*?)\n\};/.exec(tools)[1];
   assert.ok(!/\bperf\b/.test(settable), 'no performance setting in SETTABLE');
 });
+
+test('Macs with Apple silicon: unified memory, lighter below 16 GB, the GPU’s share as macOS allows', () => {
+  const { stub, load, quietLog } = require('./helpers');
+  stub({ electron: { app: { getGPUInfo: async () => null } }, './logger': quietLog });
+  const hw = load('main/hardware.js');
+  assert.strictEqual(hw.gpuMemoryBudget(16), 10.7, 'two thirds up to 36 GB');
+  assert.strictEqual(hw.gpuMemoryBudget(64), 48, 'three quarters above');
+  const mac = (ramGB) => ({ ramGB, cpuThreads: 10, gpus: [{ name: 'Apple M3', vendor: 'Apple', unified: true }] });
+  const small = hw.recommend(mac(8), { webgpu: true });
+  assert.strictEqual(small.unified, true);
+  assert.notStrictEqual(small.stt.localModel, 'onnx-community/whisper-large-v3-turbo', 'no large speech model on an 8 GB Mac');
+  assert.match(small.notes.join(' '), /share the same 8 GB/);
+  const big = hw.recommend(mac(36), { webgpu: true });
+  assert.strictEqual(big.stt.localModel, 'onnx-community/whisper-large-v3-turbo');
+  assert.strictEqual(big.tier, 'high', '24 GB usable by the graphics');
+  assert.match(big.stt.why, /Apple chip \(36 GB of unified memory/);
+  const light = r.classify(mac(8), small);
+  assert.strictEqual(light.detected, 'low');
+  assert.match(light.hw.reason, /unified memory/);
+  assert.doesNotMatch(light.hw.reason, /graphics card/, 'a Mac is never told it has no graphics card');
+  assert.strictEqual(r.classify(mac(16), hw.recommend(mac(16), { webgpu: true })).detected, 'high');
+});

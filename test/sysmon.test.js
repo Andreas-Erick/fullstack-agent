@@ -51,3 +51,29 @@ test('the numbers never reach the assistant or paired devices', () => {
     assert.ok(!/sysmon|netspeed/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')), `${f} must not read the system monitor`);
   }
 });
+
+test('macOS memory as Activity Monitor counts it: app + wired + compressed, not cached files', () => {
+  const out = `Mach Virtual Memory Statistics: (page size of 16384 bytes)
+Pages free:                                5000.
+Pages active:                            300000.
+Pages inactive:                          290000.
+Pages speculative:                         4000.
+Pages wired down:                        120000.
+Pages purgeable:                          10000.
+File-backed pages:                       280000.
+Anonymous pages:                         310000.
+Pages occupied by compressor:             50000.`;
+  // (310000 - 10000) + 120000 + 50000 pages of 16 KiB = 7.17 GiB in use, though only 5000 pages are "free".
+  assert.strictEqual(sysmon.parseVmStat(out), (300000 + 120000 + 50000) * 16384);
+  assert.strictEqual(sysmon.parseVmStat('nonsense'), null);
+});
+
+test('Apple GPU load and the unified memory it uses, from ioreg', () => {
+  const out = `+-o AGXAcceleratorG14X  <class AGXAcceleratorG14X, id 0x1000004d4>
+    {
+      "PerformanceStatistics" = {"In use system memory"=2147483648,"Device Utilization %"=37,"Renderer Utilization %"=35,"Tiler Utilization %"=12}
+      "model" = "Apple M2 Pro"
+    }`;
+  assert.deepStrictEqual(sysmon.parseIoreg(out), { load: 37, sharedUsedMB: 2048 });
+  assert.strictEqual(sysmon.parseIoreg('no accelerator'), null);
+});

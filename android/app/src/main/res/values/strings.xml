@@ -7,7 +7,9 @@
     <string name="setup_title">Connect to your assistant</string>
     <string name="hud_setup_sub">LINK // NOT ESTABLISHED</string>
     <string name="setup_hint">On your computer, open Settings → Remote access and copy the address shown there, or scan the pairing QR code and paste the link.</string>
-    <string name="setup_kinds">• Tailscale (works anywhere): turn Tailscale on on this phone, then https://your-pc.tailXXXX.ts.net\n• Your Cloudflare address: https://siren.example.com\n• Same Wi-Fi only: http://192.168.x.x:7823 (not encrypted)</string>
+    <string name="setup_kinds">• From anywhere with Tailscale (recommended): on the computer, Settings → Remote access → Tailscale walks you through it. On this phone, install the Tailscale app, sign in with the same account as the computer and switch it on. Then enter https://your-pc.tailXXXX.ts.net (the address the computer shows).
+• Your Cloudflare address: https://siren.example.com
+• Same Wi-Fi only: http://192.168.x.x:7823 (not encrypted, no push-to-talk)</string>
     <string name="setup_paste">Paste</string>
     <string name="setup_paste_empty">Nothing to paste. Copy the address or the QR link first.</string>
     <string name="setup_address">Address, e.g. https://siren.example.com</string>
@@ -16,7 +18,10 @@
     <string name="error_title">Can\'t reach the assistant</string>
     <string name="error_retry">Try again</string>
     <string name="error_change">Change address</string>
-    <string name="error_tailscale">This is a Tailscale address: open the Tailscale app on this phone and make sure it is connected (same account as the computer). On the computer, Tailscale must be on and Serve set up (Settings → Remote access → Tailscale → Detect, then \"Set up Serve for me\").</string>
+    <string name="error_tailscale">This is a Tailscale address. Check, in this order:
+1. The Tailscale app on this phone says Connected, signed in with the same account as the computer.
+2. The computer is on, Siren is running, and Tailscale says Connected there too.
+3. On the computer, Settings → Remote access → Tailscale: every step has a ✓ (if Serve or HTTPS is missing, the button there sets it up).</string>
     <string name="error_lan">This local address only works on the same Wi-Fi as the computer, with remote access on and \"Reachable from other devices on my network\" enabled.</string>
     <string name="ch_status">Connection</string>
     <string name="ch_alerts">Approvals and replies</string>

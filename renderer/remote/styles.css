@@ -500,3 +500,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .card .md h3, .card .md h4 { font-size: 15px; margin: 8px 0 2px; }
 .card .md > :first-child { margin-top: 0; }
 .note.md h1 { font-size: 22px; } .note.md h2:not(:first-child) { font-size: 19px; } .note.md h3 { font-size: 16px; }
+.pair-help { margin-top: 18px; max-width: 420px; text-align: left; font-size: 14px; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }
+.pair-help summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.pair-help ol { padding-left: 18px; margin: 10px 0 6px; display: flex; flex-direction: column; gap: 6px; }
+.pair-help code { font-size: 12px; overflow-wrap: anywhere; }
+.pair-help p { margin: 0; }

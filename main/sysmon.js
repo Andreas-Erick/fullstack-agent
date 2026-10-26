@@ -3,7 +3,10 @@
 // It samples only while the window watches (it stops when the window is hidden or the meter is off).
 // GPU: NVIDIA cards through nvidia-smi (load, VRAM, temperature), others through Windows' GPU engine
 // counters (load only); each runs as one long-lived process that prints a line every interval, so
-// nothing is spawned per sample. The parsing is pure (tested in test/sysmon.test.js).
+// nothing is spawned per sample. Macs with Apple silicon: the GPU's load and how much of the shared
+// (unified) memory it uses from ioreg, and RAM as Activity Monitor counts it (vm_stat), because
+// os.freemem() there leaves out cached and compressed memory and would show the Mac as nearly full.
+// The parsing is pure (tested in test/sysmon.test.js).
 const os = require('os');
 const fs = require('fs');
 const { spawn, execFile } = require('child_process');
@@ -41,6 +44,28 @@ function parseCounter(line) {
   return Number.isFinite(v) ? { id: 'gpu', name: 'GPU', load: Math.round(Math.min(100, Math.max(0, v))) } : null;
 }
 
+/**
+ * macOS vm_stat → memory in use as Activity Monitor's "Memory Used": app memory (anonymous pages that
+ * aren't purgeable), wired memory and what the compressor occupies. Cached files don't count. Bytes.
+ */
+function parseVmStat(text) {
+  const t = String(text || '');
+  const page = Number(/page size of (\d+) bytes/.exec(t)?.[1]);
+  const n = (label) => Number(new RegExp(`${label}:\\s+(\\d+)`).exec(t)?.[1] || 0);
+  if (!page) return null;
+  const app = Math.max(0, n('Anonymous pages') - n('Pages purgeable')) || n('Pages active');
+  return (app + n('Pages wired down') + n('Pages occupied by compressor')) * page;
+}
+
+/** macOS ioreg (IOAccelerator) → the Apple GPU's load (%) and the shared memory it uses (MB). */
+function parseIoreg(text) {
+  const t = String(text || '');
+  const load = /"Device Utilization %"\s*=\s*(\d+)/.exec(t);
+  if (!load) return null;
+  const mem = /"In use system memory"\s*=\s*(\d+)/.exec(t);
+  return { load: Math.min(100, Number(load[1])), sharedUsedMB: mem ? Math.round(Number(mem[1]) / 2 ** 20) : null };
+}
+
 const GB = 1024 ** 3;
 const round1 = (x) => Math.round(x * 10) / 10;
 
@@ -49,7 +74,9 @@ let timer = null;
 let lastCpus = null;
 let gpuProc = null;
 let gpus = new Map(); // id -> latest reading
-let gpuSource = null; // 'nvidia' | 'windows' | null (none found)
+let gpuSource = null; // 'nvidia' | 'windows' | 'apple' | 'none' | null (not checked yet)
+const isMac = process.platform === 'darwin';
+let macUsed = null; // bytes in use, from the last vm_stat (macOS)
 let latest = null;
 let send = () => {};
 const diskRoot = isWin ? `${(process.env.SystemDrive || 'C:').replace(/\\?$/, '')}\\` : '/';
@@ -59,13 +86,14 @@ function sample() {
   const cpu = lastCpus ? cpuPercent(lastCpus, cpus) : 0;
   lastCpus = cpus;
   const total = os.totalmem();
-  const used = total - os.freemem();
+  if (isMac) execFile('vm_stat', [], { timeout: 1500 }, (err, out) => (macUsed = err ? null : parseVmStat(out)));
+  const used = isMac && macUsed ? Math.min(total, macUsed) : total - os.freemem();
   fs.statfs(diskRoot, (err, st) => {
     const disk = err ? null : { root: diskRoot, usedGB: round1(((st.blocks - st.bfree) * st.bsize) / GB), totalGB: round1((st.blocks * st.bsize) / GB) };
     latest = {
       at: Date.now(),
       cpu: { load: cpu, cores: cpus.length, model: cpus[0]?.model?.trim() || '' },
-      ram: { usedGB: round1(used / GB), totalGB: round1(total / GB), load: Math.round((used / total) * 100) },
+      ram: { usedGB: round1(used / GB), totalGB: round1(total / GB), load: Math.round((used / total) * 100), unified: gpuSource === 'apple' },
       disk: disk && { ...disk, load: disk.totalGB ? Math.round((disk.usedGB / disk.totalGB) * 100) : 0 },
       gpus: [...gpus.values()],
       gpuSource,
@@ -122,12 +150,26 @@ function hasNvidiaSmi() {
   return new Promise((resolve) => execFile('nvidia-smi', ['-L'], { windowsHide: true, timeout: 5000 }, (err, out) => resolve(!err && /GPU \d/.test(out))));
 }
 
+// Apple silicon: one ioreg query per interval (a few milliseconds); the GPU shares the Mac's memory.
+function startApple() {
+  const name = `${os.cpus()[0]?.model?.trim() || 'Apple'} GPU`;
+  const poll = () =>
+    execFile('ioreg', ['-r', '-d', '1', '-w', '0', '-c', 'IOAccelerator'], { timeout: 1500, maxBuffer: 1024 * 1024 }, (err, out) => {
+      const g = !err && parseIoreg(out);
+      if (g) gpus.set('apple', { id: 'apple', name, load: g.load, sharedUsedMB: g.sharedUsedMB, unified: true });
+    });
+  poll();
+  const t = setInterval(poll, INTERVAL_MS);
+  // Shaped like the child processes of the other sources, so start/stop treat it the same.
+  return { exitCode: null, on() {}, kill: () => clearInterval(t) };
+}
+
 async function startGpu() {
   if (gpuProc || gpuSource === 'none') return;
-  if (gpuSource === null) gpuSource = (await hasNvidiaSmi()) ? 'nvidia' : isWin ? 'windows' : 'none';
+  if (gpuSource === null) gpuSource = (await hasNvidiaSmi()) ? 'nvidia' : isWin ? 'windows' : isMac && process.arch === 'arm64' ? 'apple' : 'none';
   if (!timer || gpuSource === 'none') return; // stopped meanwhile
   try {
-    gpuProc = gpuSource === 'nvidia' ? startNvidia() : startWindowsCounters();
+    gpuProc = gpuSource === 'nvidia' ? startNvidia() : gpuSource === 'apple' ? startApple() : startWindowsCounters();
     gpuProc.on('error', (err) => (log.warn('system monitor: GPU reader failed', { source: gpuSource, error: err }), (gpuProc = null)));
     gpuProc.on('exit', () => (gpuProc = null));
   } catch (err) {
@@ -220,4 +262,4 @@ function network() {
   return { adapter: null };
 }
 
-module.exports = { cpuPercent, parseNvidia, parseCounter, parseBluetooth, bluetooth, network, watch, stop, COUNTER_LOOP, BLUETOOTH_QUERY };
+module.exports = { cpuPercent, parseNvidia, parseCounter, parseVmStat, parseIoreg, parseBluetooth, bluetooth, network, watch, stop, COUNTER_LOOP, BLUETOOTH_QUERY };

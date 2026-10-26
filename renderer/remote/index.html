@@ -57,6 +57,15 @@
         <div id="pairError" class="error hidden" role="alert"></div>
       </form>
       <p id="pairInsecure" class="hint-warn hidden">This address is not encrypted. Pair on your home network only, or use the secure (https) address.</p>
+      <details class="pair-help">
+        <summary>Away from home? Use Tailscale</summary>
+        <ol>
+          <li>On the computer: <b>Settings → Remote access → Reach it from anywhere → Tailscale</b>. Follow the checklist until every step has a ✓ (it installs nothing by itself; it shows you what to click).</li>
+          <li>On this phone: install the <b>Tailscale</b> app, sign in with the <b>same account</b> as the computer, and switch it on.</li>
+          <li>Open the computer’s secure address (like <code>https://your-pc.tail1234.ts.net</code>, shown in the checklist) here, or scan the pairing QR code with the 🔒 secure address chosen.</li>
+        </ol>
+        <p class="muted">Already paired on Wi-Fi? Open the menu (☰) at home and tap <b>Switch to the secure address</b>.</p>
+      </details>
     </section>
 
     <!-- Main app -->
