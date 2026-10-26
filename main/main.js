@@ -761,6 +761,8 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
   let firstTextMs = null;
   const emit = (ev) => {
     if (firstTextMs === null && ev.type === 'text') firstTextMs = Date.now() - startedAt;
+    // The Inner World sends the active persona to where the work happens (counts only).
+    if (ev.type === 'tool_start' && !conv.setup) require('./innerworld').noteTool(ev.name);
     (conv.setup ? toWindow : send)('chat:event', { requestId, conversationId: conv.id, ...ev });
   };
   emit({ type: 'start', userMessage: userMsg, title: conv.title });

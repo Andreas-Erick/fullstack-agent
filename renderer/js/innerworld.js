@@ -1,16 +1,17 @@
-// Inner World view: the personas' village (main/innerworld.js, rules in main/worldcore.js) on a canvas.
-// Buildings are drawn by their level (they grow with the user's real progress), residents walk between
-// places along today's plan in real time, and while a scene is happening its people gather and talk in
-// speech bubbles. The clock slider replays the day. The side panel tells today: scenes, residents, the
-// Stage's rehearsals; click a building or a resident for theirs. Colors are theme tokens; a persona's
-// own accent comes from its saved theme.
+// Inner World view: the personas' village (main/innerworld.js, rules in main/worldcore.js), painted by
+// worldart.js. Residents walk between places along today's plan in real time; while a scene happens its
+// people gather and talk in speech bubbles; the clock slider replays the day. The village also shows the
+// present: whatever the assistant is doing right now sends the active persona to the matching building
+// (code → the Workshop's forge, the web → the Lookout…), your skill tree shines in the night sky, the
+// Training Grounds fly a banner per habit and the Garden blooms for the habits kept today.
+// The side panel tells today; click a building, a resident or a star for theirs.
 import { $, api, el, toast, toastError, on, promptDialog } from './util.js';
 import { switchView, currentView } from './nav.js';
 import { send } from './chat.js';
-import { saveSettings } from './state.js';
+import { state, saveSettings } from './state.js';
 import { fxLevel } from './hud.js';
+import { palette, makeView, drawScene, bubble, weatherOf, resetArt } from './worldart.js';
 
-const PLACE_TONES = { garden: 'ok', hearth: 'warn', library: 'c1', cafe: 'c3', grounds: 'ok', observatory: 'c2', archive: 'c1', stage: 'c3' };
 const ACTIONS = {
   library: ['Study session', () => ask('/study-session')],
   cafe: ['Review cards', () => ask('/drill')],
@@ -22,17 +23,20 @@ const ACTIONS = {
 };
 const SCENE_MIN = 45; // a scene lasts this long on the map
 const WALK_MIN = 20; // minutes to walk between places
+const LIVE_LINGER_MS = 6000; // the persona stays at the work a moment after the reply is done
+const TONES = ['c2', 'c3', 'ok', 'warn'];
 
 let data = null;
 let canvas;
 let ctx;
-let size = { w: 0, h: 0 };
-let colors = {};
+let V = null; // view geometry (worldart.makeView)
+let P = null; // palette from the theme
+let hits = { places: {}, people: [], stars: [] };
 let selected = null; // { type: 'place' | 'resident', id }
 let hover = null;
 let scrub = null; // minutes since midnight while the slider is held away from "live"
 let frame = 0;
-let tick = 0;
+let live = null; // { place, label, tool, at, done }
 const stage = []; // live lines from a rehearsal running now
 
 export function initInnerWorld() {
@@ -41,11 +45,16 @@ export function initInnerWorld() {
   new ResizeObserver(resize).observe(canvas);
   canvas.addEventListener('mousemove', (e) => {
     const h = hit(e);
-    if (h?.id !== hover?.id) (hover = h), draw();
+    canvas.title = h?.type === 'star' ? `${h.id} · ${h.state}${h.state === 'mastered' ? '' : ` · ${Math.round(h.progress * 100)}%`} (your skill tree)` : '';
+    if (h?.id !== hover?.id) ((hover = h), draw());
     canvas.style.cursor = h ? 'pointer' : 'default';
   });
   canvas.addEventListener('mouseleave', () => ((hover = null), draw()));
-  canvas.addEventListener('click', (e) => select(hit(e)));
+  canvas.addEventListener('click', (e) => {
+    const h = hit(e);
+    if (h?.type === 'star') return switchView('tree');
+    select(h);
+  });
   $('#worldClock').addEventListener('input', (e) => {
     const v = Number(e.target.value);
     scrub = Math.abs(v - nowMinutes()) < 3 ? null : v;
@@ -57,8 +66,23 @@ export function initInnerWorld() {
   $('#worldAsk').onclick = () => ask('What happened in the Inner World today? Tell me about your day.');
   $('#worldChronicle').onclick = () => data && api.obsidian.openInObsidian(data.chronicle).catch(toastError);
   on('world-changed', refresh);
-  on('settings', () => currentView === 'world' && refresh());
+  on('settings', () => {
+    resetArt();
+    P = null;
+    if (currentView === 'world') refresh();
+  });
+  // What the assistant is doing right now.
+  on('agent-state', (s) => {
+    if (['idle', 'happy', 'sleeping'].includes(s) && live && !live.done) live.done = Date.now();
+    if (currentView === 'world') (renderNow(), draw());
+  });
   api.on('world:event', (ev) => {
+    if (ev.type === 'work') {
+      live = { place: ev.place, label: ev.label, tool: ev.tool, at: Date.now(), done: 0 };
+      if (data?.details?.work) data.details.work.today[ev.place] = (data.details.work.today[ev.place] || 0) + 1;
+      if (currentView === 'world') (renderNow(), draw());
+      return;
+    }
     if (ev.type === 'rehearsal_turn') {
       stage.push(ev.line);
       if (stage.length > 8) stage.shift();
@@ -72,7 +96,7 @@ export function initInnerWorld() {
   });
   document.addEventListener('visibilitychange', () => currentView === 'world' && !document.hidden && loop());
   // Residents move with the clock even without animation.
-  setInterval(() => currentView === 'world' && !document.hidden && !animated() && draw(), 60000);
+  setInterval(() => currentView === 'world' && !document.hidden && !animated() && draw(), 30000);
 }
 
 export async function refresh() {
@@ -83,15 +107,16 @@ export async function refresh() {
     toastError(err);
     return;
   }
-  readColors();
   clockLabel();
   renderHead();
+  renderNow();
   renderPanel();
   resize();
   loop();
 }
 
 const animated = () => fxLevel() === 'hud' && !document.body.classList.contains('fx-still');
+const lite = () => document.body.classList.contains('perf-lite');
 const nowMinutes = () => {
   const d = new Date();
   return d.getHours() * 60 + d.getMinutes();
@@ -102,6 +127,10 @@ const minutes = (t) => {
   const m = String(t || '').match(/^(\d{2}):(\d{2})$/);
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 };
+const placeById = (id) => data?.places.find((p) => p.id === id);
+const activeResident = () => data?.residents.find((r) => r.active) || data?.residents.find((r) => !r.npc);
+// Live work shows only in "live" time, while it lasts.
+const liveNow = () => (scrub === null && live && (!live.done || Date.now() - live.done < LIVE_LINGER_MS) ? live : null);
 
 function ask(text) {
   switchView('chat');
@@ -137,7 +166,7 @@ async function wake() {
   }
 }
 
-// ------------------------------------------------------------ head and clock
+// ------------------------------------------------------------ head, clock and "now"
 function renderHead() {
   const d = data?.day;
   $('#worldDate').textContent = d ? `${d.weekday} · ${d.weather || ''}` : data?.enabled ? 'today is not written yet' : 'asleep';
@@ -151,27 +180,20 @@ function renderHead() {
 }
 
 function clockLabel() {
-  const live = scrub === null;
-  if (live) $('#worldClock').value = nowMinutes();
-  $('#worldTime').textContent = `${hhmm(at())}${live ? ' · live' : ''}`;
-  $('#worldLive').classList.toggle('hidden', live);
+  const isLive = scrub === null;
+  if (isLive) $('#worldClock').value = nowMinutes();
+  $('#worldTime').textContent = `${hhmm(at())}${isLive ? ' · live' : ''}`;
+  $('#worldLive').classList.toggle('hidden', isLive);
 }
 
-// ------------------------------------------------------------ colors
-function readColors() {
-  const css = getComputedStyle(document.documentElement);
-  const v = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
-  colors = { c1: v('--c1', '0, 229, 255'), c2: v('--c2', '180, 90, 255'), c3: v('--c3', '255, 60, 172'), ok: v('--ok', '60, 255, 160'), warn: v('--warn', '255, 190, 60'), text: v('--text-rgb', '217, 244, 255'), bg: v('--bg-rgb', '10, 10, 15'), display: v('--font-display', 'sans-serif'), body: v('--font-body', 'sans-serif') };
-}
-const rgba = (tone, a) => `rgba(${colors[tone] || tone}, ${a})`;
-const hexRgb = (hex) => {
-  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
-  return m ? `${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}` : null;
-};
-// A resident's color: their persona's accent, or a theme accent by their place in the list.
-const TONES = ['c2', 'c3', 'ok', 'warn'];
-function residentRgb(r, i) {
-  return hexRgb(r.color) || colors[TONES[i % 4]];
+// The banner over the village: where the persona you talk to is working right now.
+function renderNow() {
+  const box = $('#worldNow');
+  const l = liveNow();
+  const who = activeResident()?.name || state.settings?.agent?.name || 'Your assistant';
+  const thinking = !l && ['thinking', 'working'].includes(state.agentState);
+  box.classList.toggle('hidden', !(l || thinking) || !data?.enabled);
+  box.textContent = l ? `● ${who} is ${l.label}` : thinking ? `● ${who} is thinking…` : '';
 }
 
 // ------------------------------------------------------------ geometry
@@ -179,19 +201,12 @@ function resize() {
   const r = canvas.getBoundingClientRect();
   if (!r.width || !r.height) return;
   const dpr = window.devicePixelRatio || 1;
-  size = { w: r.width, h: r.height };
   canvas.width = Math.round(r.width * dpr);
   canvas.height = Math.round(r.height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  V = makeView(r.width, r.height);
   draw();
 }
-
-function project(p) {
-  const pad = { x: Math.max(70, size.w * 0.08), y: 64 };
-  return { x: pad.x + p.x * (size.w - pad.x * 2), y: pad.y + p.y * (size.h - pad.y * 2) };
-}
-const placeById = (id) => data?.places.find((p) => p.id === id);
-const scale = () => Math.max(0.7, Math.min(1.25, Math.min(size.w / 900, size.h / 620)));
 
 // The scene happening at this minute, if any.
 function sceneAt(m) {
@@ -201,55 +216,75 @@ function sceneAt(m) {
   });
 }
 
-// Where everyone is at minute m: in a scene, walking, or at the place of their current plan block.
+const colorOf = (r, i) => {
+  P ||= palette(); // the side panel can ask before the first draw
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(r.color || '');
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : P[TONES[i % 4]];
+};
+
+// Where a resident stands at a place: beside the building, side by side with the others there.
+function spot(placeId, j) {
+  const p = placeById(placeId) || placeById('garden');
+  const a = V.project(p.x, p.y);
+  if (placeId === 'garden') return { x: a.x - 34 * a.s + j * 15 * a.s, y: a.y + 8 * a.s, s: a.s };
+  return { x: a.x + (40 + j * 13) * a.s, y: a.y + (4 + (j % 2) * 7) * a.s, s: a.s };
+}
+
+/** Everyone's position at minute m: in a scene, at live work, walking, at their plan's place, or asleep. */
 function positions(m) {
-  const out = new Map();
-  if (!data?.day) return out;
+  const out = [];
+  if (!data?.residents || !V) return out;
   const scene = sceneAt(m);
-  const crowd = new Map(); // place → residents there
+  const l = liveNow();
+  const me = activeResident();
+  const thinking = scrub === null && ['thinking', 'working'].includes(state.agentState);
+  const crowd = new Map();
   data.residents.forEach((r, i) => {
-    let place = 'hearth';
-    let activity = 'asleep';
+    let place = 'garden';
+    let activity = 'strolling';
     let from = null;
-    let t = 1;
-    if (scene && scene.who.includes(r.name)) {
+    let k = 1;
+    let asleep = false;
+    const plan = r.plan || [];
+    if (l && r === me) {
+      place = l.place;
+      activity = l.label;
+    } else if (scene && scene.who.includes(r.name)) {
       place = scene.place;
       activity = scene.title || 'talking';
-    } else if (m >= 6 * 60 && m < 23 * 60 && r.plan?.length) {
-      const blocks = r.plan.filter((b) => minutes(b.start) !== null);
-      let k = -1;
-      blocks.forEach((b, j) => minutes(b.start) <= m && (k = j));
-      if (k >= 0) {
-        place = blocks[k].place;
-        activity = blocks[k].activity;
-        const since = m - minutes(blocks[k].start);
-        const prev = k > 0 ? blocks[k - 1].place : 'hearth';
-        if (since < WALK_MIN && prev !== place) (from = prev), (t = since / WALK_MIN);
+    } else if (m < 6 * 60 || m >= 23 * 60) {
+      place = 'hearth';
+      activity = 'asleep';
+      asleep = true;
+    } else if (plan.length) {
+      let idx = -1;
+      plan.forEach((b, j) => minutes(b.start) !== null && minutes(b.start) <= m && (idx = j));
+      if (idx < 0) {
+        place = 'hearth';
+        activity = 'asleep';
+        asleep = true;
+      } else {
+        place = plan[idx].place;
+        activity = plan[idx].activity;
+        const since = m - minutes(plan[idx].start);
+        const prev = idx > 0 ? plan[idx - 1].place : 'hearth';
+        if (since < WALK_MIN && prev !== place) ((from = prev), (k = since / WALK_MIN));
       }
     }
-    (crowd.get(place) || crowd.set(place, []).get(place)).push(r.name);
-    out.set(r.name, { place, activity, from, t, i, r });
+    const list = crowd.get(place) || [];
+    list.push(r.name);
+    crowd.set(place, list);
+    out.push({ r, i, name: r.name, place, activity, from, k, asleep, working: Boolean(l && r === me), thinking: thinking && !l && r === me });
   });
-  // Spread the people at one place around it.
-  for (const [place, names] of crowd) {
-    const c = placeById(place);
-    if (!c) continue;
-    const s = scale();
-    names.forEach((name, j) => {
-      const p = out.get(name);
-      const a = (j / Math.max(1, names.length)) * Math.PI * 2 + 0.6;
-      const ring = names.length > 1 ? 18 * s : 0;
-      const target = project(c);
-      let x = target.x + (58 + c.level * 6) * s + Math.cos(a) * ring;
-      let y = target.y - 8 * s + Math.sin(a) * ring;
-      if (p.from && placeById(p.from)) {
-        const f = project(placeById(p.from));
-        const e = p.t * p.t * (3 - 2 * p.t);
-        x = f.x + (x - f.x) * e;
-        y = f.y + (y - f.y) * e;
-      }
-      Object.assign(p, { x, y });
-    });
+  for (const p of out) {
+    const j = crowd.get(p.place).indexOf(p.name);
+    let pos = spot(p.place, j);
+    if (p.from) {
+      const a = spot(p.from, 0);
+      const e = p.k * p.k * (3 - 2 * p.k);
+      pos = { x: a.x + (pos.x - a.x) * e, y: a.y + (pos.y - a.y) * e, s: a.s + (pos.s - a.s) * e };
+    }
+    Object.assign(p, pos, { walking: Boolean(p.from), color: colorOf(p.r, p.i), kind: p.r === me ? 'active' : p.r.npc ? 'npc' : 'persona' });
   }
   return out;
 }
@@ -259,238 +294,71 @@ function loop() {
   cancelAnimationFrame(frame);
   if (currentView !== 'world' || document.hidden || !animated()) return draw();
   const step = () => {
-    tick = performance.now();
     draw();
-    if (currentView === 'world' && !document.hidden && animated()) frame = requestAnimationFrame(() => setTimeout(step, 33));
+    if (currentView === 'world' && !document.hidden && animated()) frame = requestAnimationFrame(() => setTimeout(step, lite() ? 66 : 33));
   };
   step();
 }
 
 function draw() {
-  if (!ctx || !size.w) return;
-  ctx.clearRect(0, 0, size.w, size.h);
-  if (!data?.places) return;
+  if (!ctx || !V || !data?.places) return;
+  P ||= palette();
   const m = at();
-  sky(m);
-  const s = scale();
-  // Paths: from the Garden to every place, and around the ring.
-  const garden = project(placeById('garden'));
-  for (const p of data.places) {
-    if (p.id === 'garden') continue;
-    const q = project(p);
-    ctx.beginPath();
-    ctx.moveTo(garden.x, garden.y);
-    ctx.lineTo(q.x, q.y);
-    const lit = p.level > 0;
-    ctx.strokeStyle = lit ? rgba(PLACE_TONES[p.id], 0.28) : rgba('text', 0.08);
-    ctx.lineWidth = lit ? 2 : 1;
-    ctx.setLineDash(lit ? [] : [4, 6]);
-    ctx.stroke();
-  }
-  ctx.setLineDash([]);
-  for (const p of data.places) building(p, s);
-  const pos = positions(m);
+  const people = positions(m).filter((p) => !p.asleep);
+  const l = liveNow();
   const scene = sceneAt(m);
-  for (const p of pos.values()) resident(p, s);
-  if (scene) bubble(scene, m, s);
-  else if (stage.length) bubble({ place: 'stage', lines: stage.slice(-1), live: true }, m, s);
-}
-
-// Night darkens the village; dawn and dusk tint it.
-function sky(m) {
-  const h = m / 60;
-  const night = h < 6 || h >= 21 ? 1 : h < 8 ? (8 - h) / 2 : h > 19 ? (h - 19) / 2 : 0;
-  const g = ctx.createRadialGradient(size.w / 2, size.h / 2, 40, size.w / 2, size.h / 2, Math.max(size.w, size.h) * 0.7);
-  g.addColorStop(0, rgba('c1', 0.05 * (1 - night)));
-  g.addColorStop(1, rgba('bg', 0.15 + night * 0.4));
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size.w, size.h);
-  if ((h > 5.5 && h < 8) || (h > 18.5 && h < 21)) {
-    ctx.fillStyle = rgba('c3', 0.04);
-    ctx.fillRect(0, 0, size.w, size.h);
+  hits = drawScene(
+    ctx,
+    V,
+    P,
+    {
+      places: data.places,
+      details: data.details,
+      residents: people,
+      minute: m,
+      weather: weatherOf(data.day?.weather),
+      live: l || (stage.length ? { place: 'stage' } : null),
+      busy: data.details?.work?.today,
+      hover: hover?.type === 'place' ? hover.id : null,
+      selected: selected?.type === 'place' ? selected.id : null,
+    },
+    { t: performance.now(), anim: animated(), lite: lite() },
+  );
+  // Speech: a scene playing now, a live rehearsal, or what the assistant is doing.
+  if (scene) {
+    const t = minutes(scene.time);
+    const line = scene.lines[Math.min(scene.lines.length - 1, Math.floor(((m - t) / SCENE_MIN) * scene.lines.length))];
+    const who = hits.people.find((p) => p.name === line.who) || hits.places[scene.place];
+    if (who) bubble(ctx, V, P, who.x, (who.top ?? who.y) - 6, `${line.who}: ${line.text}`, { s: who.s || 1 });
+  } else if (stage.length && hits.places.stage) {
+    const b = hits.places.stage;
+    const line = stage[stage.length - 1];
+    bubble(ctx, V, P, b.x, b.top, `${line.who}: ${line.text}`, { live: true, s: b.s });
   }
-  // Stars at night, fixed so they don't flicker on redraws.
-  if (night > 0.3) {
-    for (let i = 0; i < 40; i++) {
-      const x = ((i * 9301 + 49297) % 233280) / 233280;
-      const y = ((i * 4271 + 1993) % 98765) / 98765;
-      ctx.fillStyle = rgba('text', 0.25 * night * (0.5 + (i % 3) / 4));
-      ctx.fillRect(x * size.w, y * size.h * 0.6, 1.5, 1.5);
-    }
+  if (l) {
+    const me = hits.people.find((p) => p.name === activeResident()?.name);
+    if (me && !scene) bubble(ctx, V, P, me.x, me.top - 8, `${l.label}…`, { live: true });
   }
-}
-
-function building(p, s) {
-  const { x, y } = project(p);
-  const tone = PLACE_TONES[p.id];
-  const focus = hover?.id === p.id || (selected?.type === 'place' && selected.id === p.id);
-  const w = (40 + p.level * 12) * s;
-  const h = (14 + p.level * 12) * s;
-  ctx.save();
-  // Plinth.
-  ctx.beginPath();
-  ctx.ellipse(x, y + 6 * s, w * 0.85, 12 * s, 0, 0, Math.PI * 2);
-  ctx.fillStyle = rgba(tone, focus ? 0.16 : 0.08);
-  ctx.fill();
-  ctx.strokeStyle = rgba(tone, focus ? 0.7 : 0.3);
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  if (p.level === 0) {
-    // A foundation: dashed outline, waiting.
-    ctx.setLineDash([3, 4]);
-    ctx.strokeRect(x - w / 2, y - 18 * s, w, 18 * s);
-    ctx.setLineDash([]);
-  } else {
-    // A block with a roof; taller per level; the top level carries a beacon.
-    const glow = p.level >= 3 && animated() ? 0.5 + 0.5 * Math.sin(tick / 700 + p.x * 9) : 0.6;
-    ctx.fillStyle = rgba(tone, 0.14 + p.level * 0.05);
-    ctx.strokeStyle = rgba(tone, 0.85);
-    ctx.lineWidth = 1.4;
-    ctx.fillRect(x - w / 2, y - h, w, h);
-    ctx.strokeRect(x - w / 2, y - h, w, h);
-    ctx.beginPath();
-    ctx.moveTo(x - w / 2 - 4 * s, y - h);
-    ctx.lineTo(x, y - h - 16 * s - p.level * 3 * s);
-    ctx.lineTo(x + w / 2 + 4 * s, y - h);
-    ctx.closePath();
-    ctx.fillStyle = rgba(tone, 0.28);
-    ctx.fill();
-    ctx.stroke();
-    // Lit windows, more with each level.
-    for (let i = 0; i < p.level * 2; i++) {
-      ctx.fillStyle = rgba('warn', 0.35 + 0.3 * ((i + Math.floor(tick / 2000)) % 3 === 0 && animated() ? 1 : 0.5));
-      ctx.fillRect(x - w / 2 + 7 * s + (i % 4) * 10 * s, y - h + 6 * s + Math.floor(i / 4) * 10 * s, 5 * s, 5 * s);
-    }
-    if (p.level >= 3) {
-      const top = y - h - 16 * s - p.level * 3 * s;
-      ctx.beginPath();
-      ctx.arc(x, top - 5 * s, 4 * s, 0, Math.PI * 2);
-      ctx.fillStyle = rgba(tone, 0.9);
-      ctx.shadowColor = rgba(tone, 0.9);
-      ctx.shadowBlur = document.body.classList.contains('perf-lite') ? 0 : 14 * glow;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
+  // Sleepers: a "z" over the Hearth.
+  if (positions(m).some((p) => p.asleep) && hits.places.hearth) {
+    const b = hits.places.hearth;
+    ctx.font = `${Math.round(13 * b.s)}px sans-serif`;
+    ctx.fillStyle = `rgba(${P.text.join(', ')}, 0.6)`;
+    ctx.fillText('z z', b.x + 26 * b.s, b.top + 6 * b.s);
   }
-  // Icon, name, level pips.
-  ctx.font = `${Math.round(18 * s)}px ${colors.body}`;
-  ctx.textAlign = 'center';
-  ctx.globalAlpha = p.level === 0 ? 0.5 : 1;
-  ctx.fillText(p.icon, x, y - h - (p.level ? 26 : 10) * s - p.level * 3 * s);
-  ctx.globalAlpha = 1;
-  ctx.font = `600 ${Math.round(12 * s)}px ${colors.display}`;
-  ctx.fillStyle = rgba('text', focus ? 0.95 : p.level ? 0.75 : 0.4);
-  ctx.fillText(p.name, x, y + 28 * s);
-  for (let i = 0; i < 3; i++) {
-    ctx.beginPath();
-    ctx.arc(x - 8 * s + i * 8 * s, y + 38 * s, 2.4 * s, 0, Math.PI * 2);
-    ctx.fillStyle = i < p.level ? rgba(tone, 0.9) : rgba('text', 0.15);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-function resident(p, s) {
-  const rgb = residentRgb(p.r, p.i);
-  const focus = hover?.id === p.r.name || (selected?.type === 'resident' && selected.id === p.r.name);
-  const bob = animated() && !p.from ? Math.sin(tick / 500 + p.i * 1.7) * 1.5 : 0;
-  const x = p.x;
-  const y = p.y + bob;
-  const r = (p.r.active ? 10 : 8.5) * s;
-  ctx.save();
-  if (p.from) {
-    // Footsteps behind someone walking.
-    ctx.fillStyle = rgba(rgb, 0.25);
-    const f = project(placeById(p.from));
-    for (let k = 1; k <= 3; k++) ctx.fillRect(x + (f.x - x) * k * 0.06 - 1, y + (f.y - y) * k * 0.06 - 1, 2, 2);
-  }
-  ctx.beginPath();
-  ctx.arc(x, y, r + (focus ? 5 : 3), 0, Math.PI * 2);
-  ctx.fillStyle = rgba(rgb, focus ? 0.3 : 0.15);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = rgba(rgb, p.activity === 'asleep' ? 0.35 : 0.9);
-  ctx.fill();
-  ctx.strokeStyle = rgba('text', p.r.active ? 0.9 : 0.4);
-  ctx.lineWidth = p.r.active ? 1.6 : 1;
-  ctx.stroke();
-  ctx.font = `700 ${Math.round(10 * s)}px ${colors.display}`;
-  ctx.textAlign = 'center';
-  ctx.fillStyle = rgba('bg', 0.9);
-  ctx.fillText(p.r.name[0].toUpperCase(), x, y + 3.5 * s);
-  if (p.activity === 'asleep') {
-    ctx.fillStyle = rgba('text', 0.5);
-    ctx.font = `${Math.round(9 * s)}px ${colors.body}`;
-    ctx.fillText('z', x + r + 3, y - r);
-  }
-  if (focus || size.w > 900) {
-    ctx.font = `${Math.round(10.5 * s)}px ${colors.body}`;
-    ctx.fillStyle = rgba('text', focus ? 0.95 : 0.6);
-    ctx.fillText(p.r.name, x, y + r + 12 * s);
-  }
-  ctx.restore();
-}
-
-// The line being said now: scenes play their lines across their time on the map.
-function bubble(scene, m, s) {
-  const c = placeById(scene.place);
-  if (!c || !scene.lines?.length) return;
-  const t = minutes(scene.time);
-  const idx = scene.live ? 0 : Math.min(scene.lines.length - 1, Math.floor(((m - t) / SCENE_MIN) * scene.lines.length));
-  const line = scene.lines[idx];
-  const { x, y } = project(c);
-  const maxW = Math.min(300, size.w * 0.4);
-  ctx.save();
-  ctx.font = `${Math.round(12.5 * s)}px ${colors.body}`;
-  const words = `${line.who}: ${line.text}`.split(' ');
-  const rows = [];
-  let cur = '';
-  for (const w of words) {
-    const next = cur ? `${cur} ${w}` : w;
-    if (ctx.measureText(next).width > maxW - 20 && cur) (rows.push(cur), (cur = w));
-    else cur = next;
-  }
-  if (cur) rows.push(cur);
-  const shown = rows.slice(0, 4);
-  if (rows.length > 4) shown[3] = `${shown[3].replace(/\s*\S*$/, '')} …`;
-  const lh = 16 * s;
-  const bw = Math.min(maxW, Math.max(...shown.map((r) => ctx.measureText(r).width)) + 20);
-  const bh = shown.length * lh + 14;
-  let bx = x - bw / 2;
-  const by = Math.max(6, y - 110 * s - bh);
-  bx = Math.max(6, Math.min(size.w - bw - 6, bx));
-  ctx.fillStyle = rgba('bg', 0.88);
-  ctx.strokeStyle = rgba(scene.live ? 'c3' : 'c1', 0.6);
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(bx, by, bw, bh, 10);
-  ctx.fill();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(x - 6, by + bh);
-  ctx.lineTo(x, by + bh + 9);
-  ctx.lineTo(x + 6, by + bh);
-  ctx.fill();
-  ctx.fillStyle = rgba('text', 0.92);
-  ctx.textAlign = 'left';
-  shown.forEach((r, i) => ctx.fillText(r, bx + 10, by + 7 + lh * (i + 0.8)));
-  ctx.restore();
 }
 
 // ------------------------------------------------------------ interaction
 function hit(e) {
-  if (!data?.places) return null;
+  if (!data?.places || !V) return null;
   const r = canvas.getBoundingClientRect();
   const mx = e.clientX - r.left;
   const my = e.clientY - r.top;
-  for (const p of positions(at()).values()) {
-    if (Math.hypot(mx - p.x, my - p.y) < 14) return { type: 'resident', id: p.r.name };
+  for (const p of hits.people) if (Math.hypot(mx - p.x, my - p.y) < p.r) return { type: 'resident', id: p.name };
+  for (const [id, b] of Object.entries(hits.places)) {
+    if (Math.abs(mx - b.x) < 58 * b.s && my > b.top && my < b.y + 36 * b.s) return { type: 'place', id };
   }
-  for (const p of data.places) {
-    const q = project(p);
-    if (Math.abs(mx - q.x) < 50 && my > q.y - 80 && my < q.y + 45) return { type: 'place', id: p.id };
-  }
+  for (const s of hits.stars) if (Math.hypot(mx - s.x, my - s.y) < s.r) return { type: 'star', id: s.name, state: s.state, progress: s.progress };
   return null;
 }
 
@@ -516,7 +384,7 @@ function wakeCard() {
   return [
     el('h3', { class: 'display' }, 'The village is asleep'),
     el('p', {}, 'Wake it and your personas start living a small fictional life here: every morning a narrator writes their day (plans, chance meetings, conversations), and each of them remembers it and draws their own insights over time.'),
-    el('p', {}, 'The buildings grow with your real progress: the Library with what you come to understand, the Café with your vocabulary, the Training Grounds with your habit streaks, the Observatory with mastered skills. Rehearsals for real conversations play on the Stage.'),
+    el('p', {}, 'The village mirrors you. The Library grows with what you come to understand, the Café with your vocabulary, the Training Grounds fly a banner for each habit, the Observatory charts your skills, and at night your skill tree shines in the sky. Whatever your assistant is doing right now, you’ll see its persona at work: at the forge when it writes code, up the Lookout when it searches the web.'),
     el('p', { class: 'hint' }, 'It costs one model call a day (plus an occasional one when a resident reflects). Everything stays in your vault under “Inner World/”. Your assistant talks about it only when you ask.'),
     el('button', { class: 'btn primary', onclick: wake }, '🌅 Wake the world'),
   ];
@@ -524,23 +392,23 @@ function wakeCard() {
 
 function sceneCard(s) {
   const name = placeById(s.place)?.name || s.place;
-  const card = el(
+  return el(
     'div',
-    { class: 'world-scene', title: 'Watch it on the map', onclick: () => ((scrub = minutes(s.time) + 1), ($('#worldClock').value = scrub), clockLabel(), draw()) },
+    { class: 'world-scene', title: 'Watch it in the village', onclick: () => ((scrub = minutes(s.time) + 1), ($('#worldClock').value = scrub), clockLabel(), draw()) },
     el('div', { class: 'hint' }, `${s.time} · ${name}`),
     el('b', {}, s.title || 'A moment'),
     ...s.lines.map((l) => el('div', { class: 'world-line', style: lineStyle(l.who) }, el('span', { class: 'who' }, l.who), ` ${l.text}`)),
     s.outcome ? el('div', { class: 'world-outcome' }, s.outcome) : '',
   );
-  return card;
 }
 
-// A speaker's color on a line: their persona's accent (validated hex from the main process).
+// A speaker's color on a line: their persona's accent (validated hex from the main process), or a
+// theme accent by their place in the list (the same one the village uses).
 function lineStyle(who) {
   const i = data.residents.findIndex((x) => x.name === who);
   if (i < 0) return '';
-  const rgb = hexRgb(data.residents[i].color);
-  return rgb ? `--who: ${rgb}` : `--who: var(--${TONES[i % 4]})`;
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(data.residents[i].color || '');
+  return m ? `--who: ${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}` : `--who: var(--${TONES[i % 4]})`;
 }
 
 function todayPanel() {
@@ -558,7 +426,7 @@ function todayPanel() {
     if (d.news?.length) out.push(el('div', { class: 'world-news' }, ...d.news.map((n) => el('div', {}, `🏗 ${n}`))));
     if (d.scenes.length) out.push(el('div', { class: 'world-sec' }, el('b', {}, 'Scenes'), ...d.scenes.map(sceneCard)));
   }
-  const pos = positions(at());
+  const pos = new Map(positions(at()).map((p) => [p.name, p]));
   out.push(
     el(
       'div',
@@ -576,6 +444,8 @@ function todayPanel() {
       }),
     ),
   );
+  const work = Object.entries(data.details?.work?.today || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  if (work.length) out.push(el('div', { class: 'world-sec' }, el('b', {}, 'Worked on today'), el('div', { class: 'world-work' }, ...work.map(([id, n]) => el('span', { class: 'chip' }, `${placeById(id)?.icon || ''} ${placeById(id)?.name || id} · ${n}`)))));
   out.push(stagePanel());
   if (data.days.length > 1) out.push(el('div', { class: 'world-sec' }, el('b', {}, 'Earlier days'), ...data.days.filter((x) => x.date !== d?.date).map((x) => el('div', { class: 'world-day' }, el('span', { class: 'hint' }, `${x.weekday || ''} ${x.date}`), el('div', {}, x.summary)))));
   return out;
@@ -604,9 +474,35 @@ function back() {
   return el('button', { class: 'btn small world-back', onclick: () => select(null) }, '← Today');
 }
 
+// What a place shows of you: the topics on its shelves, the banners, the stars…
+function placeDetails(p) {
+  const d = data.details || {};
+  const list = (title, items) => (items.length ? el('div', { class: 'world-sec' }, el('b', {}, title), ...items) : '');
+  const row = (text, cls = '') => el('div', { class: `world-plan ${cls}` }, text);
+  switch (p.id) {
+    case 'library':
+      return list('On the shelves', (d.topics || []).map((t) => row(`📖 ${t.name} · ${t.understood} understood${t.shaky ? `, ${t.shaky} shaky` : ''}`)));
+    case 'cafe':
+      return list('At the tables', (d.decks || []).map((x) => row(`🗂 ${x.name} · ${x.mature} mature of ${x.total}${x.due ? ` · ${x.due} due` : ''}`)));
+    case 'grounds':
+      return list('Banners', (d.habits || []).map((h) => row(`${h.done ? '🚩' : '🏳'} ${h.name}${h.streak ? ` · streak ${h.streak} ${h.unit}` : ''}${h.done ? ' · kept today' : ''}`, h.done ? 'now' : '')));
+    case 'garden':
+      return list('In bloom today', (d.habits || []).map((h) => row(`${h.done ? '🌸' : '🌱'} ${h.name}`, h.done ? 'now' : '')));
+    case 'observatory':
+      return list('Charted skills (the night sky)', (d.skills || []).map((s) => row(`${s.state === 'mastered' ? '✦' : s.state === 'locked' ? '·' : '✧'} ${s.name} · ${s.state === 'mastered' ? 'mastered' : `${Math.round(s.progress * 100)}%`}`, s.state === 'mastered' ? 'now' : '')));
+    case 'archive':
+      return el('div', { class: 'world-grow' }, el('b', {}, 'Filed here'), el('div', {}, `${d.memories || 0} memories · ${d.records || 0} stream records · ${d.insights || 0} insights`));
+    case 'workshop':
+    case 'lookout':
+      return el('div', { class: 'world-grow' }, el('b', {}, 'Work done here'), el('div', {}, `${d.work?.today?.[p.id] || 0} today · ${d.work?.total?.[p.id] || 0} in all`));
+    default:
+      return '';
+  }
+}
+
 function placePanel(p) {
   if (!p) return [back()];
-  const here = [...positions(at()).values()].filter((x) => x.place === p.id).map((x) => x.r.name);
+  const here = positions(at()).filter((x) => x.place === p.id && !x.asleep).map((x) => x.name);
   const scenes = (data.day?.scenes || []).filter((s) => s.place === p.id);
   const action = ACTIONS[p.id];
   return [
@@ -615,6 +511,7 @@ function placePanel(p) {
     el('h3', { class: 'display' }, `${p.icon} ${p.name}`),
     el('p', {}, p.about),
     el('div', { class: 'world-grow' }, el('b', {}, 'Grows with'), el('div', {}, p.hint)),
+    placeDetails(p),
     here.length ? el('div', { class: 'world-sec' }, el('b', {}, 'Here now'), el('div', {}, here.join(', '))) : '',
     scenes.length ? el('div', { class: 'world-sec' }, el('b', {}, 'Today here'), ...scenes.map(sceneCard)) : '',
     p.id === 'stage' ? stagePanel() : '',
@@ -633,7 +530,7 @@ async function residentPanel(box, name) {
   }
   if (selected?.id !== name) return; // the user moved on meanwhile
   const info = data.residents.find((x) => x.name === name) || {};
-  const now = positions(at()).get(name);
+  const now = positions(at()).find((p) => p.name === name);
   box.innerHTML = '';
   box.append(
     back(),
