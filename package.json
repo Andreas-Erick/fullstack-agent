@@ -120,13 +120,14 @@
       ],
       "icon": "assets/icon.png",
       "category": "public.app-category.productivity",
-      "identity": "-",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Siren Assistant listens when you talk to it (push-to-talk or hands-free).",
         "NSScreenCaptureUsageDescription": "Siren Assistant sees your screen only while you share it.",
         "NSAppleEventsUsageDescription": "Siren Assistant can open documents and windows for you."
-      }
+      },
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "dmg": {
       "title": "Siren Assistant",
@@ -174,6 +175,15 @@
     },
     "portable": {
       "artifactName": "Siren-Assistant-${version}-portable.${ext}"
+    },
+    "electronFuses": {
+      "runAsNode": true,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": false,
+      "onlyLoadAppFromAsar": false,
+      "grantFileProtocolExtraPrivileges": false
     }
   },
   "repository": {

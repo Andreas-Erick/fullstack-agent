@@ -88,7 +88,7 @@ function htmlOf(html) {
 function habitRows(list, after) {
   const { el, api, toast } = ctx;
   return el('div', { class: 'habits' }, ...list.map((h) => {
-    const box = el('button', { class: `habit ${h.doneToday ? 'done' : ''}`, type: 'button', 'aria-pressed': String(h.doneToday), 'aria-label': `${h.name}: ${h.doneToday ? 'done today' : 'not done yet'}` },
+    const box = el('button', { class: `habit ${h.doneToday ? 'done' : ''}`, type: 'button', disabled: ctx.state.info?.readOnly === true, 'aria-pressed': String(h.doneToday), 'aria-label': `${h.name}: ${h.doneToday ? 'done today' : 'not done yet'}` },
       el('span', { class: 'tick' }, h.doneToday ? '✓' : ''),
       el('span', { class: 'what' }, el('b', {}, h.name), el('small', {}, `${h.frequency || ''}${h.streak ? ` · 🔥 ${h.streak} ${h.streakUnit === 'weeks' ? 'wk' : 'd'}` : ''}`)),
       el('span', { class: 'week' }, ...(h.last7 || []).map((on) => el('i', { class: on ? 'on' : '' }))),

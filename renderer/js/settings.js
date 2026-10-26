@@ -1107,6 +1107,7 @@ async function dataCard() {
     folder('memory.vaultPath', 'Memory vault folder', { placeholder: memDir, hint: 'One Markdown file per memory — editable in any text editor or even inside your Obsidian vault.' }),
     toggle('memory.stream', 'Memory stream: the assistant notes small observations (Stream/ in the vault) and recalls the most relevant ones with each message'),
     toggle('memory.reflect', 'Reflect on the stream: once enough has happened, draw a few insights from it in the background (one model call)'),
+    toggle('privacy.encryptConversations', 'Encrypt conversations on this computer (with your system keychain: only your user account on this computer can read them; existing ones are converted in the background)'),
     el('div', { class: 'row' }, el('span', { class: 'muted', style: { flex: 1 } }, `${mems.length} memories · ${convs.length} conversations`)),
     el(
       'div',
@@ -1393,7 +1394,15 @@ function remoteCard() {
       const from = d.lastVia ? ` · via ${d.lastVia}${d.lastIp && d.lastVia !== 'this computer' ? ` (${d.lastIp})` : ''}` : '';
       devices.append(el('div', { class: `health-item ${d.connected ? 'ok' : 'off'}` },
         el('span', { class: 'ic' }, d.connected ? '●' : '○'),
-        el('div', { style: { flex: 1 } }, el('b', {}, d.name), el('div', { class: 'd' }, `Paired ${new Date(d.createdAt).toLocaleDateString()} · ${seen}${from}`)),
+        el('div', { style: { flex: 1 } }, el('b', {}, d.name, d.readOnly ? ' · view only' : ''), el('div', { class: 'd' }, `Paired ${new Date(d.createdAt).toLocaleDateString()} · ${seen}${from}`)),
+        el('button', {
+          class: 'btn small',
+          title: d.readOnly ? 'Let this device chat, answer approvals and check habits off again' : 'This device can only read: no chatting, approvals, push-to-talk or checking habits off (a shared tablet, a display)',
+          onclick: async () => {
+            await api.remote.setReadOnly(d.id, !d.readOnly).catch(toastError);
+            refresh();
+          },
+        }, d.readOnly ? 'Allow full access' : 'Make view only'),
         el('button', {
           class: 'btn small',
           onclick: async () => {

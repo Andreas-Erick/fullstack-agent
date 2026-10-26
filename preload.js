@@ -24,7 +24,7 @@ const channels = {
   hardware: ['scan'],
   chat: ['send', 'abort', 'endSession'],
   approval: ['respond'],
-  remote: ['status', 'pair', 'cancelPair', 'revoke', 'revokeAll', 'transcribed', 'spoken', 'detectTailscale', 'checkSecure', 'setupTailscale'],
+  remote: ['status', 'pair', 'cancelPair', 'revoke', 'revokeAll', 'setReadOnly', 'transcribed', 'spoken', 'detectTailscale', 'checkSecure', 'setupTailscale'],
   handoff: ['get', 'dismiss', 'skip'],
   helperApps: ['status', 'start'],
   setup: ['start', 'skip', 'checkService'],

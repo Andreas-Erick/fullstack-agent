@@ -267,6 +267,25 @@ function startRoutines() {
   });
 }
 
+// Security events from remote access get a system notification too, so they are seen when the window
+// is in the background: a device was paired, or a paired device connected from a network it never used.
+function remoteAlert(ev) {
+  if (!['paired', 'new-network'].includes(ev.type) || !Notification.isSupported()) return;
+  if (ev.type === 'paired' && win && !win.isDestroyed() && win.isFocused()) return; // the window shows it
+  const n = new Notification({
+    title: ev.type === 'paired' ? `New device paired: ${ev.name}` : `${ev.name} connected from a new network`,
+    body: `${ev.type === 'new-network' ? `Via ${ev.via} (${ev.ip}). ` : ''}Not you? Remove it in Settings → Remote access.`,
+  });
+  n.on('click', () => {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    send('remote:event', { type: 'open-settings' });
+  });
+  n.show();
+}
+
 async function registerShortcut() {
   globalShortcut.unregisterAll();
   const s = await store.getSettings();
@@ -375,6 +394,7 @@ function registerIpc() {
   handle('remote:pair', () => companion.startPairing());
   handle('remote:revoke', (id) => companion.revoke(id));
   handle('remote:revokeAll', () => companion.revokeAll());
+  handle('remote:setReadOnly', (id, on) => companion.setReadOnly(String(id), on === true));
   handle('handoff:get', () => handoff.read());
   handle('handoff:dismiss', () => handoff.dismiss());
   handle('handoff:skip', () => handoff.skip());
@@ -873,7 +893,10 @@ app.whenReady().then(async () => {
     respondApproval: (id, allow, reason) => approvals.respond(id, allow, reason),
     transcribe: transcribeInWindow,
     synthesize: speakInWindow,
-    notify: (ev) => send('remote:event', ev),
+    notify: (ev) => {
+      send('remote:event', ev);
+      remoteAlert(ev);
+    },
   });
   require('./tunnel').setListener((st) => send('remote:event', { type: 'tunnel', tunnel: st }));
   screenshare.setListener((st) => send('screen:state', st));

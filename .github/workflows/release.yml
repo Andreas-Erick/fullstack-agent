@@ -8,8 +8,16 @@
 # Each desktop job runs the syntax/integrity check and the whole test suite on its own operating
 # system first, so a platform-specific break stops the release.
 #
-# macOS: ad-hoc signed (no Apple Developer certificate), not notarized. On first launch macOS asks for
-# confirmation: right-click the app → Open (or System Settings → Privacy & Security → Open Anyway).
+# Code signing (optional; without the secrets the builds are unsigned / ad-hoc, as before):
+#   Windows: WIN_CSC_LINK (the .pfx, base64-encoded) and WIN_CSC_KEY_PASSWORD → signed setup, MSI and
+#            portable .exe (no "unknown publisher" warning once the certificate has a reputation).
+#   macOS:   MAC_CSC_LINK (the Developer ID Application .p12, base64) and MAC_CSC_KEY_PASSWORD → signed with
+#            the hardened runtime (build/entitlements.mac.plist); add APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD
+#            and APPLE_TEAM_ID to notarize too. Without them: ad-hoc signed, not notarized; on first launch
+#            macOS asks for confirmation (right-click the app → Open, or Privacy & Security → Open Anyway).
+#
+# Supply chain: every action is pinned to a commit (the tag in the comment); Dependabot proposes updates
+# (.github/dependabot.yml) and security.yml audits the dependencies.
 #
 # Android signing (optional): add these repository secrets to get a signed release APK —
 #   ANDROID_KEYSTORE_BASE64   the .jks file, base64-encoded (base64 -w0 nexus-release.jks)
@@ -30,9 +38,11 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false # no git token left on the runner for later steps
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -50,9 +60,12 @@ jobs:
         run: npx electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signed when the secrets exist (electron-builder ignores them when empty).
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
       - name: Keep the build output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: siren-assistant-windows
           path: |
@@ -65,9 +78,11 @@ jobs:
     needs: windows
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false # no git token left on the runner for later steps
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -82,13 +97,24 @@ jobs:
         run: npm test
 
       - name: Build and publish (Apple silicon and Intel)
-        run: npx electron-builder --mac --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # ad-hoc signing (package.json build.mac.identity "-")
+          PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$CSC_LINK" ]; then
+            npx electron-builder --mac --publish "$PUBLISH"
+          else
+            echo "::warning::No macOS signing certificate set; publishing an ad-hoc signed build."
+            CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --publish "$PUBLISH" -c.mac.identity=- -c.mac.hardenedRuntime=false
+          fi
 
       - name: Keep the build output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: siren-assistant-macos
           path: |
@@ -101,9 +127,11 @@ jobs:
     needs: windows
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false # no git token left on the runner for later steps
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: 21
@@ -143,7 +171,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Keep the build output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: siren-assistant-android
           path: dist/*.apk

@@ -1329,6 +1329,8 @@ async function applyInfo() {
     state.voice = info.voice;
     state.name = info.name;
     state.info = info;
+    // View only (set on the computer): no composer, approvals or check-offs here.
+    document.body.classList.toggle('view-only', info.readOnly === true);
     state.calendar = Boolean(info.calendar);
     // Older computers (or sharing turned off there): only the chat and the schedule.
     $('#tabs').classList.toggle('hidden', !info.share);
@@ -1434,8 +1436,23 @@ if (android) {
     sw.checked = on;
     if (!on) toast('Notifications are off. Allow them in Android settings to get approvals while the app is closed.');
   };
+  // The app lock (android AppLock): the phone's fingerprint, face or screen lock before anything shows.
+  const lockSw = el('input', { type: 'checkbox', id: 'lockToggle' });
+  const canLock = typeof android.lockAvailable === 'function' && android.lockAvailable();
+  lockSw.checked = canLock && android.lockEnabled();
+  lockSw.disabled = !canLock;
+  lockSw.addEventListener('change', () => {
+    const want = lockSw.checked;
+    lockSw.checked = !want; // until the phone confirms it is you
+    android.setLock(want);
+  });
+  window.nexusLockChanged = (on) => {
+    lockSw.checked = on;
+    toast(on ? 'Siren now asks for your fingerprint, face or screen lock when you open it.' : 'The app lock is off.');
+  };
   $('#deviceBox').append(
     el('label', { class: 'switch-row' }, sw, el('span', {}, 'Notify me about approvals and replies while the app is closed')),
+    el('label', { class: 'switch-row' }, lockSw, el('span', {}, canLock ? 'Lock Siren with fingerprint, face or screen lock' : 'Lock Siren with fingerprint, face or screen lock (set a screen lock on the phone first)')),
     el('button', { class: 'btn ghost', onclick: () => android.changeServer() }, 'Change the computer’s address'),
   );
 }
