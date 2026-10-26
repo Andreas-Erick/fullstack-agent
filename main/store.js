@@ -216,6 +216,7 @@ const DEFAULTS = {
   innerWorld: {
     enabled: false,
     townsfolk: true, // two residents of the village's own besides the personas
+    season: 'auto', // auto (follows the date, on the user's half of the world) | spring | summer | autumn | winter
   },
   documents: {
     allowedRoots: [], // folders the user added beyond the workspace (Settings → Documents); never set by the agent

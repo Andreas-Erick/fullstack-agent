@@ -37,18 +37,28 @@ export function mix(a, b, t) {
 export const rgba = (c, a = 1) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
 
 /** The palette: STORY tinted by the theme, plus the theme's own accents. */
-export function palette() {
+// How each season changes the land (the rest of the palette stays).
+const SEASON = {
+  spring: { grass: [118, 184, 84], grassDark: [88, 150, 66], grassLight: [168, 212, 112], leaf: [104, 168, 76], leafLight: [160, 206, 104] },
+  summer: {},
+  autumn: { grass: [146, 158, 82], grassDark: [118, 128, 64], grassLight: [186, 178, 98], grassSide: [104, 112, 58], crop: [176, 150, 80], wheat: [206, 170, 92] },
+  winter: { grass: [234, 240, 246], grassDark: [208, 220, 234], grassLight: [250, 252, 254], grassSide: [196, 208, 224], sand: [226, 232, 238], dirt: [206, 198, 186], water: [176, 206, 226], waterDeep: [150, 186, 212], crop: [236, 240, 246], wheat: [236, 240, 246], soil: [150, 124, 104], pine: [46, 96, 72], pineLight: [70, 124, 92] },
+};
+// Autumn leaves, picked per tree.
+const AUTUMN = [[218, 112, 50], [234, 164, 62], [196, 70, 46], [226, 192, 82], [176, 96, 52]];
+
+export function palette(season = 'summer') {
   const css = getComputedStyle(document.documentElement);
   const th = { c1: tok(css, '--c1', '0, 229, 255'), c2: tok(css, '--c2', '180, 90, 255'), c3: tok(css, '--c3', '255, 60, 172'), ok: tok(css, '--ok', '60, 255, 160'), warn: tok(css, '--warn', '255, 190, 60'), text: tok(css, '--text-rgb', '217, 244, 255'), bg: tok(css, '--bg-rgb', '10, 10, 15') };
-  const P = {};
-  for (const [k, v] of Object.entries(STORY)) P[k] = mix(v, th.c1, 0.06);
+  const P = { season };
+  for (const [k, v] of Object.entries({ ...STORY, ...(SEASON[season] || {}) })) P[k] = mix(v, th.c1, 0.06);
   Object.assign(P, th, {
     display: css.getPropertyValue('--font-display').trim() || 'sans-serif',
     body: css.getPropertyValue('--font-body').trim() || 'sans-serif',
     accentRoof: mix(STORY.roof, th.c2, 0.55),
     accentRoof2: mix(STORY.roof, th.c3, 0.45),
   });
-  P.key = Object.values(th).join('|');
+  P.key = `${Object.values(th).join('|')}|${season}`;
   return P;
 }
 
@@ -224,6 +234,7 @@ export function doorOn(c, P, f, u, w = 0.22, h = 0.55, { arch = true } = {}) {
 // A sloped plane: shingle rows parallel to the eave, staggered tile edges, outline.
 function shingles(c, P, eaveA, eaveB, ridgeB, ridgeA, base, lit) {
   poly(c, [eaveA, eaveB, ridgeB, ridgeA], rgba(base), rgba(P.outline, 0.7), 1.2);
+  if (P.season === 'winter') return snowRoof(c, P, eaveA, eaveB, ridgeB, ridgeA, base, lit);
   const rows = Math.max(4, Math.round(Math.hypot(ridgeA.x - eaveA.x, ridgeA.y - eaveA.y) / 6));
   const along = Math.hypot(eaveB.x - eaveA.x, eaveB.y - eaveA.y);
   const cols = Math.max(4, Math.round(along / 7));
@@ -239,6 +250,34 @@ function shingles(c, P, eaveA, eaveB, ridgeB, ridgeA, base, lit) {
       line(c, lerp(a, b, s), lerp(a2, b2, s), rgba(mix(base, P.outline, 0.35), 0.45), 1);
     }
     if (lit && r % 2) line(c, lerp(a, b, 0.02), lerp(a, b, 0.98), rgba(mix(base, [255, 255, 255], 0.25), 0.25), 1);
+  }
+}
+
+// A winter roof: shingles showing near the eave, snow above, icicles along the edge.
+function snowRoof(c, P, eaveA, eaveB, ridgeB, ridgeA, base, lit) {
+  const k = 0.32;
+  const a = lerp(eaveA, ridgeA, k);
+  const b = lerp(eaveB, ridgeB, k);
+  for (let r = 1; r < 3; r++) line(c, lerp(eaveA, ridgeA, (r * k) / 3), lerp(eaveB, ridgeB, (r * k) / 3), rgba(mix(base, P.outline, 0.45), 0.7), 1);
+  c.beginPath();
+  c.moveTo(a.x, a.y);
+  const n = 7;
+  for (let i = 1; i <= n; i++) {
+    const p = lerp(a, b, i / n);
+    const mid = lerp(a, b, (i - 0.5) / n);
+    c.quadraticCurveTo(mid.x, mid.y + 3, p.x, p.y);
+  }
+  c.lineTo(ridgeB.x, ridgeB.y);
+  c.lineTo(ridgeA.x, ridgeA.y);
+  c.closePath();
+  c.fillStyle = rgba(lit ? [248, 250, 253] : [214, 224, 238]);
+  c.fill();
+  c.strokeStyle = rgba(P.outline, 0.35);
+  c.lineWidth = 1;
+  c.stroke();
+  for (let i = 1; i < 6; i++) {
+    const p = lerp(eaveA, eaveB, i / 6);
+    poly(c, [{ x: p.x - 1.5, y: p.y }, { x: p.x + 1.5, y: p.y }, { x: p.x, y: p.y + 4 + (i % 3) * 2 }], rgba([226, 238, 250], 0.9));
   }
 }
 
@@ -448,7 +487,10 @@ export function tile(c, P, map, x, y, noise) {
   }
   // Stroked in its own colour, so neighbouring tiles meet without hairline gaps.
   poly(c, top, rgba(col), rgba(col), 1);
-  if (t === 1) grassTuft(c, P, x, y, z, noise);
+  if (t === 1) {
+    if (P.season !== 'winter') grassTuft(c, P, x, y, z, noise);
+    else if (noise(x * 1.3, y * 1.3) > 0.7) speckle(c, P, x, y, z, noise, P.grassSide);
+  }
   else if (t === 3 || t === 6) cobbles(c, P, x, y, z, noise);
   else if (t === 2 || t === 5) speckle(c, P, x, y, z, noise, t === 5 ? P.dirtDark : P.dirtDark);
   else if (t === 4) water(c, P, x, y, z, noise);
@@ -507,6 +549,12 @@ function speckle(c, P, x, y, z, noise, dark) {
 
 function water(c, P, x, y, z, noise) {
   const p = W(x + 0.5, y + 0.5, z);
+  if (P.season === 'winter') {
+    // Ice: pale, with cracks.
+    line(c, { x: p.x - 10, y: p.y - 2 }, { x: p.x + 2, y: p.y + 1 }, rgba([255, 255, 255], 0.7), 1);
+    line(c, { x: p.x + 2, y: p.y + 1 }, { x: p.x + 8, y: p.y - 3 }, rgba(P.outline, 0.25), 1);
+    return;
+  }
   c.strokeStyle = rgba(P.foam, 0.45);
   c.lineWidth = 1.2;
   c.beginPath();
@@ -599,19 +647,49 @@ export function tree(c, P, t, z) {
       poly(c, [{ x: p.x - w, y }, { x: p.x, y: y - 18 * k }, { x: p.x + w, y }], rgba(P.pineDark), rgba(P.outline, 0.6));
       poly(c, [{ x: p.x - w, y }, { x: p.x, y: y - 18 * k }, { x: p.x + w * 0.1, y }], rgba(P.pine));
       line(c, { x: p.x - w * 0.6, y: y - 3 }, { x: p.x - w * 0.15, y: y - 12 * k }, rgba(P.pineLight, 0.8), 1.5);
+      // Snow resting on each tier.
+      if (P.season === 'winter') poly(c, [{ x: p.x - w * 0.55, y: y - 7 * k }, { x: p.x, y: y - 18 * k }, { x: p.x + w * 0.55, y: y - 7 * k }, { x: p.x + w * 0.2, y: y - 9 * k }, { x: p.x - w * 0.15, y: y - 6 * k }], rgba([246, 249, 253]));
     }
     return;
   }
+  if (P.season === 'winter') return bareTree(c, P, p, t, k);
   const trunk = t.kind === 'birch' ? [236, 232, 220] : P.trunk;
   poly(c, [{ x: p.x - 3 * k, y: p.y }, { x: p.x + 3 * k, y: p.y }, { x: p.x + 2 * k, y: p.y - 16 * k }, { x: p.x - 2 * k, y: p.y - 16 * k }], rgba(trunk), rgba(P.outline, 0.6));
   if (t.kind === 'birch') for (let i = 0; i < 3; i++) line(c, { x: p.x - 2 * k, y: p.y - 4 - i * 4 }, { x: p.x + 1, y: p.y - 4 - i * 4 }, rgba(P.outline, 0.6), 1);
   const blobs = [[-9, -20, 10], [9, -21, 10], [0, -30, 12], [-5, -36, 8], [7, -33, 8]];
-  const leaf = t.kind === 'birch' ? mix(P.leaf, P.wheat, 0.25) : P.leaf;
+  const pick = hash(Math.round(t.gx * 97 + t.gy * 31));
+  const autumn = P.season === 'autumn' ? AUTUMN[Math.floor(pick * AUTUMN.length)] : null;
+  const leaf = autumn || (t.kind === 'birch' ? mix(P.leaf, P.wheat, 0.25) : P.leaf);
+  const dark = autumn ? mix(autumn, P.outline, 0.3) : P.leafDark;
+  const light = autumn ? mix(autumn, [255, 240, 200], 0.35) : P.leafLight;
   // Outline pass, shade pass, colour, highlight.
   for (const [dx, dy, r] of blobs) circle(c, p.x + dx * k, p.y + dy * k, (r + 1.5) * k, rgba(P.outline, 0.7));
-  for (const [dx, dy, r] of blobs) circle(c, p.x + dx * k, p.y + dy * k, r * k, rgba(P.leafDark));
+  for (const [dx, dy, r] of blobs) circle(c, p.x + dx * k, p.y + dy * k, r * k, rgba(dark));
   for (const [dx, dy, r] of blobs) circle(c, p.x + (dx - 2) * k, p.y + (dy - 2) * k, r * 0.82 * k, rgba(leaf));
-  for (const [dx, dy, r] of blobs.slice(2)) circle(c, p.x + (dx - 4) * k, p.y + (dy - 4) * k, r * 0.35 * k, rgba(P.leafLight));
+  for (const [dx, dy, r] of blobs.slice(2)) circle(c, p.x + (dx - 4) * k, p.y + (dy - 4) * k, r * 0.35 * k, rgba(light));
+  // Spring blossom; fallen leaves around autumn trees.
+  if (P.season === 'spring' && pick < 0.6) {
+    for (let i = 0; i < 9; i++) circle(c, p.x + (hash(i * 7 + pick * 1e3) - 0.5) * 30 * k, p.y - 18 * k - hash(i * 13 + pick * 1e3) * 22 * k, 1.8 * k, rgba(i % 3 ? [250, 196, 214] : [255, 236, 244]));
+  }
+  if (autumn) for (let i = 0; i < 6; i++) circle(c, p.x + (hash(i * 5 + pick * 1e3) - 0.5) * 34 * k, p.y + (hash(i * 11 + pick * 1e3) - 0.3) * 9 * k, 1.6 * k, rgba(AUTUMN[(i + Math.floor(pick * 5)) % AUTUMN.length]));
+}
+
+// Winter: a bare deciduous tree, snow on its branches.
+function bareTree(c, P, p, t, k) {
+  const trunk = t.kind === 'birch' ? [236, 232, 220] : P.trunk;
+  poly(c, [{ x: p.x - 3 * k, y: p.y }, { x: p.x + 3 * k, y: p.y }, { x: p.x + 1.5 * k, y: p.y - 26 * k }, { x: p.x - 1.5 * k, y: p.y - 26 * k }], rgba(trunk), rgba(P.outline, 0.6));
+  const branch = (x0, y0, ang, len, depth) => {
+    const x1 = x0 + Math.cos(ang) * len;
+    const y1 = y0 - Math.sin(ang) * len;
+    line(c, { x: x0, y: y0 }, { x: x1, y: y1 }, rgba(mix(trunk, P.outline, 0.25)), Math.max(1, depth * 0.9));
+    if (depth > 1) {
+      branch(x1, y1, ang + 0.45, len * 0.68, depth - 1);
+      branch(x1, y1, ang - 0.45, len * 0.68, depth - 1);
+    } else circle(c, x1, y1 - 0.5, 1.6, rgba([248, 250, 253]));
+  };
+  branch(p.x, p.y - 22 * k, Math.PI / 2 + 0.5, 10 * k, 3);
+  branch(p.x, p.y - 22 * k, Math.PI / 2 - 0.5, 10 * k, 3);
+  branch(p.x, p.y - 25 * k, Math.PI / 2, 9 * k, 2);
 }
 
 function circle(c, x, y, r, fill) {

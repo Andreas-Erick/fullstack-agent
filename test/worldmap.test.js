@@ -75,3 +75,16 @@ test('the same places give the same island', () => {
   assert.deepStrictEqual([...a.tiles], [...b.tiles]);
   assert.deepStrictEqual(a.trees, b.trees);
 });
+
+test('seasons follow the date on the right half of the world, or the user’s choice', async () => {
+  const copy = path.join(tmpDir('nexus-season-'), 'season.mjs');
+  fs.copyFileSync(path.join(ROOT, 'renderer/js/world/season.js'), copy);
+  const S = await import(pathToFileURL(copy).href);
+  const on = (m) => new Date(2026, m, 15);
+  assert.deepStrictEqual([0, 3, 6, 9, 11].map((m) => S.seasonOf(on(m), { timeZone: 'Europe/Berlin' })), ['winter', 'spring', 'summer', 'autumn', 'winter']);
+  assert.deepStrictEqual([0, 3, 6, 9].map((m) => S.seasonOf(on(m), { timeZone: 'Australia/Sydney' })), ['summer', 'autumn', 'winter', 'spring']);
+  assert.strictEqual(S.seasonOf(on(6), { timeZone: 'America/Argentina/Buenos_Aires' }), 'winter');
+  assert.strictEqual(S.seasonOf(on(6), { timeZone: 'America/New_York' }), 'summer');
+  assert.strictEqual(S.seasonOf(on(6), { choice: 'winter', timeZone: 'Europe/Berlin' }), 'winter');
+  assert.strictEqual(S.seasonOf(on(6), { choice: 'nonsense' }), 'summer', 'an unknown choice follows the date');
+});

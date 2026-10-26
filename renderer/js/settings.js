@@ -1097,6 +1097,7 @@ async function dataCard() {
     toggle('memory.reflect', 'Reflect on the stream: once enough has happened, draw a few insights from it in the background (one model call)'),
     toggle('innerWorld.enabled', 'Inner World: your personas live a small fictional day in a village that grows with your progress (a few model calls a day)'),
     toggle('innerWorld.townsfolk', 'Inner World: two villagers of its own live there too'),
+    select('innerWorld.season', 'Inner World season', [['auto', 'Follow the calendar'], ['spring', 'Always spring'], ['summer', 'Always summer'], ['autumn', 'Always autumn'], ['winter', 'Always winter']]),
     el('div', { class: 'row' }, el('span', { class: 'muted', style: { flex: 1 } }, `${mems.length} memories · ${convs.length} conversations`)),
     el(
       'div',
