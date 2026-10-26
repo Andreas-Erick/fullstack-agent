@@ -6,6 +6,7 @@ import { state, setFlag, setCaption } from './state.js';
 import { KOKORO_SAMPLE_RATE } from './kokorotext.js';
 import { mathOpen } from './mathtext.js';
 import { practiceLanguage, pickVoice, languageName } from './practice.js';
+import { BALANCED, profile, speechPlan } from './perfcore.js';
 
 let audioCtx = null;
 export function ctx() {
@@ -54,8 +55,25 @@ const localVoice = {
       this.worker.onerror = (e) => this.reset(e.message || 'the offline voice failed to load', reject);
     });
     this.ready.catch(() => {});
-    this.worker.postMessage({ type: 'load' });
+    this.worker.postMessage({ type: 'load', gpu: profile(state.settings) !== 'balanced' });
     return this.ready;
+  },
+
+  // Frees the model (the memory section's button, or Balanced performance after a while unused).
+  unload() {
+    clearTimeout(this.idle);
+    if (!this.worker) return;
+    this.worker.terminate();
+    this.worker = null;
+    this.ready = null;
+    this.device = '';
+    for (const { fail } of this.pending.values()) fail(new Error('the offline voice was unloaded'));
+    this.pending.clear();
+  },
+
+  keepFor() {
+    clearTimeout(this.idle);
+    if (profile(state.settings) === 'balanced') this.idle = setTimeout(() => this.unload(), BALANCED.voiceIdleMin * 60000);
   },
 
   // A failed load is retried on the next sentence after a minute (e.g. it was offline on first use).
@@ -85,6 +103,7 @@ const localVoice = {
       // Generous: a sentence pair takes well under a second on the GPU, a few seconds on the CPU.
       setTimeout(() => this.pending.has(id) && (this.pending.delete(id), fail(new Error('the offline voice took too long'))), 30000);
     });
+    this.keepFor();
     const buf = ctx().createBuffer(1, samples.length, KOKORO_SAMPLE_RATE);
     buf.copyToChannel(samples, 0);
     return buf;
@@ -96,6 +115,10 @@ const localVoice = {
     this.lastWarn = Date.now();
   },
 };
+
+/** For the system monitor's memory section. */
+export const offlineVoiceStatus = () => ({ loaded: Boolean(localVoice.worker), device: localVoice.device });
+export const unloadOfflineVoice = () => localVoice.unload();
 
 // Settings → Voice output: download/load the offline voice ahead of time, then speak a sample.
 export async function testLocalVoice(text) {
@@ -655,7 +678,9 @@ navigator.mediaDevices?.addEventListener?.('devicechange', () => {
 
 // ------------------------------------------------------------ Transcriber
 let worker = null;
-let workerModel = '';
+let workerKey = ''; // the plan the worker loaded (perfcore.js speechPlan: model, fallback, gpu)
+let loaded = null; // { model, device } once the worker reports ready
+let unloadTimer = null;
 let reqId = 0;
 const pending = new Map();
 
@@ -665,21 +690,30 @@ let workerReady = false;
 function resetWorker(reason) {
   worker?.terminate();
   worker = null;
+  workerKey = '';
   workerReady = false;
+  loaded = null;
+  clearTimeout(unloadTimer);
   for (const { reject } of pending.values()) reject(new Error(reason));
   pending.clear();
 }
 
-function getWorker(model) {
-  if (worker && workerModel === model) return worker;
+// The model for this computer and the language being spoken (practice mode switches it).
+const currentPlan = () => speechPlan(state.settings, practiceLanguage(state.settings) || state.settings.stt.language || 'en');
+
+function getWorker(plan) {
+  const key = JSON.stringify(plan);
+  if (worker && workerKey === key) return worker;
   resetWorker('The speech model was switched');
   worker = new Worker(new URL('./stt-worker.js', import.meta.url), { type: 'module' });
-  workerModel = model;
+  workerKey = key;
+  const model = plan.model;
   worker.onmessage = (e) => {
     const msg = e.data;
     if (msg.type === 'progress') emit('stt-progress', msg);
     else if (msg.type === 'ready') {
       workerReady = true;
+      loaded = { model: msg.model || model, device: msg.device };
       logEvent('info', 'speech-to-text ready', { model: msg.model || model, device: msg.device });
       emit('stt-progress', { status: 'ready' });
     } else if (msg.id && pending.has(msg.id)) {
@@ -694,13 +728,31 @@ function getWorker(model) {
     }
   };
   worker.onerror = (e) => resetWorker(e.message || 'Speech model failed to load');
-  worker.postMessage({ type: 'load', model });
+  worker.postMessage({ type: 'load', ...plan });
   return worker;
+}
+
+// Balanced performance: the model leaves memory after a while without voice input (it loads again,
+// from the cache, with the next sentence).
+function scheduleUnload() {
+  clearTimeout(unloadTimer);
+  if (profile(state.settings) !== 'balanced') return;
+  unloadTimer = setTimeout(() => worker && (logEvent('info', 'speech model unloaded after idle'), resetWorker('The speech model was unloaded')), BALANCED.speechIdleMin * 60000);
+}
+
+/** For the system monitor's memory section. */
+export function speechStatus() {
+  const s = state.settings?.stt;
+  return { on: Boolean(s?.enabled && s.engine === 'local'), loaded: Boolean(worker), ready: workerReady, model: loaded?.model || (worker ? currentPlan().model : ''), device: loaded?.device || '' };
+}
+
+export function unloadSpeech() {
+  if (worker) resetWorker('The speech model was unloaded to free memory');
 }
 
 export function preloadLocalModel() {
   const s = state.settings?.stt;
-  if (s?.enabled && s.engine === 'local') getWorker(s.localModel);
+  if (s?.enabled && s.engine === 'local') getWorker(currentPlan());
 }
 
 function encodeWav(samples, rate = 16000) {
@@ -728,7 +780,7 @@ function encodeWav(samples, rate = 16000) {
 export async function transcribe(samples, { raw = false } = {}) {
   const s = state.settings.stt;
   if (s.engine === 'remote') return cleanTranscript(await api.stt.transcribe(encodeWav(samples), { raw }), { raw });
-  const w = getWorker(s.localModel);
+  const w = getWorker(currentPlan());
   const id = ++reqId;
   const copy = new Float32Array(samples);
   // A loaded model answers in seconds; if it hangs, restart it rather than leave the mic waiting.
@@ -740,6 +792,7 @@ export async function transcribe(samples, { raw = false } = {}) {
     pending.set(id, { resolve: done(resolve), reject: done(reject) });
     w.postMessage({ type: 'transcribe', id, audio: copy, language: practiceLanguage(state.settings) || s.language || 'en' }, [copy.buffer]);
   });
+  scheduleUnload();
   return cleanTranscript(text, { raw });
 }
 

@@ -201,7 +201,8 @@ for ($i = 0; $i -lt 50; $i++) {
 // ------------------------------------------------------------ stopping
 /** On quit, if turned on: close the apps Nexus started (gracefully, then forced after 3 s). */
 function stopStarted(settings = lastSettings) {
-  if (!cfg(settings).stopOnQuit) return;
+  // Balanced performance (perfcore.js) also stops them: they hold memory while Nexus isn't running.
+  if (!cfg(settings).stopOnQuit && require('./perfcore').profile(settings) !== 'balanced') return;
   for (const id of IDS) {
     const s = state[id];
     if (!s.startedByNexus || !s.pid) continue;

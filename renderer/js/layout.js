@@ -47,6 +47,7 @@ export function initLayout({ miniFace }) {
   };
 
   initScreenShare();
+  initTitlebarFit();
 
   // Activity keeps the face awake.
   for (const ev of ['keydown', 'pointerdown', 'wheel']) window.addEventListener(ev, noteActivity, { passive: true });
@@ -73,9 +74,39 @@ function applyZoom(z) {
   appliedZoom = z;
   api.win.zoom(z).catch(() => {});
   $('#zoomReset').textContent = `${Math.round(z * 100)}%`;
-  // The OS window buttons don't scale with the page: keep the title bar their height.
-  document.documentElement.style.setProperty('--titlebar', `${38 / z}px`);
+  // The OS window buttons don't scale with the page: keep the title bar their height (the
+  // titleBarOverlay height in main/main.js).
+  document.documentElement.style.setProperty('--titlebar', `${44 / z}px`);
   $('.titlebar').style.paddingRight = `${150 / z}px`;
+}
+
+// ------------------------------------------------------------- title bar fit
+// The title bar folds step by step when its contents don't fit (a narrow window, a high zoom, alerts,
+// a long persona name), so nothing overlaps: the levels are data-fold 1..FOLDS in styles.css.
+const FOLDS = 5;
+let fitFrame = 0;
+
+function initTitlebarFit() {
+  const bar = $('.titlebar');
+  const refit = () => fitFrame || (fitFrame = requestAnimationFrame(fitTitlebar));
+  new ResizeObserver(refit).observe(bar);
+  // Pills appear and change (alerts, the system meter, the persona's name).
+  const watch = { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] };
+  new MutationObserver(refit).observe($('.status-pills'), watch);
+  new MutationObserver(refit).observe($('.brand'), watch);
+  document.fonts?.ready.then(refit);
+  refit();
+}
+
+function fitTitlebar() {
+  fitFrame = 0;
+  const bar = $('.titlebar');
+  const brand = $('.brand');
+  const pills = $('.status-pills');
+  const crowded = () => brand.getBoundingClientRect().right + 10 > pills.getBoundingClientRect().left || bar.scrollWidth > bar.clientWidth + 1;
+  let level = 0;
+  bar.dataset.fold = '0';
+  while (level < FOLDS && crowded()) bar.dataset.fold = String(++level);
 }
 
 // ---------------------------------------------------------------- layout

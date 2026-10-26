@@ -1,7 +1,7 @@
 // Shared helpers for all faces: theme palette per state (with the red alert override) and the
 // current audio level (TTS analyser, system-voice fallback, microphone, or the scripted demo).
 // Everything about the app comes through env.js, so the phone client can use the same faces.
-import { env } from './env.js';
+import { env, LITE_FRAME_MS } from './env.js';
 import { hexToRgb } from '../themecore.js';
 
 export const MOTION = {
@@ -101,7 +101,8 @@ export class BaseFace {
   resize() {
     const r = this.canvas.getBoundingClientRect();
     if (!r.width || !r.height) return;
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.lite = env.lite();
+    this.dpr = this.lite ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     this.w = r.width;
     this.h = r.height;
     this.canvas.width = Math.round(r.width * this.dpr);
@@ -116,6 +117,8 @@ export class BaseFace {
       this.last = now;
       return;
     }
+    if (env.lite() !== this.lite) this.resize(); // the profile changed: new pixel density
+    if (this.lite && now - this.last < LITE_FRAME_MS) return;
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     this.t += dt;

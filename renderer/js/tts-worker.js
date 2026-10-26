@@ -10,6 +10,7 @@ if (env.backends?.onnx?.webgpu) env.backends.onnx.webgpu.powerPreference = 'high
 
 let loading = null;
 let device = '';
+let allowGpu = true; // false: Balanced performance (the 8-bit model on the processor: 88 MB instead of 310)
 const styles = new Map();
 
 function load() {
@@ -22,7 +23,7 @@ function load() {
       throw found ? err : new Error('the "phonemizer" package is not installed (run: npm install phonemizer)');
     });
     const tokenizer = await AutoTokenizer.from_pretrained(KOKORO_MODEL, { progress_callback });
-    const adapter = 'gpu' in navigator ? await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null) : null;
+    const adapter = allowGpu && 'gpu' in navigator ? await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null) : null;
     let model;
     // Kokoro needs fp32 on WebGPU (fp16 garbles the audio); on the CPU the 8-bit model is fast enough.
     try {
@@ -86,6 +87,6 @@ async function speak(msg) {
 
 self.onmessage = (e) => {
   const msg = e.data;
-  if (msg.type === 'load') load().catch((err) => self.postMessage({ type: 'error', message: err.message }));
+  if (msg.type === 'load') (allowGpu = msg.gpu !== false), load().catch((err) => self.postMessage({ type: 'error', message: err.message }));
   else if (msg.type === 'speak') chain = chain.then(() => speak(msg));
 };

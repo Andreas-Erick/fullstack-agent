@@ -110,6 +110,9 @@ async function ensureGodsEye(settings) {
   return starting;
 }
 
+/** True while the server Nexus started is running (the system monitor's memory section). */
+const globeStartedByNexus = () => Boolean(server?.child && server.child.exitCode === null);
+
 function stopGodsEye() {
   const child = server?.child;
   server = null;
@@ -173,4 +176,4 @@ function isGlobeUrl(url) {
   }
 }
 
-module.exports = { CATALOG, REA_VERSION, GODSEYE_ORIGIN, checkGodsEye, ensureGodsEye, stopGodsEye, installGodsEye, mcpServers, status, isGlobeUrl, up };
+module.exports = { CATALOG, REA_VERSION, GODSEYE_ORIGIN, checkGodsEye, ensureGodsEye, stopGodsEye, globeStartedByNexus, installGodsEye, mcpServers, status, isGlobeUrl, up };

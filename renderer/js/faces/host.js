@@ -10,6 +10,7 @@ import { on } from '../util.js';
 import { DEFAULT_THEME } from '../themecore.js';
 import { faceState, samples64, audio, theme } from './common.js';
 import { configureFaces } from './env.js';
+import { profile } from '../perfcore.js';
 
 // On the desktop the faces read the app's state (the phone client wires its own, see faces/env.js).
 configureFaces({
@@ -21,6 +22,7 @@ configureFaces({
   micLevel: () => state.micLevel,
   demo: () => state.demo,
   onTheme: (fn) => on('theme', fn),
+  lite: () => profile(state.settings) === 'balanced',
 });
 
 export const BUILT_IN = [

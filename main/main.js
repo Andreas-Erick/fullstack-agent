@@ -26,6 +26,7 @@ const vaultgit = require('./vaultgit');
 const faces = require('./faces');
 const docwindows = require('./docwindows');
 const agentwindow = require('./agentwindow');
+const archmap = require('./archmap');
 const envinfo = require('./envinfo');
 const router = require('./router');
 const screenshare = require('./screenshare');
@@ -128,7 +129,7 @@ function createWindow() {
     title: 'Nexus Agent',
     icon: path.join(ROOT, 'assets', 'icon.ico'),
     titleBarStyle: 'hidden',
-    ...(isMac ? { trafficLightPosition: { x: 14, y: 12 } } : { titleBarOverlay: { color: '#0a0a0f', symbolColor: '#7df9ff', height: 38 } }),
+    ...(isMac ? { trafficLightPosition: { x: 14, y: 15 } } : { titleBarOverlay: { color: '#0a0a0f', symbolColor: '#7df9ff', height: 44 } }), // = --titlebar in styles.css
     show: false,
     webPreferences: {
       preload: path.join(ROOT, 'preload.js'),
@@ -524,6 +525,9 @@ function registerIpc() {
   handle('system:bluetooth', () => require('./sysmon').bluetooth());
   handle('system:network', () => ({ ...require('./sysmon').network(), lastSpeed: require('./netspeed').last(), measuring: require('./netspeed').running() }));
   handle('system:speedtest', () => require('./netspeed').run());
+  // What Nexus itself holds, and freeing it (the panel's "Nexus" section; user clicks only).
+  handle('system:usage', () => require('./resources').usage());
+  handle('system:free', (what) => require('./resources').free(String(what)));
   require('./claudeusage').onChange((s) => toWindow('claude:usage', s));
 
   // Screen sharing (started and stopped only by the user)
@@ -601,6 +605,9 @@ function registerIpc() {
   handle('agentWindow:home', () => agentwindow.toolbar.home());
   // The title-bar button: brings the window forward, or opens it at the start page.
   handle('agentWindow:open', () => (agentwindow.state().open ? (agentwindow.show({ focus: true }), agentwindow.state()) : agentwindow.toolbar.home()));
+  // The Architecture view: the cached map of the app's own code, or a fresh scan (Rebuild).
+  handle('arch:get', () => archmap.get(ROOT));
+  handle('arch:build', () => archmap.build(ROOT));
   handle('routines:list', () => routines.list());
   handle('routines:save', (r) => routines.save(r && typeof r === 'object' ? r : {}));
   handle('routines:remove', (id) => routines.remove(String(id)));

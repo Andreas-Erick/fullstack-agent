@@ -8,6 +8,8 @@ env.useBrowserCache = true;
 if (env.backends?.onnx?.webgpu) env.backends.onnx.webgpu.powerPreference = 'high-performance';
 
 let modelName = '';
+let fallbackName = ''; // the processor's model when the GPU can't run modelName (sent by voice.js)
+let allowGpu = true; // false: Balanced performance keeps the model on the processor
 let running = ''; // the model actually loaded (a CPU fallback may differ from modelName)
 let loading = null;
 let device = '';
@@ -19,8 +21,8 @@ function gpuDtype(adapter) {
   return { encoder_model: adapter.features.has('shader-f16') ? 'fp16' : 'fp32', decoder_model_merged: 'q4' };
 }
 
-// Large models are far too slow on the CPU; there a small English model keeps replies usable.
-const cpuModel = (name) => (/large/i.test(name) ? 'Xenova/whisper-base.en' : name);
+// Large models are far too slow on the CPU; there a small model keeps replies usable.
+const cpuModel = (name) => (/large/i.test(name) ? fallbackName || 'Xenova/whisper-base.en' : name);
 
 function decodeOptions(name, language) {
   const englishOnly = /\.en$/i.test(name);
@@ -30,13 +32,15 @@ function decodeOptions(name, language) {
 function load() {
   loading ||= (async () => {
     const progress_callback = (p) => self.postMessage({ type: 'progress', ...p });
-    const adapter = 'gpu' in navigator ? await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null) : null;
+    const adapter = allowGpu && 'gpu' in navigator ? await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null) : null;
     const info = adapter?.info || {};
-    device = adapter ? `WebGPU · ${[info.vendor, info.architecture, info.description].filter(Boolean).join(' ') || 'GPU'}` : 'CPU (WASM)';
+    device = adapter ? `WebGPU · ${[info.vendor, info.architecture, info.description].filter(Boolean).join(' ') || 'GPU'}` : allowGpu ? 'CPU (WASM)' : 'CPU (WASM, Balanced performance)';
     let asr;
     running = modelName;
     try {
       if (!adapter) throw new Error('no WebGPU adapter');
+      // Without fp16 the large model's encoder would load in fp32: about 2.4 GB. Not worth it.
+      if (/large/i.test(modelName) && !adapter.features.has('shader-f16')) throw new Error('no fp16 support for the large model');
       asr = await pipeline('automatic-speech-recognition', modelName, { device: 'webgpu', dtype: gpuDtype(adapter), progress_callback });
     } catch (err) {
       running = cpuModel(modelName);
@@ -58,6 +62,8 @@ self.onmessage = async (e) => {
   const msg = e.data;
   if (msg.type === 'load') {
     modelName = msg.model;
+    fallbackName = msg.fallback || '';
+    allowGpu = msg.gpu !== false;
     load().catch((err) => self.postMessage({ type: 'progress', status: 'error', error: err.message }));
     return;
   }
