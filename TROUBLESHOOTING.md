@@ -43,7 +43,7 @@ Diagnose from the log rather than guessing.
 ## GitHub
 
 - Works through the GitHub CLI: install it and run `gh auth login` once; Settings → GitHub shows the connection. The tools appear only while gh is signed in (checked every 10 minutes).
-- Repos are cloned into Settings → GitHub → Repos folder (default `~/NexusRepos`). Work happens on a branch from `github_start_branch`; changes on the default branch are refused. Changing files and committing follow the permission mode; **push and opening a pull request always ask, every time**. There is no merge.
+- Repos are cloned into Settings → GitHub → Repos folder (default `~/SirenRepos`, or `~/NexusRepos` if it already existed). Work happens on a branch from `github_start_branch`; changes on the default branch are refused. Changing files and committing follow the permission mode; **push and opening a pull request always ask, every time**. There is no merge.
 - **"Author identity unknown"** can't happen: without a git identity, commits use your GitHub account and its private no-reply email.
 - **"Filename too long"**: clones use `core.longpaths`; if an old clone fails, delete it and clone again.
 - With the Claude Code brain, its Read/Edit tools also work inside the repos folder; edits there get the same branch check and approval (`approveRepoEdit` in `main/claudecode.js`). Code: `main/github.js`.
@@ -51,7 +51,7 @@ Diagnose from the log rather than guessing.
 ## The agent is silent (no voice)
 
 - Diagnostics shows the VoiceStudio status. If VoiceStudio is down, the app falls back to the offline voice (Kokoro, `renderer/js/tts-worker.js`; Settings → Voice output → "When VoiceStudio is unreachable") and logs `VoiceStudio failed`. While the offline voice is still downloading (first use: about 330 MB on the GPU, 90 MB on the CPU), or if it fails (`offline voice failed` in the log; a missing `phonemizer` package means `npm install`), the system voice fills in. `offline voice ready` names the device it runs on. Nexus starts VoiceStudio by itself (Settings → **Helper apps**: at launch, and again when the voice is needed and nothing answers; first start takes about 20 s while it loads its models). If it is not found, set its location there; if it is on another computer, start it there. The agent can fix the URL itself with `settings_update voice.baseUrl`, or start it with `helper_app_start`.
-- **Helper apps** (VoiceStudio, FreeLLMAPI): started only when their address is on this computer and they are not running yet; their windows go minimized to the taskbar. "Close them when I quit Nexus" closes only the ones Nexus started. Log lines: `helper app starting`, `helper app ready` (with ms), `helper app did not come up`.
+- **Helper apps** (VoiceStudio, FreeLLMAPI): started only when their address is on this computer and they are not running yet; their windows go minimized to the taskbar. "Close them when I quit Siren" closes only the ones Siren started. Log lines: `helper app starting`, `helper app ready` (with ms), `helper app did not come up`.
 - Check that **Voice output → Speak replies automatically** is on, and that you haven't said "mute".
 - A voice id that VoiceStudio doesn't know makes synthesis fail. Click **Load voices** and pick one.
 
@@ -94,7 +94,7 @@ Diagnose from the log rather than guessing.
 
 ## Vault and memory
 
-- **Vault location:** Settings → Vault. The default is `Documents/Nexus Vault`. To move it, set the new folder there, then move the files.
+- **Vault location:** Settings → Vault. The default is `Documents/Siren Vault` (`Documents/Nexus Vault` for installs from before 2.0). To move it, set the new folder there, then move the files.
 - **Obsidian shows a welcome screen:** the vault isn't in Obsidian's vault list. Close Obsidian, then click **Register in Obsidian**, or use Obsidian's "Open folder as vault".
 - **A note was overwritten or deleted by mistake:** open it in the Vault view, then **History** → pick a version → **Restore**. Deleted notes are in the vault's `.trash`.
 - **Backups:** the vault's version history is local. For real backups, use File History, Time Machine or a private git remote. Don't run two sync services on one vault.
@@ -112,7 +112,8 @@ Diagnose from the log rather than guessing.
 
 ## Phone on the secure address (Tailscale)
 
-- **Set up:** Tailscale on the computer and the phone, same account; MagicDNS and HTTPS certificates on (Tailscale admin console → DNS). On the computer run once `tailscale serve --bg 7823` (your remote-access port). Settings → Remote access → **Tailscale Serve** → **Detect** fills in the name and says whether Serve forwards to Nexus; **Check** opens the address from this computer (`secure address check failed` in the log when it can't).
+- **Set up:** Tailscale on the computer and the phone, same account. In Settings → Remote access → Tailscale press **Detect**: it reads this computer's name, whether HTTPS is enabled for your tailnet and whether Serve forwards to the app, and offers the fix. **Set up Serve for me** runs `tailscale serve --bg --yes <port>` (your tailnet only, never the internet). If Tailscale says HTTPS isn't enabled, the page to enable it opens (or: Tailscale admin console → DNS → HTTPS Certificates); enable it, then press the button again.
+- **"Couldn't open https://…ts.net (ECONNREFUSED)":** Serve isn't forwarding to the app (or forwards to another port). Run Detect and **Set up Serve for me**. `tailscale serve status` shows what it forwards.
 - **The Android app (or phone browser) still uses the Wi-Fi address:** open it at home; the banner offers **Switch** (also in the menu: *Switch to the secure address*). It asks the computer for a one-time secret, opens the `https://…ts.net` address and finishes there: same pairing, new token (the old one stops working). The secret works once, for 2 minutes, and only through the secure address. Or type the `https://` address on the Android setup screen and pair again.
 - **"Can't reach the assistant" on a .ts.net address:** the Tailscale app on the phone must be connected. If it is, check `tailscale serve status` on the computer.
 
@@ -127,7 +128,7 @@ Diagnose from the log rather than guessing.
 ## Screen sharing
 
 - **Share screen** in the chat picks a screen or window; the red **Sharing** badge stops it. While sharing, each message carries a screenshot (turn that off under Settings → Safety) and the agent can call `look_at_screen`.
-- **macOS:** allow Nexus Agent under System Settings → Privacy & Security → Screen Recording, then restart it.
+- **macOS:** allow Siren Assistant under System Settings → Privacy & Security → Screen Recording, then restart it.
 - Sharing stops by itself when the shared window closes. Screenshots are never written to disk or into the conversation. Code: `main/screenshare.js`, `renderer/js/layout.js`.
 
 ## Skills
@@ -149,7 +150,7 @@ Diagnose from the log rather than guessing.
 - **Full screen / minimize**: "make it full screen", "exit full screen", "minimize the document", "maximize it", "bring back the PDF" act instantly on the latest document window (voice commands); for a specific one ("make the quarterly report full screen") the agent uses `set_window_state`.
 - **Monitors**: named by position: Left / Center / Right (Center-left / Center-right with four, Far left / Far right with five, Top / Bottom when stacked; a single monitor is "Main"). "Move the quarterly report to the right monitor", "put it on the left monitor, full screen", "move yourself to the center monitor" (`move_window`: center, maximize, fullscreen, left/right half). Numbers still work (1 = leftmost). "Which monitor is which?" flashes the names (`identify_monitors`). `list_monitors` reports the monitors and where each window is.
 - **Zoom in a document**: Ctrl + mouse wheel over it, the − / + buttons, or ⤢ to fit the width. In the pop-out window Ctrl + / Ctrl − / Ctrl 0 work too.
-- **PDF export** (`create_pdf`, "PDF" on a reply, ⋯ → Export this chat as PDF): saved in the workspace folder, or `Documents/Nexus Exports`, never overwriting a file. Remote images are left out on purpose (the PDF is rendered offline).
+- **PDF export** (`create_pdf`, "PDF" on a reply, ⋯ → Export this chat as PDF): saved in the workspace folder, or `Documents/Siren Exports` (`Nexus Exports` if it already existed), never overwriting a file. Remote images are left out on purpose (the PDF is rendered offline).
 - The Documents view has **Pop out** for the file shown there. Code: `main/docwindows.js` (windows and monitors), `renderer/viewer.html` + `js/viewer.js` (a document window), `js/docview.js` (rendering, shared with the Documents view).
 - "Access … is not allowed": the agent opens files only in the folders under Settings → Documents (plus files you opened yourself).
 

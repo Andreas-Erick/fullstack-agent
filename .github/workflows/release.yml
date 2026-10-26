@@ -1,8 +1,14 @@
-# Builds the Windows installer (.exe setup, .msi, portable .exe) and the Android app (.apk) and
-# attaches them to a GitHub Release.
-# Trigger: push a version tag, e.g.  git tag v1.1.0 && git push origin v1.1.0
+# Builds Siren Assistant for Windows (setup .exe, .msi, portable .exe), macOS (Apple silicon and Intel:
+# .dmg and .zip) and Android (.apk) and attaches them to a GitHub Release.
+# Trigger: push a version tag, e.g.  git tag v2.0.0 && git push origin v2.0.0
 # (or run it by hand from the Actions tab: then the builds are kept as artifacts only).
 # The tag should match "version" in package.json.
+#
+# Each desktop job runs the syntax/integrity check and the whole test suite on its own operating
+# system first, so a platform-specific break stops the release.
+#
+# macOS: ad-hoc signed (no Apple Developer certificate), not notarized. On first launch macOS asks for
+# confirmation: right-click the app → Open (or System Settings → Privacy & Security → Open Anyway).
 #
 # Android signing (optional): add these repository secrets to get a signed release APK —
 #   ANDROID_KEYSTORE_BASE64   the .jks file, base64-encoded (base64 -w0 nexus-release.jks)
@@ -33,21 +39,60 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Syntax check
+      - name: Check
         run: npm run check
 
+      - name: Tests
+        run: npm test
+
       - name: Build and publish installers
-        run: npx electron-builder --win --publish always
+        run: npx electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Keep the build output
         uses: actions/upload-artifact@v4
         with:
-          name: nexus-agent-windows
+          name: siren-assistant-windows
           path: |
             dist/*.exe
             dist/*.msi
+          if-no-files-found: error
+
+  macos:
+    # After the Windows job, so the release it created exists (no two jobs creating it at once).
+    needs: windows
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check
+        run: npm run check
+
+      - name: Tests
+        run: npm test
+
+      - name: Build and publish (Apple silicon and Intel)
+        run: npx electron-builder --mac --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # ad-hoc signing (package.json build.mac.identity "-")
+
+      - name: Keep the build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: siren-assistant-macos
+          path: |
+            dist/*.dmg
+            dist/*.zip
           if-no-files-found: error
 
   android:
@@ -80,12 +125,12 @@ jobs:
             echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/nexus-release.jks"
             export NEXUS_KEYSTORE="$RUNNER_TEMP/nexus-release.jks"
             ./gradlew assembleRelease --no-daemon
-            cp app/build/outputs/apk/release/app-release.apk "../dist/Nexus-Android-$VERSION.apk"
+            cp app/build/outputs/apk/release/app-release.apk "../dist/Siren-Android-$VERSION.apk"
             rm -f "$RUNNER_TEMP/nexus-release.jks"
           else
             echo "::warning::No Android signing secrets set; publishing a debug-signed APK."
             ./gradlew assembleDebug --no-daemon
-            cp app/build/outputs/apk/debug/app-debug.apk "../dist/Nexus-Android-$VERSION-debug.apk"
+            cp app/build/outputs/apk/debug/app-debug.apk "../dist/Siren-Android-$VERSION-debug.apk"
           fi
 
       - name: Attach to the release
@@ -97,6 +142,6 @@ jobs:
       - name: Keep the build output
         uses: actions/upload-artifact@v4
         with:
-          name: nexus-agent-android
+          name: siren-assistant-android
           path: dist/*.apk
           if-no-files-found: error

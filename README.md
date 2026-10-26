@@ -1,28 +1,30 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="Nexus Agent" width="112" />
+<img src="assets/icon.png" alt="Siren Assistant" width="128" />
 
-# Nexus Agent
+# Siren Assistant
 
-**A personal AI assistant for your desktop: it talks, listens, remembers, and improves itself.**
+**A personal AI assistant for your desktop and your phone: she talks, listens, remembers, teaches, coaches, and improves herself.**
 
-Voice-first · Claude-powered · Obsidian memory · Phone & Android companion · Runs on your own machine
+Voice-first · Claude-powered · Obsidian memory · Windows & macOS · Android app · Runs on your own machine
 
 ![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-%E2%89%A5%2022-339933?logo=nodedotjs&logoColor=white)
-![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555)
+![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-555)
 ![Android](https://img.shields.io/badge/companion-Android%208%2B%20%7C%20any%20phone%20browser-3DDC84?logo=android&logoColor=white)
 ![Claude](https://img.shields.io/badge/brain-Claude%20%2B%20multi--provider-D97757?logo=anthropic&logoColor=white)
 ![Release](https://img.shields.io/github/v/release/Andreas-Erick/fullstack-agent?label=installer)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-[Features](#features) · [System requirements](#system-requirements) · [Quick start](#quick-start) · [On your phone](#on-your-phone) · [Talking to it](#talking-to-it) · [Safety](#safety-and-permissions) · [Privacy](PRIVACY.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Troubleshooting](TROUBLESHOOTING.md) · [Architecture](CLAUDE.md)
+[Features](#features) · [Install](#quick-start) · [System requirements](#system-requirements) · [Quick start](#quick-start) · [On your phone](#on-your-phone) · [Talking to it](#talking-to-it) · [Safety](#safety-and-permissions) · [Privacy](PRIVACY.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Troubleshooting](TROUBLESHOOTING.md) · [Architecture](CLAUDE.md)
 
 </div>
 
 ---
 
-Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, hands-free), and it answers in a natural voice within a few seconds, with your schedule, your notes, your documents and your GitHub repos at hand. It keeps its memory in an Obsidian vault you can read and edit, asks before it does anything consequential, and can change its own code when you ask for a feature, with every change checked, tested, recorded and reversible. Away from your desk, your phone or the Android app talks to the same assistant, while the brain, the memory and the keys stay on your computer.
+Siren is an assistant you talk to like a trusted colleague: a chief of staff, a tutor and a good friend in one. Hold a key (or just speak, hands-free), and she answers in a natural voice within a few seconds, with your schedule, your notes, your documents and your GitHub repos at hand. She keeps her memory in an Obsidian vault you can read and edit, asks before she does anything consequential, and can change her own code when you ask for a feature, with every change checked, tested, recorded and reversible. Away from your desk, the Android app (or any phone browser) has the same assistant, your day, your habits, what you're learning and your notes, while the brain, the memory and the keys stay on your computer.
+
+> **Formerly Nexus Agent.** Updating keeps everything: your data folder moves to its new name by itself, and your assistant's name, look, face, voice and brain stay as they were. Siren, the new default persona, is one click away in Settings → Persona.
 
 > Inspired by [jaredrhod/fullstack-agent](https://github.com/jaredrhod/fullstack-agent): a warm Claude session, memory loaded on demand, standing rules, an agent that is its own mechanic, and hardened voice handling.
 
@@ -31,8 +33,8 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 ### 🎙️ Voice that feels like a conversation
 - **Push-to-talk or hands-free.** Hands-free uses a **neural voice detector** (Silero VAD), so breathing, coughs and keyboard noise don't trigger it, and a quick "yes" still counts.
 - **Fast, accurate local speech-to-text.** Whisper large-v3 turbo runs **on your GPU** (WebGPU), about 0.4 s for a sentence on a laptop RTX GPU, with an automatic CPU fallback.
-- **Natural voice** through [VoiceStudio](https://github.com/debpalash/VoiceStudio), spoken sentence by sentence as the reply streams in, with an offline neural voice ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), runs in the app) as a fallback when VoiceStudio is closed.
-- **One app to open:** Nexus starts its helper apps (VoiceStudio, and FreeLLMAPI if you use it) in the background, minimized, and starts them again when they're needed. Optionally it closes them when you quit (Settings → Helper apps).
+- **A natural voice from the first sentence:** an offline neural voice ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M)) runs right in the app (free, private, no internet once downloaded), spoken sentence by sentence as the reply streams in. For even more natural and cloneable voices, use [VoiceStudio](https://github.com/debpalash/VoiceStudio).
+- **One app to open:** Siren starts its helper apps (VoiceStudio, and FreeLLMAPI if you use it) in the background, minimized, and starts them again when they're needed. Optionally it closes them when you quit (Settings → Helper apps).
 - **Make new voices by asking:** "make me a warm, low British voice", or clone your own by reading a short script.
 - **Voice calibration** learns how your names and words get misheard and fixes them from then on.
 - **Interruptible:** talk over it (with headphones) or press the key.
@@ -72,9 +74,10 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 
 ### 📱 On your phone
 - **Chat with the same assistant** from any phone browser or the **Android app**: replies stream live, conversations are shared with the desktop, and spoken replies play on the phone.
+- **Your day on the phone:** tabs for **Today** (schedule, habits, priorities, cards due, where you left off), **Habits** (check them off; the desktop sees it at once), **Learn** (topics and decks), and under More your memories, notes, skill tree, the **Inner World** village and your skills.
 - **Approve from anywhere:** approval cards (with a countdown) on the phone, and on Android as **notifications with Allow / Deny**, even with the app closed.
-- **Push-to-talk on the phone,** transcribed on your computer with your own speech-to-text. On Android also a **Quick Settings tile** and **Share → Nexus** from any app.
-- **Pair by QR code** in seconds; reach it at home over Wi-Fi or **from anywhere** through your own Cloudflare Tunnel (optionally behind Cloudflare Access) or Tailscale. No port is opened on your router and no server of ours is involved.
+- **Push-to-talk on the phone,** transcribed on your computer with your own speech-to-text. On Android also a **Quick Settings tile** and **Share → Siren** from any app.
+- **Pair by QR code** in seconds; reach it at home over Wi-Fi or **from anywhere** through Tailscale (set up with one click on the desktop) or your own Cloudflare Tunnel (optionally behind Cloudflare Access). No port is opened on your router and no server of ours is involved.
 - **The same face** as the desktop, with the same states and colours.
 
 ### 🛠️ Its own mechanic, and its own engineer
@@ -87,7 +90,7 @@ Nexus is an assistant you talk to like a colleague. Hold a key (or just speak, h
 
 ### 🎨 Yours to shape
 - **Persona studio:** a master prompt, an image and an aesthetic; one click redesigns colours, fonts, face, greeting, tone and voice.
-- **Animated faces:** Circuit Board, Radial, Code Rain, Neural Core, the expressive **Companion** (eyes and a smile that show what it's doing), or your own (a folder with an `index.html`). Faces show listening, thinking, **working** (running tools), speaking, **happy** (done) and **sleeping** (idle).
+- **Animated faces:** **Siren** (the default: a sea-nymph whose fins spread as she listens, a lyre halo that turns as she thinks, song rings that ripple with her voice), Circuit Board, Radial, Code Rain, Neural Core, the expressive **Companion**, or your own: the note **Make Your Own Face** in your vault has a prompt to design one with any AI app. Faces show listening, thinking, **working** (running tools), speaking, **happy** (done) and **sleeping** (idle).
 - **A futuristic HUD look** (Settings → Interface → Visual effects): a perspective grid on the horizon, corner brackets, telemetry on every reply, an energy border while it thinks, and a short systems check at launch. **Subtle** keeps the look without motion; **Off** is the plain look. It follows any persona theme, light ones too, and stays still if your system asks for reduced motion.
 - **Layouts:** chat only, chat and face **side by side** (drag the divider), or the **face full size** with the chat underneath; app-wide **zoom**; full screen.
 
@@ -116,16 +119,26 @@ Not sure? The setup wizard has an optional **hardware check** that looks at your
 
 ## Quick start
 
-### Windows installer
+Everything is on the [**Releases**](https://github.com/Andreas-Erick/fullstack-agent/releases/latest) page.
 
-Download the latest **`Nexus Agent-Setup-x.y.z.exe`** (or the `.msi`, or the portable `.exe`) from [**Releases**](https://github.com/Andreas-Erick/fullstack-agent/releases/latest) and run it. It installs for your user account (no admin rights needed). The installer isn't code-signed yet, so Windows SmartScreen may ask you to confirm (**More info → Run anyway**).
+### Windows
+
+Download **`Siren-Assistant-Setup-x.y.z.exe`** (or the `.msi`, or the portable `.exe`) and run it. It installs for your user account (no admin rights needed), puts **Siren Assistant** on the desktop and in the Start menu, and starts it when it finishes. The installer isn't code-signed yet, so Windows SmartScreen may ask you to confirm (**More info → Run anyway**). Updating from Nexus Agent: just install over it.
+
+### macOS
+
+Download **`Siren-Assistant-x.y.z-mac-arm64.dmg`** (Apple silicon: M1 and later) or **`…-mac-x64.dmg`** (Intel), open it and drag **Siren Assistant** to Applications. The app isn't notarized by Apple yet, so the first time **right-click it → Open** (or System Settings → Privacy & Security → **Open Anyway**). macOS then asks once for the microphone (voice input) and, if you share your screen, for Screen Recording. Command-line tools such as `claude`, `gh` or `tailscale` from Homebrew are found even when the app is started from the Dock.
+
+### Android
+
+Download **`Siren-Android-x.y.z.apk`** on the phone and install it (Android 8 or newer; allow installing from your browser once). See [On your phone](#on-your-phone).
 
 ### From source
 
 **Requirements**
 - [Node.js](https://nodejs.org) 22 or newer
 - A brain: **[Claude Code](https://claude.com/claude-code)** signed in to your Claude account (recommended), an Anthropic API key, a Gemini / DeepSeek / Groq / Perplexity key, or an OpenAI-compatible server (any combination in multi-provider mode)
-- Optional: [VoiceStudio](https://github.com/debpalash/VoiceStudio) for a natural voice (installed, it is started by Nexus; you don't open it yourself), the [GitHub CLI](https://cli.github.com) (`gh auth login`) for GitHub, a GPU with WebGPU for the fastest speech recognition
+- Optional: [VoiceStudio](https://github.com/debpalash/VoiceStudio) for even more natural, cloneable voices (installed, it is started by Siren; you don't open it yourself), the [GitHub CLI](https://cli.github.com) (`gh auth login`) for GitHub, a GPU with WebGPU for the fastest speech recognition
 
 ```bash
 git clone https://github.com/Andreas-Erick/fullstack-agent.git
@@ -137,13 +150,23 @@ npm run dev          # dev mode: DevTools open, menu bar kept (or dev.bat / ./st
 
 If npm skipped Electron's binary download, run `npx install-electron` once.
 
-### First launch: it sets itself up by talking to you
+### First launch: a guided setup
 
-1. **Brain.** A short scripted step that works before any model is configured: it finds your Claude account (or helps you connect one) and checks that it can think.
-2. **Interview.** Then the agent asks, one question at a time, by voice or text: what to call you and itself, its personality, its look, an optional hardware check (with speech-model and brain recommendations), its voice, push-to-talk or hands-free (with an optional voice calibration), its vault, your workspace folder, **what you want help with** (studying, languages, goals and habits, work: it adds the matching persona, a first habit, your languages to the skill tree and a daily briefing, as you choose), its face, its permissions, and what you're working on.
-3. **Check.** It runs its health checks and tells you what works and what still needs attention.
+A short setup walks you through everything, one topic at a time:
 
-Missing services (VoiceStudio, FreeLLMAPI) are diagnosed and connected step by step; API keys go into a secure field, never into the chat. You can say "later" or skip at any point; both setup styles (conversation or form) can be re-run from **Settings → Health**.
+1. **Meet Siren** and choose her name.
+2. **Privacy and safety:** a short version of the [privacy policy and disclaimers](PRIVACY.md) to read and accept, and how careful she should be (ask first, or just do it).
+3. **Your computer** (optional): a hardware check that recommends the speech model and the kind of brain that fits.
+4. **The brain:** your Claude account (recommended), several providers with automatic fallback, a local server, or an API key, with a test.
+5. **Voice:** the offline voice (downloaded once, with a sample) or VoiceStudio; your microphone; push-to-talk or hands-free.
+6. **Memory:** her own vault, or an existing Obsidian vault.
+7. **What you want help with:** studying, languages, goals and habits, work. It adds the matching personas and a daily briefing.
+8. **Connectors and extras:** what is built in, which Claude connectors fit your goals (none come with the app; [why](docs/CONNECTORS.md)), the extensions and the phone app.
+9. **Personality and face.**
+10. **What I can do:** a tour of every feature, with things to say.
+11. **First hello:** voice, brain, vault and microphone tested end to end. Then she offers to **get to know you** in a short conversation and keeps what she learns in your profile.
+
+Both setup styles (this form, or setting up by conversation) can be re-run from **Settings → Health**.
 
 ## On your phone
 
@@ -151,12 +174,12 @@ Remote access is **off by default**. While it is on, a **Remote** badge shows in
 
 1. **Turn it on:** Settings → Remote access. Choose how the phone reaches your computer:
    - **This computer's network** (home Wi-Fi): simplest, but the connection is not encrypted, so use it only on a network you trust.
-   - **From anywhere, encrypted (recommended):** your own **Cloudflare Tunnel**, ideally with a **Cloudflare Access** sign-in in front (the app verifies it), or **Tailscale** (**Detect** reads this computer's Tailscale name, **Check** opens it end to end). A temporary Cloudflare address is there for testing. No router port is opened either way.
+   - **From anywhere, encrypted (recommended):** **Tailscale** (only your own devices, end-to-end encrypted): install it on the computer and the phone with the same account, then press **Detect**. It finds this computer's address and fixes what is missing with one click (**Set up Serve for me**; if Tailscale asks, it opens the page where you enable HTTPS for your tailnet once). Or your own **Cloudflare Tunnel**, ideally with a **Cloudflare Access** sign-in in front (the app verifies it). A temporary Cloudflare address is there for testing. No router port is opened either way.
    - **Already paired over Wi-Fi?** Open the phone app at home and tap **Switch** in the banner (or in the menu): it moves to the secure address and keeps its pairing.
 2. **Pair:** click **Pair a device** and **scan the QR code** with the phone's camera; the phone app opens already connected. Or open the address on the phone and type the six-digit code. Codes and QR links work once and expire after five minutes.
-3. **Android (optional):** install `Nexus-Android-x.y.z.apk` (or the `-debug.apk`) from [Releases](https://github.com/Andreas-Erick/fullstack-agent/releases/latest) (Android 8 or newer), enter the address or paste the QR link, and turn on notifications to get approvals and replies while the app is closed. Build it yourself: [`android/README.md`](android/README.md).
+3. **Android (optional):** install `Siren-Android-x.y.z.apk` (or the `-debug.apk`) from [Releases](https://github.com/Andreas-Erick/fullstack-agent/releases/latest) (Android 8 or newer), enter the address or paste the QR link, and turn on notifications to get approvals and replies while the app is closed. Build it yourself: [`android/README.md`](android/README.md).
 
-A paired phone can chat, read conversations and answer approvals sent to it. It never sees your settings, keys, the setup conversation or screenshots of your desktop, and tool activity reaches it as names only (never what a tool read or wrote). Each device is listed in Settings with where it last connected from; remove one, or all at once. A device unused for 90 days is unpaired automatically. Push-to-talk on the phone needs the encrypted address (browsers allow the microphone only there).
+A paired phone can chat, read conversations, answer approvals sent to it, and (unless you turn it off: Settings → Remote access → "Show my notes, memories…") see your day, habits, learning, memories, notes, skill tree and Inner World, read-only except for checking habits off. It never sees your settings, keys, the setup conversation or screenshots of your desktop, and tool activity reaches it as names only (never what a tool read or wrote). Each device is listed in Settings with where it last connected from; remove one, or all at once. A device unused for 90 days is unpaired automatically. Push-to-talk on the phone needs the encrypted address (browsers allow the microphone only there).
 
 ## Talking to it
 
@@ -244,10 +267,10 @@ Ask it: *"what's wrong with your voice?"*. It runs its health checks, groups the
 <details>
 <summary><b>Where your data lives</b></summary>
 
-- **App data** (`%APPDATA%\Nexus Agent` on Windows, `~/Library/Application Support/Nexus Agent` on macOS, `~/.config/Nexus Agent` on Linux): settings (secrets encrypted with the OS keychain, plus a last-good backup), conversations, `logs/`, custom faces, paired devices (only a hash of each device's token) and the "where we left off" note.
-- **Vault:** `Documents/Nexus Vault` by default, with its own git history for every note (including `Where We Left Off.md`).
+- **App data** (`%APPDATA%\Siren Assistant` on Windows, `~/Library/Application Support/Siren Assistant` on macOS; moved there from `Nexus Agent` on the first start of 2.0): settings (secrets encrypted with the OS keychain, plus a last-good backup), conversations, `logs/`, custom faces, paired devices (only a hash of each device's token) and the "where we left off" note.
+- **Vault:** `Documents/Siren Vault` by default (an existing `Documents/Nexus Vault` stays where it is), with its own git history for every note (including `Where We Left Off.md`).
 - **On a paired phone:** only its device token, the open conversation's id and a few display preferences.
-- **Cloned repos:** `~/NexusRepos` (configurable).
+- **Cloned repos:** `~/SirenRepos` (`~/NexusRepos` if you already had it; configurable).
 - **Code history:** the `.git` folder of the app itself.
 
 Everything stays on your machine except what the brain, the web search and the services you connect need to do their job. Details: [PRIVACY.md](PRIVACY.md). `NEXUS_USER_DATA` overrides the data folder (portable installs, testing).
@@ -286,7 +309,7 @@ The mobile plan is built (phone app, secure remote access, Android app); see [do
 
 ## Releasing (maintainers)
 
-Bump `version` in `package.json`, add a [changelog](CHANGELOG.md) entry, then push a tag: `git tag v1.1.0 && git push origin v1.1.0`. The [release workflow](.github/workflows/release.yml) runs the checks, builds the setup `.exe`, `.msi` and portable `.exe` on Windows and the Android `.apk`, and attaches them to a GitHub Release. The APK is signed with your own key when the four `ANDROID_KEY*` repository secrets are set, and is a debug build otherwise (see [`android/README.md`](android/README.md)). Locally: `npm run dist:win` (output in `dist/`).
+Bump `version` in `package.json`, add a [changelog](CHANGELOG.md) entry, then push a tag: `git tag v2.0.0 && git push origin v2.0.0`. The [release workflow](.github/workflows/release.yml) runs the checks and the tests on Windows and on macOS, builds the setup `.exe`, `.msi` and portable `.exe` on Windows, the `.dmg` and `.zip` for Apple silicon and Intel on macOS (ad-hoc signed), and the Android `.apk`, and attaches them to a GitHub Release. The APK is signed with your own key when the four `ANDROID_KEY*` repository secrets are set, and is a debug build otherwise (see [`android/README.md`](android/README.md)). Locally: `npm run dist:win` or, on a Mac, `npm run dist:mac` (output in `dist/`). The icons and the installer panel come from `tools/brand/` (`npx electron tools/brand/render.js`).
 
 ## Credits
 
