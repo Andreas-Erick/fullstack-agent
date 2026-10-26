@@ -18,15 +18,24 @@ export function profile(settings) {
 
 /**
  * A lighter computer: little memory, or no graphics card with its own memory for the large speech
- * model (integrated graphics share the system's memory). hw and rec come from main/hardware.js scan().
+ * model (integrated graphics share the system's memory). Macs with Apple silicon have unified memory:
+ * the GPU is fast but shares one pool with macOS and the apps, so they count as lighter below 16 GB.
+ * hw and rec come from main/hardware.js scan().
  */
 export function classify(hw, rec) {
   const vram = rec?.vramGB || 0;
-  const gpu = (hw?.gpus || []).find((g) => g.vendor === 'NVIDIA' || g.vendor === 'AMD' || g.unified)?.name || (hw?.gpus || [])[0]?.name || '';
+  const gpus = hw?.gpus || [];
+  const unified = gpus.some((g) => g.unified);
+  const gpu = gpus.find((g) => g.vendor === 'NVIDIA' || g.vendor === 'AMD' || g.unified)?.name || gpus[0]?.name || '';
+  const ram = hw?.ramGB || 0;
   const reasons = [];
-  if ((hw?.ramGB || 0) < 12) reasons.push(`${hw?.ramGB || '?'} GB of memory`);
-  if (vram < 4) reasons.push(vram ? `${Math.round(vram)} GB of graphics memory` : 'no graphics card with its own memory');
-  return { detected: reasons.length ? 'low' : 'high', hw: { ramGB: hw?.ramGB || null, vramGB: vram || null, gpu, reason: reasons.join(' and ') } };
+  if (unified) {
+    if (ram < 16) reasons.push(`${ram || '?'} GB of unified memory, shared by the processor and the graphics`);
+  } else {
+    if (ram < 12) reasons.push(`${ram || '?'} GB of memory`);
+    if (vram < 4) reasons.push(vram ? `${Math.round(vram)} GB of graphics memory` : 'no graphics card with its own memory');
+  }
+  return { detected: reasons.length ? 'low' : 'high', hw: { ramGB: ram || null, vramGB: vram || null, unified, gpu, reason: reasons.join(' and ') } };
 }
 
 const SMALL = { en: 'Xenova/whisper-small.en', multi: 'Xenova/whisper-small' };

@@ -185,13 +185,13 @@ function renderPanel() {
     row(
       g.name || 'GPU',
       g.load,
-      [g.vramTotalMB ? `VRAM ${(g.vramUsedMB / 1024).toFixed(1)} / ${(g.vramTotalMB / 1024).toFixed(1)} GB` : '', g.tempC != null ? `${g.tempC} °C` : ''].filter(Boolean).join(' · '),
+      [g.vramTotalMB ? `VRAM ${(g.vramUsedMB / 1024).toFixed(1)} / ${(g.vramTotalMB / 1024).toFixed(1)} GB` : '', g.unified && g.sharedUsedMB != null ? `uses ${(g.sharedUsedMB / 1024).toFixed(1)} GB of the shared memory` : '', g.tempC != null ? `${g.tempC} °C` : ''].filter(Boolean).join(' · '),
     ),
   );
   panel.replaceChildren(
     el('h4', {}, 'This computer'),
     row('CPU', s.cpu.load, `${s.cpu.model}${s.cpu.cores ? ` · ${s.cpu.cores} threads` : ''}`),
-    row('Memory (RAM)', s.ram.load, `${s.ram.usedGB} / ${s.ram.totalGB} GB in use`),
+    row(s.ram.unified ? 'Unified memory' : 'Memory (RAM)', s.ram.load, `${s.ram.usedGB} / ${s.ram.totalGB} GB in use${s.ram.unified ? ' · shared by the processor and the graphics' : ''}`),
     ...gpuRows,
     ...(gpuRows.length ? [] : [el('div', { class: 'sys-row' }, el('small', {}, s.gpuSource === null ? 'GPU: measuring…' : 'GPU load is not available on this computer.'))]),
     s.disk ? row(`Disk ${s.disk.root}`, s.disk.load, `${s.disk.usedGB} / ${s.disk.totalGB} GB used`) : null,
