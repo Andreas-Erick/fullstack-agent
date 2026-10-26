@@ -250,6 +250,12 @@ Choose **Ask** (approve consequential actions) or **Auto**. Approve by clicking 
 
 It can never change its own safety settings, permissions or code access, and it can't read secrets. Web pages, documents, issues and repository files are treated as data, never as instructions. Found a security problem? Please report it privately: [SECURITY.md](SECURITY.md).
 
+## Disclaimer
+
+Siren Assistant is free, open-source software under the [MIT License](LICENSE), provided **"as is", without warranty of any kind**. To the maximum extent permitted by law, the authors and contributors are not liable for any damage, data loss, costs or other harm arising from using it, including actions the agent takes on your behalf, mistakes in what the AI says, changes it makes to itself, charges from services you connect, and security problems.
+
+The app is built to be careful (approvals, sandboxing, encrypted secrets, paired devices with revocable tokens; see [Safety and permissions](#safety-and-permissions)), but no software is perfectly secure. You are responsible for how you configure it, what you approve, which services and devices you connect, and keeping your computer and phone locked and up to date. Don't use it where a failure could hurt someone or cause serious loss. The full text, with what data goes where, is in [PRIVACY.md](PRIVACY.md); you accept it in the setup wizard.
+
 ## Self-improvement and recovery
 
 Ask for a feature and it calls `self_change_plan`; after your approval it edits its code, adds tests for new logic, runs `npm run check` (syntax and cross-file integrity) and `npm test`, reviews its own diff and commits the change; a change that fails a check or a test is not recorded. You're offered **Reload** or **Restart**, and once the change is live the app checks that it started cleanly. If a change ever stops the app from starting:
