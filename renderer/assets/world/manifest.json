@@ -17,6 +17,21 @@
    },
    "w": 465
   },
+  "archive-1b": {
+   "ax": 251.6,
+   "ay": 293.7,
+   "footprint": [
+    2.8,
+    3.6
+   ],
+   "h": 419,
+   "variants": {
+    "glow": "archive-1b.glow.webp",
+    "summer": "archive-1b.summer.webp",
+    "winter": "archive-1b.winter.webp"
+   },
+   "w": 465
+  },
   "archive-2": {
    "ax": 227.8,
    "ay": 300.9,
@@ -32,6 +47,21 @@
    },
    "w": 465
   },
+  "archive-2b": {
+   "ax": 251.6,
+   "ay": 293.7,
+   "footprint": [
+    2.8,
+    3.6
+   ],
+   "h": 419,
+   "variants": {
+    "glow": "archive-2b.glow.webp",
+    "summer": "archive-2b.summer.webp",
+    "winter": "archive-2b.winter.webp"
+   },
+   "w": 465
+  },
   "archive-3": {
    "ax": 227.8,
    "ay": 389.0,
@@ -44,6 +74,21 @@
     "glow": "archive-3.glow.webp",
     "summer": "archive-3.summer.webp",
     "winter": "archive-3.winter.webp"
+   },
+   "w": 465
+  },
+  "archive-3b": {
+   "ax": 251.6,
+   "ay": 381.8,
+   "footprint": [
+    2.8,
+    3.6
+   ],
+   "h": 507,
+   "variants": {
+    "glow": "archive-3b.glow.webp",
+    "summer": "archive-3b.summer.webp",
+    "winter": "archive-3b.winter.webp"
    },
    "w": 465
   },
@@ -68,6 +113,27 @@
    },
    "w": 442
   },
+  "cafe-1b": {
+   "ax": 223.0,
+   "ay": 293.8,
+   "footprint": [
+    2.6,
+    3.2
+   ],
+   "h": 411,
+   "points": {
+    "smoke": [
+     309.4,
+     57.8
+    ]
+   },
+   "variants": {
+    "glow": "cafe-1b.glow.webp",
+    "summer": "cafe-1b.summer.webp",
+    "winter": "cafe-1b.winter.webp"
+   },
+   "w": 449
+  },
   "cafe-2": {
    "ax": 211.7,
    "ay": 385.8,
@@ -88,6 +154,27 @@
     "winter": "cafe-2.winter.webp"
    },
    "w": 442
+  },
+  "cafe-2b": {
+   "ax": 223.0,
+   "ay": 381.9,
+   "footprint": [
+    2.6,
+    3.2
+   ],
+   "h": 499,
+   "points": {
+    "smoke": [
+     309.4,
+     57.7
+    ]
+   },
+   "variants": {
+    "glow": "cafe-2b.glow.webp",
+    "summer": "cafe-2b.summer.webp",
+    "winter": "cafe-2b.winter.webp"
+   },
+   "w": 449
   },
   "cafe-3": {
    "ax": 211.7,
@@ -110,6 +197,27 @@
    },
    "w": 478
   },
+  "cafe-3b": {
+   "ax": 223.0,
+   "ay": 381.9,
+   "footprint": [
+    2.6,
+    3.2
+   ],
+   "h": 499,
+   "points": {
+    "smoke": [
+     309.4,
+     57.7
+    ]
+   },
+   "variants": {
+    "glow": "cafe-3b.glow.webp",
+    "summer": "cafe-3b.summer.webp",
+    "winter": "cafe-3b.winter.webp"
+   },
+   "w": 449
+  },
   "construction": {
    "ax": 171.4,
    "ay": 195.4,
@@ -123,6 +231,71 @@
     "winter": "construction.winter.webp"
    },
    "w": 289
+  },
+  "crop-carrot-0": {
+   "ax": 33.0,
+   "ay": 70.9,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 96,
+   "variants": {
+    "summer": "crop-carrot-0.summer.webp"
+   },
+   "w": 66
+  },
+  "crop-corn-0": {
+   "ax": 34.0,
+   "ay": 125.2,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 149,
+   "variants": {
+    "summer": "crop-corn-0.summer.webp"
+   },
+   "w": 68
+  },
+  "crop-leafs-0": {
+   "ax": 36.5,
+   "ay": 77.9,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 105,
+   "variants": {
+    "summer": "crop-leafs-0.summer.webp"
+   },
+   "w": 73
+  },
+  "crop-pumpkin-0": {
+   "ax": 40.5,
+   "ay": 49.3,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 78,
+   "variants": {
+    "summer": "crop-pumpkin-0.summer.webp"
+   },
+   "w": 81
+  },
+  "crop-wheat-0": {
+   "ax": 44.0,
+   "ay": 68.7,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 99,
+   "variants": {
+    "summer": "crop-wheat-0.summer.webp"
+   },
+   "w": 88
   },
   "garden-1": {
    "ax": 181.0,
@@ -203,10 +376,33 @@
    },
    "variants": {
     "glow": "hearth-1.glow.webp",
+    "roofmask": "hearth-1.roofmask.webp",
     "summer": "hearth-1.summer.webp",
     "winter": "hearth-1.winter.webp"
    },
    "w": 417
+  },
+  "hearth-1b": {
+   "ax": 233.2,
+   "ay": 286.4,
+   "footprint": [
+    3.4,
+    3.8
+   ],
+   "h": 389,
+   "points": {
+    "smoke": [
+     377.2,
+     57.6
+    ]
+   },
+   "variants": {
+    "glow": "hearth-1b.glow.webp",
+    "roofmask": "hearth-1b.roofmask.webp",
+    "summer": "hearth-1b.summer.webp",
+    "winter": "hearth-1b.winter.webp"
+   },
+   "w": 485
   },
   "hearth-2": {
    "ax": 273.5,
@@ -228,10 +424,37 @@
    },
    "variants": {
     "glow": "hearth-2.glow.webp",
+    "roofmask": "hearth-2.roofmask.webp",
     "summer": "hearth-2.summer.webp",
     "winter": "hearth-2.winter.webp"
    },
    "w": 547
+  },
+  "hearth-2b": {
+   "ax": 288.0,
+   "ay": 298.2,
+   "footprint": [
+    3.4,
+    3.8
+   ],
+   "h": 401,
+   "points": {
+    "smoke": [
+     432.0,
+     69.4
+    ],
+    "smoke2": [
+     165.6,
+     20.8
+    ]
+   },
+   "variants": {
+    "glow": "hearth-2b.glow.webp",
+    "roofmask": "hearth-2b.roofmask.webp",
+    "summer": "hearth-2b.summer.webp",
+    "winter": "hearth-2b.winter.webp"
+   },
+   "w": 540
   },
   "hearth-3": {
    "ax": 273.5,
@@ -257,10 +480,163 @@
    },
    "variants": {
     "glow": "hearth-3.glow.webp",
+    "roofmask": "hearth-3.roofmask.webp",
     "summer": "hearth-3.summer.webp",
     "winter": "hearth-3.winter.webp"
    },
    "w": 547
+  },
+  "hearth-3b": {
+   "ax": 288.0,
+   "ay": 323.9,
+   "footprint": [
+    3.4,
+    3.8
+   ],
+   "h": 433,
+   "points": {
+    "smoke": [
+     432.0,
+     95.1
+    ],
+    "smoke2": [
+     165.6,
+     46.5
+    ],
+    "smoke3": [
+     259.2,
+     8.7
+    ]
+   },
+   "variants": {
+    "glow": "hearth-3b.glow.webp",
+    "roofmask": "hearth-3b.roofmask.webp",
+    "summer": "hearth-3b.summer.webp",
+    "winter": "hearth-3b.winter.webp"
+   },
+   "w": 540
+  },
+  "home-0": {
+   "ax": 136.5,
+   "ay": 213.8,
+   "footprint": [
+    2.4,
+    2.4
+   ],
+   "h": 306,
+   "variants": {
+    "glow": "home-0.glow.webp",
+    "summer": "home-0.summer.webp",
+    "winter": "home-0.winter.webp"
+   },
+   "w": 273
+  },
+  "home-1": {
+   "ax": 181.3,
+   "ay": 268.6,
+   "footprint": [
+    2.4,
+    2.4
+   ],
+   "h": 349,
+   "variants": {
+    "glow": "home-1.glow.webp",
+    "summer": "home-1.summer.webp",
+    "winter": "home-1.winter.webp"
+   },
+   "w": 354
+  },
+  "home-2": {
+   "ax": 172.5,
+   "ay": 356.7,
+   "footprint": [
+    2.4,
+    2.4
+   ],
+   "h": 463,
+   "variants": {
+    "glow": "home-2.glow.webp",
+    "roofmask": "home-2.roofmask.webp",
+    "summer": "home-2.summer.webp",
+    "winter": "home-2.winter.webp"
+   },
+   "w": 345
+  },
+  "home-3": {
+   "ax": 218.5,
+   "ay": 231.7,
+   "footprint": [
+    2.4,
+    2.4
+   ],
+   "h": 344,
+   "variants": {
+    "glow": "home-3.glow.webp",
+    "summer": "home-3.summer.webp",
+    "winter": "home-3.winter.webp"
+   },
+   "w": 391
+  },
+  "home-4": {
+   "ax": 165.5,
+   "ay": 251.9,
+   "footprint": [
+    2.4,
+    2.4
+   ],
+   "h": 334,
+   "variants": {
+    "glow": "home-4.glow.webp",
+    "summer": "home-4.summer.webp",
+    "winter": "home-4.winter.webp"
+   },
+   "w": 390
+  },
+  "home-5": {
+   "ax": 203.1,
+   "ay": 356.7,
+   "footprint": [
+    2.4,
+    2.4
+   ],
+   "h": 437,
+   "variants": {
+    "glow": "home-5.glow.webp",
+    "summer": "home-5.summer.webp",
+    "winter": "home-5.winter.webp"
+   },
+   "w": 393
+  },
+  "home-6": {
+   "ax": 170.6,
+   "ay": 224.3,
+   "footprint": [
+    2.4,
+    2.4
+   ],
+   "h": 302,
+   "variants": {
+    "glow": "home-6.glow.webp",
+    "summer": "home-6.summer.webp",
+    "winter": "home-6.winter.webp"
+   },
+   "w": 329
+  },
+  "home-7": {
+   "ax": 170.6,
+   "ay": 414.6,
+   "footprint": [
+    2.4,
+    2.4
+   ],
+   "h": 495,
+   "variants": {
+    "glow": "home-7.glow.webp",
+    "roofmask": "home-7.roofmask.webp",
+    "summer": "home-7.summer.webp",
+    "winter": "home-7.winter.webp"
+   },
+   "w": 343
   },
   "library-1": {
    "ax": 172.5,
@@ -278,6 +654,7 @@
    },
    "variants": {
     "glow": "library-1.glow.webp",
+    "roofmask": "library-1.roofmask.webp",
     "summer": "library-1.summer.webp",
     "winter": "library-1.winter.webp"
    },
@@ -299,6 +676,7 @@
    },
    "variants": {
     "glow": "library-2.glow.webp",
+    "roofmask": "library-2.roofmask.webp",
     "summer": "library-2.summer.webp",
     "winter": "library-2.winter.webp"
    },
@@ -320,6 +698,7 @@
    },
    "variants": {
     "glow": "library-3.glow.webp",
+    "roofmask": "library-3.roofmask.webp",
     "summer": "library-3.summer.webp",
     "winter": "library-3.winter.webp"
    },
@@ -404,6 +783,7 @@
    },
    "variants": {
     "glow": "observatory-1.glow.webp",
+    "roofmask": "observatory-1.roofmask.webp",
     "summer": "observatory-1.summer.webp",
     "winter": "observatory-1.winter.webp"
    },
@@ -425,6 +805,7 @@
    },
    "variants": {
     "glow": "observatory-2.glow.webp",
+    "roofmask": "observatory-2.roofmask.webp",
     "summer": "observatory-2.summer.webp",
     "winter": "observatory-2.winter.webp"
    },
@@ -446,6 +827,7 @@
    },
    "variants": {
     "glow": "observatory-3.glow.webp",
+    "roofmask": "observatory-3.roofmask.webp",
     "summer": "observatory-3.summer.webp",
     "winter": "observatory-3.winter.webp"
    },
@@ -478,6 +860,34 @@
     "winter": "prop-bush-1.winter.webp"
    },
    "w": 138
+  },
+  "prop-fence-x": {
+   "ax": 13.5,
+   "ay": 70.5,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 86,
+   "variants": {
+    "summer": "prop-fence-x.summer.webp",
+    "winter": "prop-fence-x.winter.webp"
+   },
+   "w": 94
+  },
+  "prop-fence-y": {
+   "ax": 13.5,
+   "ay": 37.1,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 86,
+   "variants": {
+    "summer": "prop-fence-y.summer.webp",
+    "winter": "prop-fence-y.winter.webp"
+   },
+   "w": 94
   },
   "prop-flowers-0": {
    "ax": 23.0,
@@ -521,6 +931,34 @@
    },
    "w": 53
   },
+  "prop-grass-0": {
+   "ax": 49.2,
+   "ay": 53.3,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 89,
+   "variants": {
+    "summer": "prop-grass-0.summer.webp",
+    "winter": "prop-grass-0.winter.webp"
+   },
+   "w": 99
+  },
+  "prop-grass-1": {
+   "ax": 56.7,
+   "ay": 44.3,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 83,
+   "variants": {
+    "summer": "prop-grass-1.summer.webp",
+    "winter": "prop-grass-1.winter.webp"
+   },
+   "w": 114
+  },
   "prop-lamp-0": {
    "ax": 24.5,
    "ay": 153.6,
@@ -540,6 +978,62 @@
     "winter": "prop-lamp-0.winter.webp"
    },
    "w": 49
+  },
+  "prop-log-0": {
+   "ax": 56.8,
+   "ay": 47.1,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 86,
+   "variants": {
+    "summer": "prop-log-0.summer.webp",
+    "winter": "prop-log-0.winter.webp"
+   },
+   "w": 112
+  },
+  "prop-log-1": {
+   "ax": 88.7,
+   "ay": 93.7,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 146,
+   "variants": {
+    "summer": "prop-log-1.summer.webp",
+    "winter": "prop-log-1.winter.webp"
+   },
+   "w": 173
+  },
+  "prop-mushroom-0": {
+   "ax": 36.4,
+   "ay": 47.1,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 74,
+   "variants": {
+    "summer": "prop-mushroom-0.summer.webp",
+    "winter": "prop-mushroom-0.winter.webp"
+   },
+   "w": 70
+  },
+  "prop-mushroom-1": {
+   "ax": 36.4,
+   "ay": 47.1,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 74,
+   "variants": {
+    "summer": "prop-mushroom-1.summer.webp",
+    "winter": "prop-mushroom-1.winter.webp"
+   },
+   "w": 70
   },
   "prop-rock-0": {
    "ax": 45.0,
@@ -627,6 +1121,7 @@
    },
    "variants": {
     "glow": "stage-1.glow.webp",
+    "roofmask": "stage-1.roofmask.webp",
     "summer": "stage-1.summer.webp",
     "winter": "stage-1.winter.webp"
    },
@@ -648,6 +1143,7 @@
    },
    "variants": {
     "glow": "stage-2.glow.webp",
+    "roofmask": "stage-2.roofmask.webp",
     "summer": "stage-2.summer.webp",
     "winter": "stage-2.winter.webp"
    },
@@ -669,6 +1165,7 @@
    },
    "variants": {
     "glow": "stage-3.glow.webp",
+    "roofmask": "stage-3.roofmask.webp",
     "summer": "stage-3.summer.webp",
     "winter": "stage-3.winter.webp"
    },
@@ -703,6 +1200,21 @@
     "winter": "tree-birch-1.winter.webp"
    },
    "w": 116
+  },
+  "tree-birch-2": {
+   "ax": 52.5,
+   "ay": 179.8,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 217,
+   "variants": {
+    "autumn": "tree-birch-2.autumn.webp",
+    "summer": "tree-birch-2.summer.webp",
+    "winter": "tree-birch-2.winter.webp"
+   },
+   "w": 105
   },
   "tree-oak-0": {
    "ax": 88.0,
@@ -764,6 +1276,36 @@
    },
    "w": 179
   },
+  "tree-oak-4": {
+   "ax": 52.5,
+   "ay": 237.6,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 275,
+   "variants": {
+    "autumn": "tree-oak-4.autumn.webp",
+    "summer": "tree-oak-4.summer.webp",
+    "winter": "tree-oak-4.winter.webp"
+   },
+   "w": 105
+  },
+  "tree-oak-5": {
+   "ax": 79.2,
+   "ay": 215.5,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 266,
+   "variants": {
+    "autumn": "tree-oak-5.autumn.webp",
+    "summer": "tree-oak-5.summer.webp",
+    "winter": "tree-oak-5.winter.webp"
+   },
+   "w": 163
+  },
   "tree-pine-0": {
    "ax": 85.0,
    "ay": 232.3,
@@ -824,6 +1366,401 @@
    },
    "w": 139
   },
+  "tree-pine-4": {
+   "ax": 66.0,
+   "ay": 166.7,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 211,
+   "variants": {
+    "autumn": "tree-pine-4.autumn.webp",
+    "summer": "tree-pine-4.summer.webp",
+    "winter": "tree-pine-4.winter.webp"
+   },
+   "w": 132
+  },
+  "tree-pine-5": {
+   "ax": 69.5,
+   "ay": 209.0,
+   "footprint": [
+    1,
+    1
+   ],
+   "h": 255,
+   "variants": {
+    "autumn": "tree-pine-5.autumn.webp",
+    "summer": "tree-pine-5.summer.webp",
+    "winter": "tree-pine-5.winter.webp"
+   },
+   "w": 139
+  },
+  "watermill": {
+   "ax": 172.5,
+   "ay": 268.6,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 349,
+   "variants": {
+    "glow": "watermill.glow.webp",
+    "summer": "watermill.summer.webp",
+    "winter": "watermill.winter.webp"
+   },
+   "w": 345
+  },
+  "watermill-wheel-0": {
+   "ax": 204.6,
+   "ay": 164.5,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 271,
+   "variants": {
+    "summer": "watermill-wheel-0.summer.webp",
+    "winter": "watermill-wheel-0.winter.webp"
+   },
+   "w": 213
+  },
+  "watermill-wheel-1": {
+   "ax": 208.6,
+   "ay": 161.0,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 264,
+   "variants": {
+    "summer": "watermill-wheel-1.summer.webp",
+    "winter": "watermill-wheel-1.winter.webp"
+   },
+   "w": 217
+  },
+  "watermill-wheel-10": {
+   "ax": 230.8,
+   "ay": 158.0,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 258,
+   "variants": {
+    "summer": "watermill-wheel-10.summer.webp",
+    "winter": "watermill-wheel-10.winter.webp"
+   },
+   "w": 260
+  },
+  "watermill-wheel-11": {
+   "ax": 231.3,
+   "ay": 161.5,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 265,
+   "variants": {
+    "summer": "watermill-wheel-11.summer.webp",
+    "winter": "watermill-wheel-11.winter.webp"
+   },
+   "w": 261
+  },
+  "watermill-wheel-2": {
+   "ax": 212.3,
+   "ay": 157.5,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 257,
+   "variants": {
+    "summer": "watermill-wheel-2.summer.webp",
+    "winter": "watermill-wheel-2.winter.webp"
+   },
+   "w": 223
+  },
+  "watermill-wheel-3": {
+   "ax": 215.8,
+   "ay": 153.0,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 248,
+   "variants": {
+    "summer": "watermill-wheel-3.summer.webp",
+    "winter": "watermill-wheel-3.winter.webp"
+   },
+   "w": 230
+  },
+  "watermill-wheel-4": {
+   "ax": 219.3,
+   "ay": 148.5,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 239,
+   "variants": {
+    "summer": "watermill-wheel-4.summer.webp",
+    "winter": "watermill-wheel-4.winter.webp"
+   },
+   "w": 237
+  },
+  "watermill-wheel-5": {
+   "ax": 221.8,
+   "ay": 143.5,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 229,
+   "variants": {
+    "summer": "watermill-wheel-5.summer.webp",
+    "winter": "watermill-wheel-5.winter.webp"
+   },
+   "w": 242
+  },
+  "watermill-wheel-6": {
+   "ax": 224.3,
+   "ay": 139.0,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 220,
+   "variants": {
+    "summer": "watermill-wheel-6.summer.webp",
+    "winter": "watermill-wheel-6.winter.webp"
+   },
+   "w": 247
+  },
+  "watermill-wheel-7": {
+   "ax": 226.3,
+   "ay": 144.0,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 230,
+   "variants": {
+    "summer": "watermill-wheel-7.summer.webp",
+    "winter": "watermill-wheel-7.winter.webp"
+   },
+   "w": 251
+  },
+  "watermill-wheel-8": {
+   "ax": 228.3,
+   "ay": 149.0,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 240,
+   "variants": {
+    "summer": "watermill-wheel-8.summer.webp",
+    "winter": "watermill-wheel-8.winter.webp"
+   },
+   "w": 255
+  },
+  "watermill-wheel-9": {
+   "ax": 229.8,
+   "ay": 154.0,
+   "footprint": [
+    2.6,
+    2.4
+   ],
+   "h": 250,
+   "variants": {
+    "summer": "watermill-wheel-9.summer.webp",
+    "winter": "watermill-wheel-9.winter.webp"
+   },
+   "w": 258
+  },
+  "windmill": {
+   "ax": 145.0,
+   "ay": 358.8,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 421,
+   "variants": {
+    "summer": "windmill.summer.webp",
+    "winter": "windmill.winter.webp"
+   },
+   "w": 290
+  },
+  "windmill-blades-0": {
+   "ax": 183.5,
+   "ay": 314.8,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 340,
+   "variants": {
+    "summer": "windmill-blades-0.summer.webp",
+    "winter": "windmill-blades-0.winter.webp"
+   },
+   "w": 223
+  },
+  "windmill-blades-1": {
+   "ax": 194.5,
+   "ay": 304.8,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 320,
+   "variants": {
+    "summer": "windmill-blades-1.summer.webp",
+    "winter": "windmill-blades-1.winter.webp"
+   },
+   "w": 245
+  },
+  "windmill-blades-10": {
+   "ax": 204.0,
+   "ay": 326.3,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 363,
+   "variants": {
+    "summer": "windmill-blades-10.summer.webp",
+    "winter": "windmill-blades-10.winter.webp"
+   },
+   "w": 264
+  },
+  "windmill-blades-11": {
+   "ax": 194.5,
+   "ay": 321.8,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 354,
+   "variants": {
+    "summer": "windmill-blades-11.summer.webp",
+    "winter": "windmill-blades-11.winter.webp"
+   },
+   "w": 245
+  },
+  "windmill-blades-2": {
+   "ax": 204.0,
+   "ay": 292.6,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 301,
+   "variants": {
+    "summer": "windmill-blades-2.summer.webp",
+    "winter": "windmill-blades-2.winter.webp"
+   },
+   "w": 264
+  },
+  "windmill-blades-3": {
+   "ax": 211.0,
+   "ay": 279.4,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 288,
+   "variants": {
+    "summer": "windmill-blades-3.summer.webp",
+    "winter": "windmill-blades-3.winter.webp"
+   },
+   "w": 278
+  },
+  "windmill-blades-4": {
+   "ax": 216.5,
+   "ay": 293.6,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 302,
+   "variants": {
+    "summer": "windmill-blades-4.summer.webp",
+    "winter": "windmill-blades-4.winter.webp"
+   },
+   "w": 289
+  },
+  "windmill-blades-5": {
+   "ax": 219.5,
+   "ay": 305.8,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 322,
+   "variants": {
+    "summer": "windmill-blades-5.summer.webp",
+    "winter": "windmill-blades-5.winter.webp"
+   },
+   "w": 295
+  },
+  "windmill-blades-6": {
+   "ax": 221.0,
+   "ay": 315.3,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 341,
+   "variants": {
+    "summer": "windmill-blades-6.summer.webp",
+    "winter": "windmill-blades-6.winter.webp"
+   },
+   "w": 298
+  },
+  "windmill-blades-7": {
+   "ax": 219.5,
+   "ay": 322.3,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 355,
+   "variants": {
+    "summer": "windmill-blades-7.summer.webp",
+    "winter": "windmill-blades-7.winter.webp"
+   },
+   "w": 295
+  },
+  "windmill-blades-8": {
+   "ax": 216.5,
+   "ay": 326.3,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 363,
+   "variants": {
+    "summer": "windmill-blades-8.summer.webp",
+    "winter": "windmill-blades-8.winter.webp"
+   },
+   "w": 289
+  },
+  "windmill-blades-9": {
+   "ax": 211.0,
+   "ay": 327.8,
+   "footprint": [
+    1.8,
+    1.8
+   ],
+   "h": 366,
+   "variants": {
+    "summer": "windmill-blades-9.summer.webp",
+    "winter": "windmill-blades-9.winter.webp"
+   },
+   "w": 278
+  },
   "workshop-1": {
    "ax": 172.5,
    "ay": 282.8,
@@ -848,6 +1785,31 @@
     "winter": "workshop-1.winter.webp"
    },
    "w": 345
+  },
+  "workshop-1b": {
+   "ax": 211.5,
+   "ay": 283.0,
+   "footprint": [
+    2.6,
+    3
+   ],
+   "h": 399,
+   "points": {
+    "forge": [
+     153.9,
+     266.6
+    ],
+    "smoke": [
+     197.1,
+     22.6
+    ]
+   },
+   "variants": {
+    "glow": "workshop-1b.glow.webp",
+    "summer": "workshop-1b.summer.webp",
+    "winter": "workshop-1b.winter.webp"
+   },
+   "w": 384
   },
   "workshop-2": {
    "ax": 172.6,
@@ -874,6 +1836,31 @@
    },
    "w": 410
   },
+  "workshop-2b": {
+   "ax": 211.5,
+   "ay": 283.0,
+   "footprint": [
+    2.6,
+    3
+   ],
+   "h": 399,
+   "points": {
+    "forge": [
+     153.9,
+     266.6
+    ],
+    "smoke": [
+     197.1,
+     22.6
+    ]
+   },
+   "variants": {
+    "glow": "workshop-2b.glow.webp",
+    "summer": "workshop-2b.summer.webp",
+    "winter": "workshop-2b.winter.webp"
+   },
+   "w": 384
+  },
   "workshop-3": {
    "ax": 247.6,
    "ay": 282.8,
@@ -898,6 +1885,31 @@
     "winter": "workshop-3.winter.webp"
    },
    "w": 485
+  },
+  "workshop-3b": {
+   "ax": 211.5,
+   "ay": 283.2,
+   "footprint": [
+    2.6,
+    3
+   ],
+   "h": 406,
+   "points": {
+    "forge": [
+     153.9,
+     266.8
+    ],
+    "smoke": [
+     197.1,
+     22.8
+    ]
+   },
+   "variants": {
+    "glow": "workshop-3b.glow.webp",
+    "summer": "workshop-3b.summer.webp",
+    "winter": "workshop-3b.winter.webp"
+   },
+   "w": 384
   }
  }
 }

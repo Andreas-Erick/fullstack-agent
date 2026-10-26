@@ -47,6 +47,6 @@ snapshot of the levels (start storing them in `innerworld.json` now so there is 
 ## Art direction note
 Built (2026-10-26): the hybrid. Buildings, trees and small things are sprites rendered in Blender from
 Kenney's CC0 kits (`tools/world-art/`); layout, data, animation and interiors stay procedural. Next
-steps for the art: more building variety (two designs per level), crops on the fields (pumpkins in
-autumn), a watermill on the river and a windmill by the fields, recolouring roofs from the persona's
-theme (the generated roofs take any colour), rendered residents.
+steps for the art, done the same day: second designs, homes that fill lots as the village grows,
+crops by season, fences, an animated watermill and windmill, theme-tinted accent roofs (a roofmask
+pass). Still open: rendered residents, bridges and stairs from the kit, more props per season.

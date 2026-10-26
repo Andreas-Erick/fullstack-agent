@@ -69,6 +69,21 @@ test('a river with a waterfall, trees off roads and buildings', () => {
   }
 });
 
+test('house lots and mills stand clear of the places, the river and each other', () => {
+  const map = M.buildMap(places());
+  assert.ok(map.lots.length >= 8, 'room for the village to grow');
+  for (const l of map.lots) {
+    for (const s of Object.values(map.sites)) assert.ok(Math.abs(l.gx - s.gx) >= s.a + 0.5 || Math.abs(l.gy - s.gy) >= s.b + 0.5, `lot clear of ${s.id}`);
+    for (const o of map.lots) if (o !== l) assert.ok(Math.hypot(o.gx - l.gx, o.gy - l.gy) >= 3, 'lots apart');
+    assert.ok(l.design >= 0 && l.design < 8);
+  }
+  assert.ok(map.mills.water, 'a watermill by the river');
+  const w = map.mills.water;
+  assert.ok([[w.gx, w.gy + 1], [w.gx, w.gy + 2], [w.gx - 1, w.gy + 2]].some(([x, y]) => map.tile(x, y) === M.T.WATER), 'its wheel reaches the water');
+  assert.ok(map.mills.wind, 'a windmill');
+  assert.ok(map.fields.length >= 2, 'fields');
+});
+
 test('the same places give the same island', () => {
   const a = M.buildMap(places());
   const b = M.buildMap(places());
