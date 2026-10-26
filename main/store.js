@@ -318,8 +318,12 @@ async function readJson(file, fallback, { onCorrupt } = {}) {
 const writeQueues = new Map();
 
 function writeJsonAtomic(file, data) {
-  const text = JSON.stringify(data, null, 2); // snapshot now; later changes to data don't leak in
-  const next = (writeQueues.get(file) || Promise.resolve()).catch(() => {}).then(() => writeNow(file, text));
+  return writeTextAtomic(file, JSON.stringify(data, null, 2)); // snapshot now; later changes to data don't leak in
+}
+
+/** The same for text (vault notes): queued per file, temp file + rename, retried while Windows locks it. */
+function writeTextAtomic(file, text) {
+  const next = (writeQueues.get(file) || Promise.resolve()).catch(() => {}).then(() => writeNow(file, String(text)));
   writeQueues.set(file, next);
   next.then(
     () => writeQueues.get(file) === next && writeQueues.delete(file),
@@ -464,24 +468,56 @@ function safeConvId(id) {
   return id;
 }
 
+// The conversation index (conversations/index.json): one small summary per conversation, kept up to date
+// on every save and delete, so listing conversations (the sidebar, the journal every minute) never has to
+// open them all. Reconciled with the folder's file names when first loaded: files it doesn't know are read
+// once, entries whose file is gone are dropped.
+const INDEX = 'index.json';
+let convIndex = null; // Map id → summary
+let indexLoad = null;
+let indexTimer = null;
+
+const summarize = (c) => ({
+  id: c.id,
+  title: c.title,
+  createdAt: c.createdAt,
+  updatedAt: c.updatedAt,
+  count: c.messages?.length || 0,
+  journaledUpTo: c.journaledUpTo || 0,
+  ...(c.setup ? { setup: true } : {}),
+});
+
+function loadIndex() {
+  indexLoad ||= (async () => {
+    await fsp.mkdir(convDir(), { recursive: true });
+    const saved = await readJson(path.join(convDir(), INDEX), null);
+    const map = new Map((Array.isArray(saved?.items) ? saved.items : []).filter((x) => x && typeof x.id === 'string').map((x) => [x.id, x]));
+    const ids = new Set((await fsp.readdir(convDir())).filter((n) => n.endsWith('.json') && n !== INDEX).map((n) => n.slice(0, -5)));
+    let changed = false;
+    for (const id of map.keys()) if (!ids.has(id)) (map.delete(id), (changed = true));
+    for (const id of ids) {
+      if (map.has(id)) continue;
+      const c = await readJson(path.join(convDir(), `${id}.json`), null);
+      if (c?.id) (map.set(c.id, summarize(c)), (changed = true));
+    }
+    convIndex = map;
+    if (changed) saveIndexSoon();
+    return map;
+  })();
+  return indexLoad;
+}
+
+function saveIndexSoon() {
+  clearTimeout(indexTimer);
+  indexTimer = setTimeout(() => {
+    if (convIndex) writeJsonAtomic(path.join(convDir(), INDEX), { version: 1, items: [...convIndex.values()] }).catch(() => {});
+  }, 500);
+  indexTimer.unref?.();
+}
+
 async function listConversations() {
-  await fsp.mkdir(convDir(), { recursive: true });
-  const files = (await fsp.readdir(convDir())).filter((f) => f.endsWith('.json'));
-  const items = await Promise.all(
-    files.map(async (f) => {
-      const c = await readJson(path.join(convDir(), f), null);
-      if (!c) return null;
-      return {
-        id: c.id,
-        title: c.title,
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-        count: c.messages?.length || 0,
-        ...(c.setup ? { setup: true } : {}),
-      };
-    }),
-  );
-  return items.filter(Boolean).sort((a, b) => b.updatedAt - a.updatedAt);
+  const map = await loadIndex();
+  return [...map.values()].map((x) => ({ ...x })).sort((a, b) => b.updatedAt - a.updatedAt); // copies: callers may change them
 }
 
 async function getConversation(id) {
@@ -491,6 +527,8 @@ async function getConversation(id) {
 async function saveConversation(conv, { touch = true } = {}) {
   if (touch) conv.updatedAt = Date.now();
   await writeJsonAtomic(path.join(convDir(), `${safeConvId(conv.id)}.json`), conv);
+  (await loadIndex()).set(conv.id, summarize(conv));
+  saveIndexSoon();
   return conv;
 }
 
@@ -501,6 +539,8 @@ async function createConversation(title = 'New conversation') {
 
 async function deleteConversation(id) {
   await fsp.rm(path.join(convDir(), `${safeConvId(id)}.json`), { force: true });
+  (await loadIndex()).delete(id);
+  saveIndexSoon();
 }
 
 async function renameConversation(id, title) {
@@ -511,7 +551,10 @@ async function renameConversation(id, title) {
 }
 
 async function clearConversations() {
+  clearTimeout(indexTimer);
   await fsp.rm(convDir(), { recursive: true, force: true });
+  convIndex = null;
+  indexLoad = null;
 }
 
 async function exportConversations() {
@@ -538,6 +581,7 @@ module.exports = {
   newId,
   readJson,
   writeJsonAtomic,
+  writeTextAtomic,
   settingsRecovery: () => settingsRecovered,
   SECRET_FIELDS,
   sweepStaleTemp,

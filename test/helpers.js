@@ -42,6 +42,7 @@ function fileStore(dir, extra = {}) {
       }
     },
     writeJsonAtomic: async (f, v) => fs.writeFileSync(f, JSON.stringify(v)),
+    writeTextAtomic: async (f, t) => (fs.mkdirSync(path.dirname(f), { recursive: true }), fs.writeFileSync(f, String(t))),
     newId: (p) => `${p}_${Math.random().toString(36).slice(2, 10)}`,
     ...extra,
   };

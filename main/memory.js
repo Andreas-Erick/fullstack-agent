@@ -136,7 +136,7 @@ async function save({ title, content, category }) {
     updated: now,
     content: String(content),
   };
-  await fsp.writeFile(path.join(dir, `${id}.md`), serialize(entry), 'utf8');
+  await store.writeTextAtomic(path.join(dir, `${id}.md`), serialize(entry));
   notify(path.join(dir, `${id}.md`), `memory: save ${entry.title}`);
   return entry;
 }
@@ -148,7 +148,7 @@ async function update(id, patch) {
   for (const k of ['title', 'content', 'category']) if (patch[k] != null && patch[k] !== '') entry[k] = String(patch[k]);
   entry.updated = Date.now();
   const dir = await vaultDir();
-  await fsp.writeFile(path.join(dir, `${id}.md`), serialize(entry), 'utf8');
+  await store.writeTextAtomic(path.join(dir, `${id}.md`), serialize(entry));
   notify(path.join(dir, `${id}.md`), `memory: update ${entry.title}`);
   return entry;
 }
