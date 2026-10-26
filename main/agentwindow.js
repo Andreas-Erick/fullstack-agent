@@ -1,6 +1,7 @@
 // The agent window: a browser window the agent controls (tools browser_* and globe_open) and the user
-// can use too, for websites and the God's Eye View globe. Nexus draws the toolbar (renderer/
-// agentwindow.html: address, back/forward, who is browsing); the page sits below it in a view of its own
+// can use too, for websites and the God's Eye View globe. Nexus draws the toolbar and the frame around
+// the page (renderer/agentwindow.html: address, back/forward, who is browsing); the page sits inside the
+// frame in a view of its own
 // with no preload, no access to the app, its own session (persist:agentwindow, so the user can sign in
 // to sites there), no camera/microphone/location/notifications and no downloads. Only websites open:
 // nothing on this computer or the local network except the globe's local server (agentwindowcore.js).
@@ -10,7 +11,9 @@ const { BrowserWindow, WebContentsView, session, screen } = require('electron');
 const core = require('./agentwindowcore');
 const log = require('./logger');
 
-const BAR = 44; // the toolbar's height in renderer/agentwindow.html
+const BAR = 46; // the toolbar's height in renderer/agentwindow.html (.aw-bar)
+const INSET = 6; // the page sits this far inside the window, so the frame drawn around it shows (.aw-frame)
+const RADIUS = 10;
 const PARTITION = 'persist:agentwindow';
 const HOME = 'https://duckduckgo.com/';
 
@@ -89,7 +92,9 @@ function prepareSession() {
 function layout() {
   if (!alive()) return;
   const [width, height] = win.getContentSize();
-  view.setBounds({ x: 0, y: BAR, width, height: Math.max(0, height - BAR) });
+  // Full screen: the page fills the screen below the bar, without the frame.
+  const m = win.isFullScreen() ? 0 : INSET;
+  view.setBounds({ x: m, y: BAR + m, width: Math.max(0, width - 2 * m), height: Math.max(0, height - BAR - 2 * m) });
 }
 
 function create() {
@@ -118,6 +123,7 @@ function create() {
 
   view = new WebContentsView({ webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, spellcheck: true } });
   view.setBackgroundColor('#ffffff');
+  view.setBorderRadius?.(RADIUS);
   win.contentView.addChildView(view);
   const wc = view.webContents;
   const guardNav = (e, url) => {

@@ -3,8 +3,11 @@
 // connection) on click. The speed test (main/netspeed.js) runs only when the user clicks "Measure".
 // For the user only: none of this goes to the assistant. Sampling runs only while the meter is on and
 // the window is visible; Bluetooth is checked only while the panel is open.
-import { $, api, el, on } from './util.js';
+import { $, api, el, on, toastError } from './util.js';
 import { state } from './state.js';
+import { switchView } from './nav.js';
+import { speechStatus, unloadSpeech, offlineVoiceStatus, unloadOfflineVoice } from './voice.js';
+import { profile } from './perfcore.js';
 
 let stats = null;
 let watching = false;
@@ -12,6 +15,7 @@ let bt = undefined; // undefined = not checked yet, null = not available, else {
 let net = { adapter: null, lastSpeed: null, measuring: false };
 let speedError = '';
 let extrasTimer = null;
+let usage = null; // what Nexus itself holds (main/resources.js), while the panel is open
 
 export function initSysmon() {
   const pill = $('#pillSys');
@@ -29,6 +33,7 @@ export function initSysmon() {
   window.addEventListener('online', renderIfOpen);
   window.addEventListener('offline', renderIfOpen);
   update();
+  render();
 }
 
 const enabled = () => state.settings?.ui?.showSystemStats !== false;
@@ -64,6 +69,8 @@ function closePanel() {
 }
 
 async function refreshExtras() {
+  // What Nexus uses comes right away; Bluetooth (a PowerShell query) can take a few seconds.
+  api.system.usage().then((u) => ((usage = u), renderIfOpen()), () => {});
   const [b, n] = await Promise.all([api.system.bluetooth().catch(() => null), api.system.network().catch(() => null)]);
   bt = b;
   if (n) net = n;
@@ -93,8 +100,9 @@ function meter(label, pct) {
 const topGpu = () => (stats?.gpus || []).reduce((m, g) => (!m || g.load > m.load ? g : m), null);
 
 function render() {
-  if (!stats) return;
   const pill = $('#pillSys');
+  // Before the first reading: the meters with dashes, not an empty pill.
+  if (!stats) return pill.replaceChildren(meter('CPU', null), meter('RAM', null));
   pill.replaceChildren(meter('CPU', stats.cpu.load), meter('RAM', stats.ram.load), ...(stats.gpus?.length ? [meter('GPU', topGpu().load)] : []));
   pill.title = 'CPU, memory and GPU load (only you see this). Click for details.';
   renderIfOpen();
@@ -133,6 +141,42 @@ function internetSection() {
   return el('div', { class: 'sys-row' }, head, result, el('div', { class: 'sys-speed-foot' }, el('small', {}, speedError || when), button));
 }
 
+// What Nexus itself uses, with a button to free each part that can go (it comes back when needed).
+const shortModel = (m) => String(m || '').split('/').pop().replace(/^whisper-/, 'Whisper ');
+
+function nexusSection() {
+  const u = usage;
+  const sp = speechStatus();
+  const ov = offlineVoiceStatus();
+  const item = (label, detail, action) => el('li', {}, el('span', {}, label), el('em', {}, detail), action || '');
+  const freeing = (text, fn) =>
+    el('button', { class: 'btn small', onclick: async () => {
+      try {
+        await fn();
+      } catch (err) {
+        toastError(err);
+      }
+      setTimeout(refreshExtras, 600); // processes take a moment to exit
+      renderIfOpen();
+    } }, text);
+  const lines = [
+    ...(u?.processes || []).map((p) => item(p.name, `${p.mb} MB`)),
+    item('Speech model', sp.loaded ? `${shortModel(sp.model)}${sp.device ? ` · ${sp.device.split(/[ (·]/)[0]}` : ''}` : sp.on ? 'loads when you talk' : 'off', sp.loaded ? freeing('Unload', unloadSpeech) : null),
+    ov.loaded ? item('Offline voice', ov.device || 'loading', freeing('Unload', unloadOfflineVoice)) : null,
+    u?.claude.live ? item('Claude sessions', `${u.claude.live} live${u.claude.busy ? `, ${u.claude.busy} answering` : ''}`, u.claude.live > u.claude.busy ? freeing('Close idle', () => api.system.free('claude')) : null) : null,
+    u?.agentWindow ? item('Agent window', 'open', freeing('Close', () => api.system.free('agentWindow'))) : null,
+    u?.globe ? item('Globe server', 'running', freeing('Stop', () => api.system.free('globe'))) : null,
+  ];
+  const settings = el('a', { href: '#', onclick: (e) => (e.preventDefault(), closePanel(), switchView('settings', 'ui')) }, 'change');
+  return el(
+    'div',
+    { class: 'sys-row' },
+    el('div', { class: 'sys-head' }, el('b', {}, 'Nexus'), el('span', {}, u ? `${(u.totalMb / 1024).toFixed(1)} GB` : '…')),
+    el('ul', { class: 'sys-list sys-nexus' }, ...lines),
+    el('small', {}, `Performance: ${profile(state.settings) === 'balanced' ? 'Balanced' : 'Full'} · `, settings),
+  );
+}
+
 function renderPanel() {
   const panel = $('#sysPanel');
   if (!stats) return panel.replaceChildren(el('div', { class: 'muted' }, 'Measuring…'));
@@ -151,6 +195,7 @@ function renderPanel() {
     ...gpuRows,
     ...(gpuRows.length ? [] : [el('div', { class: 'sys-row' }, el('small', {}, s.gpuSource === null ? 'GPU: measuring…' : 'GPU load is not available on this computer.'))]),
     s.disk ? row(`Disk ${s.disk.root}`, s.disk.load, `${s.disk.usedGB} / ${s.disk.totalGB} GB used`) : null,
+    nexusSection(),
     bluetoothSection(),
     internetSection(),
     el('p', { class: 'sys-note' }, 'Load updates every 2 seconds; the speed test runs only when you click it (via Cloudflare). Only shown here; never sent to the assistant.'),

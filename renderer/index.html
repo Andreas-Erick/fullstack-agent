@@ -28,22 +28,33 @@
         <div class="brand-avatar" id="brandAvatar"></div>
         <span class="brand-name" id="brandName">NEXUS</span>
         <select class="input persona-select hidden" id="personaSelect" title="Switch persona"></select>
-        <span class="brand-state" id="brandState">idle</span>
+        <span class="brand-status">
+          <span class="state-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="brand-state" id="brandState">idle</span>
+        </span>
       </div>
+      <!-- The HUD clock lands here (js/hud.js) -->
+      <div class="tb-center" id="tbCenter" aria-hidden="true"></div>
       <div class="status-pills">
         <button class="pill screen-pill hidden" id="pillScreen" title="You are sharing your screen with the assistant. Click to stop."><i></i><span>Sharing</span> ✕</button>
         <button class="pill remote-pill hidden" id="pillRemote" title="Remote access is on. Click to turn it off."><i></i><span>Remote</span> ✕</button>
         <button class="pill practice-pill hidden" id="pillPractice" title="Language practice is on: speech recognition and the voice use this language. Click to end it."><i></i><span>Practice</span> ✕</button>
-        <div class="zoom-ctl" id="zoomCtl" title="Zoom (Ctrl + / Ctrl − / Ctrl 0, or Ctrl + mouse wheel)">
-          <button id="zoomOut" aria-label="Zoom out">−</button><button id="zoomReset" aria-label="Reset zoom">100%</button><button id="zoomIn" aria-label="Zoom in">+</button>
+        <div class="tb-group tb-tools">
+          <div class="zoom-ctl" id="zoomCtl" title="Zoom (Ctrl + / Ctrl − / Ctrl 0, or Ctrl + mouse wheel)">
+            <button id="zoomOut" aria-label="Zoom out">−</button><button id="zoomReset" aria-label="Reset zoom">100%</button><button id="zoomIn" aria-label="Zoom in">+</button>
+          </div>
+          <button class="pill aw-pill" id="pillAgentWin" title="Open the agent window: websites and the globe, which the agent can use and you can watch" aria-label="Agent window">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" /></svg>
+          </button>
+          <button class="pill sys-pill hidden" id="pillSys" title="CPU, memory and GPU load"></button>
         </div>
-        <button class="pill aw-pill" id="pillAgentWin" title="Open the agent window: websites and the globe, which the agent can use and you can watch">🌐</button>
-        <button class="pill sys-pill hidden" id="pillSys" title="CPU, memory and GPU load"></button>
         <span class="pill usage-pill hidden" id="pillUsage" title="Claude plan usage"><b class="usage-bar"><b></b></b><span>Claude</span></span>
-        <span class="pill" id="pillLlm" title="AI brain"><i></i>Brain</span>
-        <span class="pill" id="pillVoice" title="VoiceStudio"><i></i>Voice</span>
-        <span class="pill" id="pillCal" title="Calendar"><i></i>Calendar</span>
-        <span class="pill" id="pillKb" title="Obsidian vault"><i></i>Vault</span>
+        <div class="tb-group tb-systems">
+          <span class="pill" id="pillLlm" title="AI brain"><i></i>Brain</span>
+          <span class="pill" id="pillVoice" title="VoiceStudio"><i></i>Voice</span>
+          <span class="pill" id="pillCal" title="Calendar"><i></i>Calendar</span>
+          <span class="pill" id="pillKb" title="Obsidian vault"><i></i>Vault</span>
+        </div>
       </div>
     </header>
 
@@ -78,6 +89,9 @@
         </button>
         <button class="rail-btn" data-view="tree" title="Skill tree — what you are growing">
           <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2" /><circle cx="13" cy="6" r="2" /><circle cx="13" cy="18" r="2" /><circle cx="20" cy="12" r="2" /><path d="M7 11l4-4M7 13l4 4M15 7l3.5 4M15 17l3.5-4" /></svg><span>Tree</span>
+        </button>
+        <button class="rail-btn" data-view="arch" title="Architecture — how Nexus is built, part by part">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="5" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="8.5" y="16" width="7" height="5" rx="1" /><path d="M6.5 8v3.5h11V8M12 11.5V16" /></svg><span>Arch</span>
         </button>
         <button class="rail-btn" data-view="evolution" title="Evolution — changes the agent made to itself (Ctrl+7)">
           <svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="12" r="2" /><path d="M6 7v10M6 12c0-3 3-5 6-5h1a5 5 0 0 1 5 5" /></svg><span>Evolve</span>
@@ -280,6 +294,29 @@
             <svg class="tree-canvas" id="treeCanvas"><g id="treeLayer"></g></svg>
             <div class="tree-empty glass hidden" id="treeEmpty"></div>
             <aside class="tree-detail glass hidden" id="treeDetail"></aside>
+          </div>
+        </section>
+
+        <!-- ============ ARCHITECTURE (map of the app's own code, renderer/js/archmap.js) ============ -->
+        <section class="view" id="view-arch">
+          <div class="arch-head">
+            <h2 class="display">Architecture</h2>
+            <nav class="arch-crumbs" id="archCrumbs" aria-label="Where you are"></nav>
+            <div class="actions">
+              <input class="input search arch-search" id="archSearch" placeholder="Find a part…" list="archFind" spellcheck="false" />
+              <datalist id="archFind"></datalist>
+              <button class="btn" id="archFit" title="Show everything (0)">⤢ Fit</button>
+              <button class="btn" id="archLearn" title="How to read this map, and the design principles behind it (L)">🎓 Learn</button>
+              <button class="btn primary" id="archRebuild" title="Scan the code again and redraw the map">⟳ Rebuild</button>
+            </div>
+          </div>
+          <div class="arch-body">
+            <canvas class="arch-canvas" id="archCanvas" aria-label="Architecture map: scroll to zoom into a part, drag to move, click for details"></canvas>
+            <div class="arch-legend glass" id="archLegend"></div>
+            <canvas class="arch-mini glass" id="archMini" width="200" height="140" title="Overview: click to jump"></canvas>
+            <div class="arch-status" id="archStatus"></div>
+            <div class="arch-tip hidden" id="archTip"></div>
+            <aside class="arch-panel glass hidden" id="archPanel"></aside>
           </div>
         </section>
 

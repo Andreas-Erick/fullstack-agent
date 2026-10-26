@@ -7,25 +7,44 @@
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'"
     />
     <title>Agent window</title>
+    <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/orbitron/500.css" />
+    <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/orbitron/700.css" />
     <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/exo-2/400.css" />
     <link rel="stylesheet" href="app://bundle/node_modules/@fontsource/exo-2/600.css" />
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="hud.css" />
     <script type="module" src="js/agentwindow.js"></script>
   </head>
   <body class="agent-win">
-    <!-- The page itself is a separate view under this bar (main/agentwindow.js); this bar is Nexus. -->
+    <!-- The page itself is a separate view inside the frame below this bar (main/agentwindow.js); the bar and the frame are Nexus. -->
     <header class="aw-bar">
-      <span class="aw-who" id="awWho" title="Who is using this window"><i></i><span>You</span></span>
+      <div class="aw-brand" title="This window belongs to your assistant">
+        <span class="aw-orb"></span><span class="aw-name display" id="awName">NEXUS</span>
+      </div>
       <div class="aw-nav">
-        <button class="tb" id="awBack" title="Back (Alt+Left)" disabled>←</button>
-        <button class="tb" id="awForward" title="Forward (Alt+Right)" disabled>→</button>
-        <button class="tb" id="awReload" title="Reload (F5)">⟳</button>
-        <button class="tb" id="awHome" title="Start page">⌂</button>
+        <button class="aw-btn" id="awBack" title="Back (Alt+Left)" aria-label="Back" disabled>
+          <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg>
+        </button>
+        <button class="aw-btn" id="awForward" title="Forward (Alt+Right)" aria-label="Forward" disabled>
+          <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></svg>
+        </button>
+        <button class="aw-btn" id="awReload" title="Reload (F5)" aria-label="Reload">
+          <svg class="i-reload" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6" /><path d="M20 4v5h-5" /></svg>
+          <svg class="i-stop" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+        <button class="aw-btn" id="awHome" title="Start page" aria-label="Start page">
+          <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7" /><path d="M6 10v10h12V10" /></svg>
+        </button>
       </div>
       <form class="aw-address" id="awForm" autocomplete="off">
-        <input class="input" id="awUrl" spellcheck="false" placeholder="Search or type a web address" aria-label="Address" />
+        <span class="aw-sec" id="awSec"></span>
+        <input class="aw-input" id="awUrl" spellcheck="false" placeholder="Search or type a web address" aria-label="Address" />
+        <span class="aw-pretty" id="awPretty" aria-hidden="true"><b></b><span></span></span>
       </form>
-      <span class="aw-notice" id="awNotice"></span>
+      <span class="aw-who" id="awWho" title="Who is using this window"><i></i><span>You</span></span>
+      <span class="aw-notice" id="awNotice" role="status"></span>
+      <span class="aw-progress" aria-hidden="true"><i></i></span>
     </header>
+    <div class="aw-frame" aria-hidden="true"><b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b></div>
   </body>
 </html>

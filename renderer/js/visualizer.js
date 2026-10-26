@@ -9,7 +9,7 @@
 //   happy     – a burst of pulses and an expanding ring when a reply is done
 //   sleeping  – dim, barely moving, with drifting "z"s
 import { hexToRgb } from './themecore.js';
-import { env } from './faces/env.js';
+import { env, LITE_FRAME_MS } from './faces/env.js';
 import { audio, faceState, paletteFor as themedPalette } from './faces/common.js';
 
 const POLY = { octagon: [8, Math.PI / 8], hexagon: [6, 0], diamond: [4, 0], triangle: [3, -Math.PI / 2] };
@@ -77,7 +77,9 @@ export class CircuitFace {
   resize() {
     const r = this.canvas.getBoundingClientRect();
     if (!r.width || !r.height) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Balanced performance (env.lite): 1× pixel density, a quarter of the pixels on a high-DPI screen.
+    this.lite = env.lite();
+    const dpr = this.lite ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     this.dpr = dpr;
     this.w = r.width;
     this.h = r.height;
@@ -285,6 +287,8 @@ export class CircuitFace {
       this.last = now;
       return;
     }
+    if (env.lite() !== this.lite) this.resize();
+    if (this.lite && now - this.last < LITE_FRAME_MS) return;
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     this.t += dt;
@@ -549,7 +553,7 @@ export class CircuitFace {
     g.fillStyle = rgba(hexToRgb(theme.colors.surface), 0.92);
     g.fill();
     g.shadowColor = rgba(main, 0.9);
-    g.shadowBlur = (18 + this.level * 30) * (0.3 + glow);
+    g.shadowBlur = this.lite ? 0 : (18 + this.level * 30) * (0.3 + glow); // canvas blur is costly
     g.strokeStyle = rgba(main, 0.85);
     g.lineWidth = 1.5;
     g.stroke();
@@ -583,7 +587,7 @@ export class CircuitFace {
       g.textBaseline = 'middle';
       g.fillStyle = this.light ? rgba(main, 0.95) : rgba([255, 255, 255], 0.92);
       g.shadowColor = rgba(main, this.light ? 0.4 : 1);
-      g.shadowBlur = 20 * (0.3 + glow);
+      g.shadowBlur = this.lite ? 0 : 20 * (0.3 + glow);
       g.fillText(this.label, 0, R * 0.04);
       g.shadowBlur = 0;
     }

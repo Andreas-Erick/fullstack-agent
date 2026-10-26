@@ -102,7 +102,7 @@ export class CompanionFace extends BaseFace {
     head.addColorStop(1, rgba(main, 0.05));
     g.fillStyle = head;
     g.shadowColor = rgba(main, 0.7);
-    g.shadowBlur = 30 + this.level * 30;
+    g.shadowBlur = this.lite ? 0 : 30 + this.level * 30;
     roundBlob(g, H, this.t);
     g.fill();
     g.shadowBlur = 0;
@@ -141,7 +141,7 @@ export class CompanionFace extends BaseFace {
         g.scale(1, open);
         g.fillStyle = rgba([255, 255, 255], 0.95);
         g.shadowColor = rgba(main, 0.9);
-        g.shadowBlur = 12;
+        g.shadowBlur = this.lite ? 0 : 12;
         g.beginPath();
         g.ellipse(0, 0, eyeR, eyeR * 1.15, 0, 0, Math.PI * 2);
         g.fill();

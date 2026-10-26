@@ -23,10 +23,12 @@ import { initEvolution, refresh as refreshEvolution } from './evolution.js';
 import { initSkills, refresh as refreshSkills } from './skills.js';
 import { initHabits, refresh as refreshHabits } from './habits.js';
 import { initSkillTree, refresh as refreshSkillTree } from './skilltree.js';
+import { initArchMap, refresh as refreshArchMap } from './archmap.js';
 import { initLayout, applyLayout, setLayout, zoomBy, setZoom, quickNote, toggleAppFullscreen, setFullscreen, isFullscreen } from './layout.js';
 import { applyTheme } from './theme.js';
 import { switchPersona } from './personas.js';
 import { practiceLanguage, languageName } from './practice.js';
+import { initPerf, perfReady, isBalanced } from './perf.js';
 
 // Safety net: an unexpected error anywhere in the UI is logged (repeats at most once a minute)
 // instead of disappearing; the app keeps running.
@@ -76,6 +78,7 @@ async function boot() {
   initSkills();
   initHabits();
   initSkillTree();
+  initArchMap();
   initLayout({ miniFace });
   initApprovals();
   initRemote();
@@ -98,6 +101,7 @@ async function boot() {
     if (name === 'skills') refreshSkills();
     if (name === 'habits') refreshHabits();
     if (name === 'tree') refreshSkillTree();
+    if (name === 'arch') requestAnimationFrame(() => refreshArchMap());
     if (name === 'chat') requestAnimationFrame(() => miniFace.resize());
     if (name === 'face') requestAnimationFrame(() => bigFace.resize());
     if (name !== 'face' && document.body.classList.contains('fullscreen-face')) exitFullscreen();
@@ -153,8 +157,10 @@ async function boot() {
   setInterval(refreshStatus, 60000);
   window.addEventListener('focus', refreshStatus);
 
-  // Warm up the local speech model in the background so the first push-to-talk is fast.
-  setTimeout(() => preloadLocalModel(), 3000);
+  // Check what this computer can take (once, then every 30 days), then warm up the local speech model
+  // so the first push-to-talk is fast. Balanced performance loads it with the first sentence instead.
+  initPerf();
+  perfReady.then(() => setTimeout(() => !isBalanced() && preloadLocalModel(), 3000));
 
   // Alerts turn the face red; vault edits by the agent refresh the open views.
   on('alert', (a) => {

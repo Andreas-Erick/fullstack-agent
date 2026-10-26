@@ -225,6 +225,12 @@ const DEFAULTS = {
     showClaudeUsage: true, // title-bar meter: how much of the Claude plan is left (main/claudeusage.js)
     showSystemStats: true, // title-bar system monitor: CPU, RAM, GPU, disk (main/sysmon.js; never sent to the AI)
   },
+  perf: {
+    mode: 'auto', // auto | balanced | full (renderer/js/perfcore.js, main/perfcore.js); user-only
+    detected: '', // what the hardware check found: '' (not yet) | low | high
+    hw: null, // { ramGB, vramGB, gpu, reason } from that check
+    detectedAt: 0,
+  },
 };
 
 const SECRET_FIELDS = [

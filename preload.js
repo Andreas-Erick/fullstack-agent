@@ -47,12 +47,13 @@ const channels = {
   skilltree: ['view', 'upsert', 'remove'],
   extensions: ['status', 'check', 'install', 'start', 'stop', 'openGlobe'],
   agentWindow: ['state', 'go', 'back', 'forward', 'reload', 'stop', 'home', 'open'],
+  arch: ['get', 'build'],
   routines: ['list', 'save', 'remove', 'run', 'setEnabled'],
   web: ['search'],
   dialog: ['pickFolder', 'pickImage'],
   shell: ['openExternal'],
   mic: ['request'],
-  system: ['watch', 'bluetooth', 'network', 'speedtest'],
+  system: ['watch', 'bluetooth', 'network', 'speedtest', 'usage', 'free'],
   app: ['info'],
 };
 

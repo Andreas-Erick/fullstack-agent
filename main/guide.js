@@ -109,6 +109,22 @@ const FEATURES = [
     status: (s) => (s.agentWindow?.enabled === false ? 'off' : 'on'),
   },
   {
+    id: 'architecture',
+    title: 'How I am built (and how to design software like it)',
+    what: 'The Arch view is a living map of my own code, drawn in the C4 style: zoom from the big picture (you, my processes, the outside services I use) into each part, then its components, its files and the functions inside them. Lines show how the parts talk: calls, IPC through the preload bridge, events, HTTP, processes and files. Click any part for what it does, what it talks to and the design idea behind it; 🎓 Learn explains the map and the principles you can reuse in your own projects. After I change my own code, Rebuild redraws it and marks the new parts.',
+    say: ['"Explain how your Claude Code bridge works"', '"Quiz me on your architecture"', '"Help me design the architecture of my project"'],
+    where: 'Arch view (rail) → 🎓 Learn, ⟳ Rebuild.',
+    status: () => 'always on',
+  },
+  {
+    id: 'performance',
+    title: 'Running well on lighter computers',
+    what: 'I check your computer once (and every 30 days) and pick a profile. Full keeps everything. Balanced, for lighter computers, runs speech recognition on the processor with a smaller model that loads only when you talk and leaves memory after 10 quiet minutes (in-app recognition needs over 1 GB while loaded; cloud recognition avoids that), keeps the effects without motion or blur (and pauses them while the window is in the background), draws faces at 30 frames a second without glow, and keeps at most two Claude sessions alive. The system monitor panel shows what I use right now, with buttons to free each part.',
+    say: ['"Why is the speech model smaller?"', '"How much memory are you using?"'],
+    where: 'Settings → Interface → Performance; click the CPU · RAM meter in the title bar → Nexus.',
+    status: (s) => `${(s.perf?.mode || 'auto') === 'auto' ? 'auto: ' : ''}${require('./perfcore').profile(s) === 'balanced' ? 'Balanced' : 'Full'}`,
+  },
+  {
     id: 'system',
     title: 'Your computer at a glance',
     what: 'The title bar shows CPU, RAM and GPU load; click it for details: processor, memory in GB, each GPU with its VRAM and temperature, the system disk, connected Bluetooth devices, and your internet connection with a speed test you start with a click. Only you see it; I never get these numbers.',

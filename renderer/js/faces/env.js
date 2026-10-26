@@ -13,7 +13,11 @@ export const env = {
   micLevel: () => 0, // 0..1 microphone level while listening
   demo: () => null, // { state, level } during the scripted demo
   onTheme: () => () => {}, // onTheme(fn) → unsubscribe; fn runs when the theme changes
+  lite: () => false, // Balanced performance: draw at 30 fps, 1× pixel density, without glow
 };
+
+// The frame interval when lite (a little under 1/30 s, so a 60 Hz display shows every second frame).
+export const LITE_FRAME_MS = 30;
 
 export function configureFaces(parts) {
   Object.assign(env, parts);

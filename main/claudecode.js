@@ -15,6 +15,7 @@ const approvals = require('./approvals');
 const log = require('./logger');
 const connectors = require('./connectors');
 const claudeUsage = require('./claudeusage');
+const perf = require('./perfcore');
 
 const MCP_SERVER = path.join(__dirname, 'mcp-server.js');
 
@@ -394,6 +395,7 @@ class Session {
 
   resetIdle() {
     clearTimeout(this.idleTimer);
+    this.lastUsed = Date.now();
     const mins = this.spec?.idleMinutes || 20;
     this.idleTimer = setTimeout(() => {
       if (!this.turn || this.turn.settled) this.kill();
@@ -636,7 +638,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
     model,
     effort: cc.effort,
     allowSelfModify: settings.code.allowSelfModify,
-    idleMinutes: cc.idleMinutes,
+    idleMinutes: perf.profile(settings) === 'balanced' ? Math.min(cc.idleMinutes || 20, perf.BALANCED.sessionIdleMin) : cc.idleMinutes,
   };
   // The session restarts only when configuration changes (persona, tools…), not when the vault or
   // memories change (those reach the agent through the per-turn context) and not for a model switch
@@ -678,8 +680,31 @@ async function ensureSession(conv, { settings, configKey, buildPrompt, activeToo
   spec.system = p.stable;
   spec.resume = conv.claudeSessionId || session.sessionId;
   session.memIds = p.memIds;
+  if (perf.profile(settings) === 'balanced') closeExcessSessions(conv.id);
   await session.spawn(spec);
   return session;
+}
+
+// Balanced performance: at most a few live processes; the least recently used idle ones close (they
+// resume their conversation when it is used again).
+function closeExcessSessions(keep) {
+  const list = [...sessions.entries()].map(([id, s]) => ({ id, alive: s.alive(), busy: Boolean(s.turn && !s.turn.settled), lastUsed: s.lastUsed }));
+  for (const id of perf.sessionsToClose(list, perf.BALANCED.sessionCap, keep)) {
+    log.info('claude session closed to save memory', { conversation: id });
+    sessions.get(id)?.kill();
+  }
+}
+
+/** Live sessions (for the system monitor's memory section). */
+function liveSessions() {
+  return [...sessions.values()].filter((s) => s.alive()).map((s) => ({ busy: Boolean(s.turn && !s.turn.settled), pid: s.child?.pid }));
+}
+
+/** Closes the sessions that aren't answering right now (the memory section's "Free" button). */
+function closeIdleSessions() {
+  let n = 0;
+  for (const s of sessions.values()) if (s.alive() && !(s.turn && !s.turn.settled)) (s.kill(), n++);
+  return n;
 }
 
 /**
@@ -772,4 +797,4 @@ async function complete(prompt, { imagePath, model } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, shutdown, complete, sweepStaleTemp };
+module.exports = { changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };

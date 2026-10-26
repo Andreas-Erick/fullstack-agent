@@ -13,6 +13,8 @@ import { scanInto } from './hwscan.js';
 import { qrCanvas } from './qr.js';
 import { switchPersona, createPersona, removePersona } from './personas.js';
 import { LANGUAGE_NAMES } from './practice.js';
+import { detect } from './perf.js';
+import { profile } from './perfcore.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -1468,6 +1470,41 @@ async function healthCard() {
   );
 }
 
+// Performance (perf.js, perfcore.js): the profile, what the hardware check found, and checking again.
+function performanceControls() {
+  const info = el('div', { class: 'hint' });
+  const show = () => {
+    const p = state.settings.perf || {};
+    const hw = p.hw || {};
+    const using = profile(state.settings) === 'balanced' ? 'Balanced' : 'Full';
+    const found = p.detectedAt ? `This computer: ${hw.ramGB ?? '?'} GB of memory${hw.gpu ? `, ${hw.gpu}` : ''}${hw.vramGB ? ` (${hw.vramGB} GB)` : ''}${p.detected === 'low' ? ` — lighter (${hw.reason})` : ''}.` : 'This computer has not been checked yet.';
+    info.textContent = `${found} In use: ${using}.`;
+  };
+  show();
+  const again = el('button', {
+    class: 'btn small',
+    onclick: async () => {
+      again.disabled = true;
+      try {
+        await detect();
+        show();
+        toast(`Checked: ${profile(state.settings) === 'balanced' ? 'Balanced' : 'Full'} performance is in use.`);
+      } catch (err) {
+        toastError(err);
+      } finally {
+        again.disabled = false;
+      }
+    },
+  }, 'Check this computer again');
+  return [
+    select('perf.mode', 'Performance', [['auto', 'Auto — chosen for this computer'], ['full', 'Full — everything, for a strong computer'], ['balanced', 'Balanced — for lighter computers']], {
+      hint: 'Balanced: speech recognition runs on the processor with a smaller model, loads only when you talk and unloads after 10 quiet minutes (in-app recognition needs over 1 GB while loaded, whatever the model; cloud recognition in Voice input avoids that entirely). Effects keep their look without motion or blur and pause while the window is in the background; faces draw at 30 fps without glow; at most two Claude sessions stay alive. Full keeps everything.',
+      onChange: show,
+    }),
+    el('div', { class: 'row' }, info, again),
+  ];
+}
+
 function uiCard() {
   const zoom = el('input', { type: 'range', min: '0.5', max: '2', step: '0.05', value: state.settings.ui.zoom || 1, style: { flex: 1 } });
   const zoomLabel = el('span', { class: 'muted' }, `${Math.round((state.settings.ui.zoom || 1) * 100)}%`);
@@ -1480,6 +1517,7 @@ function uiCard() {
     'Interface',
     'Zoom: Ctrl + / Ctrl − / Ctrl 0, or Ctrl + mouse wheel. Layouts: Ctrl+Shift+1 chat only, 2 side by side, 3 face. F11: full screen.',
     field('Zoom', el('div', { class: 'row' }, zoom, zoomLabel)),
+    ...performanceControls(),
     select('ui.fx', 'Visual effects', [['hud', 'Futuristic — HUD frames, ambient grid, boot sequence, animations'], ['subtle', 'Subtle — HUD frames and readouts, no motion'], ['off', 'Off — the plain look']], { hint: 'Follows the theme colors. With “reduce motion” on in your system, animations stay off.' }),
     select('ui.chatLayout', 'Chat layout', [['chat', 'Chat only (full width)'], ['split', 'Chat and face side by side'], ['face', 'Face full size, chat underneath']], { onChange: () => emit('layout') }),
     toggle('ui.captions', 'Show captions on the face'),

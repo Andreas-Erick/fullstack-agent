@@ -138,17 +138,67 @@
 }
 .fx-hud .titlebar::after { animation: hud-scan-x 6s linear infinite; }
 @keyframes hud-scan-x { from { transform: translateX(-220px); } to { transform: translateX(100vw); } }
+/* The clock sits in the middle of the bar between brackets: date · time · uptime. */
 .hud-clock { display: none; }
 :is(.fx-hud, .fx-subtle) .hud-clock {
+  position: relative;
   display: inline-flex;
-  gap: 10px;
+  align-items: center;
+  gap: 14px;
+  height: 26px;
+  padding: 0 16px;
   font-family: var(--hud-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
+  font-size: 10px;
+  letter-spacing: 0.16em;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-:is(.fx-hud, .fx-subtle) .hud-clock b { font-weight: 400; color: rgb(var(--c1-soft)); }
+:is(.fx-hud, .fx-subtle) .hud-clock::before,
+:is(.fx-hud, .fx-subtle) .hud-clock::after { content: ''; position: absolute; top: 3px; bottom: 3px; width: 6px; border: 1px solid rgba(var(--c1), 0.6); }
+:is(.fx-hud, .fx-subtle) .hud-clock::before { left: 0; border-right: 0; }
+:is(.fx-hud, .fx-subtle) .hud-clock::after { right: 0; border-left: 0; }
+:is(.fx-hud, .fx-subtle) .hud-clock i { font-style: normal; }
+:is(.fx-hud, .fx-subtle) .hud-clock b { font-size: 14px; font-weight: 400; letter-spacing: 0.14em; color: rgb(var(--c1-soft)); text-shadow: 0 0 10px rgba(var(--c1), 0.6); }
+/* Narrower windows: first the date and uptime go, then the clock. */
+@container (max-width: 300px) { .hud-clock :is(i, span) { display: none; } }
+@container (max-width: 130px) { .hud-clock { display: none !important; } }
+
+/* The state capsule: its equalizer moves with what the agent does (transform only). */
+:is(.fx-hud, .fx-subtle) .brand-status .brand-state::before { display: none; }
+:is(.fx-hud, .fx-subtle) :is(.brand-status, .tb-group) { border-radius: 6px; }
+.fx-subtle:not([data-agent='idle']):not([data-agent='sleeping']) .state-wave i:nth-child(odd) { transform: scaleY(0.7); }
+.fx-hud .state-wave i { animation: hud-eq-idle 2.6s ease-in-out infinite alternate; }
+.fx-hud[data-agent='listening'] .state-wave i { animation: hud-eq 0.8s ease-in-out infinite alternate; }
+.fx-hud[data-agent='speaking'] .state-wave i { animation: hud-eq 0.38s ease-in-out infinite alternate; }
+.fx-hud:is([data-agent='thinking'], [data-agent='working']) .state-wave i { animation: hud-eq-scan 1s ease-in-out infinite; }
+.fx-hud[data-agent='sleeping'] .state-wave i { animation: none; }
+.fx-hud .state-wave i:nth-child(1) { animation-delay: -0.1s; }
+.fx-hud .state-wave i:nth-child(2) { animation-delay: -0.55s; }
+.fx-hud .state-wave i:nth-child(3) { animation-delay: -0.25s; }
+.fx-hud .state-wave i:nth-child(4) { animation-delay: -0.75s; }
+.fx-hud .state-wave i:nth-child(5) { animation-delay: -0.4s; }
+.fx-hud:is([data-agent='thinking'], [data-agent='working']) .state-wave i:nth-child(n) { animation-delay: calc(var(--n, 0) * 0.12s); }
+.fx-hud .state-wave i:nth-child(2) { --n: 1; }
+.fx-hud .state-wave i:nth-child(3) { --n: 2; }
+.fx-hud .state-wave i:nth-child(4) { --n: 3; }
+.fx-hud .state-wave i:nth-child(5) { --n: 4; }
+@keyframes hud-eq-idle { from { transform: scaleY(0.2); } to { transform: scaleY(0.45); } }
+@keyframes hud-eq { from { transform: scaleY(0.25); } to { transform: scaleY(1); } }
+@keyframes hud-eq-scan { 0%, 100% { transform: scaleY(0.25); } 30% { transform: scaleY(1); } 60% { transform: scaleY(0.25); } }
+
+/* Tool and connection groups: a lit top edge, a "LINK" label, connection lights that breathe. */
+:is(.fx-hud, .fx-subtle) .tb-group { position: relative; box-shadow: inset 0 1px 0 rgba(var(--c1), 0.1); }
+:is(.fx-hud, .fx-subtle) .tb-group::after { content: ''; position: absolute; left: 20%; right: 20%; top: -1px; height: 1px; background: linear-gradient(90deg, transparent, rgba(var(--c1), 0.7), transparent); pointer-events: none; }
+:is(.fx-hud, .fx-subtle) .tb-systems::before { content: 'LINK'; padding: 0 4px 0 8px; font-family: var(--hud-mono); font-size: 9px; letter-spacing: 0.22em; color: rgba(var(--c1), 0.6); }
+:is(.fx-hud, .fx-subtle) .tb-group .pill { border-radius: 4px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+:is(.fx-hud, .fx-subtle) .tb-group .zoom-ctl { border-radius: 4px; font-family: var(--hud-mono); }
+.fx-hud .tb-systems .pill.ok i { animation: hud-led 3.2s ease-in-out infinite; }
+.fx-hud .tb-systems .pill:nth-child(2) i { animation-delay: -0.8s; }
+.fx-hud .tb-systems .pill:nth-child(3) i { animation-delay: -1.6s; }
+.fx-hud .tb-systems .pill:nth-child(4) i { animation-delay: -2.4s; }
+.fx-hud .pill.err i { animation: hud-blink 1s steps(2) infinite; }
+@keyframes hud-led { 50% { opacity: 0.45; } }
 /* The brand avatar gets an orbiting ring. */
 :is(.fx-hud, .fx-subtle) .brand-avatar { position: relative; }
 :is(.fx-hud, .fx-subtle) .brand-avatar::after {
@@ -252,8 +302,9 @@
 }
 :is(.fx-hud, .fx-subtle) .composer:focus-within::before,
 :is(.fx-hud, .fx-subtle):is([data-agent='thinking'], [data-agent='working']) .composer::before { opacity: 1; }
-.fx-hud .composer::before { animation: hud-angle 3.2s linear infinite; }
-.fx-hud:is([data-agent='thinking'], [data-agent='working']) .composer::before { animation-duration: 1.2s; }
+/* Only while it shows: animating the angle restyles every frame, which cost ~4% CPU even while invisible. */
+.fx-hud .composer:focus-within::before { animation: hud-angle 3.2s linear infinite; }
+.fx-hud:is([data-agent='thinking'], [data-agent='working']) .composer::before { animation: hud-angle 1.2s linear infinite; }
 @keyframes hud-angle { to { --hud-angle: 360deg; } }
 :is(.fx-hud, .fx-subtle) :is(.mic-btn, .send-btn, .stop-btn) { border-radius: 8px; }
 :is(.fx-hud, .fx-subtle) .mic-btn.big { border-radius: 50%; }
@@ -402,3 +453,229 @@
 /* Unlocked stars breathe slowly (opacity only). */
 .fx-hud .tree-node:not(.locked) .core { animation: hud-tree-pulse 4s ease-in-out infinite; }
 @keyframes hud-tree-pulse { 50% { opacity: 0.72; } }
+
+/* ---------------------------------------------------------------- agent window */
+/* Corner brackets on the frame around the page, and while the agent browses an energy light circling
+   the ring (renderer/agentwindow.html; the page itself is a native view inside the ring). */
+:is(.fx-hud, .fx-subtle) .aw-frame b { display: block; position: absolute; width: 18px; height: 18px; border: 0 solid var(--hud-bracket); filter: drop-shadow(0 0 4px rgba(var(--c1), 0.5)); }
+:is(.fx-hud, .fx-subtle) .aw-frame .tl { top: 1px; left: 1px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 14px; }
+:is(.fx-hud, .fx-subtle) .aw-frame .tr { top: 1px; right: 1px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 14px; }
+:is(.fx-hud, .fx-subtle) .aw-frame .bl { bottom: 1px; left: 1px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 14px; }
+:is(.fx-hud, .fx-subtle) .aw-frame .br { bottom: 1px; right: 1px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 14px; }
+:is(.fx-hud, .fx-subtle) .aw-bar::after { content: ''; position: absolute; left: 12%; right: 12%; bottom: -1px; height: 1px; background: linear-gradient(90deg, transparent, rgba(var(--c1), 0.55), transparent); pointer-events: none; }
+.fx-hud.agent .aw-frame::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  padding: 2px;
+  border-radius: 13px;
+  background: conic-gradient(from var(--hud-angle), transparent 0 70%, rgb(var(--c2)) 82%, rgb(var(--c1)) 90%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: hud-angle 3s linear infinite;
+}
+.fx-hud.agent .aw-orb { animation: hud-blink 1.2s ease-in-out infinite; }
+
+/* ---------------------------------------------------------------- architecture view */
+/* The details / Learn panel slides in; the legend gets the HUD's corner light. */
+.fx-hud .arch-panel:not(.hidden) { animation: arch-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes arch-in { from { opacity: 0; transform: translateX(24px); } }
+:is(.fx-hud, .fx-subtle) .arch-panel .arch-principle, :is(.fx-hud, .fx-subtle) .arch-panel .arch-conn { transition: border-color 0.2s, background 0.2s, transform 0.2s; }
+.fx-hud .arch-panel .arch-conn:hover { transform: translateX(3px); }
+:is(.fx-hud, .fx-subtle) .arch-status { text-shadow: 0 0 10px rgba(var(--c1), 0.35); }
+.fx-hud .arch-stale { animation: hud-blink 1.6s ease-in-out infinite; }
+
+/* ================================================================ cinematic layer (js/hud.js)
+   Film-style motion for every view: a beam and a decoding title when a view opens, cards cascading in,
+   lock-on hovers, drifting motes, the face's reticle and telemetry. Motion only with .fx-hud. */
+
+/* ---------------------------------------------------------------- view titles */
+:is(.fx-hud, .fx-subtle) [data-hud-code]::before {
+  content: attr(data-hud-code);
+  display: block;
+  margin-bottom: 5px;
+  font-family: var(--hud-mono);
+  font-size: 9.5px;
+  font-weight: 400;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(var(--c1), 0.6);
+  text-shadow: none;
+}
+:is(.fx-hud, .fx-subtle) :is(.view-head h2, .tree-head h2, .arch-head h2) {
+  text-shadow: -1px 0 rgba(var(--c3), 0.35), 1px 0 rgba(var(--c1), 0.45), 0 0 18px rgba(var(--c1), 0.4);
+}
+
+/* ---------------------------------------------------------------- entering a view */
+/* A beam of light sweeps down the view once. */
+.hud-beam { position: absolute; inset: 0; z-index: 5; pointer-events: none; animation: hud-beam 0.9s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.hud-beam::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, transparent, rgb(var(--c1)) 20%, rgb(var(--c1-soft)) 50%, rgb(var(--c1)) 80%, transparent); box-shadow: 0 0 18px 2px rgba(var(--c1), 0.7); }
+.hud-beam::after { content: ''; position: absolute; left: 0; right: 0; top: -140px; height: 140px; background: linear-gradient(to bottom, transparent, rgba(var(--c1), 0.07)); }
+@keyframes hud-beam { from { transform: translateY(0); opacity: 1; } 85% { opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
+/* Cards and rows arrive one after another (js sets --hud-i). Tree stars only fade: their position is an SVG transform. */
+.fx-hud .hud-cascade :is(.mem-card, .skill-card, .habit-row, .routine-row, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *) {
+  animation: hud-card-in 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--hud-i, 0) * 32ms);
+}
+.fx-hud .hud-cascade .tree-node { animation: hud-fade-in 0.6s ease both; animation-delay: calc(var(--hud-i, 0) * 60ms); }
+@keyframes hud-card-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); filter: brightness(2.2); }
+  60% { opacity: 1; filter: brightness(1.3); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes hud-fade-in { from { opacity: 0; } }
+
+/* ---------------------------------------------------------------- lock-on hover */
+:is(.fx-hud, .fx-subtle) :is(.mem-card, .skill-card, .habit-row, .routine-row, .settings > .card) { transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s, border-color 0.25s; }
+:is(.fx-hud, .fx-subtle) :is(.mem-card, .skill-card, .habit-row, .routine-row):hover {
+  --hud-bracket: rgb(var(--c1-soft));
+  --hud-bracket-size: 26px;
+  border-color: var(--line-strong);
+  box-shadow: var(--glow), 0 0 26px -6px rgba(var(--c1), 0.55), inset 0 0 22px -12px rgba(var(--c1), 0.6);
+}
+.fx-hud :is(.mem-card, .skill-card, .habit-row, .routine-row):hover { transform: translateY(-3px); }
+/* List rows: an energy bar grows on the left. */
+:is(.fx-hud, .fx-subtle) :is(.kb-item, .conv-item, .docs-recent li, .evo-item) { position: relative; }
+:is(.fx-hud, .fx-subtle) :is(.kb-item, .conv-item, .docs-recent li)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 18%;
+  bottom: 18%;
+  width: 2px;
+  border-radius: 2px;
+  background: rgb(var(--c1));
+  box-shadow: 0 0 8px rgb(var(--c1));
+  transform: scaleY(0);
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+:is(.fx-hud, .fx-subtle) :is(.kb-item, .conv-item, .docs-recent li):is(:hover, .active)::before { transform: scaleY(1); }
+:is(.fx-hud, .fx-subtle) :is(.kb-item, .conv-item).active { box-shadow: inset 0 0 18px -8px rgba(var(--c1), 0.6); }
+
+/* ---------------------------------------------------------------- ambient: motes and the rail pulse */
+.hud-motes { display: none; }
+.fx-hud .hud-motes {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 15%, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 15%, #000 70%, transparent);
+}
+.fx-hud .hud-motes::before,
+.fx-hud .hud-motes::after { content: ''; position: absolute; left: 0; right: 0; top: 0; }
+.fx-hud .hud-motes::before { height: calc(100% + 340px); background: radial-gradient(circle, rgba(var(--c1), 0.6) 0 1px, transparent 1.7px) 0 0 / 190px 170px; opacity: 0.35; animation: hud-motes-a 46s linear infinite; }
+.fx-hud .hud-motes::after { height: calc(100% + 580px); background: radial-gradient(circle, rgba(var(--c2), 0.55) 0 1.3px, transparent 2px) 70px 40px / 310px 290px; opacity: 0.3; animation: hud-motes-b 70s linear infinite; }
+@keyframes hud-motes-a { to { transform: translateY(-340px); } }
+@keyframes hud-motes-b { to { transform: translateY(-580px); } }
+.fx-hud .shell::before {
+  content: '';
+  position: absolute;
+  left: 73px;
+  top: 0;
+  z-index: 2;
+  width: 1px;
+  height: 160px;
+  background: linear-gradient(to bottom, transparent, rgb(var(--c1)), transparent);
+  box-shadow: 0 0 8px rgb(var(--c1));
+  pointer-events: none;
+  animation: hud-rail 7s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+@keyframes hud-rail { from { transform: translateY(-160px); } 60%, to { transform: translateY(100vh); } }
+:is(.fx-hud, .fx-subtle) .rail-btn.active svg { filter: drop-shadow(0 0 6px rgb(var(--c1))); }
+
+/* ---------------------------------------------------------------- face: reticle and telemetry */
+.hud-reticle, .hud-readout { display: none; }
+:is(.fx-hud, .fx-subtle) .hud-reticle { display: block; position: absolute; left: 50%; top: 50%; width: min(76vh, 58vw); aspect-ratio: 1; transform: translate(-50%, -50%); pointer-events: none; }
+.hud-reticle svg { width: 100%; height: 100%; overflow: visible; fill: none; stroke: rgba(var(--c1), 0.5); stroke-width: 0.35; }
+/* Each ring turns around its own center (all are centered on 0,0). */
+.hud-reticle g { transform-box: fill-box; transform-origin: center; }
+.hud-reticle .r1 { stroke: rgba(var(--c1), 0.35); stroke-width: 2.2; }
+.hud-reticle .r2 { stroke: rgba(var(--c1), 0.6); stroke-width: 0.6; filter: drop-shadow(0 0 2px rgba(var(--c1), 0.8)); }
+.hud-reticle .r3 { stroke: rgba(var(--c2), 0.7); stroke-width: 1.2; }
+.hud-reticle .r4 path { stroke: rgb(var(--c1)); stroke-width: 0.9; filter: drop-shadow(0 0 3px rgb(var(--c1))); }
+.hud-reticle .cross { stroke: rgba(var(--c1), 0.7); stroke-width: 0.5; }
+.hud-reticle text { fill: rgba(var(--c1), 0.65); stroke: none; font-family: var(--font-mono); font-size: 3px; letter-spacing: 0.4px; }
+.fx-hud .hud-reticle .r1 { animation: hud-spin-ring 90s linear infinite; }
+.fx-hud .hud-reticle .r2 { animation: hud-spin-ring 40s linear infinite reverse; }
+.fx-hud .hud-reticle .r3 { animation: hud-spin-ring 24s linear infinite; }
+.fx-hud .hud-reticle .r4 { animation: hud-spin-ring 16s linear infinite reverse; }
+.fx-hud:is([data-agent='thinking'], [data-agent='working']) .hud-reticle :is(.r2, .r3, .r4) { animation-duration: 5s; }
+.fx-hud[data-agent='speaking'] .hud-reticle .r4 path { stroke: rgb(var(--c2)); }
+:is(.fx-hud, .fx-subtle) .hud-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: absolute;
+  top: 50%;
+  width: 230px;
+  transform: translateY(-50%);
+  padding: 12px 14px;
+  font-family: var(--hud-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(var(--c1), 0.08), transparent);
+  border-left: 2px solid rgba(var(--c1), 0.7);
+}
+:is(.fx-hud, .fx-subtle) .hud-readout.left { left: 28px; }
+:is(.fx-hud, .fx-subtle) .hud-readout.right { right: 28px; text-align: right; background: linear-gradient(270deg, rgba(var(--c1), 0.08), transparent); border-left: 0; border-right: 2px solid rgba(var(--c1), 0.7); }
+.hud-readout i { font-style: normal; color: rgb(var(--c1)); letter-spacing: 0.24em; margin-bottom: 6px; text-shadow: 0 0 8px rgba(var(--c1), 0.6); }
+.hud-readout div { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px dashed rgba(var(--c1), 0.16); }
+.hud-readout span { flex: none; color: var(--muted); }
+.hud-readout b { font-weight: 400; color: rgb(var(--c1-soft)); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-hud .hud-readout { animation: hud-readout-in 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes hud-readout-in { from { opacity: 0; transform: translate(0, -46%); } }
+@media (max-width: 1100px) { .hud-readout { display: none !important; } }
+
+/* ---------------------------------------------------------------- chat: transmissions */
+.fx-hud .msg.assistant { animation: hud-msg-l 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.fx-hud .msg.user { animation: hud-msg-r 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes hud-msg-l { from { opacity: 0; transform: translateX(-18px); filter: brightness(2); } 60% { filter: brightness(1.2); } }
+@keyframes hud-msg-r { from { opacity: 0; transform: translateX(18px); } }
+
+/* ---------------------------------------------------------------- memory, settings: numbered records */
+:is(.fx-hud, .fx-subtle) .mem-grid { counter-reset: hud-rec; }
+:is(.fx-hud, .fx-subtle) .mem-card { counter-increment: hud-rec; }
+:is(.fx-hud, .fx-subtle) .mem-card h4::before { content: 'REC.' counter(hud-rec, decimal-leading-zero) '  '; font-family: var(--hud-mono); font-size: 10px; font-weight: 400; letter-spacing: 0.14em; color: rgba(var(--c1), 0.6); }
+:is(.fx-hud, .fx-subtle) .settings { counter-reset: hud-cfg; }
+:is(.fx-hud, .fx-subtle) .settings > .card { counter-increment: hud-cfg; }
+:is(.fx-hud, .fx-subtle) .settings > .card > h3::after { content: 'CFG.' counter(hud-cfg, decimal-leading-zero); margin-left: auto; font-family: var(--hud-mono); font-size: 9.5px; letter-spacing: 0.18em; color: var(--muted); }
+.fx-hud .settings > .card > h3 .dot { animation: hud-blink 2.4s ease-in-out infinite; }
+
+/* ---------------------------------------------------------------- habits: completed checks pulse */
+:is(.fx-hud, .fx-subtle) .habit-check { position: relative; }
+:is(.fx-hud, .fx-subtle) .habit-check.done::after { content: ''; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid rgba(var(--ok), 0.7); }
+.fx-hud .habit-check.done::after { animation: hud-ping 2.4s ease-out infinite; }
+@keyframes hud-ping { from { transform: scale(0.85); opacity: 0.9; } to { transform: scale(1.45); opacity: 0; } }
+:is(.fx-hud, .fx-subtle) .habit-days i.on { box-shadow: 0 0 6px rgba(var(--ok), 0.8); }
+:is(.fx-hud, .fx-subtle) .habit-streak { font-family: var(--hud-mono); text-shadow: 0 0 10px rgba(var(--warn), 0.6); }
+
+/* ---------------------------------------------------------------- evolution: a timeline */
+:is(.fx-hud, .fx-subtle) .evo-item::after { content: ''; position: absolute; left: 16.5px; top: 0; bottom: 0; width: 1px; background: linear-gradient(to bottom, rgba(var(--c1), 0.45), rgba(var(--c1), 0.15)); pointer-events: none; }
+:is(.fx-hud, .fx-subtle) .evo-item:first-child::after { top: 20px; }
+:is(.fx-hud, .fx-subtle) .evo-item:last-child::after { bottom: calc(100% - 20px); }
+:is(.fx-hud, .fx-subtle) .evo-item .dot { position: relative; z-index: 1; }
+:is(.fx-hud, .fx-subtle) .evo-item:first-child .dot::after { content: ''; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid rgb(var(--c1)); }
+.fx-hud .evo-item:first-child .dot::after { animation: hud-ping 2s ease-out infinite; }
+:is(.fx-hud, .fx-subtle) .evo-item .m { font-family: var(--hud-mono); font-size: 10.5px; letter-spacing: 0.06em; }
+
+/* ---------------------------------------------------------------- docs: awaiting input */
+:is(.fx-hud, .fx-subtle) .doc-empty { position: relative; overflow: hidden; }
+:is(.fx-hud, .fx-subtle) .doc-empty p { position: relative; max-width: 420px; font-family: var(--hud-mono); font-size: 12px; letter-spacing: 0.06em; line-height: 1.7; }
+:is(.fx-hud, .fx-subtle) .doc-empty p::before { content: 'AWAITING INPUT'; display: block; margin-bottom: 10px; font-size: 13px; letter-spacing: 0.4em; color: rgb(var(--c1)); text-shadow: 0 0 12px rgba(var(--c1), 0.7); }
+:is(.fx-hud, .fx-subtle) .doc-empty::before,
+:is(.fx-hud, .fx-subtle) .doc-empty::after { content: ''; position: absolute; left: 50%; top: 50%; border-radius: 50%; pointer-events: none; }
+:is(.fx-hud, .fx-subtle) .doc-empty::before { width: 340px; height: 340px; margin: -170px 0 0 -170px; border: 1px dashed rgba(var(--c1), 0.3); }
+:is(.fx-hud, .fx-subtle) .doc-empty::after { width: 260px; height: 260px; margin: -130px 0 0 -130px; border: 2px solid transparent; border-top-color: rgba(var(--c1), 0.6); border-bottom-color: rgba(var(--c2), 0.5); }
+.fx-hud .doc-empty::before { animation: hud-spin-ring 40s linear infinite; }
+.fx-hud .doc-empty::after { animation: hud-spin-ring 7s linear infinite reverse; }
+:is(.fx-hud, .fx-subtle) .docs-recent li .k { font-family: var(--hud-mono); }
+
+/* ---------------------------------------------------------------- skill tree: orbits */
+:is(.fx-hud, .fx-subtle) .tree-node:not(.locked) .ring-bg { stroke-dasharray: 2 5; transform-box: fill-box; transform-origin: center; }
+.fx-hud .tree-node:not(.locked) .ring-bg { animation: hud-spin-ring 30s linear infinite; }
+:is(.fx-hud, .fx-subtle) .skill-card code.cmd { text-shadow: 0 0 10px rgba(var(--c1), 0.6); }
