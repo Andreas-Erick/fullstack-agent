@@ -5,6 +5,8 @@ const fsp = require('fs').promises;
 
 // The data folder first (and the move from the app's former name), before anything reads it.
 require('./datadir').setup();
+// macOS/Linux: the login shell's PATH, so claude, gh, npx, tailscale… are found when started from the Dock.
+require('./shellpath').setup();
 
 const store = require('./store');
 const memory = require('./memory');
