@@ -335,7 +335,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .hud-splash-sub { margin-top: 8px; font-size: 11px; letter-spacing: 0.22em; color: var(--muted); }
 
 /* Schedule view (header calendar button): replaces the face, messages and composer; approvals stay. */
-.view-sched .face-wrap, .view-sched .messages-wrap, .view-sched .composer, .view-sched .rec-bar { display: none !important; }
+body:not(.wide).view-sched .face-wrap, body:not(.wide).view-sched .messages-wrap, body:not(.wide).view-sched .composer, body:not(.wide).view-sched .rec-bar { display: none !important; }
 .sched { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .sched-week { display: flex; align-items: center; gap: 2px; padding: 8px 4px 6px; border-bottom: 1px solid var(--line); }
 .sched-days { flex: 1; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
@@ -427,7 +427,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .tabs button svg { width: 22px; height: 22px; }
 .tabs button.on { color: var(--accent); }
 .tabs button.on svg { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent)); }
-.view-panel .face-wrap, .view-panel .messages-wrap, .view-panel .composer, .view-panel .rec-bar, .view-panel .approvals:empty { display: none !important; }
+body:not(.wide).view-panel .face-wrap, body:not(.wide).view-panel .messages-wrap, body:not(.wide).view-panel .composer, body:not(.wide).view-panel .rec-bar, body:not(.wide).view-panel .approvals:empty { display: none !important; }
 .panel { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 12px 20px; display: flex; flex-direction: column; gap: 12px; }
 .panel-loading, .panel-empty { padding: 28px 12px; text-align: center; }
 .panel-empty p { margin: 0 0 12px; }
@@ -505,3 +505,36 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .pair-help ol { padding-left: 18px; margin: 10px 0 6px; display: flex; flex-direction: column; gap: 6px; }
 .pair-help code { font-size: 12px; overflow-wrap: anywhere; }
 .pair-help p { margin: 0; }
+
+/* ------------------------------------------------ tablets, Samsung DeX, large windows (app.js: body.wide) */
+/* The chat (face, messages, approvals, composer) on the left; the screen you picked on the right, both at
+   once. The Chat tab isn't needed there; the tab bar sits under the right pane. */
+body.wide #main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(340px, 42vw, 560px);
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto;
+  grid-template-areas:
+    'top top'
+    'banner banner'
+    'face side'
+    'msgs side'
+    'appr side'
+    'rec side'
+    'comp tabs';
+}
+body.wide #main > .top { grid-area: top; }
+body.wide #banner { grid-area: banner; }
+body.wide .face-wrap { grid-area: face; height: 30dvh; min-height: 180px; }
+body.wide .messages-wrap { grid-area: msgs; }
+body.wide #approvals { grid-area: appr; }
+body.wide #recBar { grid-area: rec; }
+body.wide #composer { grid-area: comp; }
+body.wide #tabs { grid-area: tabs; border-left: 1px solid var(--line); }
+body.wide #sched, body.wide #panel { grid-area: side; border-left: 1px solid var(--line); min-height: 0; }
+body.wide #panel { padding-inline: 14px; }
+body.wide #tabs button[data-tab='chat'] { display: none; }
+body.wide .messages { padding-inline: max(16px, calc((100% - 760px) / 2)); }
+body.wide .composer { padding-inline: max(12px, calc((100% - 780px) / 2)); }
+/* Very wide (DeX on a monitor, a big landscape tablet): the world gets more room. */
+@media (min-width: 1400px) { body.wide #main { grid-template-columns: minmax(0, 1fr) clamp(480px, 42vw, 720px); } }
+body.wide .world-wrap { height: 46dvh; }

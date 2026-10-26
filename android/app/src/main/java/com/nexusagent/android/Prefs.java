@@ -61,6 +61,16 @@ final class Prefs {
         return sp(c).getString("deviceName", "");
     }
 
+    /** The conversation the watch talks in (its own, so a quick question doesn't land in a long chat). */
+    static String watchConversation(Context c) {
+        return sp(c).getString("watchConversation", null);
+    }
+
+    static void setWatchConversation(Context c, String id) {
+        if (id == null) sp(c).edit().remove("watchConversation").apply();
+        else sp(c).edit().putString("watchConversation", id).apply();
+    }
+
     static boolean background(Context c) {
         return sp(c).getBoolean("background", false);
     }

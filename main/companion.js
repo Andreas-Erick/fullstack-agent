@@ -650,7 +650,10 @@ async function chat(req, res, device) {
   const requestId = `r${Date.now()}${crypto.randomBytes(3).toString('hex')}`;
   turnOwners.set(requestId, device.id);
   log.info('remote turn', { device: device.name, turn: requestId.slice(-6) });
-  const r = await hooks.startTurn({ conversationId: body.conversationId || null, text, requestId, remote: device.name });
+  // voice: the question was spoken (the watch, push-to-talk): a short, speakable reply on the fast model.
+  const voice = body.voice === true;
+  const remote = body.via === 'watch' ? `${device.name} · watch` : device.name;
+  const r = await hooks.startTurn({ conversationId: body.conversationId || null, text, requestId, remote, voice });
   return json(res, 200, { requestId, conversationId: r.conversationId });
 }
 

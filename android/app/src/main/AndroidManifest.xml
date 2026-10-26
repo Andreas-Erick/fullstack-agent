@@ -23,6 +23,7 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|uiMode|density|smallestScreenSize"
             android:exported="true"
             android:launchMode="singleTask"
+            android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -58,5 +59,28 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+
+        <!-- The Galaxy Watch app asks through this phone (WearRelayService). Only an app with this
+             package name and signing key can send to it (Wear Data Layer). -->
+        <service
+            android:name=".WearRelayService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/siren"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
+
+        <!-- Samsung DeX and Galaxy tablets: keep running when the window moves between displays or
+             the density changes (the activity handles these itself, see configChanges). -->
+        <meta-data
+            android:name="com.samsung.android.keepalive.density"
+            android:value="true" />
+        <meta-data
+            android:name="com.samsung.android.multidisplay.keep_process_alive"
+            android:value="true" />
     </application>
 </manifest>

@@ -14,7 +14,21 @@ desktop version: the chat with the face and voice, and tabs for **Today** (sched
 
 What it never does: the app only loads your desktop's address (and the Cloudflare Access sign-in, if
 you use Access); every other link opens in your browser. The device token is encrypted with a key in
-the Android Keystore and app backups are off. No third-party libraries.
+the Android Keystore and app backups are off. The only library is Google's Wear Data Layer (for the watch app); nothing else from third parties.
+
+## Galaxy tablets and Samsung DeX
+
+The same app, laid out for big screens: on a tablet (upright or sideways), in DeX and in large split-screen or pop-up windows, the chat and Siren's face sit on the left and the screen you pick (Today, Habits, Learn, the Inner World…) on the right, both at once. It follows rotation, split screen and window resizing. With a keyboard (Book Cover, DeX): Enter sends, Shift+Enter makes a new line, Ctrl+1–4 switch the tabs, Ctrl+K starts a new chat. Phones turned sideways keep the one-column layout.
+
+## Galaxy Watch (Wear OS)
+
+`android/wear` is a small watch app for the Galaxy Watch 4 and newer (Wear OS 3+; the older Tizen watches can't run it). Tap Siren to ask by voice: the question goes **through the Siren app on your phone** (Bluetooth, Google's Wear Data Layer) to your computer, and the answer is spoken by the watch and shown on it. **Today** shows what's still coming on your schedule and your habits; tap one to check it off. **New chat** starts a fresh conversation (the watch keeps its own, apart from the phone's).
+
+- **Nothing to pair on the watch:** it uses the phone's pairing. The phone app must be installed and connected to your computer. It works wherever the phone works, including over the phone's Tailscale.
+- **Approvals on the wrist:** turn on "Notify me about approvals and replies while the app is closed" in the phone app's menu. The phone's Allow / Deny notifications then appear on the watch by themselves.
+- **Install:** the watch app isn't in the Play Store yet, so it is installed from a computer with adb. On the watch: Settings → About watch → Software → tap *Software version* five times (developer options), then Settings → Developer options → **ADB debugging** and **Wireless debugging** on → *Pair new device*. On the computer (Android SDK platform-tools): `adb pair <ip>:<port>` with the code shown, `adb connect <ip>:<port>`, then `adb install Siren-Wear-x.y.z.apk`.
+- **Install both from the same release:** the phone and watch apps must be signed with the same key to talk to each other (both `-debug` or both signed).
+- What the watch shows says what to do when something is missing: the phone out of reach, the Siren phone app not installed or not paired, or the computer not answering.
 
 ## Tailscale (the secure address from anywhere)
 
@@ -36,6 +50,9 @@ The app also has a **Schedule** screen (calendar button in the header): the week
 timeline and what's next, read from the computer; new entries go through the assistant.
 
 ## Build
+
+`./gradlew assembleDebug` builds both apps: `app/build/outputs/apk/debug/app-debug.apk` (phones and tablets) and `wear/build/outputs/apk/debug/wear-debug.apk` (the watch). Both use only the Android framework plus Google's Wear Data Layer (`play-services-wearable`), the one library, for the phone–watch link.
+
 
 Requires Android Studio (or its bundled JDK) and the Android SDK (compileSdk 37).
 

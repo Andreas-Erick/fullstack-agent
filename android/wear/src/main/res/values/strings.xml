@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Siren</string>
+    <string name="tap_to_ask">Tap to ask</string>
+    <string name="ask_prompt">Ask Siren</string>
+    <string name="listening">Listening…</string>
+    <string name="thinking">Thinking…</string>
+    <string name="today">Today</string>
+    <string name="new_chat">New chat</string>
+    <string name="new_chat_done">Next question starts a new chat</string>
+    <string name="loading">Loading…</string>
+    <string name="no_phone">Can\'t reach your phone. Keep it nearby with Bluetooth on, and the Siren app installed there.</string>
+    <string name="no_relay">Install the Siren app on your phone and pair it with your computer first.</string>
+    <string name="unpaired">Open Siren on your phone and pair it with your computer (Settings → Remote access on the computer).</string>
+    <string name="no_speech">Voice input isn\'t available on this watch.</string>
+    <string name="timeout">No answer from your phone. Is Siren running on your computer?</string>
+    <string name="habits">Habits</string>
+    <string name="schedule">Schedule</string>
+    <string name="nothing_today">Nothing more scheduled today.</string>
+    <string name="no_habits">No habits yet. Ask Siren to start one.</string>
+    <string name="all_day">all day</string>
+</resources>

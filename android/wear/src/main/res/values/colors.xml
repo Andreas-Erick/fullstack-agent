@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The Siren theme (main/brand.js): the deep sea, bioluminescent teal, gold. -->
+    <color name="bg">#FF050B14</color>
+    <color name="accent">#FF2DD4BF</color>
+    <color name="text">#FFE3F6F6</color>
+    <color name="muted">#FF6A8A93</color>
+</resources>
