@@ -480,6 +480,9 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .ob-choice.sel { border-color: rgb(var(--c1)); background: rgba(var(--c1), 0.1); box-shadow: 0 0 16px rgba(var(--c1), 0.2); }
 .ob-choice b { display: block; margin-bottom: 3px; }
 .ob-choice small { color: var(--muted); }
+/* Long unbreakable text (folder paths) wraps inside its box instead of spilling into the next one. */
+.ob-choice, .ob-choice > span { min-width: 0; }
+.ob-choice small, .ob-choice b { overflow-wrap: anywhere; }
 .ob-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
 .ob-check { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .ob-hero { display: grid; grid-template-columns: 180px 1fr; gap: 20px; align-items: center; }
