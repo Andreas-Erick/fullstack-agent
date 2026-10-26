@@ -105,10 +105,14 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        # Secrets that aren't set arrive as empty variables; electron-builder on macOS takes an empty
+        # CSC_LINK for a path ("… not a file"), so unset ones are removed before it runs.
         run: |
+          if [ -z "$APPLE_ID" ]; then unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; fi
           if [ -n "$CSC_LINK" ]; then
             npx electron-builder --mac --publish "$PUBLISH"
           else
+            unset CSC_LINK CSC_KEY_PASSWORD
             echo "::warning::No macOS signing certificate set; publishing an ad-hoc signed build."
             CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --publish "$PUBLISH" -c.mac.identity=- -c.mac.hardenedRuntime=false
           fi
