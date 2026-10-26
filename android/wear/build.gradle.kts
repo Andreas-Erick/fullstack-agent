@@ -16,7 +16,7 @@ android {
     defaultConfig {
         applicationId = "com.nexusagent.android"
         minSdk = 30 // Wear OS 3 (Galaxy Watch 4)
-        targetSdk = 34
+        targetSdk = 36
         // Its own version codes, above the phone's, so a store can carry both under one app.
         versionCode = 1_000_000 + (System.getenv("NEXUS_VERSION_CODE")?.toIntOrNull() ?: 1)
         versionName = System.getenv("NEXUS_VERSION") ?: "0.1.0"

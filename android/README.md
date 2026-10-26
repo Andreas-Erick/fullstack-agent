@@ -28,7 +28,13 @@ The same app, laid out for big screens: on a tablet (upright or sideways), in De
 - **Approvals on the wrist:** turn on "Notify me about approvals and replies while the app is closed" in the phone app's menu. The phone's Allow / Deny notifications then appear on the watch by themselves.
 - **Install:** the watch app isn't in the Play Store yet, so it is installed from a computer with adb. On the watch: Settings → About watch → Software → tap *Software version* five times (developer options), then Settings → Developer options → **ADB debugging** and **Wireless debugging** on → *Pair new device*. On the computer (Android SDK platform-tools): `adb pair <ip>:<port>` with the code shown, `adb connect <ip>:<port>`, then `adb install Siren-Wear-x.y.z.apk`.
 - **Install both from the same release:** the phone and watch apps must be signed with the same key to talk to each other (both `-debug` or both signed).
+- **The persona on the wrist:** the watch shows the active persona's name and colors, her face (built-in or your custom one: the computer records it as short loops per state, sent once and again only when the face, theme or name changes) and speaks in her voice when the computer has one; otherwise the watch's own voice.
 - What the watch shows says what to do when something is missing: the phone out of reach, the Siren phone app not installed or not paired, or the computer not answering.
+- **Security:** the watch app has no internet permission; it only talks to the Siren phone app, which accepts only the watch app signed with the same key, checks each message's size and allows 30 requests a minute.
+
+### Trying the watch app in the emulator
+
+Android Studio's SDK Manager (or `sdkmanager "system-images;android-36;android-wear-signed;x86_64"`) installs a Wear OS 6 image; `avdmanager create avd -n SirenWatch -k "system-images;android-36;android-wear-signed;x86_64" -d wearos_large_round` creates a round watch. Start it, finish or skip the watch's own setup, then `adb install wear/build/outputs/apk/debug/wear-debug.apk`. Without a paired phone emulator it shows how to set up the phone; to try the whole path, pair a phone emulator with the Wear OS app as described in Google's "Connect a watch to a phone" guide.
 
 ## Tailscale (the secure address from anywhere)
 

@@ -33,5 +33,6 @@
     <string name="action_deny">Deny</string>
     <string name="approval_title">Approval needed</string>
     <string name="reply_title">Reply from Siren</string>
+    <string name="locked_alert">Unlock to see it</string>
     <string name="unpaired">This phone was disconnected from the assistant. Open the app to pair again.</string>
 </resources>

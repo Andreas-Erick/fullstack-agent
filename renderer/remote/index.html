@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/styles.css" />
     <script src="/vendor/marked.js"></script>
     <script src="/vendor/purify.js"></script>
+    <script src="/vendor/katex.js"></script>
     <script type="module" src="/app.js"></script>
   </head>
   <body>
@@ -42,6 +43,7 @@
       <symbol id="i-note" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5M9 13h7M9 17h5" /></symbol>
       <symbol id="i-tree" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.5" /><circle cx="5" cy="18" r="2.5" /><circle cx="19" cy="18" r="2.5" /><path d="M12 7.5v4M12 11.5 6.5 16M12 11.5l5.5 4.5" /></symbol>
       <symbol id="i-world" viewBox="0 0 24 24"><path d="M3 20h18M5 20V11l4-3 4 3v9M13 20v-6h6v6M9 20v-4" /><path d="M15 14l2-3 2 3" /></symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></symbol>
       <symbol id="i-spark" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z" /></symbol>
     </svg>
 
@@ -102,6 +104,7 @@
       <div class="face-wrap">
         <canvas id="face" aria-hidden="true"></canvas>
         <div id="faceState" class="face-state">IDLE</div>
+        <button id="faceFull" class="face-full-btn" type="button" aria-label="Show the face full screen" aria-pressed="false"><svg><use href="#i-expand" /></svg></button>
       </div>
 
       <div class="messages-wrap">

@@ -17,9 +17,17 @@ const calls = [];
 let share = true; // remote.shareData
 const turns = []; // what hooks.startTurn was asked
 const habitLogs = [];
+let uiFace = ''; // ui.face on the desktop
+const facesDir = path.join(dir, 'faces');
+fs.mkdirSync(path.join(facesDir, 'Aurora', 'img'), { recursive: true });
+fs.writeFileSync(path.join(facesDir, 'Aurora', 'index.html'), '<script src="core.js"></script>');
+fs.writeFileSync(path.join(facesDir, 'Aurora', 'img', 'a.png'), 'png');
+fs.writeFileSync(path.join(facesDir, 'Aurora', '.private'), 'secret');
+fs.writeFileSync(path.join(facesDir, 'Aurora', 'run.exe'), 'MZ');
+fs.writeFileSync(path.join(dir, 'outside.html'), 'outside');
 stub({
   './store': fileStore(dir, {
-    getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: {}, voice: {}, calendar: { enabled: true }, remote: { shareData: share } }),
+    getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: {}, voice: {}, calendar: { enabled: true }, remote: { shareData: share }, ui: { face: uiFace } }),
     listConversations: async () => Object.values(convs).map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, ...(c.setup ? { setup: true } : {}) })),
     getConversation: async (id) => convs[id] || null,
   }),
@@ -31,6 +39,8 @@ stub({
     note: async (p) => ({ path: p, title: 'X', content: '# X' }),
   },
   './logger': quietLog,
+  './facecapture': { frames: async () => ({ key: 'k1', data: Buffer.from('SRF1') }) },
+  './faces': { dir: async () => facesDir, list: async () => [{ id: 'custom:Aurora', folder: 'Aurora', title: 'Aurora' }] },
   './tunnel': { apply: async () => {}, stop() {}, status: () => tunnelState, publicHost: () => tunnelState.host || '' },
   './calendar': {
     events: async (range) => {
@@ -270,4 +280,50 @@ test('a question from the watch (through the phone) is a spoken turn, labelled a
   t = turns.pop();
   assert.strictEqual(t.voice, false, 'only a real true counts');
   assert.strictEqual(t.remote, 'Galaxy S26');
+});
+
+test('custom faces: a short-lived link per device, the face folder only, sandboxed and offline', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Tablet')}` };
+  uiFace = 'circuit';
+  assert.deepStrictEqual(await (await fetch(`${base}/api/face`, { headers: auth })).json(), { custom: false });
+  assert.strictEqual((await (await fetch(`${base}/api/info`, { headers: auth })).json()).face.custom, undefined);
+  uiFace = 'custom:Aurora';
+  assert.strictEqual((await (await fetch(`${base}/api/info`, { headers: auth })).json()).face.custom, true);
+  assert.strictEqual((await fetch(`${base}/api/face`)).status, 401, 'only paired devices get a link');
+  const link = await (await fetch(`${base}/api/face`, { headers: auth })).json();
+  assert.match(link.url, /^\/f\/[\w-]{32}\/index\.html$/);
+  const key = link.url.split('/')[2];
+  let r = await fetch(`${base}${link.url}`);
+  assert.strictEqual(r.status, 200);
+  const csp = r.headers.get('content-security-policy');
+  assert.match(csp, /connect-src 'none'/);
+  assert.match(csp, /sandbox allow-scripts/);
+  assert.match(csp, /frame-ancestors 'self'/);
+  assert.strictEqual(r.headers.get('cross-origin-resource-policy'), 'cross-origin');
+  // The sandboxed frame loads its files with Origin: null; core.js falls back to the bundled one.
+  r = await fetch(`${base}/f/${key}/core.js`, { headers: { Origin: 'null' } });
+  assert.strictEqual(r.status, 200);
+  assert.match(r.headers.get('content-type'), /javascript/);
+  assert.strictEqual((await fetch(`${base}/f/${key}/img/a.png`)).status, 200);
+  for (const bad of ['.private', 'run.exe', '..%2Foutside.html', '%2E%2E/outside.html', 'img/../../outside.html', 'missing.js']) {
+    assert.notStrictEqual((await fetch(`${base}/f/${key}/${bad}`)).status, 200, bad);
+  }
+  assert.strictEqual((await fetch(`${base}/f/${'x'.repeat(32)}/index.html`)).status, 404, 'an unknown key opens nothing');
+  assert.strictEqual((await fetch(`${base}/api/info`, { headers: { ...auth, Origin: 'null' } })).status, 403, 'a null origin is only accepted for face files');
+  // Unpairing the device ends its links.
+  const devices = JSON.parse(fs.readFileSync(devicesFile, 'utf8'));
+  await companion.revoke(devices.find((d) => d.name === 'Tablet').id);
+  assert.strictEqual((await fetch(`${base}${link.url}`)).status, 404);
+  uiFace = '';
+});
+
+test('the watch face pack: paired devices only, cached by its key', async () => {
+  assert.strictEqual((await fetch(`${base}/api/face/frames`)).status, 401);
+  const auth = { Authorization: `Bearer ${await pairDevice('Watch phone')}` };
+  let r = await fetch(`${base}/api/face/frames`, { headers: auth });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.headers.get('etag'), '"k1"');
+  assert.strictEqual(Buffer.from(await r.arrayBuffer()).toString(), 'SRF1');
+  r = await fetch(`${base}/api/face/frames`, { headers: { ...auth, 'If-None-Match': '"k1"' } });
+  assert.strictEqual(r.status, 304, 'unchanged: nothing sent again');
 });

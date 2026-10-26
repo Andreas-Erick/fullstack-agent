@@ -30,6 +30,7 @@ export async function render(view, box) {
     if (ctx.state.view !== view) return; // moved on meanwhile
     box.replaceChildren(...[node].flat());
     box.scrollTop = 0;
+    enter(box);
   } catch (err) {
     if (err instanceof ctx.AuthError) return;
     box.replaceChildren(el('div', { class: 'panel-empty' }, el('p', {}, err.message)));
@@ -37,6 +38,15 @@ export async function render(view, box) {
 }
 
 const SCREENS = { today, habits, learn, memory, notes, tree, world, skills, more };
+
+// The desktop's view opening (renderer/js/hud.js): a beam crosses the screen and its cards cascade in.
+// Only with the HUD on (styles.css .fx-hud .panel.enter); the CSS stops it under reduced motion.
+function enter(box) {
+  [...box.children].forEach((n, i) => n.style?.setProperty('--i', String(Math.min(i, 8))));
+  box.classList.remove('enter');
+  void box.offsetWidth; // restart the animation
+  box.classList.add('enter');
+}
 
 // --------------------------------------------------------------- helpers
 const card = (title, ...children) => ctx.el('section', { class: 'card' }, title ? ctx.el('h3', {}, title) : null, ...children);
@@ -206,15 +216,72 @@ async function openNote(path) {
 // --------------------------------------------------------------- Skill tree
 async function tree() {
   const { el, api } = ctx;
-  const { skills: list } = await api('/api/data/tree');
+  const { skills: list, layout, thresholds } = await api('/api/data/tree');
   if (!list.length) return empty('Your skill tree is empty.', ask('Plant it', 'Help me set up my skill tree.'));
+  const sky = layout?.pos ? constellation(list, layout, thresholds) : null;
   const areas = new Map();
   for (const s of list) areas.set(s.area || 'Other', [...(areas.get(s.area || 'Other') || []), s]);
   const STATE = { mastered: '★ mastered', growing: 'growing', unlocked: 'ready', locked: '🔒 locked' };
-  return [...areas].map(([area, items]) => card(area, ...items.map((s) => el('div', { class: `skill ${s.state}` },
+  return [sky, ...[...areas].map(([area, items]) => card(area, ...items.map((s) => el('div', { class: `skill ${s.state}`, id: `skill-${slug(s.name)}` },
     el('div', {}, el('b', {}, s.name), el('small', {}, `${STATE[s.state] || s.state}${s.needs.length ? ` · needs ${s.needs.join(', ')}` : ''}`)),
     pct(el('div', { class: 'bar' }, el('i')), s.progress),
-  ))));
+  ))))].filter(Boolean);
+}
+
+const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+// The desktop's constellation (renderer/js/skilltree.js): skills by depth from left to right, links lit
+// once the earlier skill is unlocked, a progress ring per skill. Scrolls sideways when wide; a tap jumps
+// to the skill in the list below.
+function constellation(list, layout, thresholds = {}) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = (tag, attrs = {}, ...kids) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    n.append(...kids);
+    return n;
+  };
+  const COL = 150;
+  const ROW = 84;
+  const { pos, edges, depth, areas } = layout;
+  const columns = new Map();
+  for (const p of Object.values(pos)) columns.set(p.depth, (columns.get(p.depth) || 0) + 1);
+  const height = Math.max(1, ...columns.values()) * ROW;
+  const width = depth * COL + 180;
+  const at = (name) => ({ x: 90 + (pos[name]?.x || 0) * depth * COL, y: 50 + (pos[name]?.y || 0) * Math.max(0, height - ROW) });
+  const byName = new Map(list.map((s) => [s.name, s]));
+  const root = svg('svg', { class: 'sky', viewBox: `0 0 ${width} ${height + 60}`, role: 'img', 'aria-label': 'Skill tree' });
+  root.style.setProperty('--w', `${width}px`);
+  for (const e of edges) {
+    const a = at(e.from);
+    const b = at(e.to);
+    const mx = (a.x + b.x) / 2;
+    const lit = (byName.get(e.from)?.progress || 0) >= (thresholds.unlock ?? 0.6);
+    root.append(svg('path', { d: `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`, class: `sky-edge ${lit ? 'lit' : ''}` }));
+  }
+  for (const s of list) {
+    if (!pos[s.name]) continue;
+    const p = at(s.name);
+    const r = 14;
+    const circ = 2 * Math.PI * (r + 5);
+    const g = svg('g', { class: `sky-node ${s.state} area-${Math.max(0, areas.indexOf(s.area || '')) % 5}`, transform: `translate(${p.x},${p.y})`, tabindex: '0', role: 'button', 'aria-label': `${s.name}: ${Math.round(s.progress * 100)}%` },
+      svg('circle', { class: 'ring-bg', r: r + 5 }),
+      svg('circle', { class: 'ring', r: r + 5, 'stroke-dasharray': `${circ * s.progress} ${circ}`, transform: 'rotate(-90)' }),
+      svg('circle', { class: 'core', r }),
+      svg('text', { class: 'glyph', 'text-anchor': 'middle', dy: '0.35em' }, s.state === 'locked' ? '🔒' : s.state === 'mastered' ? '✓' : `${Math.round(s.progress * 100)}`),
+      svg('text', { class: 'label', 'text-anchor': 'middle', y: r + 22 }, s.name.length > 18 ? `${s.name.slice(0, 17)}…` : s.name),
+    );
+    const go = () => {
+      const row = document.getElementById(`skill-${slug(s.name)}`);
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      row?.classList.add('flash');
+      setTimeout(() => row?.classList.remove('flash'), 1200);
+    };
+    g.addEventListener('click', go);
+    g.addEventListener('keydown', (ev) => ev.key === 'Enter' && go());
+    root.append(g);
+  }
+  return card('', ctx.el('div', { class: 'sky-wrap' }, root));
 }
 
 // --------------------------------------------------------------- Skills & routines

@@ -25,7 +25,11 @@ Especially welcome are reports about anything that gets around the app's safety 
 - **Remote access** (`main/companion.js`, `main/tunnel.js`): reaching the assistant without a valid
   pairing, getting data a paired device should not see (tool inputs and results, settings, secrets,
   the setup conversation), answering approvals that are not meant for devices, bypassing the
-  Host/Origin checks or the Cloudflare Access verification.
+  Host/Origin checks or the Cloudflare Access verification, a custom face link (`/f/…`,
+  `main/facelinks.js`) that opens more than the active face's folder or lets the face reach the
+  client's page, token or network.
+- **The Android and watch apps** (`android/`): another app reaching the phone's relay for the watch
+  (`WearRelayService`), approving from a locked phone, or the watch app getting network access.
 - **Approvals** (`main/approvals.js`): actions that should ask but don't, including through web pages,
   documents or other external content ("prompt injection") that make the agent act on its own.
 - **Self-modification**: the agent widening its own access (settings it may change, path checks,

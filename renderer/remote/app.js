@@ -1,6 +1,9 @@
 // Phone client for the companion server (main/companion.js, docs/ROADMAP-mobile.md step 2).
 // Talks only to the server it was loaded from. The device token lives in this browser's storage.
 import { initScreens, render as renderScreen, TITLES } from './screens.js';
+// Served by the desktop from renderer/js/ (companion.js STATIC), so loaded by URL, not by file.
+let mathtext = null;
+import('./js/mathtext.js').then((m) => (mathtext = m)).catch(() => {});
 
 const $ = (s) => document.querySelector(s);
 const TOKEN_KEY = 'nexus.token';
@@ -76,9 +79,22 @@ window.DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   node.setAttribute('rel', 'noopener noreferrer');
 });
 
+// Formulas as on the desktop (renderer/js/util.js): taken out before Markdown, rendered by KaTeX. Here
+// as MathML only, which the browser draws itself: no inline styles (the page's CSP) and no math fonts.
 function markdown(text) {
-  const html = window.marked.parse(String(text ?? ''), { breaks: true, gfm: true });
+  const math = window.katex && mathtext ? mathtext.extractMath(String(text ?? '')) : { text: String(text ?? ''), items: [] };
+  let html = window.marked.parse(math.text, { breaks: true, gfm: true });
+  if (math.items.length) html = mathtext.restoreMath(html, math.items, renderTex);
   return window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input', 'img'], FORBID_ATTR: ['style'], ADD_ATTR: ['target'] });
+}
+
+function renderTex(tex, display) {
+  try {
+    // Without the TeX source KaTeX keeps in <annotation>: the sanitizer would leave it as visible text.
+    return window.katex.renderToString(tex, { displayMode: display, throwOnError: false, output: 'mathml', strict: 'ignore', trust: false, maxExpand: 1000 }).replace(/<annotation\b[\s\S]*?<\/annotation>/g, '');
+  } catch {
+    return `<code>${tex.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])}</code>`;
+  }
 }
 
 const ago = (t) => {
@@ -936,6 +952,20 @@ function ensureAnalyser() {
 document.addEventListener('pointerdown', ensureAnalyser, { once: true, passive: true });
 const analyserLive = () => Boolean(voiceAnalyser && voiceCtx?.state === 'running');
 
+// Full screen: only the face (like the desktop's face layout). The button or Esc returns; the face keeps
+// reacting to the conversation, so it works as a bedside or desk display on a tablet.
+function setFaceFull(on) {
+  document.body.classList.toggle('face-full', on);
+  $('#faceFull').setAttribute('aria-pressed', String(on));
+  $('#faceFull').setAttribute('aria-label', on ? 'Back to the chat' : 'Show the face full screen');
+  $('#faceFull').replaceChildren(icon(on ? 'close' : 'expand'));
+  if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+  else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+}
+$('#faceFull').addEventListener('click', () => setFaceFull(!document.body.classList.contains('face-full')));
+document.addEventListener('keydown', (e) => e.key === 'Escape' && document.body.classList.contains('face-full') && setFaceFull(false));
+document.addEventListener('fullscreenchange', () => !document.fullscreenElement && document.body.classList.contains('face-full') && setFaceFull(false));
+
 async function mountFace(id, theme) {
   const want = FACE_MODULES[id] ? id : 'siren';
   try {
@@ -953,6 +983,7 @@ async function mountFace(id, theme) {
       onTheme: (fn) => (faceView.themeFns.add(fn), () => faceView.themeFns.delete(fn)),
     });
     faceView.themeFns.forEach((fn) => fn());
+    if (theme.face?.custom && (await mountCustomFace().catch(() => false))) return;
     if (faceView.id === want && faceView.obj) return faceView.obj.setLabel(state.name);
     const [file, cls] = FACE_MODULES[want];
     const Face = (await import(file))[cls];
@@ -967,6 +998,28 @@ async function mountFace(id, theme) {
     // An older desktop that doesn't serve the faces, or a face that failed: the built-in orb.
     if (!faceView.orb && !faceView.obj) (faceView.orb = true), startFace();
   }
+}
+
+// The desktop's custom face (a page from its faces folder): a short-lived link from /api/face, shown in a
+// sandboxed frame (scripts only: no access to this page, its token or storage) and fed the agent state
+// ~30×/s, as on the desktop (renderer/js/faces/host.js).
+async function mountCustomFace() {
+  const link = await api('/api/face');
+  if (!link.custom || !/^\/f\/[\w-]{32}\/index\.html$/.test(link.url)) return false;
+  if (faceView.id === 'custom' && faceView.obj) return true;
+  const { faceState, samples64, audio: level, theme } = await import('./js/faces/common.js');
+  faceView.obj?.destroy?.();
+  const frame = el('iframe', { id: 'face', class: 'face-frame', sandbox: 'allow-scripts', referrerpolicy: 'no-referrer', 'aria-hidden': 'true', tabindex: '-1', src: link.url });
+  $('#face').replaceWith(frame);
+  const pump = setInterval(() => {
+    if (!frame.contentWindow || !frame.offsetParent) return;
+    const t = theme();
+    frame.contentWindow.postMessage({ type: 'av', state: faceState(), level: level().level, samples: samples64(), env: { name: state.name, colors: t.colors, states: t.face.states, alert: null } }, '*');
+  }, 33);
+  faceView.obj = { setLabel() {}, destroy: () => clearInterval(pump) };
+  faceView.id = 'custom';
+  faceView.orb = false;
+  return true;
 }
 
 const hudOn = () => document.body.classList.contains('fx-hud') || document.body.classList.contains('fx-subtle');
@@ -1097,7 +1150,7 @@ function showView(v) {
     b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false');
   }
   if (panel) {
-    $('#convTitle').textContent = TITLES[v] || '';
+    decode($('#convTitle'), TITLES[v] || '');
     renderScreen(v, $('#panel'));
   }
   $('#schedBtn').classList.toggle('on', v === 'sched');
@@ -1307,6 +1360,24 @@ async function applyInfo() {
 // the next start looks right before the computer answers.
 const FX_KEY = 'nexus.fx';
 const stillMedia = matchMedia('(prefers-reduced-motion: reduce)');
+
+// The desktop's decoding titles (renderer/js/hud.js decode): glyphs settle into the text, left to right.
+// Plain text when the HUD is off or motion is reduced; stops if the title changes meanwhile.
+function decode(node, text) {
+  const GLYPHS = '#%&*+=<>/|01ABCDEFGHJKLMNPRSTUVXYZ';
+  node.textContent = text;
+  if (!document.body.classList.contains('fx-hud') || matchMedia('(prefers-reduced-motion: reduce)').matches || !text) return;
+  const start = performance.now();
+  const step = (now) => {
+    if (node.dataset.decoding !== text) return;
+    const done = Math.floor(((now - start) / 420) * text.length);
+    if (done >= text.length) return void ((node.textContent = text), delete node.dataset.decoding);
+    node.textContent = text.slice(0, done) + [...text.slice(done)].map((c) => (c === ' ' ? ' ' : GLYPHS[(Math.random() * GLYPHS.length) | 0])).join('');
+    requestAnimationFrame(step);
+  };
+  node.dataset.decoding = text;
+  requestAnimationFrame(step);
+}
 function setFx(fx) {
   const level = ['hud', 'subtle', 'off'].includes(fx) ? fx : 'hud';
   store.set(FX_KEY, level);

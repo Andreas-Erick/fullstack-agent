@@ -26,6 +26,9 @@ const voice = require('./voice');
 const tunnel = require('./tunnel');
 const calendar = require('./calendar');
 const log = require('./logger');
+const faces = require('./faces');
+const facelinks = require('./facelinks');
+const facecapture = require('./facecapture');
 
 const ROOT = path.join(__dirname, '..');
 // URL path -> file (relative to the app root). Nothing else is served.
@@ -39,6 +42,8 @@ const STATIC = {
   '/icon.png': 'assets/logo.png',
   '/vendor/marked.js': 'node_modules/marked/lib/marked.umd.js',
   '/vendor/purify.js': 'node_modules/dompurify/dist/purify.min.js',
+  '/vendor/katex.js': 'node_modules/katex/dist/katex.min.js',
+  '/js/mathtext.js': 'renderer/js/mathtext.js',
   // The desktop's built-in faces (app code, no data), so the phone shows the same one.
   '/js/themecore.js': 'renderer/js/themecore.js',
   '/js/visualizer.js': 'renderer/js/visualizer.js',
@@ -61,8 +66,12 @@ const STATIC = {
 // The village's rendered art (renderer/assets/world: WebP sprites and their manifest; CC0, no data).
 const WORLD_ART = /^\/assets\/world\/([\w.-]+\.(webp|json))$/;
 const FACES = ['siren', 'circuit', 'radial', 'rain', 'neural', 'companion'];
+// What a custom face folder may serve (no executables, no documents of other kinds).
+const FACE_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.webm': 'video/webm' };
 const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json' };
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+// frame-src 'self': only a custom face's short-lived link (/f/…, see facelinks.js), in a sandboxed frame.
+const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const FACE_LINK = /^\/f\/([A-Za-z0-9_-]{32})\/(.*)$/;
 // On every response. HSTS is added for the tunnel address (HTTPS at the edge).
 const HEADERS = {
   'X-Content-Type-Options': 'nosniff',
@@ -152,6 +161,7 @@ async function restart(want) {
 
 async function stop() {
   tunnel.stop();
+  facelinks.revoke();
   for (const st of streams) st.res.end();
   streams.clear();
   if (!server) return;
@@ -204,6 +214,7 @@ async function revoke(id) {
   const device = list.find((d) => d.id === id);
   await writeDevices(list.filter((d) => d.id !== id));
   for (const st of streams) if (st.deviceId === id) (st.res.end(), streams.delete(st));
+  facelinks.revoke(id);
   if (device) log.info('remote device revoked', { device: device.name });
   return Boolean(device);
 }
@@ -215,6 +226,7 @@ async function revokeAll() {
   for (const st of streams) st.res.end();
   streams.clear();
   pairing = null;
+  facelinks.revoke();
   log.info('remote devices all revoked', { count: n });
   return n;
 }
@@ -378,6 +390,46 @@ async function serveStatic(res, rel) {
   }
 }
 
+// The active custom face's folder name, or '' (a built-in face, or the folder is gone).
+async function customFace(s) {
+  const id = String(s.ui?.face || '');
+  if (!id.startsWith('custom:')) return '';
+  const folder = id.slice(7);
+  if (!/^[\w.-]{1,80}$/.test(folder) || folder.startsWith('.')) return '';
+  return (await faces.list().catch(() => [])).some((f) => f.folder === folder) ? folder : '';
+}
+
+// A short-lived link to the active custom face for this device (the frame can't send the token).
+async function faceLink(res, device) {
+  const folder = await customFace(await store.getSettings());
+  if (!folder) return json(res, 200, { custom: false });
+  const { key, expiresAt } = facelinks.issue(folder, device.id);
+  return json(res, 200, { custom: true, url: `/f/${key}/index.html`, expiresAt });
+}
+
+// A file of the face a link opens. Its own policy: scripts run, nothing connects anywhere. The device
+// frames it sandboxed (an opaque origin), so its files may be loaded cross-origin, by that frame only.
+async function serveFace(res, key, rel) {
+  const folder = facelinks.resolve(key);
+  const safe = facelinks.safeRel(rel);
+  if (!folder || !safe) return fail(res, 404, 'Not found');
+  const base = path.join(await faces.dir(), folder);
+  let file = path.join(base, safe);
+  if (!file.startsWith(base + path.sep)) return fail(res, 404, 'Not found');
+  if (safe === 'core.js' && !(await fsp.stat(file).catch(() => null))) file = path.join(ROOT, 'renderer', 'faces', 'core.js');
+  const type = FACE_TYPES[path.extname(file).toLowerCase()];
+  if (!type) return fail(res, 404, 'Not found');
+  try {
+    const stat = await fsp.stat(file);
+    if (!stat.isFile() || stat.size > 8 * 1024 * 1024) return fail(res, 404, 'Not found');
+    const data = await fsp.readFile(file);
+    res.writeHead(200, { 'Content-Type': type, 'Content-Security-Policy': facelinks.FACE_CSP, 'Cross-Origin-Resource-Policy': 'cross-origin', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.end(data);
+  } catch {
+    fail(res, 404, 'Not found');
+  }
+}
+
 // Name and colors for the phone client, so it looks like the desktop.
 async function info() {
   const s = await store.getSettings();
@@ -388,6 +440,8 @@ async function info() {
   // theme's face parameters; the phone normalizes them again (themecore.normalizeTheme).
   const f = s.appearance?.theme?.face || {};
   const face = { id: FACES.includes(s.ui?.face) ? s.ui.face : 'siren', states: {} };
+  // A custom face: the device asks /api/face for a link to it; `id` stays the fallback.
+  if (await customFace(s)) face.custom = true;
   if (/^\w{1,20}$/.test(f.core || '')) face.core = f.core;
   if (/^\w{1,20}$/.test(f.traces || '')) face.traces = f.traces;
   if (Number.isFinite(+f.density)) face.density = +f.density;
@@ -425,7 +479,9 @@ async function route(req, res) {
   for (const [k, v] of Object.entries(HEADERS)) res.setHeader(k, v);
   if (kind === 'tunnel') res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   const origin = req.headers.origin;
-  if (origin && origin !== `${kind === 'tunnel' ? 'https' : 'http'}://${host}`) return fail(res, 403, 'Cross-origin requests are not allowed');
+  // A custom face's own files are requested by its sandboxed frame, whose origin is "null".
+  const faceFile = req.method === 'GET' && origin === 'null' && FACE_LINK.test(req.url.split('?')[0]);
+  if (origin && !faceFile && origin !== `${kind === 'tunnel' ? 'https' : 'http'}://${host}`) return fail(res, 403, 'Cross-origin requests are not allowed');
   // Behind Cloudflare Access, every request must carry Access's signed login (checked here too).
   if (kind === 'tunnel' && tunnel.status().mode === 'cloudflare' && access.team && access.aud) {
     try {
@@ -444,6 +500,10 @@ async function route(req, res) {
   if (req.method === 'GET' && STATIC[p]) return serveStatic(res, STATIC[p]);
   const art = req.method === 'GET' && WORLD_ART.exec(p);
   if (art && !art[1].startsWith('.')) return serveStatic(res, `renderer/assets/world/${art[1]}`);
+  // The link's key is the permission (a frame can't send the token): unguessable, ten minutes, one face.
+  const faceFileMatch = req.method === 'GET' && FACE_LINK.exec(p);
+  if (faceFileMatch) return serveFace(res, faceFileMatch[1], faceFileMatch[2]);
+  if (faceFile) return fail(res, 403, 'Cross-origin requests are not allowed');
   if (req.method === 'GET' && p === '/api/ping') return json(res, 200, { app: 'nexus-agent', api: 1 });
   if (req.method === 'POST' && p === '/api/pair') return pair(req, res, kind);
 
@@ -452,6 +512,21 @@ async function route(req, res) {
 
   if (req.method === 'GET' && p === '/api/events') return openStream(req, res, device);
   if (req.method === 'GET' && p === '/api/info') return json(res, 200, await info());
+  if (req.method === 'GET' && p === '/api/face') {
+    if (!underLimit('face', device.id, 30)) return fail(res, 429, 'Too many requests; wait a minute');
+    return faceLink(res, device);
+  }
+  // The face as recorded loops, for the watch (facecapture.js); unchanged → 304.
+  if (req.method === 'GET' && p === '/api/face/frames') {
+    if (!underLimit('frames', device.id, 6)) return fail(res, 429, 'Too many requests; wait a minute');
+    const { key, data } = await facecapture.frames(await store.getSettings());
+    if (req.headers['if-none-match'] === `"${key}"`) {
+      res.writeHead(304, { ETag: `"${key}"`, 'Cache-Control': 'no-cache' });
+      return res.end();
+    }
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', ETag: `"${key}"`, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
+    return res.end(data);
+  }
   if (req.method === 'POST' && p === '/api/move') return startMove(res, device);
   if (req.method === 'GET' && p === '/api/schedule') {
     if (!underLimit('schedule', device.id, 60)) return fail(res, 429, 'Too many requests; wait a minute');
