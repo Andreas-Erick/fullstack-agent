@@ -120,7 +120,8 @@ test('the bundled learning skills are well-formed', () => {
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
   assert.ok(files.length >= 6);
   for (const f of files) {
-    const text = fs.readFileSync(path.join(dir, f), 'utf8');
+    // Checkouts on Windows (CI's autocrlf) have CRLF line endings; skills.js reads both.
+    const text = fs.readFileSync(path.join(dir, f), 'utf8').replace(/\r\n/g, '\n');
     assert.match(text, /^---\nname: .+\ndescription: .+\ntriggers: .*\ninput: .*\ncreated: \d{4}-\d{2}-\d{2}\nupdated: \d{4}-\d{2}-\d{2}\n---\n1\. /, f);
   }
 });
