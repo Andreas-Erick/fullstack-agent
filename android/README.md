@@ -1,8 +1,8 @@
-# Nexus for Android
+# Siren for Android
 
-The Android app for Nexus Agent (see `docs/ROADMAP-mobile.md`, step 4). It is a thin native shell
+The Android app for Siren Assistant (formerly Nexus Agent; the package id stays `com.nexusagent.android` so updates install over it) (see `docs/ROADMAP-mobile.md`, step 4). It is a thin native shell
 around the phone app your desktop already serves (`renderer/remote/`), so it always matches the
-desktop version, plus what a web page can't do on Android:
+desktop version: the chat with the face and voice, and tabs for **Today** (schedule, habits, priorities, cards due, where you left off), **Habits** (check them off), **Learn** (topics and decks), and under **More** the schedule, memory and the memory stream, your notes, the skill tree, the Inner World (the same village, drag and pinch, tap a building), and skills and routines. Plus what a web page can't do on Android:
 
 - **Notifications while the app is closed** (switch in the app's menu): approvals with **Allow / Deny**
   buttons right in the notification, and replies to messages you sent from the phone. A small
@@ -10,20 +10,24 @@ desktop version, plus what a web page can't do on Android:
   straight to your desktop. No push service or server of ours is involved.
 - **Talk tile** in Quick Settings and a **Talk** shortcut (long-press the icon): open the app and start
   listening; tap the mic to send. Needs the secure (https) address.
-- **Share → Nexus** from any app puts the text in the message box.
+- **Share → Siren** from any app puts the text in the message box.
 
 What it never does: the app only loads your desktop's address (and the Cloudflare Access sign-in, if
 you use Access); every other link opens in your browser. The device token is encrypted with a key in
 the Android Keystore and app backups are off. No third-party libraries.
+
+## Tailscale (the secure address from anywhere)
+
+If the app can't reach `https://<your-pc>.<tailnet>.ts.net`, the usual causes are on the computer, not the phone: Tailscale Serve isn't forwarding the address to Siren, or HTTPS isn't enabled for your tailnet yet. On the desktop, open **Settings → Remote access → Tailscale → Detect**: it finds both and fixes them (**Set up Serve for me**; if Tailscale asks, it opens the page where you enable HTTPS once). On the phone, the Tailscale app must be connected with the same account.
 
 ## Install
 
 1. On the desktop: Settings → Remote access → turn it on, and set up a secure address (Cloudflare
    Tunnel or Tailscale) for use away from home and for push-to-talk.
 2. Install the APK on the phone (allow "install unknown apps" for your browser or file manager once).
-3. Open **Nexus**, enter the address shown on the desktop (with Tailscale: turn Tailscale on on the phone and use `https://<your-pc>.<tailnet>.ts.net`), then pair with the code from
+3. Open **Siren**, enter the address shown on the desktop (with Tailscale: turn Tailscale on on the phone and use `https://<your-pc>.<tailnet>.ts.net`), then pair with the code from
    **Pair a device**. Or scan the QR code shown there with the camera, copy the link and paste it
-   (or share it to Nexus) on the setup screen: the app connects and pairs in one step. A shared link
+   (or share it to Siren) on the setup screen: the app connects and pairs in one step. A shared link
    is only filled in; you confirm the address with **Connect**.
 4. Paired over Wi-Fi first? When the computer has a secure address, the app shows **Switch**: one tap
    moves it there and keeps the pairing (`moveTo` in the bridge).

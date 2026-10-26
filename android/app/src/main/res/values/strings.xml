@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Nexus</string>
-    <string name="tile_talk">Talk to Nexus</string>
+    <string name="app_name">Siren</string>
+    <string name="tile_talk">Talk to Siren</string>
     <string name="shortcut_talk">Talk</string>
     <string name="shortcut_talk_long">Talk to the assistant</string>
     <string name="setup_title">Connect to your assistant</string>
     <string name="hud_setup_sub">LINK // NOT ESTABLISHED</string>
     <string name="setup_hint">On your computer, open Settings → Remote access and copy the address shown there, or scan the pairing QR code and paste the link.</string>
-    <string name="setup_kinds">• Tailscale (works anywhere): turn Tailscale on on this phone, then https://your-pc.tailXXXX.ts.net\n• Your Cloudflare address: https://nexus.example.com\n• Same Wi-Fi only: http://192.168.x.x:7823 (not encrypted)</string>
+    <string name="setup_kinds">• Tailscale (works anywhere): turn Tailscale on on this phone, then https://your-pc.tailXXXX.ts.net\n• Your Cloudflare address: https://siren.example.com\n• Same Wi-Fi only: http://192.168.x.x:7823 (not encrypted)</string>
     <string name="setup_paste">Paste</string>
     <string name="setup_paste_empty">Nothing to paste. Copy the address or the QR link first.</string>
-    <string name="setup_address">Address, e.g. https://nexus.example.com</string>
+    <string name="setup_address">Address, e.g. https://siren.example.com</string>
     <string name="setup_connect">Connect</string>
     <string name="setup_invalid">Enter an address starting with https:// or http://</string>
     <string name="error_title">Can\'t reach the assistant</string>
     <string name="error_retry">Try again</string>
     <string name="error_change">Change address</string>
-    <string name="error_tailscale">This is a Tailscale address: open the Tailscale app on this phone and make sure it is connected (same account as the computer). On the computer, Tailscale must be on and \"tailscale serve\" set up.</string>
+    <string name="error_tailscale">This is a Tailscale address: open the Tailscale app on this phone and make sure it is connected (same account as the computer). On the computer, Tailscale must be on and Serve set up (Settings → Remote access → Tailscale → Detect, then \"Set up Serve for me\").</string>
     <string name="error_lan">This local address only works on the same Wi-Fi as the computer, with remote access on and \"Reachable from other devices on my network\" enabled.</string>
     <string name="ch_status">Connection</string>
     <string name="ch_alerts">Approvals and replies</string>
@@ -27,6 +27,6 @@
     <string name="action_allow">Allow</string>
     <string name="action_deny">Deny</string>
     <string name="approval_title">Approval needed</string>
-    <string name="reply_title">Reply from Nexus</string>
+    <string name="reply_title">Reply from Siren</string>
     <string name="unpaired">This phone was disconnected from the assistant. Open the app to pair again.</string>
 </resources>

@@ -5,7 +5,7 @@ import android.content.Intent;
 import android.os.Build;
 import android.service.quicksettings.TileService;
 
-/** Quick Settings tile "Talk to Nexus": opens the app and starts listening (tap the mic to send). */
+/** Quick Settings tile "Talk to Siren": opens the app and starts listening (tap the mic to send). */
 public class TalkTileService extends TileService {
     @Override
     @SuppressWarnings("deprecation")

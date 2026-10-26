@@ -1222,22 +1222,54 @@ const TUNNEL_STATE = (t) => {
   return t.running ? '… Starting the secure address' : '';
 };
 
-// Reads the Tailscale name of this computer (and whether Serve is set up) from the tailscale CLI.
-async function detectTailscale(out) {
+// Reads the Tailscale name of this computer, whether HTTPS is on for the tailnet and whether Serve
+// forwards to Siren, from the tailscale CLI; then offers the one fix that is missing.
+const TAILSCALE_DNS = 'https://login.tailscale.com/admin/dns';
+async function detectTailscale(out, fix) {
   out.className = 'test-result';
   out.textContent = 'Asking Tailscale…';
+  fix.replaceChildren();
   try {
     const t = await api.remote.detectTailscale();
     if (!t.installed) return showResult(out, false, '✕ Tailscale isn’t installed on this computer. Get it from tailscale.com/download (and on the phone from the Play Store), signed in with the same account.');
     if (t.error || !t.running) return showResult(out, false, `✕ ${t.error || 'Tailscale is not connected. Open Tailscale and sign in.'}`);
-    if (!t.host) return showResult(out, false, '✕ Tailscale didn’t report a name for this computer. Turn on MagicDNS and HTTPS certificates in the Tailscale admin console (DNS page).');
+    if (!t.host) return showResult(out, false, '✕ Tailscale didn’t report a name for this computer. Turn on MagicDNS in the Tailscale admin console (DNS page).');
     await saveSettings({ remote: { publicHost: t.host } });
-    const serve = t.serving === false ? `\n⚠ Serve isn’t forwarding to Siren yet. Run once in a terminal: ${t.command}` : t.serving ? '\n✓ Tailscale Serve forwards to Siren.' : '';
-    showResult(out, t.serving !== false, `✓ This computer is ${t.host}${serve}`);
+    if (t.https === false) {
+      showResult(out, false, `✓ This computer is ${t.host}\n✕ HTTPS is off for your tailnet, so https://${t.host} can’t work yet. Turn on “HTTPS Certificates” once on Tailscale’s DNS page, then set up Serve below.`);
+      fix.append(el('button', { class: 'btn', onclick: () => api.shell.openExternal(TAILSCALE_DNS) }, '🌐 Open Tailscale’s DNS page'), serveButton(out, fix));
+    } else if (t.serving === false) {
+      showResult(out, false, `✓ This computer is ${t.host}\n⚠ Tailscale Serve doesn’t forward to Siren yet.`);
+      fix.append(serveButton(out, fix));
+    } else showResult(out, true, `✓ This computer is ${t.host}${t.serving ? '\n✓ Tailscale Serve forwards to Siren.' : ''}`);
     render();
   } catch (err) {
     showResult(out, false, `✕ ${err.message}`);
   }
+}
+
+// Runs `tailscale serve --bg --yes <port>` (your tailnet only, never the internet).
+function serveButton(out, fix) {
+  const b = el('button', {
+    class: 'btn primary',
+    onclick: async () => {
+      b.disabled = true;
+      showResult(out, true, 'Setting up Tailscale Serve…');
+      const r = await api.remote.setupTailscale().catch((e) => ({ error: e.message }));
+      b.disabled = false;
+      if (r.enableUrl) {
+        showResult(out, false, 'Tailscale wants HTTPS turned on for your tailnet first. A page opened in your browser: click Enable there, then press “Set up Serve” again.');
+        api.shell.openExternal(r.enableUrl);
+      } else if (r.error) showResult(out, false, `✕ ${r.error}`);
+      else {
+        showResult(out, true, '✓ Tailscale Serve now forwards your secure address to Siren. Checking it…');
+        await api.remote.checkSecure().catch(() => {});
+        refreshRemoteStatus?.();
+        detectTailscale(out, fix);
+      }
+    },
+  }, '🔒 Set up Serve for me');
+  return b;
 }
 
 function tunnelFields() {
@@ -1247,7 +1279,7 @@ function tunnelFields() {
       ['off', 'Off'],
       ['quick', 'Temporary Cloudflare address — for testing'],
       ['cloudflare', 'My Cloudflare Tunnel (my own domain)'],
-      ['tailscale', 'Tailscale Serve (I set it up)'],
+      ['tailscale', 'Tailscale (my devices only, end-to-end encrypted)'],
     ], { onChange: () => render() }),
   ];
   if (mode === 'quick') {
@@ -1265,13 +1297,15 @@ function tunnelFields() {
   }
   if (mode === 'tailscale') {
     const out = result();
+    const fix = el('div', { class: 'row' });
     fields.push(
-      el('div', { class: 'hint', html: `Install Tailscale on this computer and the phone (same account), then run once in a terminal: <code>tailscale serve --bg ${get('remote.port') || 7823}</code>. It prints an address like <code>https://my-pc.tail1234.ts.net</code>. Only your own devices can reach it.` }),
+      el('div', { class: 'hint', html: `Install Tailscale on this computer and the phone, signed in with the same account, then press <b>Detect</b>: it finds this computer’s address (like <code>https://my-pc.tail1234.ts.net</code>) and sets up what is missing with one click. Only your own devices can reach it. (By hand: <code>tailscale serve --bg ${get('remote.port') || 7823}</code>.)` }),
       el('div', { class: 'row', style: { alignItems: 'flex-end' } }, el('div', { style: { flex: '1' } }, text('remote.publicHost', 'Tailscale hostname', { placeholder: 'my-pc.tail1234.ts.net', onChange: debounceAfter(refreshRemoteStatus) })), el('div', { style: { display: 'flex', gap: '6px' } },
-        el('button', { class: 'btn', onclick: () => detectTailscale(out) }, 'Detect'),
+        el('button', { class: 'btn', onclick: () => detectTailscale(out, fix) }, 'Detect'),
         el('button', { class: 'btn', onclick: async () => (await api.remote.checkSecure().catch(toastError), refreshRemoteStatus?.()) }, 'Check'),
       )),
       out,
+      fix,
       el('div', { class: 'hint' }, el('b', {}, 'On the phone: '), 'turn Tailscale on there. If the Siren app is already paired over Wi-Fi, open it at home and tap ', el('b', {}, 'Switch to the secure address'), ' (it keeps the pairing). Otherwise pair with the QR code and pick the 🔒 secure address, or type ', el('code', {}, `https://${get('remote.publicHost') || 'my-pc.tail1234.ts.net'}`), ' in the app.'),
     );
   }
@@ -1421,10 +1455,11 @@ function remoteCard() {
   refresh();
   return card(
     'remote',
-    'Remote access (preview)',
-    'Talk to the assistant from your phone or another computer. The brain, memory and keys stay on this computer; paired devices can chat, read conversations and answer approvals, never change settings. Remote messages never include a screenshot of this desktop. While it is on, a “Remote” badge shows at the top; click it to turn everything off.',
+    'Remote access',
+    'Talk to the assistant from your phone (the Android app or any browser) or another computer. The brain, memory and keys stay on this computer; paired devices can chat, read conversations and answer approvals, never change settings. Remote messages never include a screenshot of this desktop. While it is on, a “Remote” badge shows at the top; click it to turn everything off.',
     toggle('remote.enabled', 'Turn on remote access', refresh),
     toggle('remote.lan', 'Reachable from other devices on my network (otherwise only from this computer)', refresh),
+    toggle('remote.shareData', 'Show my notes, memories, habits, learning, skill tree and Inner World on paired devices (read-only; habits can be checked off)'),
     text('remote.port', 'Port', { type: 'number', onChange: debounceAfter(refresh) }),
     ...tunnelFields(),
     statusBox,

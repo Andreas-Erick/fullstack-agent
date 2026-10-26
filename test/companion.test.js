@@ -14,13 +14,21 @@ const convs = {
 // The tunnel as tests set it: off, or a connected Tailscale address.
 let tunnelState = { mode: 'off' };
 const calls = [];
+let share = true; // remote.shareData
+const habitLogs = [];
 stub({
   './store': fileStore(dir, {
-    getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: {}, voice: {}, calendar: { enabled: true } }),
+    getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: {}, voice: {}, calendar: { enabled: true }, remote: { shareData: share } }),
     listConversations: async () => Object.values(convs).map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, ...(c.setup ? { setup: true } : {}) })),
     getConversation: async (id) => convs[id] || null,
   }),
   './voice': {},
+  './companiondata': {
+    today: async () => ({ date: '2026-10-26', events: [], habits: [] }),
+    habits: async () => ({ habits: [{ name: 'Run', doneToday: false }] }),
+    logHabit: async (name, done) => (habitLogs.push([name, done]), { habits: [{ name, doneToday: done !== false }] }),
+    note: async (p) => ({ path: p, title: 'X', content: '# X' }),
+  },
   './logger': quietLog,
   './tunnel': { apply: async () => {}, stop() {}, status: () => tunnelState, publicHost: () => tunnelState.host || '' },
   './calendar': {
@@ -89,7 +97,7 @@ test('QR pairing: one-time secret, reachable address only', async () => {
 test('the phone gets the desktop face and its modules', async () => {
   const auth = { Authorization: `Bearer ${await pairDevice()}` };
   const info = await (await fetch(`${base}/api/info`, { headers: auth })).json();
-  assert.strictEqual(info.face.id, 'circuit', 'default face when none is set');
+  assert.strictEqual(info.face.id, 'siren', 'the default face (Siren) when none is set');
   assert.ok('sleepAfterMin' in info);
   const r = await fetch(`${base}/js/faces/common.js`);
   assert.strictEqual(r.status, 200);
@@ -213,4 +221,39 @@ test('the schedule: read-only, a bounded range, only the fields the phone shows'
   assert.strictEqual(events[0].internal, undefined);
   assert.deepStrictEqual(calls.at(-1), { start: '2026-10-26T00:00:00', end: '2026-11-02T00:00:00' });
   assert.strictEqual((await post('/api/schedule', {}, auth)).status, 404, 'no way to change it');
+});
+
+test('data screens: only paired devices, only while shared; habits can be checked off', async () => {
+  let r = await fetch(`${base}/api/data/today`);
+  assert.strictEqual(r.status, 401, 'no token, no data');
+  const token = await pairDevice('Data phone');
+  const auth = { Authorization: `Bearer ${token}` };
+  r = await fetch(`${base}/api/data/today`, { headers: auth });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual((await r.json()).date, '2026-10-26');
+  r = await post('/api/data/habits/log', { name: 'Run', done: true }, auth);
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual(habitLogs.pop(), ['Run', true]);
+  r = await fetch(`${base}/api/data/nothing-here`, { headers: auth });
+  assert.strictEqual(r.status, 404);
+  r = await fetch(`${base}/api/data/__proto__`, { headers: auth });
+  assert.strictEqual(r.status, 404);
+  share = false;
+  r = await fetch(`${base}/api/data/habits`, { headers: auth });
+  assert.strictEqual(r.status, 403, 'the user turned sharing off');
+  r = await fetch(`${base}/api/info`, { headers: auth });
+  assert.strictEqual((await r.json()).share, false);
+  share = true;
+});
+
+test('the village: its code and art are served, nothing else under those paths', async () => {
+  let r = await fetch(`${base}/js/world/map.js`);
+  assert.strictEqual(r.status, 200);
+  r = await fetch(`${base}/assets/world/manifest.json`);
+  assert.strictEqual(r.status, 200);
+  assert.match(r.headers.get('content-type'), /json/);
+  for (const p of ['/assets/world/../../../package.json', '/assets/world/%2e%2e%2fmain.js', '/assets/world/.hidden.json', '/assets/world/x.js', '/js/world/innerworld.js']) {
+    r = await fetch(`${base}${p}`);
+    assert.notStrictEqual(r.status, 200, p);
+  }
 });

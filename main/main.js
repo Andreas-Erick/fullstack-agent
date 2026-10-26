@@ -379,6 +379,8 @@ function registerIpc() {
   handle('remote:cancelPair', () => companion.cancelPairing());
   handle('remote:detectTailscale', async () => require('./tunnel').detectTailscale((await store.getSettings()).remote?.port || 7823));
   handle('remote:checkSecure', () => require('./tunnel').verify());
+  // Only from the user's click in Settings → Remote access (never a tool).
+  handle('remote:setupTailscale', async () => require('./tunnel').setupTailscaleServe((await store.getSettings()).remote?.port || 7823));
   handle('remote:transcribed', (id, text, error) => {
     const p = pendingTranscripts.get(id);
     if (!p) return false;
