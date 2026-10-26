@@ -1,6 +1,7 @@
 // The Android app for Nexus Agent (docs/ROADMAP-mobile.md, step 4): a locked-down WebView around the
 // phone client the desktop serves, plus notifications, a push-to-talk tile and the share sheet.
-// No third-party libraries: only the Android framework.
+// Only the Android framework, plus Google's Wear Data Layer (play-services-wearable) so the Galaxy
+// Watch app (android/wear) can ask through this phone.
 plugins {
     id("com.android.application")
 }
@@ -43,4 +44,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    implementation("com.google.android.gms:play-services-wearable:19.0.0")
 }

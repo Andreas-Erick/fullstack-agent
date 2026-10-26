@@ -518,7 +518,8 @@ $('#composer').addEventListener('submit', (e) => {
 });
 $('#input').addEventListener('keydown', (e) => {
   // On a hardware keyboard Enter sends; Shift+Enter makes a new line.
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(pointer: fine)').matches) {
+  // Tablets count too: a Book Cover keyboard doesn't make the pointer "fine".
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && (matchMedia('(pointer: fine)').matches || document.body.classList.contains('wide'))) {
     e.preventDefault();
     $('#composer').requestSubmit();
   }
@@ -1082,6 +1083,8 @@ function tint(node, id) {
 // The tab bar's highlight: More covers every screen that has no tab of its own.
 const TABS = ['chat', 'today', 'habits', 'learn', 'more'];
 function showView(v) {
+  // Wide (tablet, DeX): the chat is always on screen, so the side shows Today instead of nothing.
+  if (v === 'chat' && wide.matches && state.info?.share) v = 'today';
   state.view = v;
   const panel = v !== 'chat' && v !== 'sched';
   document.body.classList.toggle('view-sched', v === 'sched');
@@ -1277,6 +1280,7 @@ async function applyInfo() {
     // Older computers (or sharing turned off there): only the chat and the schedule.
     $('#tabs').classList.toggle('hidden', !info.share);
     if (!info.share && !['chat', 'sched'].includes(state.view)) showView('chat');
+    applyWide();
     $('#agentName').textContent = info.name.toUpperCase();
     document.title = info.name;
     setFx(info.fx);
@@ -1364,6 +1368,32 @@ if (android) {
     el('button', { class: 'btn ghost', onclick: () => android.changeServer() }, 'Change the computer’s address'),
   );
 }
+
+// Tablets (also upright), Samsung DeX and large windows: the chat beside the screens (styles.css
+// body.wide). Not phones turned sideways: they are wide but too short for two panes. Follows rotation,
+// split screen and window resizing.
+const wide = matchMedia('(min-width: 760px) and (min-height: 560px)');
+function applyWide() {
+  // Without the shared screens (an older computer, or sharing off) there is nothing to put beside the chat.
+  document.body.classList.toggle('wide', wide.matches && state.info?.share !== false);
+  if (wide.matches && state.view === 'chat' && state.info?.share) showView('today');
+}
+wide.addEventListener('change', applyWide);
+applyWide();
+
+// Keyboard (tablet keyboards, DeX): Ctrl+1–5 the tabs, Ctrl+K a new chat, Esc back to the chat.
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const n = Number(e.key);
+  const tabs = [...document.querySelectorAll('#tabs button')].filter((b) => getComputedStyle(b).display !== 'none');
+  if (n >= 1 && n <= tabs.length && !$('#tabs').classList.contains('hidden')) {
+    e.preventDefault();
+    tabs[n - 1].click();
+  } else if (e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    $('#newBtn').click();
+  }
+});
 
 // The tab bar and the screens beyond the chat (screens.js).
 for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => (navigator.vibrate?.(6), showView(b.dataset.tab)));

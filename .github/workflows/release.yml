@@ -1,5 +1,6 @@
 # Builds Siren Assistant for Windows (setup .exe, .msi, portable .exe), macOS (Apple silicon and Intel:
-# .dmg and .zip) and Android (.apk) and attaches them to a GitHub Release.
+# .dmg and .zip), Android phones and tablets (.apk) and Galaxy Watch / Wear OS (.apk), and attaches them to
+# a GitHub Release.
 # Trigger: push a version tag, e.g.  git tag v2.0.0 && git push origin v2.0.0
 # (or run it by hand from the Actions tab: then the builds are kept as artifacts only).
 # The tag should match "version" in package.json.
@@ -126,11 +127,13 @@ jobs:
             export NEXUS_KEYSTORE="$RUNNER_TEMP/nexus-release.jks"
             ./gradlew assembleRelease --no-daemon
             cp app/build/outputs/apk/release/app-release.apk "../dist/Siren-Android-$VERSION.apk"
+            cp wear/build/outputs/apk/release/wear-release.apk "../dist/Siren-Wear-$VERSION.apk"
             rm -f "$RUNNER_TEMP/nexus-release.jks"
           else
             echo "::warning::No Android signing secrets set; publishing a debug-signed APK."
             ./gradlew assembleDebug --no-daemon
             cp app/build/outputs/apk/debug/app-debug.apk "../dist/Siren-Android-$VERSION-debug.apk"
+            cp wear/build/outputs/apk/debug/wear-debug.apk "../dist/Siren-Wear-$VERSION-debug.apk"
           fi
 
       - name: Attach to the release

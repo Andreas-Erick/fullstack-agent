@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@array/android_wear_capabilities">
+    <!-- The Galaxy Watch app finds the phone that can relay to the computer by this capability. -->
+    <string-array name="android_wear_capabilities">
+        <item>siren_relay</item>
+    </string-array>
+</resources>

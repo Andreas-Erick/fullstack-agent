@@ -15,6 +15,7 @@ const convs = {
 let tunnelState = { mode: 'off' };
 const calls = [];
 let share = true; // remote.shareData
+const turns = []; // what hooks.startTurn was asked
 const habitLogs = [];
 stub({
   './store': fileStore(dir, {
@@ -60,7 +61,7 @@ function freePort() {
 }
 
 test.before(async () => {
-  companion.init({ startTurn: async () => ({ conversationId: 'c1' }), abortTurn() {}, respondApproval: () => true, transcribe: async () => '', notify() {} });
+  companion.init({ startTurn: async (t) => (turns.push(t), { conversationId: 'c1' }), abortTurn() {}, respondApproval: () => true, transcribe: async () => '', notify() {} });
   const port = await freePort();
   await companion.apply({ remote: { enabled: true, lan: true, port } });
   base = `http://127.0.0.1:${port}`;
@@ -256,4 +257,17 @@ test('the village: its code and art are served, nothing else under those paths',
     r = await fetch(`${base}${p}`);
     assert.notStrictEqual(r.status, 200, p);
   }
+});
+
+test('a question from the watch (through the phone) is a spoken turn, labelled as the watch', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Galaxy S26')}`, 'Content-Type': 'application/json' };
+  let r = await fetch(`${base}/api/chat`, { method: 'POST', headers: auth, body: JSON.stringify({ text: 'what is next today', voice: true, via: 'watch' }) });
+  assert.strictEqual(r.status, 200);
+  let t = turns.pop();
+  assert.strictEqual(t.voice, true);
+  assert.strictEqual(t.remote, 'Galaxy S26 · watch');
+  r = await fetch(`${base}/api/chat`, { method: 'POST', headers: auth, body: JSON.stringify({ text: 'typed', voice: 'yes' }) });
+  t = turns.pop();
+  assert.strictEqual(t.voice, false, 'only a real true counts');
+  assert.strictEqual(t.remote, 'Galaxy S26');
 });

@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "NexusAgent"
 include(":app")
+include(":wear")
