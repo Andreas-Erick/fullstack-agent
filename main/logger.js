@@ -18,8 +18,10 @@ const KEEP = 3;
 const als = new AsyncLocalStorage();
 let debugEnabled = false;
 
-// Writing a line is one append: the folder is made once and the file's size is tracked in memory, so
-// logging doesn't stall the main process with extra disk calls.
+// Lines are buffered and written together every quarter second (errors at once, and everything on
+// flush(): quit and crash handlers call it), so a busy turn doesn't stall the main process with one
+// disk write per line. The folder is made once and the file's size is tracked in memory.
+const FLUSH_MS = 250;
 let madeDir = '';
 let size = null; // bytes in nexus.log, read once
 
@@ -99,13 +101,33 @@ function serialize(data) {
 // --------------------------------------------------------------- writing
 let last = { key: '', at: 0, count: 0 };
 
-function append(line) {
-  const f = file();
-  if (size === null) size = fs.existsSync(f) ? fs.statSync(f).size : 0;
-  if (size > MAX_BYTES) rotate(f);
-  const text = `${line}\n`;
-  fs.appendFileSync(f, text);
-  size += Buffer.byteLength(text);
+let buffer = [];
+let timer = null;
+
+function append(line, now = false) {
+  buffer.push(line);
+  if (now) return writeBuffer();
+  if (!timer) {
+    timer = setTimeout(writeBuffer, FLUSH_MS);
+    timer.unref?.();
+  }
+}
+
+function writeBuffer() {
+  clearTimeout(timer);
+  timer = null;
+  if (!buffer.length) return;
+  const text = `${buffer.join('\n')}\n`;
+  buffer = [];
+  try {
+    const f = file();
+    if (size === null) size = fs.existsSync(f) ? fs.statSync(f).size : 0;
+    if (size > MAX_BYTES) rotate(f);
+    fs.appendFileSync(f, text);
+    size += Buffer.byteLength(text);
+  } catch {
+    /* logging must never break the app */
+  }
 }
 
 function flushRepeats() {
@@ -129,7 +151,7 @@ function write(level, event, data) {
     }
     flushRepeats();
     last = { key: body, at: now, count: 0 };
-    append(`${new Date(now).toISOString()} ${body}`);
+    append(`${new Date(now).toISOString()} ${body}`, level === 'ERROR');
   } catch {
     /* logging must never break the app */
   }
@@ -139,6 +161,7 @@ function write(level, event, data) {
 // lines: how many (from the end); filter: text; level: 'error' | 'warn' (and worse); turn: a turn id;
 // sinceMin: only the last N minutes.
 function tail(lines = 150, filter = '', { level, turn, sinceMin } = {}) {
+  writeBuffer(); // reading sees every line logged so far
   try {
     const older = path.join(dir(), 'nexus.1.log');
     const text = (fs.existsSync(older) && lines > 300 ? fs.readFileSync(older, 'utf8') : '') + fs.readFileSync(file(), 'utf8');
@@ -168,6 +191,8 @@ function recentErrors(sinceMs = 3600000) {
     .filter((r) => / (ERROR|WARN) /.test(r));
 }
 
+process.on('exit', writeBuffer); // whatever is still buffered when the process ends
+
 module.exports = {
   debug: (e, d) => debugEnabled && write('DEBUG', e, d),
   info: (e, d) => write('INFO', e, d),
@@ -180,6 +205,7 @@ module.exports = {
   flush: () => {
     try {
       flushRepeats();
+      writeBuffer();
     } catch {
       /* ignore */
     }

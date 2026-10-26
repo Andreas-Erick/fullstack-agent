@@ -59,3 +59,14 @@ test('clearing resets the index', async () => {
   await store.createConversation('After clear');
   assert.strictEqual((await store.listConversations()).length, 1);
 });
+
+test('saving drops the raw tool exchanges of old replies, keeps the recent ones and all text (audit #7)', async () => {
+  const c = await store.createConversation('Long');
+  for (let i = 0; i < 30; i++) c.messages.push({ role: 'user', content: `q${i}` }, { role: 'assistant', content: `a${i}`, toolCalls: [{ name: 'web_fetch' }], raw: { provider: 'anthropic', messages: [{ role: 'user', content: 'x'.repeat(1000) }] } });
+  await store.saveConversation(c);
+  const saved = await store.getConversation(c.id);
+  const replies = saved.messages.filter((m) => m.role === 'assistant');
+  assert.strictEqual(replies.filter((m) => m.raw).length, 16);
+  assert.ok(replies.slice(-16).every((m) => m.raw), 'the most recent keep theirs');
+  assert.ok(replies.every((m) => m.content && m.toolCalls), 'text and tool lists stay');
+});

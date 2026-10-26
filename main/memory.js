@@ -100,7 +100,20 @@ function checkId(id) {
   return id;
 }
 
+// The parsed list, kept for a minute (prompts read it every turn); our own writes clear it at once,
+// edits made outside the app show up within the minute.
+const CACHE_MS = 60000;
+let cache = null;
+const forget = () => (cache = null);
+
 async function list() {
+  if (cache && Date.now() - cache.at < CACHE_MS) return cache.entries.map((e) => ({ ...e }));
+  const entries = await readAll();
+  cache = { at: Date.now(), entries };
+  return entries.map((e) => ({ ...e }));
+}
+
+async function readAll() {
   const dir = await vaultDir();
   const files = (await fsp.readdir(dir)).filter(isMemoryFile);
   const entries = await Promise.all(
@@ -137,6 +150,7 @@ async function save({ title, content, category }) {
     content: String(content),
   };
   await store.writeTextAtomic(path.join(dir, `${id}.md`), serialize(entry));
+  forget();
   notify(path.join(dir, `${id}.md`), `memory: save ${entry.title}`);
   return entry;
 }
@@ -149,6 +163,7 @@ async function update(id, patch) {
   entry.updated = Date.now();
   const dir = await vaultDir();
   await store.writeTextAtomic(path.join(dir, `${id}.md`), serialize(entry));
+  forget();
   notify(path.join(dir, `${id}.md`), `memory: update ${entry.title}`);
   return entry;
 }
@@ -156,6 +171,7 @@ async function update(id, patch) {
 async function remove(id) {
   const dir = await vaultDir();
   await fsp.rm(path.join(dir, `${checkId(id)}.md`), { force: true });
+  forget();
   notify(path.join(dir, `${id}.md`), `memory: delete ${id}`);
   return { deleted: id };
 }
@@ -197,6 +213,18 @@ async function clear() {
   const dir = await vaultDir();
   const files = (await fsp.readdir(dir)).filter(isMemoryFile);
   await Promise.all(files.map((f) => fsp.rm(path.join(dir, f), { force: true })));
+  forget();
 }
 
-module.exports = { vaultDir, list, get, save, update, remove, search, exportMarkdown, importEntries, clear };
+/**
+ * The memories that matter for a message (when there are too many to list them all): ranked by
+ * relevance and recency (streamcore.retrieve), at most k, each clipped.
+ */
+async function relevant(query, k = 8) {
+  const all = await list();
+  const records = all.map((e) => ({ id: e.id, text: `${e.title}. ${e.content}`, at: e.updated, importance: 5, kind: 'observation', evidence: [], entry: e }));
+  const top = require('./streamcore').retrieve(records, query, { k, minRelevance: 0.05, weights: { recency: 0.4, importance: 0, relevance: 1.6 } });
+  return top.map((r) => r.entry);
+}
+
+module.exports = { vaultDir, list, get, save, update, remove, search, exportMarkdown, importEntries, clear, relevant };

@@ -28,15 +28,26 @@ const STANDING_RULES = `## Standing rules (these never lapse)
 - **Never expand your own access.** Don't propose or make changes that give you more permissions; the user decides that.
 - The user decides when the work is done — don't suggest stopping or wrapping up.`;
 
+const INDEX_TITLES = 60; // above FULL_MEMORY_CHARS: this many recent titles in the prompt, the rest by relevance
+
 async function memoryBlock() {
   const mems = await memory.list().catch(() => []);
-  if (!mems.length) return { text: '## Memory\n(empty — save what you learn about the user with memory_save)', ids: [] };
+  if (!mems.length) return { text: '## Memory\n(empty — save what you learn about the user with memory_save)', ids: [], many: false };
   const full = mems.map((m) => `- [${m.id}] (${m.category}) ${m.title}: ${m.content.replace(/\s*\n\s*/g, ' ')}`).join('\n');
-  const text =
-    full.length <= FULL_MEMORY_CHARS
-      ? `## Memory (${mems.length} entries)\n${full}`
-      : `## Memory index (${mems.length} entries — titles only; load full text with memory_get when relevant)\n${mems.map((m) => `- [${m.id}] (${m.category}) ${m.title}`).join('\n')}`;
-  return { text, ids: mems.map((m) => `${m.id}@${m.updated}`) };
+  if (full.length <= FULL_MEMORY_CHARS) return { text: `## Memory (${mems.length} entries)\n${full}`, ids: mems.map((m) => `${m.id}@${m.updated}`), many: false };
+  // Too many to list: the most recent titles; the ones relevant to each message come with it (turnContext).
+  const recent = mems.slice(0, INDEX_TITLES);
+  const text = `## Memory index (${mems.length} entries; the ${recent.length} most recently updated titles below — the memories relevant to each message come with it under "Relevant memories"; memory_search and memory_get find the rest)\n${recent.map((m) => `- [${m.id}] (${m.category}) ${m.title}`).join('\n')}`;
+  return { text, ids: mems.map((m) => `${m.id}@${m.updated}`), many: true };
+}
+
+/** Per turn, when there are many memories: the ones that matter for this message, in full. */
+async function relevantMemories(query) {
+  const all = await memory.list().catch(() => []);
+  const full = all.map((m) => `${m.title}: ${m.content}`).join('\n');
+  if (!query || full.length <= FULL_MEMORY_CHARS) return '';
+  const top = await memory.relevant(query, 8).catch(() => []);
+  return top.length ? `## Relevant memories (for this message)\n${top.map((m) => `- [${m.id}] (${m.category}) ${m.title}: ${m.content.replace(/\s*\n\s*/g, ' ').slice(0, 400)}`).join('\n')}` : '';
 }
 
 async function build(settings, activeToolNames = [], { forSession = false, query = '' } = {}) {
@@ -44,6 +55,20 @@ async function build(settings, activeToolNames = [], { forSession = false, query
   const viaClaudeCode = settings.llm.provider === 'claude-code';
   const has = (prefix) => activeToolNames.some((n) => n.startsWith(prefix));
   const parts = [];
+  // Every file and vault read starts now and runs in parallel; each is awaited where its text goes,
+  // so the prompt's order doesn't change. (The per-turn part waits for the memory ids in a session.)
+  const none = Promise.resolve(null);
+  const quiet = (fn, fallback = '') => Promise.resolve().then(fn).catch(() => fallback);
+  const reads = {
+    connectors: has('connectors_list') ? quiet(() => require('./claudecode').cachedConnectors(), null) : none,
+    root: settings.code.enabled && settings.code.allowSelfModify ? quiet(() => codebase.root()) : none,
+    skills: has('skill_run') ? quiet(() => skills.promptBlock()) : none,
+    startup: has('vault_') ? quiet(() => obsidian.startupContext()) : none,
+    handoff: quiet(() => handoff.promptBlock()),
+    learning: has('learning_') ? quiet(() => require('./learning').promptBlock()) : none,
+    memory: has('memory_') ? memoryBlock() : none,
+  };
+  const contextNow = forSession ? null : turnContext(settings, activeToolNames, null, { query });
 
   parts.push(
     `You are ${agent.name}, the user's personal AI assistant — an operator, not a chatbot. You run as a desktop app on the user's own computer, with a visual "face" that animates while you listen, think and speak. Your continuity comes from your vault: each session starts fresh, so keeping your notes accurate is part of keeping yourself working.`,
@@ -139,7 +164,7 @@ async function build(settings, activeToolNames = [], { forSession = false, query
   if (has('theme_')) caps.push('- Your look: when the user wants you to look different ("darker", "80s synthwave", "the companion face"), change it yourself with theme_update (theme_get first for a partial change); it applies at once and is saved with the current persona. Pick colors with strong text contrast. The user\'s personas (persona_list) each have their own master prompt, look, face and voice; switch with persona_switch when they ask. Only the user creates personas or edits their master prompts (Settings → Persona studio).');
   if (has('connectors_list')) {
     // What the user has, from the last check (refreshed in the background once a day).
-    const cc = await require('./claudecode').cachedConnectors().catch(() => null);
+    const cc = await reads.connectors;
     const st = cc ? require('./connectors').byStatus(cc.list) : null;
     const have = st ? `${st.connected.length ? ` Connected: ${st.connected.join(', ')}.` : ''}${st.needSignIn.length ? ` Need signing in: ${st.needSignIn.join(', ')}.` : ''}` : ' (Not checked yet: connectors_list.)';
     const suggest =
@@ -169,7 +194,7 @@ When one of your own parts misbehaves (no voice, the brain unreachable, the cale
   );
 
   if (settings.code.enabled && settings.code.allowSelfModify) {
-    const root = await codebase.root().catch(() => '');
+    const root = await reads.root;
     const ask = settings.safety.permissionMode === 'ask';
     parts.push(
       [
@@ -206,7 +231,7 @@ When one of your own parts misbehaves (no voice, the brain unreachable, the cale
   parts.push(coachingBlock(has));
 
   if (has('skill_run')) {
-    const block = await skills.promptBlock();
+    const block = await reads.skills;
     if (block) parts.push(`${block}
 (Skills saved after this session started are not listed here; skill_list has them all.)`);
   }
@@ -214,25 +239,25 @@ When one of your own parts misbehaves (no voice, the brain unreachable, the cale
   // Session start: what the agent "reads first" from its vault.
   let memIds = [];
   if (has('vault_')) {
-    const startup = await obsidian.startupContext().catch(() => '');
+    const startup = await reads.startup;
     if (startup) parts.push(startup);
   }
   // The note the agent left itself when the app last closed (handoff.js).
-  const handoffNote = await handoff.promptBlock().catch(() => '');
+  const handoffNote = await reads.handoff;
   if (handoffNote) parts.push(handoffNote);
   // What the user is learning: shaky concepts and open questions to follow up on, decks with cards due.
   if (has('learning_')) {
-    const learningNow = await require('./learning').promptBlock().catch(() => '');
+    const learningNow = await reads.learning;
     if (learningNow) parts.push(learningNow);
   }
   if (has('memory_')) {
-    const m = await memoryBlock();
+    const m = await reads.memory;
     parts.push(m.text);
     memIds = m.ids;
   }
 
   const stable = parts.join('\n\n');
-  const context = await turnContext(settings, activeToolNames, forSession ? memIds : null, { query });
+  const context = await (contextNow || turnContext(settings, activeToolNames, memIds, { query }));
   return { stable, context, memIds, system: `${stable}\n\n${context}` };
 }
 
@@ -295,11 +320,21 @@ async function turnContext(settings, activeToolNames, sessionMemIds, { query = '
   const has = (prefix) => activeToolNames.some((n) => n.startsWith(prefix));
   const now = new Date();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const quiet = (fn, fallback = '') => Promise.resolve().then(fn).catch(() => fallback);
+  const none = Promise.resolve(null);
+  const reads = {
+    habits: has('habit_') ? quiet(() => require('./habits').promptLine()) : none,
+    calendar: has('calendar_') ? quiet(() => calendar.promptBlock()) : none,
+    verification: settings.code?.allowSelfModify ? quiet(() => require('./selfchange').lastVerification(), null) : none,
+    relevant: has('memory_') && query ? quiet(() => relevantMemories(query)) : none,
+    recalled: has('stream_') && query ? quiet(() => require('./stream').promptBlock(query)) : none,
+    memories: sessionMemIds && has('memory_') ? quiet(() => memory.list(), []) : none,
+  };
   const lines = [
     `## Now\n${now.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })} (${tz}) · today is ${obsidian.ymd(now)}.\nComputer: ${os.type()} ${os.release()} (${process.platform}); user home: ${os.homedir()}.`,
   ];
   if (has('habit_')) {
-    const habitsToday = await require('./habits').promptLine().catch(() => '');
+    const habitsToday = await reads.habits;
     if (habitsToday) lines.push(habitsToday);
   }
   const practice = String(settings.learning?.practiceLanguage || '');
@@ -310,12 +345,12 @@ async function turnContext(settings, activeToolNames, sessionMemIds, { query = '
     );
   }
   if (has('calendar_')) {
-    const cal = await calendar.promptBlock().catch(() => '');
+    const cal = await reads.calendar;
     if (cal) lines.push(cal);
   }
   // A self-change that logged problems after it went live (selfchange.verifyAfterLoad).
   if (settings.code?.allowSelfModify) {
-    const v = await require('./selfchange').lastVerification().catch(() => null);
+    const v = await reads.verification;
     if (v?.state === 'problems' && Date.now() - v.checkedAt < 3 * 24 * 3600000) {
       lines.push(
         `## Your last self-change needs attention\n“${v.subject}” (${v.short}, files: ${v.files.join(', ')}) logged ${v.problems.length} problem(s) after it went live:\n${v.problems.map((p) => `- ${p.count}× ${p.event}${p.where ? ` (${p.where})` : ''}: ${p.message.slice(0, 200)}${p.locations.length ? ` at ${p.locations.join(', ')}` : ''}`).join('\n')}\nWhen it fits, tell the user, investigate (analyze_errors, read_app_log with the turn id, the code at those locations) and fix it, or offer to revert it.`,
@@ -324,12 +359,16 @@ async function turnContext(settings, activeToolNames, sessionMemIds, { query = '
       lines.push(`## Self-change waiting to go live\n“${v.subject}” (${v.short}) needs ${v.restart ? 'an app restart' : 'a window reload'} before it takes effect.`);
     }
   }
+  if (has('memory_') && query) {
+    const rel = await reads.relevant;
+    if (rel) lines.push(rel);
+  }
   if (has('stream_') && query) {
-    const recalled = await require('./stream').promptBlock(query).catch(() => '');
+    const recalled = await reads.recalled;
     if (recalled) lines.push(recalled);
   }
   if (sessionMemIds && has('memory_')) {
-    const mems = await memory.list().catch(() => []);
+    const mems = await reads.memories;
     const before = new Set(sessionMemIds);
     const changed = mems.filter((m) => !before.has(`${m.id}@${m.updated}`));
     const nowIds = new Set(mems.map((m) => m.id));
