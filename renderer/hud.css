@@ -503,7 +503,7 @@
   color: rgba(var(--c1), 0.6);
   text-shadow: none;
 }
-:is(.fx-hud, .fx-subtle) :is(.view-head h2, .tree-head h2, .arch-head h2) {
+:is(.fx-hud, .fx-subtle) :is(.view-head h2, .tree-head h2, .arch-head h2, .world-head h2) {
   text-shadow: -1px 0 rgba(var(--c3), 0.35), 1px 0 rgba(var(--c1), 0.45), 0 0 18px rgba(var(--c1), 0.4);
 }
 
@@ -514,7 +514,7 @@
 .hud-beam::after { content: ''; position: absolute; left: 0; right: 0; top: -140px; height: 140px; background: linear-gradient(to bottom, transparent, rgba(var(--c1), 0.07)); }
 @keyframes hud-beam { from { transform: translateY(0); opacity: 1; } 85% { opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
 /* Cards and rows arrive one after another (js sets --hud-i). Tree stars only fade: their position is an SVG transform. */
-.fx-hud .hud-cascade :is(.mem-card, .skill-card, .habit-row, .routine-row, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *) {
+.fx-hud .hud-cascade :is(.mem-card, .skill-card, .habit-row, .routine-row, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *, .world-scene, .world-res, .stream-row) {
   animation: hud-card-in 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   animation-delay: calc(var(--hud-i, 0) * 32ms);
 }

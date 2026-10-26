@@ -34,8 +34,54 @@ export function initMemory() {
       toastError(err);
     }
   };
+  $('#streamReflect').onclick = reflectNow;
+  $('#streamOpen').onclick = () => stream?.note && api.obsidian.openInObsidian(stream.note).catch(toastError);
   on('memory-changed', refresh);
   refresh();
+}
+
+// ------------------------------------------------------------ the memory stream
+let stream = null;
+
+async function refreshStream() {
+  stream = await api.stream.recent().catch(() => null);
+  const panel = $('#streamPanel');
+  panel.classList.toggle('hidden', !stream);
+  if (!stream) return;
+  const reflections = stream.records.filter((r) => r.kind === 'reflection').length;
+  $('#streamSummary').textContent = stream.total
+    ? `${stream.total} records · ${reflections} insight${reflections === 1 ? '' : 's'} shown · next reflection at ${stream.sinceReflection}/${stream.reflectAt} importance`
+    : 'Empty so far: the assistant notes small observations here as you work together.';
+  const list = $('#streamList');
+  list.innerHTML = '';
+  const byId = new Map(stream.records.map((r) => [r.id, r]));
+  for (const r of stream.records) {
+    const evidence = r.evidence.map((id) => byId.get(id)?.text).filter(Boolean);
+    list.append(
+      el(
+        'li',
+        { class: `stream-row ${r.kind}`, title: evidence.length ? `Because:\n• ${evidence.join('\n• ')}` : '' },
+        el('span', { class: 'when' }, new Date(r.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })),
+        el('span', { class: 'imp', style: { '--imp': r.importance / 10 } }, `★${r.importance}`),
+        el('span', { class: 'text' }, r.kind === 'reflection' ? `✨ ${r.text}` : r.text),
+        r.kind === 'reflection' && r.evidence.length ? el('span', { class: 'ev' }, `from ${r.evidence.length}`) : '',
+      ),
+    );
+  }
+}
+
+async function reflectNow() {
+  const btn = $('#streamReflect');
+  btn.disabled = true;
+  try {
+    const r = await api.stream.reflect();
+    toast(r.length ? `✨ ${r.length} new insight${r.length > 1 ? 's' : ''}` : 'Not enough new observations to reflect on yet.');
+    refreshStream();
+  } catch (err) {
+    toastError(err);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 export async function refresh() {
@@ -45,6 +91,7 @@ export async function refresh() {
   const cur = sel.value;
   sel.innerHTML = '<option value="">All categories</option>' + cats.map((c) => `<option ${c === cur ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('');
   render();
+  refreshStream();
 }
 
 function highlight(text, terms) {

@@ -1093,6 +1093,10 @@ async function dataCard() {
     'Memory & history',
     `Data folder: <code>${info.dataDir}</code>`,
     folder('memory.vaultPath', 'Memory vault folder', { placeholder: memDir, hint: 'One Markdown file per memory — editable in any text editor or even inside your Obsidian vault.' }),
+    toggle('memory.stream', 'Memory stream: the assistant notes small observations (Stream/ in the vault) and recalls the most relevant ones with each message'),
+    toggle('memory.reflect', 'Reflect on the stream: once enough has happened, draw a few insights from it in the background (one model call)'),
+    toggle('innerWorld.enabled', 'Inner World: your personas live a small fictional day in a village that grows with your progress (a few model calls a day)'),
+    toggle('innerWorld.townsfolk', 'Inner World: two villagers of its own live there too'),
     el('div', { class: 'row' }, el('span', { class: 'muted', style: { flex: 1 } }, `${mems.length} memories · ${convs.length} conversations`)),
     el(
       'div',

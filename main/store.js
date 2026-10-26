@@ -208,6 +208,14 @@ const DEFAULTS = {
   },
   memory: {
     vaultPath: '', // empty = <vault>/Memory
+    stream: true, // the memory stream (stream.js): observations in Stream/, recalled by recency + importance + relevance
+    reflect: true, // draw insights from the stream in the background once enough has piled up (a model call)
+  },
+  // The Inner World (innerworld.js): the personas live a small fictional day in a village that grows
+  // with the user's real progress. Off until the user wakes it (it costs a few model calls a day).
+  innerWorld: {
+    enabled: false,
+    townsfolk: true, // two residents of the village's own besides the personas
   },
   documents: {
     allowedRoots: [], // folders the user added beyond the workspace (Settings → Documents); never set by the agent

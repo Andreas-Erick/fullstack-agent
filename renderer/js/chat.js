@@ -224,6 +224,13 @@ const TOOL_LABELS = {
   skilltree_view: '🌌 Looked at your skill tree',
   skilltree_update: '🌌 Updated your skill tree',
   skilltree_remove: '🌌 Removed a skill',
+  stream_observe: '🧠 Noted an observation',
+  stream_recall: '🧠 Searched the memory stream',
+  stream_reflect: '✨ Reflected on recent observations',
+  world_status: '🏡 Looked in on the Inner World',
+  world_resident: '🏡 Visited a resident',
+  world_simulate: '🏡 Wrote today in the Inner World',
+  rehearsal_run: '🎭 Ran a rehearsal',
   routine_list: '⏰ Listed routines',
   routine_save: '⏰ Saved a routine',
   routine_delete: '⏰ Deleted a routine',
@@ -562,6 +569,9 @@ function handleEvent(ev) {
       break;
     case 'skilltree_changed':
       emit('skilltree-changed');
+      break;
+    case 'world_changed':
+      emit('world-changed');
       break;
     case 'voice_preview':
       if (state.settings.voice.ttsEnabled) speaker.say(ev.text, { voice: ev.voice });

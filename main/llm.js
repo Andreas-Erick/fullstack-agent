@@ -240,10 +240,10 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
       opts.configKey = 'first-run-setup';
       opts.buildPrompt = async () => prompt.buildSetup(settings);
     }
-    const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || []);
+    const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText });
     return claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
   }
-  const { system } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names);
+  const { system } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText });
   if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), history, emit, signal, active, system, ctx, images });
   return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active, system, ctx, images });
 }

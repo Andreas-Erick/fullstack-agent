@@ -23,6 +23,7 @@ import { initEvolution, refresh as refreshEvolution } from './evolution.js';
 import { initSkills, refresh as refreshSkills } from './skills.js';
 import { initHabits, refresh as refreshHabits } from './habits.js';
 import { initSkillTree, refresh as refreshSkillTree } from './skilltree.js';
+import { initInnerWorld, refresh as refreshInnerWorld } from './innerworld.js';
 import { initArchMap, refresh as refreshArchMap } from './archmap.js';
 import { initLayout, applyLayout, setLayout, zoomBy, setZoom, quickNote, toggleAppFullscreen, setFullscreen, isFullscreen } from './layout.js';
 import { applyTheme } from './theme.js';
@@ -78,6 +79,7 @@ async function boot() {
   initSkills();
   initHabits();
   initSkillTree();
+  initInnerWorld();
   initArchMap();
   initLayout({ miniFace });
   initApprovals();
@@ -101,6 +103,7 @@ async function boot() {
     if (name === 'skills') refreshSkills();
     if (name === 'habits') refreshHabits();
     if (name === 'tree') refreshSkillTree();
+    if (name === 'world') requestAnimationFrame(() => refreshInnerWorld());
     if (name === 'arch') requestAnimationFrame(() => refreshArchMap());
     if (name === 'chat') requestAnimationFrame(() => miniFace.resize());
     if (name === 'face') requestAnimationFrame(() => bigFace.resize());

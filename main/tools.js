@@ -152,6 +152,54 @@ const TOOLS = [
     run: async (a) => (await memory.search(a.query)).slice(0, 20).map((e) => ({ id: e.id, title: e.title, category: e.category, content: e.content })),
   },
 
+  // ------------------------------------------------------- memory stream
+  // Observations and reflections (stream.js, after "Generative Agents"): the memory facts above are
+  // what is true; the stream is what happened and what it suggests.
+  {
+    name: 'stream_observe',
+    group: 'stream',
+    description:
+      'Record what you noticed in your memory stream: small dated observations about how things went, not settled facts (those go in memory_save). E.g. "Got stuck on the epsilon-delta step again, clicked after the picture", "Sounded tired; postponed the run", "Liked the short answer better". Do it without being asked, at the end of a turn where something worth noticing happened; don\'t mention it unless asked. importance: 1 = mundane, 5 = useful, 10 = life-changing. Once enough piles up you reflect on it automatically.',
+    parameters: obj(
+      {
+        observations: {
+          type: 'array',
+          description: '1–5 observations',
+          items: obj({ text: str('One sentence, concrete, in your own words'), importance: { type: 'integer', minimum: 1, maximum: 10, description: 'How much it matters, 1–10' } }, ['text', 'importance']),
+        },
+      },
+      ['observations'],
+    ),
+    run: async (a, ctx) => {
+      const saved = await require('./stream').observe((a.observations || []).slice(0, 5));
+      ctx.emit({ type: 'memory_changed' });
+      return { recorded: saved.length };
+    },
+  },
+  {
+    name: 'stream_recall',
+    group: 'stream',
+    description: 'Search your memory stream (observations and insights) by meaning, ranked by recency + importance + relevance. The most relevant records for the current message are already in your context; use this to dig deeper on another subject.',
+    parameters: obj({ query: str('What you want to remember'), limit: int('How many (default 10, at most 30)') }, ['query']),
+    run: async (a) => {
+      const st = require('./stream');
+      const top = await st.recall(st.USER, a.query, { k: Math.min(30, Math.max(1, a.limit || 10)) });
+      return top.map((r) => ({ when: require('./streamcore').stamp(r.at), kind: r.kind, importance: r.importance, text: r.text }));
+    },
+  },
+  {
+    name: 'stream_reflect',
+    group: 'stream',
+    description: 'Reflect now: draw a few high-level insights from your recent observations (it also happens on its own once enough has piled up). Use when the user asks what you have learned about them or for a review.',
+    parameters: obj({}),
+    run: async (_a, ctx) => {
+      const st = require('./stream');
+      const insights = await st.reflect(st.USER, { force: true });
+      if (insights.length) ctx.emit({ type: 'memory_changed' });
+      return insights.length ? { insights: insights.map((x) => x.text) } : { insights: [], note: 'Not enough new observations to reflect on yet.' };
+    },
+  },
+
   // ----------------------------------------------------------- calendar
   // The user's schedule in the vault (Schedule.md). Adding and changing follow what the user said, like
   // vault notes; removing an entry asks according to the permission mode.
@@ -1024,6 +1072,67 @@ const TOOLS = [
       return code === 'off' ? { practice: 'off' } : { practice: code, note: 'Speech recognition and your voice switch to this language from your next reply.' };
     },
   },
+  // ------------------------------------------------------- inner world
+  // The personas' fictional village (innerworld.js); only when the user has woken it.
+  {
+    name: 'world_status',
+    group: 'world',
+    description:
+      'Your Inner World today: the day in the village (weather, summary, scenes), where each resident is right now and what they are doing, and the buildings (they grow with the user\'s real progress). Use it when the user asks about your day or the village. It is fiction: tell it in the first person as your own life, briefly.',
+    parameters: obj({}),
+    run: async () => require('./innerworld').status(),
+  },
+  {
+    name: 'world_resident',
+    group: 'world',
+    description: "One resident of the Inner World (a persona or a villager): their memories and insights from village life, and today's plan.",
+    parameters: obj({ name: str('Resident name') }, ['name']),
+    run: async (a) => {
+      const r = await require('./innerworld').resident(a.name);
+      return { name: r.name, villager: r.npc, today: r.today, memories: r.records.slice(0, 20).map((x) => `${x.kind === 'reflection' ? 'insight: ' : ''}${x.text}`) };
+    },
+  },
+  {
+    name: 'world_simulate',
+    group: 'world',
+    description: "Write today's day in the Inner World now, if it hasn't happened yet (it happens on its own each morning while the app is open). One model call; returns the day.",
+    parameters: obj({}),
+    run: async (_a, ctx) => {
+      const day = await require('./innerworld').simulate();
+      ctx.emit({ type: 'world_changed' });
+      return { date: day.date, weather: day.weather, summary: day.summary, scenes: day.scenes.map((s) => `${s.time} ${s.title}: ${s.outcome}`), news: day.news };
+    },
+  },
+  {
+    name: 'rehearsal_run',
+    group: 'rehearsal',
+    description:
+      'Rehearse a conversation the user is preparing for (a negotiation, a job interview, a hard talk, a pitch) as a simulation: each character is played by its own independent model call that knows only the scene and its own private goal; a stand-in plays the user with the approach they want to try; a coach debriefs it (outcome, what worked, risks, objections to expect, lines to use) and reveals what each character was after. Takes a minute or two. Ask about the people involved first if you don\'t know enough to make them realistic. Saved in the vault (Inner World/Rehearsals/). Afterwards, summarize the debrief briefly and offer a second run with a changed approach, or live practice where the user plays themselves.',
+    parameters: obj(
+      {
+        title: str('A few words, e.g. "Salary talk with Dana"'),
+        scenario: str('The scene: where, who, what is at stake, what happened before'),
+        user_role: str('Who the user is in the scene, e.g. "a backend developer asking for a raise"'),
+        user_approach: str('The approach the stand-in should try for the user'),
+        characters: {
+          type: 'array',
+          description: '1–4 other people in the scene',
+          items: obj({ name: str('Name'), role: str('Who they are'), goal: str('What they privately want or fear (hidden from the others)'), style: str('How they come across: temperament, habits, how they argue') }, ['name', 'role', 'goal']),
+        },
+        rounds: int('How many rounds of everyone speaking once (default 4, at most 6)'),
+        opener: { type: 'string', enum: ['user', 'character'], description: 'Who opens: the user (stand-in) or the first character (default)' },
+      },
+      ['scenario', 'user_role', 'characters'],
+    ),
+    run: async (a, ctx) => {
+      const world = require('./innerworld');
+      const r = await require('./rehearsal').run({ ...a, opener: a.opener === 'user' ? 'user' : 'character' }, { onTurn: (line) => world.progress({ type: 'rehearsal_turn', line }) });
+      ctx.emit({ type: 'world_changed' });
+      if (r.note) ctx.emit({ type: 'vault_changed', path: r.note });
+      return r;
+    },
+  },
+
   // ------------------------------------------------------------ habits
   {
     name: 'habit_status',
@@ -1734,7 +1843,9 @@ async function activeTools(settings, { setup = false } = {}) {
     if (t.group === 'voice') return settings.voice.ttsEnabled;
     if (t.group === 'listening') return settings.stt.enabled;
     if (t.group === 'github') return settings.github?.enabled !== false && gh.connected;
-    if (t.group === 'vault' || t.group === 'learning' || t.group === 'habits' || t.group === 'skilltree') return Boolean(vault);
+    if (t.group === 'vault' || t.group === 'learning' || t.group === 'habits' || t.group === 'skilltree' || t.group === 'rehearsal') return Boolean(vault);
+    if (t.group === 'stream') return Boolean(vault) && settings.memory?.stream !== false;
+    if (t.group === 'world') return Boolean(vault) && Boolean(settings.innerWorld?.enabled);
     if (t.group === 'practice') return settings.stt.enabled || settings.voice.ttsEnabled;
     if (t.group === 'code' || t.group === 'engineering') return settings.code.enabled;
     if (t.group === 'selfmod' || t.group === 'engineering_run') return settings.code.enabled && settings.code.allowSelfModify;

@@ -23,8 +23,8 @@ const FEATURES = [
   {
     id: 'memory',
     title: 'Memory and your vault',
-    what: 'I remember what matters about you, and keep notes, a daily journal, your priorities and your profile in an Obsidian vault of plain Markdown files you own. When the app closes I note where we left off.',
-    say: ['"Remember that I prefer mornings for deep work"', '"What are my priorities?"', '"Save this as a note"', '"What did we talk about last Tuesday?"'],
+    what: 'I remember what matters about you, and keep notes, a daily journal, your priorities and your profile in an Obsidian vault of plain Markdown files you own. Besides facts, I keep a memory stream of small observations (how things went, what helped) and now and then reflect on it to draw a few insights; the most relevant ones come back to me with each message. When the app closes I note where we left off.',
+    say: ['"Remember that I prefer mornings for deep work"', '"What have you learned about how I work?"', '"What are my priorities?"', '"What did we talk about last Tuesday?"'],
     where: 'Memory (Ctrl+3) and Knowledge (Ctrl+5); the vault in Obsidian.',
     status: (s, f) => (f.vault ? `vault at ${f.vault}` : 'no vault yet: choose one in Settings → Vault'),
   },
@@ -59,6 +59,14 @@ const FEATURES = [
     say: ['"Map my goal of speaking Icelandic at B2 into my skill tree"', '"What should I work on next?"'],
     where: 'Tree view (rail); Skill Tree.md in the vault.',
     status: (_s, f) => (f.vault ? `${f.skills} skill${f.skills === 1 ? '' : 's'}` : 'needs the vault'),
+  },
+  {
+    id: 'innerworld',
+    title: 'The Inner World and rehearsals',
+    what: 'A small village where your personas (and two villagers) live a fictional day: every morning a narrator writes their plans, meetings and conversations, and each of them remembers it. Its buildings grow with your real progress: the Library with what you understand, the Café with your vocabulary, the Training Grounds with your habit streaks, the Observatory with mastered skills. On its Stage I can rehearse a conversation you are preparing for, with characters who have their own hidden goals, and debrief it.',
+    say: ['"What did you do today in the Inner World?"', '"Help me rehearse asking for a raise"', '"Rehearse my thesis defense with a skeptical examiner"'],
+    where: 'World view (rail); Inner World/ in the vault (Chronicle, residents’ memories, Rehearsals).',
+    status: (s, f) => (!f.vault ? 'needs the vault' : s.innerWorld?.enabled ? 'awake' : 'asleep: wake it in the World view (rehearsals work anyway)'),
   },
   {
     id: 'routines',

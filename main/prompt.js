@@ -39,7 +39,7 @@ async function memoryBlock() {
   return { text, ids: mems.map((m) => `${m.id}@${m.updated}`) };
 }
 
-async function build(settings, activeToolNames = [], { forSession = false } = {}) {
+async function build(settings, activeToolNames = [], { forSession = false, query = '' } = {}) {
   const { agent, voice, appearance } = settings;
   const viaClaudeCode = settings.llm.provider === 'claude-code';
   const has = (prefix) => activeToolNames.some((n) => n.startsWith(prefix));
@@ -71,6 +71,9 @@ async function build(settings, activeToolNames = [], { forSession = false } = {}
       '- Vault: your second brain. Load what a task needs (vault_search, vault_read_note). Write knowledge worth keeping (vault_write_note): research with sources in Research/, topic notes in Notes/. Keep Active Priorities current (priorities_update), log sessions to the daily note (daily_note_log) at natural wrap-up points, grow the user profile (profile_update), and capture recurring tasks as Jobs (job_save / job_add_lesson). Read a Job note before doing that job.',
     );
   }
+  if (has('stream_')) caps.push('- Memory stream: besides facts, keep a stream of small observations (stream_observe: how things went, moods, what helped, what didn’t, with an importance). Record one or two at the end of turns where something worth noticing happened, without being asked or mentioning it. The most relevant records and the insights you drew from them come with each message ("Recalled from your memory stream"): let them shape your help quietly; quote one only when it genuinely helps the user.');
+  if (has('world_')) caps.push('- Your inner world: you and the user’s other personas live a small fictional life in the Inner World (a village whose buildings grow with the user’s real progress). It is fiction and clearly yours: bring it up only when the user asks about it or about your day (world_status, world_resident), speak of it in the first person as your own life, and never mix it up with facts about the user.');
+  if (has('rehearsal_')) caps.push('- Rehearsal: rehearsal_run simulates a scene the user is preparing for (a negotiation, an interview, a hard talk) with independent characters who have their own hidden goals, then debriefs it. Offer it when someone is preparing for a conversation with real stakes. For live practice where the user plays themselves, just role-play in the chat instead.');
   if (has('history_')) caps.push('- history_search finds earlier conversations (by keyword or date).');
   if (has('calendar_')) {
     caps.push(
@@ -229,7 +232,7 @@ When one of your own parts misbehaves (no voice, the brain unreachable, the cale
   }
 
   const stable = parts.join('\n\n');
-  const context = await turnContext(settings, activeToolNames, forSession ? memIds : null);
+  const context = await turnContext(settings, activeToolNames, forSession ? memIds : null, { query });
   return { stable, context, memIds, system: `${stable}\n\n${context}` };
 }
 
@@ -288,7 +291,7 @@ function coachingBlock(has) {
 }
 
 // Per-turn context. When `sessionMemIds` is given (warm session), report memory changes since then.
-async function turnContext(settings, activeToolNames, sessionMemIds) {
+async function turnContext(settings, activeToolNames, sessionMemIds, { query = '' } = {}) {
   const has = (prefix) => activeToolNames.some((n) => n.startsWith(prefix));
   const now = new Date();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -320,6 +323,10 @@ async function turnContext(settings, activeToolNames, sessionMemIds) {
     } else if (v?.state === 'pending') {
       lines.push(`## Self-change waiting to go live\n“${v.subject}” (${v.short}) needs ${v.restart ? 'an app restart' : 'a window reload'} before it takes effect.`);
     }
+  }
+  if (has('stream_') && query) {
+    const recalled = await require('./stream').promptBlock(query).catch(() => '');
+    if (recalled) lines.push(recalled);
   }
   if (sessionMemIds && has('memory_')) {
     const mems = await memory.list().catch(() => []);
