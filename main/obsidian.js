@@ -260,10 +260,26 @@ async function readNote(ref, maxChars = 40000) {
 async function readOptional(rel) {
   const root = await vaultPath();
   if (!root) return '';
+  const g = lockedNote(root, path.join(root, rel));
   try {
-    return (await readCached(path.join(root, rel))).text;
+    const { text, stat } = await readCached(path.join(root, rel));
+    if (g && g.mtime === undefined) g.mtime = stat.mtimeMs;
+    return text;
   } catch {
+    if (g && g.mtime === undefined) g.mtime = null;
     return '';
+  }
+}
+
+// The locked change (notelock) working on this note, if any: its read time is remembered so the write
+// can tell whether someone else changed the note in between.
+function lockedNote(root, full) {
+  const g = require('./notelock').current();
+  if (!g) return null;
+  try {
+    return path.resolve(full) === path.resolve(root, normalizeRef(g.key)) ? g : null;
+  } catch {
+    return null;
   }
 }
 
@@ -288,6 +304,11 @@ async function writeNote(ref, content, mode = 'overwrite', { source = 'agent' } 
   if (rel.split('/').some((p) => IGNORE.includes(p))) throw new Error('That folder is reserved');
   const full = resolveInside(root, rel);
   await fsp.mkdir(path.dirname(full), { recursive: true });
+  const g = lockedNote(root, full);
+  if (g && g.mtime !== undefined) {
+    const now = await fsp.stat(full).then((s) => s.mtimeMs, () => null);
+    if (now !== g.mtime) throw require('./notelock').changedError(rel);
+  }
   const exists = fs.existsSync(full);
   if (mode === 'create' && exists) throw new Error(`Note "${rel}" already exists (use mode "overwrite" or "append")`);
   let text = String(content ?? '');
@@ -299,6 +320,7 @@ async function writeNote(ref, content, mode = 'overwrite', { source = 'agent' } 
   // Atomic: a crash mid-write leaves the old note or the new one, never half of it.
   await store.writeTextAtomic(full, text);
   contentCache.delete(full);
+  if (g) g.mtime = await fsp.stat(full).then((s) => s.mtimeMs, () => null); // a second write in the same change is ours
   await afterChange(root, rel, `${source}: ${exists ? 'update' : 'create'} ${rel}`);
   return { path: toPosix(path.relative(root, full)), created: !exists, mode };
 }

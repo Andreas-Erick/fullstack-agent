@@ -1194,7 +1194,7 @@ function safetyCard() {
     'safety',
     'Safety & permissions',
     'What the agent may do without asking. Approve requests by clicking or by saying a yes on its own — “yes”, “yeah”, “okay”, “go ahead” (anything else declines; no answer counts as no).',
-    select('safety.permissionMode', 'Permission mode', [['ask', 'Ask me first — self-changes, settings changes, deletions (recommended)'], ['auto', 'Just do it — still asks before commands and after reading external content']], { hint: 'Also by voice: “stop asking for permission” / “start asking again”.' }),
+    select('safety.permissionMode', 'Permission mode', [['ask', 'Ask me first — self-changes, settings changes, deletions (recommended)'], ['auto', 'Just do it — still asks before self-changes, commands and anything that reaches other people or services']], { hint: 'Also by voice: “stop asking for permission” / “start asking again”.' }),
     toggle('safety.taintGuard', 'Always ask before self-modification in a turn that read web pages or documents'),
     toggle('screen.attachToMessages', 'While I share my screen, include a screenshot with each message (otherwise only when the agent asks to look)'),
     text('safety.approvalTimeoutSec', 'Approval timeout (seconds)', { type: 'number' }),
