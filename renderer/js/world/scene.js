@@ -2,11 +2,11 @@
 // (tiles and objects back to front, in diagonal rows), then every frame: the sky with its sun, moon,
 // clouds and your skill constellations; the island through the camera; water, the waterfall, smoke,
 // sparks, the fountain, floating books, ravens, flames; the residents; night light; weather; names.
-import { W, TW, TH, HZ, tile, tree, prop, person, rgba, mix, shadowAt } from './art.js';
+import { W, TW, TH, HZ, tile, tree, prop, person, rgba, mix, shadowAt, house } from './art.js';
 import { N, noise2, rng } from './map.js';
 import { drawPlace } from './places.js';
 import { drawInterior } from './interiors.js';
-import { sprite, count, drawSprite, point } from './sprites.js';
+import { sprite, count, drawSprite, point, tintRoofs, has } from './sprites.js';
 
 // Rendered art for a tree or a small thing, picked steadily by its place on the map; null = draw by code.
 function natureSprite(family, gx, gy, season) {
@@ -98,6 +98,59 @@ export function buildIsland(data, scale, region = bounds()) {
     const q = point(sp, 'light', at.x, at.y, 0.8);
     if (q) lights.push({ kind: 'lamp', x: q.x, y: q.y, r: 34, tone: P.lamp });
   };
+  // Homes on the lots, as many as the village has grown (data.homes); code-drawn without the art.
+  const drawHome = (lot) => {
+    const z = lot.h * HZ;
+    const sp = art && sprite(`home-${lot.design}`, P.season);
+    if (!sp) {
+      const r = house(c, P, lot.gx, lot.gy, z, { a: 0.8, b: 0.7, floors: 1 + (lot.design % 3 === 2 ? 1 : 0), roof: [P.roof, P.slate, P.accentRoof, P.roofLight][lot.design % 4], axis: lot.design % 2 ? 'x' : 'y' }, lights);
+      if (r.smoke) emitters.push({ kind: 'smoke', ...r.smoke });
+      return;
+    }
+    const at = W(lot.gx, lot.gy, z);
+    shadowAt(c, at.x + 6, at.y + 4, 46, 18, 0.15);
+    drawSprite(c, sp, at.x, at.y);
+    tintRoofs(c, sp, at.x, at.y, P.roofTint);
+    if (sp.glow) lights.push({ kind: 'sprite', img: sp.glow, x: at.x - sp.ax * sp.k, y: at.y - sp.ay * sp.k, w: sp.w * sp.k, h: sp.h * sp.k });
+  };
+  for (const lot of (map.lots || []).slice(0, data.homes ?? 0)) rows[rowOf(lot.gx + 1, lot.gy + 1)].push({ k: lot.gx + lot.gy + 2, draw: () => drawHome(lot) });
+
+  // The mills, their wheel and blades turning (frames drawn every frame by emitter()).
+  const mill = (m, name, frames, period) => {
+    if (!m || !art || !has(name)) return;
+    rows[rowOf(m.gx + 1, m.gy + 1)].push({
+      k: m.gx + m.gy + 2,
+      draw: () => {
+        const at = W(m.gx, m.gy, m.h * HZ);
+        const sp = sprite(name, P.season);
+        shadowAt(c, at.x + 6, at.y + 4, 44, 17, 0.15);
+        drawSprite(c, sp, at.x, at.y);
+        if (sp.glow) lights.push({ kind: 'sprite', img: sp.glow, x: at.x - sp.ax * sp.k, y: at.y - sp.ay * sp.k, w: sp.w * sp.k, h: sp.h * sp.k });
+        emitters.push({ kind: 'frames', names: Array.from({ length: count(frames) }, (_, k) => `${frames}-${k}`), x: at.x, y: at.y, period });
+      },
+    });
+  };
+  mill(map.mills?.water, 'watermill', 'watermill-wheel', 140);
+  mill(map.mills?.wind, 'windmill', 'windmill-blades', 110);
+
+  // Crops on the fields, by season (none in winter), and fences around them.
+  const crop = { spring: ['crop-leafs', 'crop-carrot'], summer: ['crop-wheat', 'crop-corn'], autumn: ['crop-wheat', 'crop-pumpkin'], winter: null }[P.season];
+  for (const fl of art ? map.fields || [] : []) {
+    if (crop) {
+      for (let y = fl.y; y < fl.y + fl.h; y++) {
+        for (let x = fl.x; x < fl.x + fl.w; x++) {
+          const name = `${crop[fl.crop === 'wheat' ? 0 : 1]}-0`;
+          for (const [dx, dy] of [[0.3, 0.3], [0.72, 0.4], [0.35, 0.75], [0.75, 0.8]]) {
+            rows[rowOf(x + dx, y + dy)].push({ k: x + dx + y + dy, draw: () => { const sp = sprite(name, P.season); if (sp) drawSprite(c, sp, W(x + dx, y + dy, HZ).x, W(x + dx, y + dy, HZ).y, 0.55); } });
+          }
+        }
+      }
+    }
+    const post = (gx, gy, name) => rows[rowOf(gx, gy)].push({ k: gx + gy, draw: () => { const sp = sprite(name, P.season); if (sp) drawSprite(c, sp, W(gx, gy, HZ).x, W(gx, gy, HZ).y, 0.9); } });
+    for (let x = fl.x; x < fl.x + fl.w; x++) (post(x + 0.5, fl.y - 0.1, 'prop-fence-y'), post(x + 0.5, fl.y + fl.h + 0.1, 'prop-fence-y'));
+    for (let y = fl.y; y < fl.y + fl.h; y++) (post(fl.x - 0.1, y + 0.5, 'prop-fence-x'), post(fl.x + fl.w + 0.1, y + 0.5, 'prop-fence-x'));
+  }
+
   for (const t of map.trees) rows[rowOf(t.gx, t.gy)].push({ k: t.gx + t.gy, draw: () => drawTree(t) });
   for (const p of map.props) rows[rowOf(p.gx, p.gy)].push({ k: p.gx + p.gy, draw: () => drawProp(p) });
   for (const l of roadLamps(map)) rows[rowOf(l.gx, l.gy)].push({ k: l.gx + l.gy, draw: () => drawLamp(l) });
@@ -108,7 +161,7 @@ export function buildIsland(data, scale, region = bounds()) {
     rows[row].push({
       k: s.gx + s.a + s.gy + s.b,
       draw: () => {
-        const ctx = { P, level: p.level, details: data.details || {}, lights, emitters: [], rendered: art };
+        const ctx = { P, level: p.level, details: data.details || {}, lights, emitters: [], rendered: art, design: data.designs?.[p.id] || 0 };
         const inside = data.interior === p.id;
         const top = inside ? drawInterior(c, p.id, s, ctx) : drawPlace(c, p.id, s, ctx);
         for (const e of ctx.emitters) emitters.push({ ...e, place: e.place || p.id });
@@ -473,6 +526,12 @@ function emitter(c, P, e, f) {
   const anim = f.anim;
   const live = f.live === e.place;
   switch (e.kind) {
+    case 'frames': {
+      if (!e.names.length) return;
+      const sp = sprite(e.names[anim ? Math.floor(t / e.period) % e.names.length : 0], P.season);
+      if (sp) drawSprite(c, sp, e.x, e.y);
+      return;
+    }
     case 'smoke': {
       const n = e.heavy && live ? 9 : 5;
       for (let i = 0; i < n; i++) {

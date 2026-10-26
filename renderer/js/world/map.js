@@ -185,7 +185,9 @@ export function buildMap(places, seed = 7) {
   }
 
   // Keep tiles free where buildings stand.
-  const near = (x, y, extra) => list.some((s) => Math.abs(x - s.gx) < s.a + extra && Math.abs(y - s.gy) < s.b + extra);
+  const nearSite = (x, y, extra) => list.some((s) => Math.abs(x - s.gx) < s.a + extra && Math.abs(y - s.gy) < s.b + extra);
+  const isGround = (x, y) => tiles[at(x, y)] === T.GRASS && height[at(x, y)] === 1;
+  const block2 = (x, y) => isGround(x, y) && isGround(x + 1, y) && isGround(x, y + 1) && isGround(x + 1, y + 1);
 
   // Fields on open grass.
   const fields = [];
@@ -195,11 +197,64 @@ export function buildMap(places, seed = 7) {
     const w = 3;
     const h = 2 + Math.floor(r() * 2);
     let ok = true;
-    for (let yy = y - 1; yy < y + h + 1 && ok; yy++) for (let xx = x - 1; xx < x + w + 1 && ok; xx++) ok = tiles[at(xx, yy)] === T.GRASS && height[at(xx, yy)] === 1;
-    if (!ok || near(x + 1, y + 1, 1.5)) continue;
+    for (let yy = y; yy < y + h && ok; yy++) for (let xx = x; xx < x + w && ok; xx++) ok = tiles[at(xx, yy)] === T.GRASS && height[at(xx, yy)] === 1;
+    if (!ok || nearSite(x + 1, y + 1, 1.2) || fields.some((o) => Math.abs(o.x - x) < 5 && Math.abs(o.y - y) < 4)) continue;
     for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) tiles[at(xx, yy)] = T.FIELD;
     fields.push({ x, y, w, h, crop: r() < 0.5 ? 'wheat' : 'green' });
   }
+  // House lots along the roads: the village fills them as it grows (closest to the Garden first).
+  const roadTiles = [];
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (tiles[at(x, y)] === T.COBBLE) roadTiles.push([x, y]);
+  const toRoad = (x, y) => roadTiles.reduce((m, [rx, ry]) => Math.min(m, Math.hypot(rx - x, ry - y)), Infinity);
+  const garden = sites.garden || list[0];
+  const candidates = [];
+  for (let y = 2; y < N - 3; y++) {
+    for (let x = 2; x < N - 3; x++) {
+      if (!block2(x, y) || nearSite(x + 1, y + 1, 1.6)) continue;
+      const d = toRoad(x + 1, y + 1);
+      if (d < 1.6 || d > 3.2) continue;
+      if (map0Water(x + 1, y + 1, 2.2)) continue;
+      candidates.push({ gx: x + 1, gy: y + 1, h: 1, d: Math.hypot(x + 1 - garden.gx, y + 1 - garden.gy) });
+    }
+  }
+  function map0Water(x, y, r0) {
+    for (let yy = Math.floor(y - r0); yy <= Math.ceil(y + r0); yy++) for (let xx = Math.floor(x - r0); xx <= Math.ceil(x + r0); xx++) if (tiles[at(xx, yy)] === T.WATER || tiles[at(xx, yy)] === T.BRIDGE) return true;
+    return false;
+  }
+  const lots = [];
+  for (const c of candidates.sort((a, b) => a.d - b.d)) {
+    if (lots.length >= 16) break;
+    if (lots.some((l) => Math.hypot(l.gx - c.gx, l.gy - c.gy) < 3.1)) continue;
+    lots.push({ gx: c.gx, gy: c.gy, h: 1, design: Math.floor(r() * 8) });
+  }
+
+  // A watermill on the river bank (its wheel towards the water, the app's +gy), a windmill on open land.
+  const mills = { water: null, wind: null };
+  const free = (x, y, extra) => !nearSite(x, y, extra) && !lots.some((l) => Math.hypot(l.gx - x, l.gy - y) < 2.6);
+  let best = null;
+  for (let y = 2; y < N - 3; y++) {
+    for (let x = 2; x < N - 3; x++) {
+      if (!block2(x, y) || !free(x + 1, y + 1, 1.5) || toRoad(x + 1, y + 1) < 1.4) continue;
+      const wheel = tiles[at(x + 1, y + 2)] === T.WATER || tiles[at(x + 1, y + 3)] === T.WATER || tiles[at(x, y + 3)] === T.WATER;
+      if (!wheel || tiles[at(x + 1, y + 2)] === T.BRIDGE) continue;
+      const d = Math.hypot(x + 1 - C, y + 1 - C);
+      if (!best || d < best.d) best = { gx: x + 1, gy: y + 1, h: 1, d };
+    }
+  }
+  mills.water = best && { gx: best.gx, gy: best.gy, h: 1 };
+  const near = (x, y, extra) => nearSite(x, y, extra) || lots.some((l) => Math.hypot(l.gx - x, l.gy - y) < 1.4 + extra) || [mills.water].some((m) => m && Math.hypot(m.gx - x, m.gy - y) < 1.4 + extra);
+
+  best = null;
+  for (let y = 2; y < N - 3; y++) {
+    for (let x = 2; x < N - 3; x++) {
+      if (!block2(x, y) || near(x + 1, y + 1, 1.2) || toRoad(x + 1, y + 1) < 1.4) continue;
+      const toField = fields.reduce((m, fl) => Math.min(m, Math.hypot(fl.x + fl.w / 2 - x - 1, fl.y + fl.h / 2 - y - 1)), Infinity);
+      const score = (Number.isFinite(toField) ? toField : 10) + Math.hypot(x + 1 - C, y + 1 - C) * 0.15;
+      if (!best || score < best.score) best = { gx: x + 1, gy: y + 1, h: 1, score };
+    }
+  }
+  mills.wind = best && { gx: best.gx, gy: best.gy, h: 1 };
+  const nearAll = (x, y, extra) => near(x, y, extra) || (mills.wind && Math.hypot(mills.wind.gx - x, mills.wind.gy - y) < 1.2 + extra);
 
   // Trees: a forest towards the edges, groves in between; small things on the grass.
   const trees = [];
@@ -207,19 +262,20 @@ export function buildMap(places, seed = 7) {
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       const i = at(x, y);
-      if (tiles[i] !== T.GRASS || near(x, y, 1.3)) continue;
+      if (tiles[i] !== T.GRASS || nearAll(x, y, 1.1)) continue;
       const edge = Math.hypot(x - C, y - C) / R;
-      const dense = noise2(x / 4, y / 4, seed + 3) * 0.9 + edge * 0.6 - 0.4;
+      const dense = noise2(x / 4, y / 4, seed + 3) * 0.9 + edge * 0.6 - 0.28;
       const roll = r();
       if (roll < dense) {
         trees.push({ gx: x + 0.5 + (r() - 0.5) * 0.5, gy: y + 0.5 + (r() - 0.5) * 0.5, kind: r() < 0.35 ? 'pine' : r() < 0.15 ? 'birch' : 'oak', k: 0.8 + r() * 0.45, h: height[i] });
-      } else if (roll > 0.94) {
-        props.push({ gx: x + 0.3 + r() * 0.4, gy: y + 0.3 + r() * 0.4, kind: ['rock', 'bush', 'flowers', 'bush', 'stump'][Math.floor(r() * 5)], h: height[i], seed: Math.floor(r() * 1e6) });
+      } else if (roll > 0.9) {
+        const kinds = ['rock', 'bush', 'flowers', 'bush', 'stump', 'grass', 'flowers', 'mushroom', 'grass', 'log'];
+        props.push({ gx: x + 0.3 + r() * 0.4, gy: y + 0.3 + r() * 0.4, kind: kinds[Math.floor(r() * kinds.length)], h: height[i], seed: Math.floor(r() * 1e6) });
       }
     }
   }
 
-  return { N, tiles, height, sites, roads, edges, trees, props, fields, river, fall, seed, tile: (x, y) => (at(x, y) < 0 ? 0 : tiles[at(x, y)]), hgt: (x, y) => (at(x, y) < 0 ? 0 : height[at(x, y)]) };
+  return { N, tiles, height, sites, roads, edges, trees, props, fields, river, fall, seed, lots, mills, tile: (x, y) => (at(x, y) < 0 ? 0 : tiles[at(x, y)]), hgt: (x, y) => (at(x, y) < 0 ? 0 : height[at(x, y)]) };
 }
 
 /** The walk between two places along the roads: grid points, start to end. */

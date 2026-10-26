@@ -61,14 +61,14 @@ def load(kit, name):
     return _cache[key]
 
 
-def place(scene_coll, kit, name, pos=(0, 0, 0), rot=0, scale=1.0, tint=None):
-    """An instance of a model at pos (Blender units), rotated rot degrees about z."""
+def place(scene_coll, kit, name, pos=(0, 0, 0), rot=0, scale=1.0, rx=0):
+    """An instance of a model at pos (Blender units), rotated rot degrees about z (and rx about x: wheels)."""
     src = load(kit, name)
     inst = bpy.data.objects.new(f'{name}', None)
     inst.instance_type = 'COLLECTION'
     inst.instance_collection = src
     inst.location = Vector(pos)
-    inst.rotation_euler = (0, 0, math.radians(rot))
+    inst.rotation_euler = (math.radians(rx), 0, math.radians(rot))
     inst.scale = tuple(scale) if isinstance(scale, (tuple, list)) else (scale, scale, scale)
     scene_coll.objects.link(inst)
     return inst
@@ -83,6 +83,9 @@ def srgb(c):
 
 
 def flat_material(name, color, rough=0.8):
+    # Roofs in the accent colour are tinted with the persona's theme by the app (the roofmask variant).
+    if tuple(color) == tuple(blueprints.ACCENT):
+        name = f'accent-{name}'
     m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
     m.use_nodes = True
     bsdf = m.node_tree.nodes['Principled BSDF']
@@ -371,7 +374,24 @@ def apply_glow():
         links.new(black.outputs[0], out.inputs['Surface'])
 
 
-VARIANTS = {'summer': None, 'winter': apply_winter, 'autumn': apply_autumn, 'glow': apply_glow}
+def apply_roofmask():
+    """Mask pass: white where an accent roof is seen, transparent everywhere else."""
+    for m in bpy.data.materials:
+        if not m.use_nodes:
+            continue
+        nodes, links = m.node_tree.nodes, m.node_tree.links
+        out = next((n for n in nodes if n.type == 'OUTPUT_MATERIAL'), None)
+        if not out:
+            continue
+        if m.name.startswith('accent-'):
+            sh = nodes.new('ShaderNodeEmission')
+            sh.inputs['Color'].default_value = (1, 1, 1, 1)
+        else:
+            sh = nodes.new('ShaderNodeHoldout')
+        links.new(sh.outputs[0], out.inputs['Surface'])
+
+
+VARIANTS = {'summer': None, 'winter': apply_winter, 'autumn': apply_autumn, 'glow': apply_glow, 'roofmask': apply_roofmask}
 
 
 # ------------------------------------------------------------------ rendering

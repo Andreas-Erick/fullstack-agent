@@ -47,7 +47,38 @@ export function sprite(name, season = 'summer') {
   const want = s.variants[season] ? season : 'summer';
   const img = images.get(s.variants[want]) || images.get(s.variants.summer);
   if (!img) return null;
-  return { img, glow: images.get(s.variants.glow) || null, w: s.w, h: s.h, ax: s.ax, ay: s.ay, k: 1 / (manifest.scale || 1), points: s.points || {} };
+  return { img, glow: images.get(s.variants.glow) || null, mask: images.get(s.variants.roofmask) || null, w: s.w, h: s.h, ax: s.ax, ay: s.ay, k: 1 / (manifest.scale || 1), points: s.points || {} };
+}
+
+export const has = (name) => Boolean(manifest?.sprites?.[name]);
+
+// Tinted roof masks, made once per mask and colour.
+const tints = new Map();
+function tinted(mask, rgb) {
+  const key = `${mask.src}|${rgb.join(',')}`;
+  if (!tints.has(key)) {
+    const cv = document.createElement('canvas');
+    cv.width = mask.naturalWidth;
+    cv.height = mask.naturalHeight;
+    const c = cv.getContext('2d');
+    c.drawImage(mask, 0, 0);
+    c.globalCompositeOperation = 'source-in';
+    c.fillStyle = `rgb(${rgb.join(',')})`;
+    c.fillRect(0, 0, cv.width, cv.height);
+    tints.set(key, cv);
+  }
+  return tints.get(key);
+}
+
+/** Recolours the sprite's accent roofs (already drawn at x, y) with rgb, keeping their shading. */
+export function tintRoofs(c, s, x, y, rgb, size = 1, strength = 0.85) {
+  if (!s.mask) return;
+  const k = s.k * size;
+  c.save();
+  c.globalCompositeOperation = 'color';
+  c.globalAlpha = strength;
+  c.drawImage(tinted(s.mask, rgb), x - s.ax * k, y - s.ay * k, s.w * k, s.h * k);
+  c.restore();
 }
 
 /** How many numbered variants a family has (tree-oak-0, tree-oak-1 …). */

@@ -46,6 +46,16 @@ test('the families the island draws from exist (trees by kind, small things, lam
   assert.ok(S['workshop-1'].points.forge && S['workshop-1'].points.smoke, 'the smithy has its forge and chimney');
 });
 
+test('homes, mills with their frames, crops and fences are there', () => {
+  for (let d = 0; d < 8; d++) assert.ok(S[`home-${d}`], `home-${d}`);
+  assert.ok(S.watermill && S.windmill);
+  assert.ok(S['watermill-wheel-0'] && S['watermill-wheel-11'] && S['windmill-blades-0'] && S['windmill-blades-11'], 'animation frames');
+  for (const c of ['wheat', 'corn', 'pumpkin', 'leafs', 'carrot']) assert.ok(S[`crop-${c}-0`], c);
+  assert.ok(S['prop-fence-x'] && S['prop-fence-y']);
+  // Accent roofs carry a mask for the theme tint.
+  assert.ok(S['library-1'].variants.roofmask && S['home-2'].variants.roofmask);
+});
+
 test('the kits’ licences ship with the art', () => {
   for (const f of ['LICENSE-kenney-fantasy-town-kit.txt', 'LICENSE-kenney-nature-kit.txt']) assert.match(fs.readFileSync(path.join(DIR, f), 'utf8'), /CC0/);
 });

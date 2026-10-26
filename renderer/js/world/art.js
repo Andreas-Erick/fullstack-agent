@@ -57,6 +57,7 @@ export function palette(season = 'summer') {
     body: css.getPropertyValue('--font-body').trim() || 'sans-serif',
     accentRoof: mix(STORY.roof, th.c2, 0.55),
     accentRoof2: mix(STORY.roof, th.c3, 0.45),
+    roofTint: mix(th.c1, [200, 90, 80], 0.25),
   });
   P.key = `${Object.values(th).join('|')}|${season}`;
   return P;

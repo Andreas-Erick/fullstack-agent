@@ -6,14 +6,17 @@
 // With rendered art (sprites.js, innerWorld.art = 'rendered') a place is its sprite, the moving parts come
 // from the sprite's named points, and only the parts that show the user's data are drawn on top.
 import { W, HZ, box, house, tower, prop, banner, poly, rgba, mix, shadowAt, windowOn, doorOn } from './art.js';
-import { sprite, drawSprite, point } from './sprites.js';
+import { sprite, drawSprite, point, tintRoofs, has } from './sprites.js';
 
 const ACCENTS = (P) => [P.c1, P.c3, P.ok, P.warn, P.c2];
 
 /** Draw a place. ctx: { P, level, details, lights, emitters }. Returns its top (world y). */
 export function drawPlace(c, id, site, ctx) {
   const z = site.h * HZ;
-  const sp = ctx.rendered && id !== 'grounds' ? sprite(ctx.level === 0 && !ALWAYS.has(id) ? 'construction' : `${id}-${Math.max(1, Math.min(3, ctx.level))}`, ctx.P.season) : null;
+  const base = ctx.level === 0 && !ALWAYS.has(id) ? 'construction' : `${id}-${Math.max(1, Math.min(3, ctx.level))}`;
+  // Some places have a second design; which one this village has is fixed per install (ctx.design).
+  const name = base !== 'construction' && ctx.design && has(`${base}b`) ? `${base}b` : base;
+  const sp = ctx.rendered && id !== 'grounds' ? sprite(name, ctx.P.season) : null;
   if (sp) return spritePlace(c, id, site, z, ctx, sp);
   if (ctx.level === 0 && !ALWAYS.has(id)) return construction(c, site, z, ctx);
   return (BUILD[id] || BUILD.garden)(c, site, z, ctx);
@@ -27,6 +30,7 @@ function spritePlace(c, id, s, z, ctx, sp) {
   // A soft contact shadow (the renders have none on the ground).
   shadowAt(c, at.x + 6, at.y + 4, (s.a + s.b) * 22, (s.a + s.b) * 9, 0.16);
   const top = drawSprite(c, sp, at.x, at.y);
+  tintRoofs(c, sp, at.x, at.y, ctx.P.roofTint);
   if (sp.glow && ctx.level > 0) lights.push({ kind: 'sprite', img: sp.glow, x: at.x - sp.ax * sp.k, y: at.y - sp.ay * sp.k, w: sp.w * sp.k, h: sp.h * sp.k });
   // The moving parts, from the sprite's named points.
   for (const name of Object.keys(sp.points)) {

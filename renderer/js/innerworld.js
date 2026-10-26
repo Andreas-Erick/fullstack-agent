@@ -239,7 +239,13 @@ function sceneData() {
   if (key !== mapKey) ((map = buildMap(places)), (mapKey = key));
   const details = { ...data.details, residents: data.residents.map((r) => r.name), lastRehearsal: data.rehearsals?.[0]?.title || '' };
   const rendered = (state.settings?.innerWorld?.art || 'rendered') === 'rendered' && spritesReady();
-  return { map, P, places, details, interior, rendered };
+  // The village grows houses with everything else: two to start, then one per two levels across the places.
+  const levels = places.reduce((n, p) => n + p.level, 0);
+  const homes = Math.min(map.lots?.length || 0, 2 + Math.floor(levels / 2) + Math.max(0, data.residents.filter((r) => !r.npc).length - 1));
+  // Which design each place has (some have two) is fixed per install, from the first persona's id.
+  const seed = String(data.residents.find((r) => !r.npc)?.id || 'nexus');
+  const designs = Object.fromEntries(places.map((p) => [p.id, [...(seed + p.id)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % 2]));
+  return { map, P, places, details, interior, rendered, homes, designs };
 }
 
 // The part of the island the camera sees, with a margin, at the camera's zoom (sharp when zoomed in).
@@ -248,7 +254,7 @@ const BUDGET = () => (lite() ? 8e6 : 16e6);
 
 function ensureIsland(force = false) {
   const d = sceneData();
-  const key = JSON.stringify([d.places.map((p) => p.level), d.details, interior, P.key, d.rendered]);
+  const key = JSON.stringify([d.places.map((p) => p.level), d.details, interior, P.key, d.rendered, d.homes, d.designs]);
   const all = islandBounds();
   const tl = toWorld(cam, size.w, size.h, { x: 0, y: 0 });
   const br = toWorld(cam, size.w, size.h, { x: size.w, y: size.h });
