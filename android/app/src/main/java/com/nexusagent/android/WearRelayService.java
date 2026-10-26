@@ -1,5 +1,7 @@
 package com.nexusagent.android;
 
+import android.util.Log;
+
 import com.google.android.gms.tasks.Tasks;
 import com.google.android.gms.wearable.Asset;
 import com.google.android.gms.wearable.ChannelClient;
@@ -114,6 +116,7 @@ public class WearRelayService extends WearableListenerService {
         } catch (Unpaired e) {
             reply(node, replyPath(path), put(new JSONObject(), "id", in.optString("id")), "unpaired");
         } catch (Exception e) {
+            Log.w("SirenRelay", path + " failed", e); // no message contents: just the path and the error
             JSONObject out = put(new JSONObject(), "id", in.optString("id"));
             put(out, "error", e.getMessage() == null ? "No connection to the computer" : e.getMessage());
             reply(node, replyPath(path), out, "offline");
@@ -154,6 +157,7 @@ public class WearRelayService extends WearableListenerService {
             face.getDataMap().putString("etag", tag == null ? "" : tag);
             Tasks.await(Wearable.getDataClient(this).putDataItem(face.asPutDataRequest().setUrgent()));
             Prefs.setFaceEtag(this, tag);
+            Log.i("SirenRelay", "face sent to the watch: " + pack.length + " bytes");
             return new JSONObject().put("changed", true);
         } finally {
             c.disconnect();

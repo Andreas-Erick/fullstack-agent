@@ -16,6 +16,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+/* Nothing may widen the page: a phone would then slide sideways under the finger. */
+html, body { overflow-x: clip; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -246,6 +248,8 @@ iframe#face { border: 0; background: transparent; color-scheme: normal; }
 :is(.fx-hud, .fx-subtle) .name { font-family: var(--mono); letter-spacing: 0.32em; text-shadow: 0 0 10px var(--glow-c); }
 :is(.fx-hud, .fx-subtle) .name-row::after { content: attr(data-link); font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.16em; color: var(--muted); }
 :is(.fx-hud, .fx-subtle) .sub { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.04em; }
+/* The scan line crosses the header and stops at its edge (it used to run past the screen). */
+:is(.fx-hud, .fx-subtle) .top { overflow-x: clip; }
 .fx-hud .top::after { content: ''; position: absolute; left: 0; bottom: -1px; width: 140px; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: hud-scan-x 5s linear infinite; }
 @keyframes hud-scan-x { from { transform: translateX(-140px); } to { transform: translateX(100vw); } }
 :is(.fx-hud, .fx-subtle) .face-state { font-family: var(--mono); color: color-mix(in srgb, var(--accent) 70%, var(--muted)); }
@@ -523,6 +527,10 @@ body.wide #main {
     'rec side'
     'comp tabs';
 }
+/* Every pane may be narrower than its widest content (a long code line scrolls inside its bubble):
+   otherwise the chat column grows and pushes the side pane off the screen. */
+body.wide #main > * { min-width: 0; }
+body.wide .messages-wrap, body.wide .messages { min-width: 0; }
 body.wide #main > .top { grid-area: top; }
 body.wide #banner { grid-area: banner; }
 body.wide .face-wrap { grid-area: face; height: 30dvh; min-height: 180px; }
@@ -585,6 +593,10 @@ body.face-full .face-full-btn { top: max(14px, env(safe-area-inset-top)); bottom
 @keyframes hud-cascade { from { opacity: 0; transform: translateY(10px) scale(0.985); } }
 .fx-still .panel.enter::before, .fx-still .panel.enter > * { animation: none; }
 @media (prefers-reduced-motion: reduce) { .panel.enter::before, .panel.enter > * { animation: none !important; } }
+
+/* The pairing QR code opened in the browser on Android: open in the app, or continue here (app.js offerApp). */
+.handoff { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 360px; margin: 6px auto 0; text-align: center; }
+.handoff .btn { text-decoration: none; justify-content: center; }
 
 /* View-only devices (/api/info readOnly): reading only. */
 .view-only-note { display: none; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); font-size: 13px; color: var(--muted); text-align: center; border-top: 1px solid var(--line); }

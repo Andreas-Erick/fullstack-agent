@@ -1495,6 +1495,22 @@ function remoteCard() {
     el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: startPair }, '📱 Pair a device')),
     pairBox,
     field('Paired devices', devices),
+    watchGuide(),
+  );
+}
+
+// Installing the Galaxy Watch app (also the vault note "Install on your Galaxy Watch", main/guides/).
+function watchGuide() {
+  const steps = [
+    ['Before you start', 'The Siren phone app is paired with this computer, and the phone and watch apps come from the <b>same release</b> (they only talk to each other when signed with the same key). The watch and this computer are on the same Wi-Fi. On this computer you need Android’s <b>platform-tools</b> (the <code>adb</code> program; Android Studio includes it).'],
+    ['On the watch', '<b>Settings → About watch → Software information</b>: tap <b>Software version</b> five times. Then <b>Settings → Developer options</b>: turn on <b>ADB debugging</b> and <b>Wireless debugging</b>, and tap <b>Pair new device</b>: it shows an address and a six-digit code. Keep the watch screen on (its Wi-Fi sleeps with the screen).'],
+    ['On this computer', 'In a terminal: <code>adb pair &lt;address from Pair new device&gt;</code> (enter the code), <code>adb connect &lt;address on the Wireless debugging screen&gt;</code>, then <code>adb install Siren-Wear-x.y.z.apk</code> (from the same release as the phone app). Or ask Siren “install yourself on my watch”: with adb on this computer she runs these steps, each command with your approval.'],
+    ['First start', 'Open Siren on the watch and keep the screen on for a moment: the first time it brings her face from this computer. For Allow / Deny on the wrist, turn on notifications in the phone app’s menu. Afterwards, turn Wireless debugging off on the watch.'],
+  ];
+  return el('details', { class: 'ts-guide' },
+    el('summary', {}, '⌚ Install Siren on a Galaxy Watch (4 or newer)'),
+    ...steps.map(([title, html], i) => el('div', { class: 'ts-step' }, el('b', {}, `${i + 1}. ${title}`), el('div', { class: 'hint', html }))),
+    el('div', { class: 'hint' }, 'The full walkthrough, with what to do when something doesn’t work, is the note “Install on your Galaxy Watch” in your vault (Notes).'),
   );
 }
 

@@ -31,6 +31,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- The pairing QR code: the phone page hands the link over as siren://pair?u=… (only fills in the
+                 setup screen; the user still taps Connect). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="siren" android:host="pair" />
+            </intent-filter>
             <!-- Share → Nexus: shared text lands in the message box. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

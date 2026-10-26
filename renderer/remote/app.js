@@ -142,6 +142,23 @@ function show(screen) {
 }
 
 // ------------------------------------------------------------------ pairing
+// The pairing QR code opened in the phone's browser: open the Siren app with it (Chrome's intent: link,
+// falling back to this page in the browser), and let the user choose if the browser held the jump back.
+function offerApp(secret) {
+  const link = `${location.origin}/#pair=${secret}`;
+  const web = `${location.origin}/?web=1#pair=${secret}`;
+  const intent = `intent://pair?u=${encodeURIComponent(link)}#Intent;scheme=siren;package=com.nexusagent.android;S.browser_fallback_url=${encodeURIComponent(web)};end`;
+  show('pair');
+  $('#pairForm').classList.add('hidden');
+  const box = el('div', { class: 'handoff' },
+    el('p', {}, 'Open this pairing in the Siren app?'),
+    el('a', { class: 'btn primary', href: intent }, 'Open in the Siren app'),
+    el('a', { class: 'btn ghost', href: web }, 'Continue in the browser'),
+  );
+  $('#pairForm').after(box);
+  location.href = intent; // may be held back without a tap; the buttons are then the way
+}
+
 function unpair(message) {
   state.token = null;
   store.set(TOKEN_KEY, null);
@@ -1182,7 +1199,12 @@ const onDate = (list, day) => {
 async function renderSchedule(fresh = false) {
   const week = sched.week;
   const today = dayOf(new Date());
-  $('#schedList').replaceChildren(el('div', { class: 'muted sched-loading' }, 'Loading…'));
+  // The week strip and the day's heading right away (known without loading), so nothing jumps when the
+  // events arrive; then the dots and the list.
+  if (!sched.cache.has(ymd(week)) || fresh) {
+    drawWeek(week, today, []);
+    $('#schedList').replaceChildren(el('div', { class: 'muted sched-loading' }, 'Loading…'));
+  }
   let list;
   try {
     list = await weekEvents(week, fresh);
@@ -1191,6 +1213,20 @@ async function renderSchedule(fresh = false) {
     return $('#schedList').replaceChildren(el('div', { class: 'sched-empty' }, el('p', {}, err.message)));
   }
   if (week !== sched.week || state.view !== 'sched') return; // moved on meanwhile
+  const items = drawWeek(week, today, list);
+  const day = sched.day;
+  const isToday = ymd(day) === ymd(today);
+  const next = isToday && items.find((e) => !e.allDay && new Date(e.end) > new Date());
+  const rows = items.filter((e) => e !== next).map((e) => schedRow(e, isToday));
+  if (next) {
+    const mins = Math.round((new Date(next.start) - Date.now()) / 60000);
+    rows.unshift(tint(el('div', { class: `sched-next ${mins <= 0 ? 'live' : ''}` }, el('small', {}, mins <= 0 ? 'NOW' : mins < 60 ? `NEXT · IN ${mins} MIN` : `NEXT · IN ${Math.floor(mins / 60)} H ${String(mins % 60).padStart(2, '0')}`), el('b', {}, next.title), next.location ? el('span', {}, next.location) : null), next.entryId));
+  }
+  $('#schedList').replaceChildren(...(rows.length ? rows : [el('div', { class: 'sched-empty' }, el('p', {}, isToday ? 'Nothing scheduled today.' : 'Nothing scheduled.'), el('p', { class: 'muted' }, 'Tell the assistant about lectures, shifts or appointments, and it keeps them here.'))]));
+}
+
+/** The week strip (dots from `list`) and the selected day's heading; returns that day's events. */
+function drawWeek(week, today, list) {
   $('#schedDays').replaceChildren(...[...Array(7)].map((_, i) => {
     const d = plusDays(week, i);
     const n = onDate(list, d).length;
@@ -1202,19 +1238,12 @@ async function renderSchedule(fresh = false) {
     );
   }));
   const day = sched.day;
-  const items = onDate(list, day);
   const isToday = ymd(day) === ymd(today);
   $('#schedHead').replaceChildren(
     el('div', { class: 'sched-date' }, el('b', {}, day.getDate()), el('div', {}, el('span', {}, day.toLocaleDateString(undefined, { weekday: 'long' })), el('small', {}, day.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })))),
     isToday ? el('i', { class: 'sched-badge' }, 'TODAY') : el('button', { class: 'sched-today', type: 'button', onclick: () => pickDay(today) }, 'Today'),
   );
-  const next = isToday && items.find((e) => !e.allDay && new Date(e.end) > new Date());
-  const rows = items.filter((e) => e !== next).map((e) => schedRow(e, isToday));
-  if (next) {
-    const mins = Math.round((new Date(next.start) - Date.now()) / 60000);
-    rows.unshift(tint(el('div', { class: `sched-next ${mins <= 0 ? 'live' : ''}` }, el('small', {}, mins <= 0 ? 'NOW' : mins < 60 ? `NEXT · IN ${mins} MIN` : `NEXT · IN ${Math.floor(mins / 60)} H ${String(mins % 60).padStart(2, '0')}`), el('b', {}, next.title), next.location ? el('span', {}, next.location) : null), next.entryId));
-  }
-  $('#schedList').replaceChildren(...(rows.length ? rows : [el('div', { class: 'sched-empty' }, el('p', {}, isToday ? 'Nothing scheduled today.' : 'Nothing scheduled.'), el('p', { class: 'muted' }, 'Tell the assistant about lectures, shifts or appointments, and it keeps them here.'))]));
+  return onDate(list, day);
 }
 
 function schedRow(e, isToday) {
@@ -1492,11 +1521,18 @@ $('#pairInsecure').classList.toggle('hidden', !insecure);
 if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
 // Opened from the pairing QR code (…/#pair=<secret>): take the secret out of the address bar and
 // history at once, then pair with it.
-const fromQr = /^#pair=([A-Za-z0-9_-]{43})$/.exec(location.hash);
+const qr = /^#pair=([A-Za-z0-9_-]{43})$/.exec(location.hash);
 const fromMove = /^#move=([A-Za-z0-9_-]{43})$/.exec(location.hash);
-if (fromQr || fromMove) history.replaceState(null, '', location.pathname + location.search);
+if (qr || fromMove) history.replaceState(null, '', location.pathname + location.search);
+// Scanned with an Android phone's camera, the link opens in the browser. If the Siren app is installed,
+// hand the link to it (siren://pair, android MainActivity); Chrome falls back to this page with ?web=1
+// when it isn't, and the browser pairs as before. The one-time secret is used only once: either here or
+// in the app, never both.
+const handOff = qr && !android && /Android/i.test(navigator.userAgent) && !new URLSearchParams(location.search).has('web');
+const fromQr = handOff ? null : qr;
 renderLinkInfo();
-if (fromMove) finishMove(fromMove[1]);
+if (handOff) offerApp(qr[1]);
+else if (fromMove) finishMove(fromMove[1]);
 else if (state.token) {
   start();
   if (fromQr) toast('This device is already connected.');

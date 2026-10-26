@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Her face on the watch, reliably. *(The computer records the watch's face ahead of time once a watch has asked for it, so it arrives in seconds; the watch keeps its screen on while the first face comes, says what is happening ("Bringing her face from your computer…") or why it didn't arrive, and tries again. The face is a little bigger on the round screen.)*
+- The pairing QR code opens the Siren app. *(Scanned with an Android phone that has the app, the link opens in the app with the address filled in; without the app it pairs in the browser as before.)*
+- Installing on a Galaxy Watch, explained in the app. *(Settings → Remote access → Install Siren on a Galaxy Watch, a note in your vault, and Siren can walk you through it or run the steps.)*
+- Inner World: stepping inside and out works every time. *(After stepping out, the panel offers "Step inside" again (it kept showing "Step outside"); buildings that aren't built yet say so instead of opening an empty site; dragging away or zooming out steps you out. On phones and tablets you can step inside too: double tap a building, or the button on its card.)*
+- Text that didn't fit. *(Buttons in Settings no longer cut off their labels ("Check this computer again", "Choose image…"), two-column fields stack when a card is narrow, the Inner World's place list wraps what each place shows, and a Calendar hint wraps.)*
+- A steadier phone and tablet app. *(The page no longer slides sideways on a phone (a HUD light ran past the edge), the schedule's week and day show at once instead of jumping in, and an upright tablet no longer pushes the side pane off the screen when a reply has a long line of code.)*
+- Dependencies updated: KaTeX 0.19 (fixes a low-severity advisory), the Android build tools and Wear library, the GitHub Actions.
+
 ## 2.0.1 — 2026-10-26
 
 Security and privacy hardening, and the Mac build that 2.0.0 was missing.

@@ -372,8 +372,17 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .qr { align-self: flex-start; padding: 6px; border-radius: var(--radius); background: rgba(var(--c1), 0.15); }
 .qr canvas { display: block; max-width: 100%; image-rendering: pixelated; border-radius: calc(var(--radius) - 4px); }
 .row { display: flex; gap: 8px; align-items: center; }
-.row > .input { flex: 1; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.row > .input { flex: 1; min-width: 0; }
+/* Buttons keep their whole label: a row that runs out of room wraps instead of squeezing them (with the
+   HUD on, a squeezed button would cut its text off). A label longer than the row itself wraps inside. */
+.row { flex-wrap: wrap; }
+.row > :is(.btn, .chip-btn) { flex-shrink: 0; max-width: 100%; }
+.btn, .chip-btn { max-width: 100%; }
+.row > :is(.btn, .chip-btn), .field .btn { white-space: normal; overflow-wrap: anywhere; }
+/* Two columns while there is room, one below the other when the card is narrow; never wider than it. */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 12px; }
+.grid2 > *, .field { min-width: 0; }
+.field .input, .field select { max-width: 100%; min-width: 0; }
 .toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13.5px; user-select: none; }
 .toggle input { display: none; }
 .toggle .sw { width: 38px; height: 21px; border-radius: 999px; background: rgba(var(--text-rgb), 0.08); border: 1px solid var(--line); position: relative; transition: 0.15s; flex: none; }
@@ -684,7 +693,10 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .world-res { --who: var(--c2); display: grid; grid-template-columns: 12px auto 1fr; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 8px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 .world-res:hover { background: rgba(var(--text-rgb), 0.05); }
 .world-res .dot, .world-swatch { width: 10px; height: 10px; border-radius: 50%; background: rgb(var(--who)); box-shadow: 0 0 8px rgba(var(--who), 0.6); display: inline-block; }
-.world-res .hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A place's line says what it shows of you: it wraps under the name instead of being cut off. */
+.world-res .hint { font-size: 12px; line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
+.world-place { align-items: start; }
+.world-place .hint { grid-column: 2 / -1; }
 .world-res:focus-visible { outline: 2px solid rgba(var(--c1), 0.8); outline-offset: 1px; }
 .world-place { grid-template-columns: 18px auto 1fr; }
 .world-place .icon { text-align: center; }
@@ -881,6 +893,7 @@ body.doc-popup .toasts { right: 14px; bottom: 30px; }
 .cal-problems code { display: block; font-size: 11px; color: rgb(var(--warn)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-problems small { display: block; font-size: 11px; }
 .cal-hint { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.cal-hint .chip-btn { white-space: normal; text-align: left; max-width: 100%; }
 .cal-hint p { margin: 0; font-size: 12.5px; }
 .cal-agenda .cal-hint { align-items: center; padding: 60px 20px; }
 .cal-empty { padding: 44px 30px; text-align: center; max-width: 560px; margin: 40px auto; display: flex; flex-direction: column; gap: 10px; }

@@ -448,6 +448,15 @@ public class MainActivity extends Activity {
             String text = intent.getStringExtra(Intent.EXTRA_TEXT);
             if (text != null && PAIR_LINK.matcher(text.trim()).matches()) showSetup(null, text.trim()); // the user confirms the address
             else if (text != null && !text.trim().isEmpty()) runJs("window.nexusShare && nexusShare(" + JSONObject.quote(text.trim()) + ")");
+        } else if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null && "siren".equals(intent.getData().getScheme()) && "pair".equals(intent.getData().getHost())) {
+            // The pairing QR code, handed over by the browser (renderer/remote/app.js offerApp): the address
+            // and the one-time secret are filled in; the user sees the address and taps Connect.
+            String link = intent.getData().getQueryParameter("u");
+            java.util.regex.Matcher m = link == null ? null : PAIR_LINK.matcher(link.trim());
+            if (m == null || !m.matches()) return;
+            // Already connected to that computer: just open the app (pairing again would add a second device).
+            if (Prefs.token(this) != null && Prefs.toOrigin(m.group(1)) != null && Prefs.toOrigin(m.group(1)).equals(origin)) return;
+            showSetup(null, link.trim());
         } else if (ACTION_TALK.equals(intent.getAction())) {
             runJs("window.nexusTalk && nexusTalk()");
         }

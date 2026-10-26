@@ -379,6 +379,7 @@ async function world() {
   let home = null;
   let island = null;
   let selected = null;
+  let flight = null; // { from, to, start }: the camera gliding into or out of a building
   const g = canvas.getContext('2d');
   const resize = () => {
     const r = canvas.getBoundingClientRect();
@@ -403,16 +404,57 @@ async function world() {
   };
   const tick = (t) => {
     if (!canvas.isConnected) return stopWorld();
+    if (flight) {
+      const k = Math.min(1, (performance.now() - flight.start) / 600);
+      const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+      cam = { x: flight.from.x + (flight.to.x - flight.from.x) * e, y: flight.from.y + (flight.to.y - flight.from.y) * e, z: flight.from.z + (flight.to.z - flight.from.z) * e };
+      if (k >= 1) ((flight = null), rescale());
+    }
     draw(t);
     worldLoop.raf = requestAnimationFrame(tick);
   };
 
-  // Touch: one finger drags, two pinch; a tap picks a building.
+  // Stepping inside a built place (as on the desktop): its walls are cut away to show the room with what
+  // it holds of you. A double tap or the card's button goes in; the button, zooming out or moving away
+  // goes back out.
+  const rescale = () => {
+    const want = islandScale(cam.z * size.dpr);
+    if (Math.abs(want - island.scale) / island.scale > 0.4) island = scene.buildIsland(data, want);
+  };
+  const canEnter = (id) => Boolean(map.sites[id] && places.find((p) => p.id === id)?.level);
+  const enter = (id) => {
+    if (!canEnter(id)) return;
+    const s = map.sites[id];
+    const c = W(s.gx, s.gy, s.h * HZ + 12);
+    data.interior = id;
+    selected = id;
+    island = scene.buildIsland(data, islandScale(home.z * 2.6 * size.dpr));
+    flight = { from: { ...cam }, to: { x: c.x, y: c.y, z: home.z * 2.6 }, start: performance.now() };
+    showPlace(info, d, id, nav);
+  };
+  const leave = ({ fly = true } = {}) => {
+    if (!data.interior) return;
+    data.interior = null;
+    island = scene.buildIsland(data, islandScale(cam.z * size.dpr));
+    if (fly) flight = { from: { ...cam }, to: { ...home }, start: performance.now() };
+    showPlace(info, d, selected, nav);
+  };
+  const leftBuilding = () => {
+    if (!data.interior) return false;
+    const s = map.sites[data.interior];
+    const c = W(s.gx, s.gy, s.h * HZ + 12);
+    return cam.z < home.z * 1.6 || Math.hypot(cam.x - c.x, cam.y - c.y) * cam.z > Math.min(size.w, size.h) * 0.6;
+  };
+  const nav = { enter, leave: () => leave(), canEnter, inside: () => data.interior };
+  let lastTap = { at: 0, id: null };
+
+  // Touch: one finger drags, two pinch; a tap picks a building, a double tap steps inside.
   const pts = new Map();
   let gesture = null;
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    flight = null;
     gesture = { cam: { ...cam }, pts: new Map([...pts].map(([k, v]) => [k, { ...v }])), moved: false };
   });
   canvas.addEventListener('pointermove', (e) => {
@@ -431,6 +473,7 @@ async function world() {
       cam.x = gesture.cam.x - dx / cam.z;
       cam.y = gesture.cam.y - dy / cam.z;
     }
+    if (gesture.moved && leftBuilding()) leave({ fly: false });
   });
   const end = (e) => {
     const wasTap = gesture && !gesture.moved && pts.size === 1;
@@ -440,11 +483,13 @@ async function world() {
       const p = scene.toWorld(cam, size.w, size.h, { x: e.clientX - r.left, y: e.clientY - r.top });
       const hit = Object.entries(island.hits).find(([, b]) => p.x >= b.x0 && p.x <= b.x1 && p.y >= b.y0 && p.y <= b.y1);
       selected = hit ? hit[0] : null;
-      showPlace(info, d, selected);
+      const double = selected && lastTap.id === selected && performance.now() - lastTap.at < 400;
+      lastTap = { at: performance.now(), id: selected };
+      if (double && canEnter(selected)) enter(selected);
+      else showPlace(info, d, selected, nav);
     }
     gesture = pts.size ? { cam: { ...cam }, pts: new Map([...pts].map(([k, v]) => [k, { ...v }])), moved: true } : null;
-    const want = islandScale(cam.z * size.dpr);
-    if (Math.abs(want - island.scale) / island.scale > 0.4) island = scene.buildIsland(data, want);
+    rescale();
   };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
@@ -453,12 +498,12 @@ async function world() {
   worldLoop = { raf: 0, off: () => window.removeEventListener('resize', onResize) };
   worldLoop.raf = requestAnimationFrame(tick);
 
-  showPlace(info, d, null);
+  showPlace(info, d, null, nav);
   return [wrap, info];
 }
 
 // Below the village: today, or the building you tapped.
-function showPlace(box, d, id) {
+function showPlace(box, d, id, nav) {
   const { el } = ctx;
   const p = d.places.find((x) => x.id === id);
   if (!p) {
@@ -471,5 +516,10 @@ function showPlace(box, d, id) {
     );
     return;
   }
-  box.replaceChildren(card(`${p.icon || ''} ${p.name}`, el('small', { class: 'muted' }, `${p.stage}${p.level ? ` · level ${p.level} of 3` : ''}`), el('p', {}, p.about), el('p', { class: 'muted' }, el('b', {}, 'Grows with: '), p.hint)), el('button', { class: 'btn ghost small', type: 'button', onclick: () => showPlace(box, d, null) }, '‹ The day'));
+  const inside = nav?.inside() === id;
+  const door = !nav ? '' : inside ? el('button', { class: 'btn small', type: 'button', onclick: () => nav.leave() }, '← Step outside') : nav.canEnter(id) ? el('button', { class: 'btn primary small', type: 'button', onclick: () => nav.enter(id) }, '🚪 Step inside') : el('small', { class: 'muted' }, 'Not built yet: nothing to step into.');
+  box.replaceChildren(
+    card(`${p.icon || ''} ${p.name}`, el('small', { class: 'muted' }, `${p.stage}${p.level ? ` · level ${p.level} of 3` : ''}`), el('p', {}, p.about), el('p', { class: 'muted' }, el('b', {}, 'Grows with: '), p.hint), el('div', { class: 'row' }, door)),
+    el('button', { class: 'btn ghost small', type: 'button', onclick: () => (inside && nav.leave(), showPlace(box, d, null, nav)) }, '‹ The day'),
+  );
 }

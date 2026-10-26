@@ -308,9 +308,13 @@ function flyTo(target, then) {
   loop(true);
 }
 
+// Only a built place has rooms to look into; an unbuilt one is a building site (its panel says what
+// would build it).
+const canEnter = (id) => Boolean(map?.sites[id] && placeById(id)?.level);
+
 function enter(id) {
   const s = map?.sites[id];
-  if (!s) return;
+  if (!s || !canEnter(id)) return;
   interior = id;
   islandKey = '';
   select({ type: 'place', id });
@@ -319,12 +323,25 @@ function enter(id) {
   $('#worldLeave').classList.remove('hidden');
 }
 
-function leave() {
+/** Back outside: flies to the whole island, or (fly: false, after the user moved away) stays where it is. */
+function leave({ fly = true } = {}) {
   if (!interior) return;
   interior = null;
   islandKey = '';
   $('#worldLeave').classList.add('hidden');
-  flyTo(home);
+  renderPanel(); // its button turns back into "Step inside"
+  if (fly) flyTo(home);
+  else scheduleRebuild();
+}
+
+// Moving the camera away from the building (or zooming far out) while inside means leaving it.
+function leftBuilding() {
+  if (!interior || !cam) return false;
+  const s = map?.sites[interior];
+  if (!s) return true;
+  const c = W(s.gx, s.gy, s.h * HZ + 12);
+  const far = Math.hypot(cam.x - c.x, cam.y - c.y) * cam.z > Math.min(size.w, size.h) * 0.45;
+  return far || cam.z < home.z * 1.6;
 }
 
 // ------------------------------------------------------------ camera controls
@@ -342,7 +359,7 @@ function zoomAt(s, factor) {
   const z = clampZ(cam.z * factor);
   cam = { z, x: before.x - (s.x - size.w / 2) / z, y: before.y - (s.y - size.h / 2) / z };
   flight = null;
-  if (interior && cam.z < home.z * 1.6) leave();
+  if (leftBuilding()) leave({ fly: false });
   draw();
   scheduleRebuild();
 }
@@ -352,6 +369,7 @@ function panBy(dx, dy) {
   cam = { ...cam, x: cam.x - dx / cam.z, y: cam.y - dy / cam.z };
   flight = null;
   stopFollowing();
+  if (leftBuilding()) leave({ fly: false });
   draw();
   scheduleRebuild();
 }
@@ -385,6 +403,7 @@ function setupCamera() {
       cam = { z, x: pinch.anchor.x - (mid.x - size.w / 2) / z, y: pinch.anchor.y - (mid.y - size.h / 2) / z };
       flight = null;
       stopFollowing();
+      if (leftBuilding()) leave({ fly: false });
       draw();
       return;
     }
@@ -394,6 +413,7 @@ function setupCamera() {
         cam = { ...drag.cam, x: drag.cam.x - (p.x - drag.start.x) / cam.z, y: drag.cam.y - (p.y - drag.start.y) / cam.z };
         flight = null;
         stopFollowing();
+        if (leftBuilding()) leave({ fly: false });
         drag.samples.push({ t: performance.now(), x: p.x, y: p.y });
         drag.samples = drag.samples.filter((s) => performance.now() - s.t < 90);
         canvas.style.cursor = 'grabbing';
@@ -402,7 +422,7 @@ function setupCamera() {
       }
     }
     const h = hit(e);
-    canvas.title = h?.type === 'star' ? `${h.id} · ${h.state}${h.state === 'mastered' ? '' : ` · ${Math.round(h.progress * 100)}%`} (your skill tree)` : h?.type === 'place' ? 'Click for details · double-click to step inside' : h?.type === 'resident' ? `${h.id} · click for their day` : '';
+    canvas.title = h?.type === 'star' ? `${h.id} · ${h.state}${h.state === 'mastered' ? '' : ` · ${Math.round(h.progress * 100)}%`} (your skill tree)` : h?.type === 'place' ? (placeById(h.id)?.level ? 'Click for details · double-click to step inside' : 'Click for details (not built yet)') : h?.type === 'resident' ? `${h.id} · click for their day` : '';
     if (h?.id !== hover?.id) ((hover = h), draw());
     canvas.style.cursor = h ? 'pointer' : 'grab';
   });
@@ -436,7 +456,9 @@ function setupCamera() {
   canvas.addEventListener('pointercancel', end);
   canvas.addEventListener('dblclick', (e) => {
     const h = hit(e);
-    if (h?.type === 'place') enter(h.id);
+    if (h?.type !== 'place') return;
+    if (canEnter(h.id)) enter(h.id);
+    else select(h); // not built yet: the panel says what builds it
   });
   canvas.addEventListener(
     'wheel',
@@ -965,7 +987,7 @@ function placePanel(p) {
     el(
       'div',
       { class: 'row' },
-      interior === p.id ? el('button', { class: 'btn', onclick: leave }, '← Step outside') : el('button', { class: 'btn primary', onclick: () => enter(p.id) }, '🚪 Step inside'),
+      interior === p.id ? el('button', { class: 'btn', onclick: () => leave() }, '← Step outside') : p.level ? el('button', { class: 'btn primary', onclick: () => enter(p.id) }, '🚪 Step inside') : el('span', { class: 'hint' }, 'Not built yet: nothing to step into.'),
       action && p.id !== 'stage' ? el('button', { class: 'btn', onclick: action[1] }, action[0]) : '',
     ),
   ];
