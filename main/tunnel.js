@@ -5,9 +5,10 @@
 //  - cloudflare: runs the user's named tunnel with its connector token (encrypted in settings, passed
 //    in the environment, never on the command line). The public hostname and the Access application
 //    are set up in the Cloudflare dashboard; we only verify Access's signed header (verifyAccess).
-//  - tailscale: nothing runs here. The user runs `tailscale serve`; we accept its hostname, can read
-//    it (and whether Serve forwards to our port) from the user's tailscale CLI (detectTailscale), and
-//    check the address end to end from this computer (verify).
+//  - tailscale: nothing keeps running here. Tailscale Serve forwards https://<name>.ts.net to our port
+//    (set up once by the user's click: setupTailscaleServe, or by hand); we accept its hostname, read it,
+//    whether HTTPS is enabled and whether Serve forwards to us from the tailscale CLI (detectTailscale),
+//    and check the address end to end from this computer (verify).
 // We never ship or create Cloudflare credentials.
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
@@ -146,6 +147,9 @@ async function detectTailscale(port) {
     out.running = st.BackendState === 'Running';
     out.host = cleanHost(String(st.Self?.DNSName || '').replace(/\.$/, ''));
     if (!HOST.test(out.host)) out.host = '';
+    // HTTPS certificates must be enabled for the tailnet (once, in Tailscale's admin console) before
+    // Serve can offer https://<name>.ts.net.
+    out.https = Array.isArray(st.CertDomains) && st.CertDomains.length > 0;
   } catch (err) {
     log.warn('tailscale status failed', { error: err });
     return { ...out, error: 'Tailscale is installed but did not answer. Is it running and signed in?' };
@@ -158,6 +162,54 @@ async function detectTailscale(port) {
     out.serving = null; // an older tailscale without --json: unknown
   }
   return out;
+}
+
+// The user's click "Set it up for me": `tailscale serve --bg --yes <port>`, so https://<name>.ts.net
+// forwards to the companion server, for the user's own tailnet only (not the internet: that would be
+// `funnel`). When HTTPS isn't enabled for the tailnet yet, Tailscale prints a link to enable it and
+// waits; we return that link (the window opens it) and stop waiting. Fixed arguments, no shell.
+const TS_LINK = /https:\/\/login\.tailscale\.com\/[^\s"']+/;
+
+/** Pure: what `tailscale serve` printed → { ok } | { enableUrl } | { error }. */
+function serveOutcome(code, output) {
+  const link = TS_LINK.exec(output);
+  if (link) return { enableUrl: link[0] };
+  if (code === 0) return { ok: true };
+  const line = String(output).split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() || `tailscale exited with code ${code}`;
+  return { error: /access denied|permission|operator/i.test(line) ? `${line} (Tailscale needs this computer's administrator once: run "tailscale set --operator=$USER" on macOS/Linux, or start Tailscale as the signed-in user on Windows.)` : line };
+}
+
+async function setupTailscaleServe(port) {
+  const p = Number(port);
+  if (!Number.isInteger(p) || p < 1 || p > 65535) return { error: 'Invalid port' };
+  const bin = await findBinary('', 'tailscale', TAILSCALE);
+  if (!bin) return { error: 'Tailscale is not installed on this computer. Install it from tailscale.com/download and sign in.' };
+  const result = await new Promise((resolve) => {
+    let output = '';
+    let done = false;
+    const proc = spawn(bin, ['serve', '--bg', '--yes', String(p)], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const finish = (code) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(serveOutcome(code, output));
+    };
+    const onData = (b) => {
+      output = (output + String(b)).slice(-4000);
+      if (TS_LINK.test(output)) {
+        proc.kill(); // it would wait for the tailnet's HTTPS to be enabled; the user does that in the browser
+        finish(null);
+      }
+    };
+    proc.stdout.on('data', onData);
+    proc.stderr.on('data', onData);
+    proc.on('error', (err) => ((output += err.message), finish(1)));
+    proc.on('exit', (code) => finish(code));
+    const timer = setTimeout(() => (proc.kill(), finish(1)), 30000);
+  });
+  log.info('tailscale serve setup', { port: p, ok: Boolean(result.ok), needsHttps: Boolean(result.enableUrl), error: result.error ? result.error.slice(0, 200) : undefined });
+  if (result.ok && state.mode === 'tailscale') verify().catch(() => {});
+  return result;
 }
 
 // Opens the secure address from this computer, like the phone will (Tailscale and Cloudflare).
@@ -235,4 +287,4 @@ async function verifyAccess(token, { team, aud }) {
   return { email: claims.email || '' };
 }
 
-module.exports = { setListener, apply, stop, status, publicHost, verifyAccess, teamDomain, detectTailscale, verify };
+module.exports = { setListener, apply, stop, status, publicHost, verifyAccess, teamDomain, detectTailscale, setupTailscaleServe, serveOutcome, verify };

@@ -1,5 +1,7 @@
 // Phone client for the companion server (main/companion.js, docs/ROADMAP-mobile.md step 2).
 // Talks only to the server it was loaded from. The device token lives in this browser's storage.
+import { initScreens, render as renderScreen, TITLES } from './screens.js';
+
 const $ = (s) => document.querySelector(s);
 const TOKEN_KEY = 'nexus.token';
 const CONV_KEY = 'nexus.conv';
@@ -34,7 +36,9 @@ const state = {
   held: [], // events that arrived while our own send was in flight
   face: 'idle',
   name: 'Siren',
-  view: 'chat', // chat | sched
+  view: 'chat', // chat | sched | a screen from screens.js (today, habits, learn, memory, notes, tree, world, skills, more)
+  info: null, // the computer's /api/info
+  calendar: false,
   convTitle: '',
   secureUrl: '', // the computer's https address, when it has one
   speak: store.get(SPEAK_KEY) === '1',
@@ -113,7 +117,7 @@ async function api(path, { method = 'GET', body, raw = false } = {}) {
 
 function setConvTitle(t) {
   state.convTitle = t;
-  if (state.view !== 'sched') $('#convTitle').textContent = t;
+  if (state.view === 'chat') $('#convTitle').textContent = t;
 }
 
 function show(screen) {
@@ -932,7 +936,7 @@ document.addEventListener('pointerdown', ensureAnalyser, { once: true, passive: 
 const analyserLive = () => Boolean(voiceAnalyser && voiceCtx?.state === 'running');
 
 async function mountFace(id, theme) {
-  const want = FACE_MODULES[id] ? id : 'circuit';
+  const want = FACE_MODULES[id] ? id : 'siren';
   try {
     const [{ configureFaces }, { normalizeTheme }] = await Promise.all([import('./js/faces/env.js'), import('./js/themecore.js')]);
     state.theme = normalizeTheme(theme);
@@ -1075,15 +1079,29 @@ function tint(node, id) {
   return node;
 }
 
+// The tab bar's highlight: More covers every screen that has no tab of its own.
+const TABS = ['chat', 'today', 'habits', 'learn', 'more'];
 function showView(v) {
   state.view = v;
+  const panel = v !== 'chat' && v !== 'sched';
   document.body.classList.toggle('view-sched', v === 'sched');
+  document.body.classList.toggle('view-panel', panel);
   $('#sched').classList.toggle('hidden', v !== 'sched');
+  $('#panel').classList.toggle('hidden', !panel);
+  const tab = TABS.includes(v) ? v : 'more';
+  for (const b of document.querySelectorAll('#tabs button')) {
+    b.classList.toggle('on', b.dataset.tab === tab);
+    b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false');
+  }
+  if (panel) {
+    $('#convTitle').textContent = TITLES[v] || '';
+    renderScreen(v, $('#panel'));
+  }
   $('#schedBtn').classList.toggle('on', v === 'sched');
   $('#schedBtn').setAttribute('aria-pressed', String(v === 'sched'));
   $('#schedBtn').replaceChildren(icon(v === 'sched' ? 'chat' : 'calendar'));
   $('#schedBtn').setAttribute('aria-label', v === 'sched' ? 'Back to the chat' : 'Schedule');
-  $('#convTitle').textContent = v === 'sched' ? 'Schedule' : state.convTitle || 'New conversation';
+  if (!panel) $('#convTitle').textContent = v === 'sched' ? 'Schedule' : state.convTitle || 'New conversation';
   if (v === 'sched') {
     sched.day ||= dayOf(new Date());
     sched.week = weekOf(sched.day);
@@ -1254,11 +1272,16 @@ async function applyInfo() {
     const info = await api('/api/info');
     state.voice = info.voice;
     state.name = info.name;
+    state.info = info;
+    state.calendar = Boolean(info.calendar);
+    // Older computers (or sharing turned off there): only the chat and the schedule.
+    $('#tabs').classList.toggle('hidden', !info.share);
+    if (!info.share && !['chat', 'sched'].includes(state.view)) showView('chat');
     $('#agentName').textContent = info.name.toUpperCase();
     document.title = info.name;
     setFx(info.fx);
     const root = document.documentElement.style;
-    for (const [k, v] of Object.entries({ bg: '--bg', surface: '--surface', text: '--text', muted: '--muted', accent: '--accent', accent2: '--accent2', danger: '--danger', success: '--ok' })) {
+    for (const [k, v] of Object.entries({ bg: '--bg', surface: '--surface', text: '--text', muted: '--muted', accent: '--accent', accent2: '--accent2', danger: '--danger', success: '--ok', warning: '--warn' })) {
       if (info.colors[k]) root.setProperty(v, info.colors[k]);
     }
     if (info.colors.bg) document.querySelector('meta[name="theme-color"]').setAttribute('content', info.colors.bg);
@@ -1341,6 +1364,10 @@ if (android) {
     el('button', { class: 'btn ghost', onclick: () => android.changeServer() }, 'Change the computer’s address'),
   );
 }
+
+// The tab bar and the screens beyond the chat (screens.js).
+for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => (navigator.vibrate?.(6), showView(b.dataset.tab)));
+initScreens({ api, el, icon, markdown, toast, send, prefill, showView, AuthError, state });
 
 $('#pairInsecure').classList.toggle('hidden', !insecure);
 // Offline app shell (needs HTTPS or localhost; on the plain local network the browser doesn't allow it).

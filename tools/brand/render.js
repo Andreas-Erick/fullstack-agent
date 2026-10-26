@@ -102,6 +102,9 @@ app.whenReady().then(async () => {
     for (const [dpi, size] of [['mdpi', 48], ['hdpi', 72], ['xhdpi', 96], ['xxhdpi', 144], ['xxxhdpi', 192]]) {
       fs.mkdirSync(path.join(res, `mipmap-${dpi}`), { recursive: true });
       fs.writeFileSync(path.join(res, `mipmap-${dpi}`, 'ic_launcher.png'), (await render('icon.svg', size, size)).toPNG());
+      // The adaptive icon's foreground (108 dp: 2.25 × the legacy icon's size).
+      const fg = Math.round(size * 2.25);
+      fs.writeFileSync(path.join(res, `mipmap-${dpi}`, 'ic_launcher_foreground.png'), (await render('foreground.svg', fg, fg)).toPNG());
     }
     console.log('rendered icon.ico, icon.png, logo.png, installer-sidebar.bmp and the Android launcher icons');
   } catch (err) {

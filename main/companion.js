@@ -21,6 +21,7 @@ const path = require('path');
 const fsp = require('fs').promises;
 const crypto = require('crypto');
 const store = require('./store');
+const data = require('./companiondata');
 const voice = require('./voice');
 const tunnel = require('./tunnel');
 const calendar = require('./calendar');
@@ -31,6 +32,7 @@ const ROOT = path.join(__dirname, '..');
 const STATIC = {
   '/': 'renderer/remote/index.html',
   '/app.js': 'renderer/remote/app.js',
+  '/screens.js': 'renderer/remote/screens.js',
   '/styles.css': 'renderer/remote/styles.css',
   '/sw.js': 'renderer/remote/sw.js',
   '/manifest.webmanifest': 'renderer/remote/manifest.webmanifest',
@@ -47,9 +49,19 @@ const STATIC = {
   '/js/faces/neural.js': 'renderer/js/faces/neural.js',
   '/js/faces/companion.js': 'renderer/js/faces/companion.js',
   '/js/faces/siren.js': 'renderer/js/faces/siren.js',
+  // The Inner World's drawing code (app code, no data), so the phone draws the same village.
+  '/js/world/map.js': 'renderer/js/world/map.js',
+  '/js/world/art.js': 'renderer/js/world/art.js',
+  '/js/world/places.js': 'renderer/js/world/places.js',
+  '/js/world/interiors.js': 'renderer/js/world/interiors.js',
+  '/js/world/scene.js': 'renderer/js/world/scene.js',
+  '/js/world/sprites.js': 'renderer/js/world/sprites.js',
+  '/js/world/season.js': 'renderer/js/world/season.js',
 };
+// The village's rendered art (renderer/assets/world: WebP sprites and their manifest; CC0, no data).
+const WORLD_ART = /^\/assets\/world\/([\w.-]+\.(webp|json))$/;
 const FACES = ['siren', 'circuit', 'radial', 'rain', 'neural', 'companion'];
-const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
+const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json' };
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 // On every response. HSTS is added for the tunnel address (HTTPS at the edge).
 const HEADERS = {
@@ -375,7 +387,7 @@ async function info() {
   // The face chosen on the desktop (custom faces live in the user's data folder and stay there) and the
   // theme's face parameters; the phone normalizes them again (themecore.normalizeTheme).
   const f = s.appearance?.theme?.face || {};
-  const face = { id: FACES.includes(s.ui?.face) ? s.ui.face : 'circuit', states: {} };
+  const face = { id: FACES.includes(s.ui?.face) ? s.ui.face : 'siren', states: {} };
   if (/^\w{1,20}$/.test(f.core || '')) face.core = f.core;
   if (/^\w{1,20}$/.test(f.traces || '')) face.traces = f.traces;
   if (Number.isFinite(+f.density)) face.density = +f.density;
@@ -384,7 +396,7 @@ async function info() {
   const sleepAfterMin = Math.max(0, Math.min(240, Number(s.ui?.sleepAfterMin) || 0));
   const t = tunnel.status();
   const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
-  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled) };
+  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered' };
 }
 
 async function speak(req, res) {
@@ -430,6 +442,8 @@ async function route(req, res) {
   if (req.method === 'POST' && !wantType.test(type)) return fail(res, 415, 'Unsupported content type');
 
   if (req.method === 'GET' && STATIC[p]) return serveStatic(res, STATIC[p]);
+  const art = req.method === 'GET' && WORLD_ART.exec(p);
+  if (art && !art[1].startsWith('.')) return serveStatic(res, `renderer/assets/world/${art[1]}`);
   if (req.method === 'GET' && p === '/api/ping') return json(res, 200, { app: 'nexus-agent', api: 1 });
   if (req.method === 'POST' && p === '/api/pair') return pair(req, res, kind);
 
@@ -443,6 +457,7 @@ async function route(req, res) {
     if (!underLimit('schedule', device.id, 60)) return fail(res, 429, 'Too many requests; wait a minute');
     return schedule(url, res);
   }
+  if (p.startsWith('/api/data/')) return dataRoute(req, res, url, device);
   if (req.method === 'POST' && p === '/api/speak') {
     if (!underLimit('speak', device.id, 60)) return fail(res, 429, 'Too many requests; wait a minute');
     return speak(req, res);
@@ -512,6 +527,39 @@ async function schedule(url, res) {
     return json(res, 200, { events: list.map(({ id, entryId, title, location, notes, allDay, start, end, openEnd, recurring, rule }) => ({ id, entryId, title, location, notes, allDay, start, end, openEnd, recurring, rule })) });
   } catch (err) {
     return fail(res, 503, err.message);
+  }
+}
+
+// The phone's data screens (companiondata.js): read-only, plus checking a habit off. Only while the
+// user shares them (remote.shareData, a switch only they change), and rate-limited per device.
+const DATA_GET = {
+  today: () => data.today(),
+  habits: () => data.habits(),
+  learn: () => data.learn(),
+  tree: () => data.tree(),
+  memories: (url) => data.memories(url.searchParams.get('q') || ''),
+  stream: () => data.stream(),
+  notes: (url) => data.notes(url.searchParams.get('q') || ''),
+  note: (url) => data.note(url.searchParams.get('path') || ''),
+  world: () => data.world(),
+  skills: () => data.skills(),
+  routines: () => data.routines(),
+};
+
+async function dataRoute(req, res, url, device) {
+  const s = await store.getSettings();
+  if (s.remote?.shareData === false) return fail(res, 403, 'Sharing your notes, memories and progress with devices is off on the computer (Settings → Remote access)');
+  if (!underLimit('data', device.id, 120)) return fail(res, 429, 'Too many requests; wait a minute');
+  const name = url.pathname.slice('/api/data/'.length);
+  try {
+    if (req.method === 'GET' && Object.hasOwn(DATA_GET, name)) return json(res, 200, await DATA_GET[name](url));
+    if (req.method === 'POST' && name === 'habits/log') {
+      const body = await readBody(req);
+      return json(res, 200, await data.logHabit(body.name, body.done, body.date));
+    }
+    return fail(res, 404, 'Not found');
+  } catch (err) {
+    return fail(res, err.status || (/vault|not found/i.test(err.message) ? 404 : 500), err.message.slice(0, 300), err);
   }
 }
 

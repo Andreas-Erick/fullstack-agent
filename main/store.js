@@ -175,6 +175,7 @@ const DEFAULTS = {
     accessTeam: '', // Cloudflare Access team (myteam or myteam.cloudflareaccess.com); with accessAud, every tunnel request must be signed in
     accessAud: '', // the Access application's AUD tag
     cloudflaredPath: '', // empty = find cloudflared on PATH
+    shareData: true, // paired devices also see notes, memories, habits, learning, the skill tree and the Inner World (companiondata.js; user-only)
   },
   // VoiceStudio and FreeLLMAPI are separate apps; Nexus starts the ones its settings use (helperapps.js).
   // Only the user changes these (never in tools.js SETTABLE: the paths are programs Nexus runs).
