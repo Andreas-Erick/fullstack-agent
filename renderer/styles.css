@@ -659,6 +659,9 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .world-res:hover { background: rgba(var(--text-rgb), 0.05); }
 .world-res .dot, .world-swatch { width: 10px; height: 10px; border-radius: 50%; background: rgb(var(--who)); box-shadow: 0 0 8px rgba(var(--who), 0.6); display: inline-block; }
 .world-res .hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-res:focus-visible { outline: 2px solid rgba(var(--c1), 0.8); outline-offset: 1px; }
+.world-place { grid-template-columns: 18px auto 1fr; }
+.world-place .icon { text-align: center; }
 .world-day { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text-2); padding: 6px 0; border-top: 1px solid var(--line); }
 .world-plan { font-size: 13px; color: var(--text-2); padding: 2px 6px; border-radius: 6px; }
 .world-plan.now { background: rgba(var(--c1), 0.1); color: var(--text); }

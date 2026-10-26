@@ -47,7 +47,7 @@ export async function refresh() {
   }
   notes = await api.obsidian.list().catch((e) => (toastError(e), []));
   if (!$('#kbSearch').value.trim()) renderList(notes);
-  if (!selected) $('#kbNote').innerHTML = `<p class="muted">${notes.length} notes in <code>${st.path}</code>. Select a note to read or edit it — the agent writes here too.</p>`;
+  if (!selected) $('#kbNote').replaceChildren(el('p', { class: 'muted' }, `${notes.length} notes in `, el('code', {}, st.path), '. Select a note to read or edit it — the agent writes here too.'));
 }
 
 async function search() {
