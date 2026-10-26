@@ -1,16 +1,20 @@
-// Inner World view: the personas' village (main/innerworld.js, rules in main/worldcore.js), painted by
-// worldart.js. Residents walk between places along today's plan in real time; while a scene happens its
-// people gather and talk in speech bubbles; the clock slider replays the day. The village also shows the
-// present: whatever the assistant is doing right now sends the active persona to the matching building
-// (code → the Workshop's forge, the web → the Lookout…), your skill tree shines in the night sky, the
-// Training Grounds fly a banner per habit and the Garden blooms for the habits kept today.
+// Inner World view: the personas' village (main/innerworld.js, rules in main/worldcore.js) as a floating
+// island in isometric storybook style (renderer/js/world/: map.js lays it out, art.js + places.js paint
+// it, interiors.js shows inside a building, scene.js caches and animates it). Residents walk the roads
+// along today's plan in real time; while a scene happens its people gather and talk in speech bubbles;
+// the clock slider replays the day. The village also shows the present: whatever the assistant is doing
+// sends the active persona to the matching building (code → the Workshop's forge, the web → the
+// Lookout…); your skill tree shines in the night sky; banners, flowers, books and tables show your
+// habits, topics and decks. Drag to look around, scroll to zoom, double-click a building to step inside.
 // The side panel tells today; click a building, a resident or a star for theirs.
 import { $, api, el, toast, toastError, on, promptDialog } from './util.js';
 import { switchView, currentView } from './nav.js';
 import { send } from './chat.js';
 import { state, saveSettings } from './state.js';
 import { fxLevel } from './hud.js';
-import { palette, makeView, drawScene, bubble, weatherOf, resetArt } from './worldart.js';
+import { buildMap, route, along } from './world/map.js';
+import { palette, W, HZ } from './world/art.js';
+import { buildIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf } from './world/scene.js';
 
 const ACTIONS = {
   library: ['Study session', () => ask('/study-session')],
@@ -25,17 +29,27 @@ const SCENE_MIN = 45; // a scene lasts this long on the map
 const WALK_MIN = 20; // minutes to walk between places
 const LIVE_LINGER_MS = 6000; // the persona stays at the work a moment after the reply is done
 const TONES = ['c2', 'c3', 'ok', 'warn'];
+const INSIDE_ZOOM = 2.6; // zoom (× the whole-island zoom) for stepping into a building
 
 let data = null;
 let canvas;
 let ctx;
-let V = null; // view geometry (worldart.makeView)
+let size = { w: 0, h: 0, dpr: 1 };
 let P = null; // palette from the theme
-let hits = { places: {}, people: [], stars: [] };
+let map = null; // the island's layout (rebuilt only when the places change)
+let mapKey = '';
+let island = null; // the cached picture of (part of) the island
+let islandKey = '';
+let cam = null; // { x, y, z } in world pixels
+let home = null; // the camera that shows everything
+let interior = null; // a place id while looking inside it
+let hits = { people: [], stars: [] };
 let selected = null; // { type: 'place' | 'resident', id }
 let hover = null;
 let scrub = null; // minutes since midnight while the slider is held away from "live"
-let frame = 0;
+let frameId = 0;
+let rebuildTimer = 0;
+let flight = null; // a camera animation
 let live = null; // { place, label, tool, at, done }
 const stage = []; // live lines from a rehearsal running now
 
@@ -43,18 +57,59 @@ export function initInnerWorld() {
   canvas = $('#worldCanvas');
   ctx = canvas.getContext('2d');
   new ResizeObserver(resize).observe(canvas);
-  canvas.addEventListener('mousemove', (e) => {
-    const h = hit(e);
-    canvas.title = h?.type === 'star' ? `${h.id} · ${h.state}${h.state === 'mastered' ? '' : ` · ${Math.round(h.progress * 100)}%`} (your skill tree)` : '';
-    if (h?.id !== hover?.id) ((hover = h), draw());
-    canvas.style.cursor = h ? 'pointer' : 'default';
+  let drag = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    drag = { x: e.clientX, y: e.clientY, cam: { ...cam }, moved: false };
+    canvas.setPointerCapture(e.pointerId);
   });
-  canvas.addEventListener('mouseleave', () => ((hover = null), draw()));
-  canvas.addEventListener('click', (e) => {
+  canvas.addEventListener('pointermove', (e) => {
+    if (drag && cam) {
+      const dx = e.clientX - drag.x;
+      const dy = e.clientY - drag.y;
+      if (Math.hypot(dx, dy) > 4) drag.moved = true;
+      if (drag.moved) {
+        cam = { ...drag.cam, x: drag.cam.x - dx / cam.z, y: drag.cam.y - dy / cam.z };
+        flight = null;
+        canvas.style.cursor = 'grabbing';
+        draw();
+        return;
+      }
+    }
+    const h = hit(e);
+    canvas.title = h?.type === 'star' ? `${h.id} · ${h.state}${h.state === 'mastered' ? '' : ` · ${Math.round(h.progress * 100)}%`} (your skill tree)` : h?.type === 'place' ? 'Click for details · double-click to step inside' : '';
+    if (h?.id !== hover?.id) ((hover = h), draw());
+    canvas.style.cursor = h ? 'pointer' : 'grab';
+  });
+  canvas.addEventListener('pointerup', (e) => {
+    const was = drag;
+    drag = null;
+    canvas.style.cursor = 'grab';
+    if (was?.moved) return scheduleRebuild();
     const h = hit(e);
     if (h?.type === 'star') return switchView('tree');
     select(h);
   });
+  canvas.addEventListener('dblclick', (e) => {
+    const h = hit(e);
+    if (h?.type === 'place') enter(h.id);
+  });
+  canvas.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      if (!cam) return;
+      const r = canvas.getBoundingClientRect();
+      const s = { x: e.clientX - r.left, y: e.clientY - r.top };
+      const before = toWorld(cam, size.w, size.h, s);
+      const z = Math.max(home.z * 0.85, Math.min(home.z * 4.5, cam.z * (e.deltaY < 0 ? 1.12 : 0.89)));
+      cam = { z, x: before.x - (s.x - size.w / 2) / z, y: before.y - (s.y - size.h / 2) / z };
+      flight = null;
+      if (interior && cam.z < home.z * 1.6) leave();
+      draw();
+      scheduleRebuild();
+    },
+    { passive: false },
+  );
   $('#worldClock').addEventListener('input', (e) => {
     const v = Number(e.target.value);
     scrub = Math.abs(v - nowMinutes()) < 3 ? null : v;
@@ -65,10 +120,12 @@ export function initInnerWorld() {
   $('#worldWrite').onclick = () => write(Boolean(data?.day));
   $('#worldAsk').onclick = () => ask('What happened in the Inner World today? Tell me about your day.');
   $('#worldChronicle').onclick = () => data && api.obsidian.openInObsidian(data.chronicle).catch(toastError);
+  $('#worldFit').onclick = () => (interior ? leave() : flyTo(home));
+  $('#worldLeave').onclick = () => leave();
   on('world-changed', refresh);
   on('settings', () => {
-    resetArt();
     P = null;
+    islandKey = '';
     if (currentView === 'world') refresh();
   });
   // What the assistant is doing right now.
@@ -196,7 +253,7 @@ function renderNow() {
   box.textContent = l ? `● ${who} is ${l.label}` : thinking ? `● ${who} is thinking…` : '';
 }
 
-// ------------------------------------------------------------ geometry
+// ------------------------------------------------------------ the island and the camera
 function resize() {
   const r = canvas.getBoundingClientRect();
   if (!r.width || !r.height) return;
@@ -204,9 +261,96 @@ function resize() {
   canvas.width = Math.round(r.width * dpr);
   canvas.height = Math.round(r.height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  V = makeView(r.width, r.height);
+  size = { w: r.width, h: r.height, dpr };
+  if (data?.places) sceneData();
+  // A camera at the overview stays at the overview; one you moved stays where you put it.
+  const atHome = !cam || !home || (Math.abs(cam.z - home.z) < 1e-6 && Math.abs(cam.x - home.x) < 1e-3 && Math.abs(cam.y - home.y) < 1e-3);
+  home = fit(size.w, size.h, map);
+  if (atHome && !interior) cam = { ...home };
+  island = null;
   draw();
 }
+
+// The data the picture depends on; when it changes, the island is painted again.
+function sceneData() {
+  P ||= palette();
+  const places = data.places.map((p) => ({ id: p.id, x: p.x, y: p.y, name: p.name, level: p.level }));
+  const key = places.map((p) => `${p.id}:${p.x}:${p.y}`).join('|');
+  if (key !== mapKey) ((map = buildMap(places)), (mapKey = key));
+  const details = { ...data.details, residents: data.residents.map((r) => r.name), lastRehearsal: data.rehearsals?.[0]?.title || '' };
+  return { map, P, places, details, interior };
+}
+
+// The part of the island the camera sees, with a margin, at the camera's zoom (sharp when zoomed in).
+function ensureIsland(force = false) {
+  const d = sceneData();
+  const key = JSON.stringify([d.places.map((p) => p.level), d.details, interior, P.key]);
+  const scale = Math.min(lite() ? 2 : 3.2, cam.z * size.dpr);
+  const tl = toWorld(cam, size.w, size.h, { x: 0, y: 0 });
+  const br = toWorld(cam, size.w, size.h, { x: size.w, y: size.h });
+  const mx = (br.x - tl.x) * 0.4;
+  const my = (br.y - tl.y) * 0.4;
+  const inside = island && island.region.minX <= tl.x && island.region.minY <= tl.y && island.region.maxX >= br.x && island.region.maxY >= br.y;
+  const sharp = island && island.scale / scale > 0.8 && island.scale / scale < 1.3;
+  if (!force && island && key === islandKey && inside && sharp) return;
+  if (!force && island && key === islandKey) return scheduleRebuild();
+  island = buildIsland(d, scale, { minX: tl.x - mx, minY: tl.y - my, maxX: br.x + mx, maxY: br.y + my });
+  islandKey = key;
+}
+
+function scheduleRebuild() {
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(() => {
+    if (!data || !cam) return;
+    const before = island;
+    ensureIsland(true);
+    if (before !== island) draw();
+  }, 180);
+}
+
+function flyTo(target, then) {
+  flight = { from: { ...cam }, to: target, start: performance.now(), then };
+  loop(true);
+}
+
+function enter(id) {
+  const s = map?.sites[id];
+  if (!s) return;
+  interior = id;
+  islandKey = '';
+  select({ type: 'place', id });
+  const c = W(s.gx, s.gy, s.h * HZ + 12);
+  flyTo({ x: c.x, y: c.y, z: home.z * INSIDE_ZOOM });
+  $('#worldLeave').classList.remove('hidden');
+}
+
+function leave() {
+  if (!interior) return;
+  interior = null;
+  islandKey = '';
+  $('#worldLeave').classList.add('hidden');
+  flyTo(home);
+}
+
+// ------------------------------------------------------------ residents
+// Where a resident stands at a place: beside it (or inside, when looking in), side by side.
+function spot(placeId, j) {
+  const s = map.sites[placeId] || map.sites.garden;
+  if (placeId === interior) return { x: s.gx - s.a * 0.4 + (j % 3) * 0.55, y: s.gy + s.b * 0.25 + Math.floor(j / 3) * 0.5 };
+  if (placeId === 'garden') {
+    const a = 2.3 + j * 0.9;
+    return { x: s.gx + Math.cos(a) * 1.35, y: s.gy + Math.sin(a) * 1.35 };
+  }
+  return { x: s.gx + s.a + 0.75 - (j % 2) * 0.1, y: s.gy + s.b * 0.35 - j * 0.6 };
+}
+
+const groundZ = (g) => map.hgt(Math.floor(g.x), Math.floor(g.y)) * HZ;
+
+const colorOf = (r, i) => {
+  P ||= palette(); // the side panel can ask before the first draw
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(r.color || '');
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : P[TONES[i % 4]];
+};
 
 // The scene happening at this minute, if any.
 function sceneAt(m) {
@@ -216,24 +360,11 @@ function sceneAt(m) {
   });
 }
 
-const colorOf = (r, i) => {
-  P ||= palette(); // the side panel can ask before the first draw
-  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(r.color || '');
-  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : P[TONES[i % 4]];
-};
-
-// Where a resident stands at a place: beside the building, side by side with the others there.
-function spot(placeId, j) {
-  const p = placeById(placeId) || placeById('garden');
-  const a = V.project(p.x, p.y);
-  if (placeId === 'garden') return { x: a.x - 34 * a.s + j * 15 * a.s, y: a.y + 8 * a.s, s: a.s };
-  return { x: a.x + (40 + j * 13) * a.s, y: a.y + (4 + (j % 2) * 7) * a.s, s: a.s };
-}
-
-/** Everyone's position at minute m: in a scene, at live work, walking, at their plan's place, or asleep. */
+/** Everyone at minute m: in a scene, at live work, walking the roads, at their plan's place, or asleep. */
 function positions(m) {
   const out = [];
-  if (!data?.residents || !V) return out;
+  if (!data?.residents) return out;
+  if (!map) sceneData();
   const scene = sceneAt(m);
   const l = liveNow();
   const me = activeResident();
@@ -277,88 +408,99 @@ function positions(m) {
     out.push({ r, i, name: r.name, place, activity, from, k, asleep, working: Boolean(l && r === me), thinking: thinking && !l && r === me });
   });
   for (const p of out) {
-    const j = crowd.get(p.place).indexOf(p.name);
-    let pos = spot(p.place, j);
+    let g = spot(p.place, crowd.get(p.place).indexOf(p.name));
     if (p.from) {
-      const a = spot(p.from, 0);
-      const e = p.k * p.k * (3 - 2 * p.k);
-      pos = { x: a.x + (pos.x - a.x) * e, y: a.y + (pos.y - a.y) * e, s: a.s + (pos.s - a.s) * e };
+      const path = route(map, p.from, p.place);
+      g = path.length ? along([spot(p.from, 0), ...path, g], p.k) : g;
     }
-    Object.assign(p, pos, { walking: Boolean(p.from), color: colorOf(p.r, p.i), kind: p.r === me ? 'active' : p.r.npc ? 'npc' : 'persona' });
+    const wp = W(g.x, g.y, groundZ(g));
+    Object.assign(p, { x: wp.x, y: wp.y, walking: Boolean(p.from), color: colorOf(p.r, p.i), kind: p.r === me ? 'active' : p.r.npc ? 'npc' : 'persona' });
   }
   return out;
 }
 
 // ------------------------------------------------------------ drawing
-function loop() {
-  cancelAnimationFrame(frame);
-  if (currentView !== 'world' || document.hidden || !animated()) return draw();
+function loop(once = false) {
+  cancelAnimationFrame(frameId);
+  if (currentView !== 'world' || document.hidden) return;
   const step = () => {
+    if (flight) {
+      const k = Math.min(1, (performance.now() - flight.start) / 650);
+      const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+      cam = { x: flight.from.x + (flight.to.x - flight.from.x) * e, y: flight.from.y + (flight.to.y - flight.from.y) * e, z: flight.from.z + (flight.to.z - flight.from.z) * e };
+      if (k >= 1) {
+        const then = flight.then;
+        flight = null;
+        ensureIsland(true);
+        then?.();
+      }
+    }
     draw();
-    if (currentView === 'world' && !document.hidden && animated()) frame = requestAnimationFrame(() => setTimeout(step, lite() ? 66 : 33));
+    if (flight || (animated() && currentView === 'world' && !document.hidden)) frameId = requestAnimationFrame(() => setTimeout(step, lite() ? 66 : 33));
   };
-  step();
+  if (once || animated() || flight) step();
+  else draw();
 }
 
 function draw() {
-  if (!ctx || !V || !data?.places) return;
-  P ||= palette();
+  if (!ctx || !size.w || !data?.places) return;
+  if (!cam) cam = { ...home };
+  ensureIsland();
   const m = at();
   const people = positions(m).filter((p) => !p.asleep);
   const l = liveNow();
-  const scene = sceneAt(m);
-  hits = drawScene(
-    ctx,
-    V,
+  const f = {
+    w: size.w,
+    h: size.h,
+    dpr: size.dpr,
+    cam,
+    island,
     P,
-    {
-      places: data.places,
-      details: data.details,
-      residents: people,
-      minute: m,
-      weather: weatherOf(data.day?.weather),
-      live: l || (stage.length ? { place: 'stage' } : null),
-      busy: data.details?.work?.today,
-      hover: hover?.type === 'place' ? hover.id : null,
-      selected: selected?.type === 'place' ? selected.id : null,
-    },
-    { t: performance.now(), anim: animated(), lite: lite() },
-  );
+    t: performance.now(),
+    anim: animated(),
+    lite: lite(),
+    minute: m,
+    weather: weatherOf(data.day?.weather),
+    skills: data.details?.skills || [],
+    residents: people,
+    live: l?.place || (stage.length ? 'stage' : null),
+    busy: data.details?.work?.today,
+  };
+  hits = drawFrame(ctx, f);
+  drawLabels(ctx, f, island, { hover: hover?.type === 'place' ? hover.id : null, selected: selected?.type === 'place' ? selected.id : null });
   // Speech: a scene playing now, a live rehearsal, or what the assistant is doing.
+  const scene = sceneAt(m);
   if (scene) {
     const t = minutes(scene.time);
     const line = scene.lines[Math.min(scene.lines.length - 1, Math.floor(((m - t) / SCENE_MIN) * scene.lines.length))];
-    const who = hits.people.find((p) => p.name === line.who) || hits.places[scene.place];
-    if (who) bubble(ctx, V, P, who.x, (who.top ?? who.y) - 6, `${line.who}: ${line.text}`, { s: who.s || 1 });
-  } else if (stage.length && hits.places.stage) {
-    const b = hits.places.stage;
+    const who = hits.people.find((p) => p.name === line.who);
+    if (who) bubble(ctx, f, who.x, who.top, `${line.who}: ${line.text}`);
+  } else if (stage.length && island.hits.stage) {
+    const p = toScreen(cam, size.w, size.h, island.hits.stage.center);
     const line = stage[stage.length - 1];
-    bubble(ctx, V, P, b.x, b.top, `${line.who}: ${line.text}`, { live: true, s: b.s });
+    bubble(ctx, f, p.x, p.y - 60 * cam.z, `${line.who}: ${line.text}`, { live: true });
   }
-  if (l) {
+  if (l && !scene) {
     const me = hits.people.find((p) => p.name === activeResident()?.name);
-    if (me && !scene) bubble(ctx, V, P, me.x, me.top - 8, `${l.label}…`, { live: true });
-  }
-  // Sleepers: a "z" over the Hearth.
-  if (positions(m).some((p) => p.asleep) && hits.places.hearth) {
-    const b = hits.places.hearth;
-    ctx.font = `${Math.round(13 * b.s)}px sans-serif`;
-    ctx.fillStyle = `rgba(${P.text.join(', ')}, 0.6)`;
-    ctx.fillText('z z', b.x + 26 * b.s, b.top + 6 * b.s);
+    if (me) bubble(ctx, f, me.x, me.top, `${l.label}…`, { live: true });
   }
 }
 
 // ------------------------------------------------------------ interaction
 function hit(e) {
-  if (!data?.places || !V) return null;
+  if (!data?.places || !cam || !island) return null;
   const r = canvas.getBoundingClientRect();
-  const mx = e.clientX - r.left;
-  const my = e.clientY - r.top;
-  for (const p of hits.people) if (Math.hypot(mx - p.x, my - p.y) < p.r) return { type: 'resident', id: p.name };
-  for (const [id, b] of Object.entries(hits.places)) {
-    if (Math.abs(mx - b.x) < 58 * b.s && my > b.top && my < b.y + 36 * b.s) return { type: 'place', id };
+  const s = { x: e.clientX - r.left, y: e.clientY - r.top };
+  for (const p of hits.people) if (Math.hypot(s.x - p.x, s.y - p.y) < p.r) return { type: 'resident', id: p.name };
+  const wpt = toWorld(cam, size.w, size.h, s);
+  let best = null;
+  for (const [id, b] of Object.entries(island.hits)) {
+    if (wpt.x < b.x0 || wpt.x > b.x1 || wpt.y < b.y0 || wpt.y > b.y1) continue;
+    // Several boxes can overlap: the one in front (lowest on screen) wins.
+    if (!best || b.y1 > best.b.y1) best = { id, b };
   }
-  for (const s of hits.stars) if (Math.hypot(mx - s.x, my - s.y) < s.r) return { type: 'star', id: s.name, state: s.state, progress: s.progress };
+  if (best) return { type: 'place', id: best.id };
+  for (const st of hits.stars) if (Math.hypot(s.x - st.x, s.y - st.y) < st.r) return { type: 'star', id: st.name, state: st.state, progress: st.progress };
   return null;
 }
 
@@ -515,7 +657,12 @@ function placePanel(p) {
     here.length ? el('div', { class: 'world-sec' }, el('b', {}, 'Here now'), el('div', {}, here.join(', '))) : '',
     scenes.length ? el('div', { class: 'world-sec' }, el('b', {}, 'Today here'), ...scenes.map(sceneCard)) : '',
     p.id === 'stage' ? stagePanel() : '',
-    action && p.id !== 'stage' ? el('button', { class: 'btn', onclick: action[1] }, action[0]) : '',
+    el(
+      'div',
+      { class: 'row' },
+      interior === p.id ? el('button', { class: 'btn', onclick: leave }, '← Step outside') : el('button', { class: 'btn primary', onclick: () => enter(p.id) }, '🚪 Step inside'),
+      action && p.id !== 'stage' ? el('button', { class: 'btn', onclick: action[1] }, action[0]) : '',
+    ),
   ];
 }
 

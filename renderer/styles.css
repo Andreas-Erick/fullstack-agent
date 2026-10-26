@@ -666,6 +666,8 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .world-back { align-self: flex-start; }
 .world-now { position: absolute; top: 12px; left: 30px; max-width: 50%; padding: 6px 14px; border-radius: 999px; background: rgba(var(--bg-rgb), 0.78); border: 1px solid rgba(var(--c3), 0.5); color: var(--text); font-size: 13px; pointer-events: none; box-shadow: 0 0 18px rgba(var(--c3), 0.25); }
 .world-work { display: flex; flex-wrap: wrap; gap: 6px; }
+.world-cam { position: absolute; bottom: 14px; left: 30px; display: flex; gap: 6px; }
+.world-canvas { cursor: grab; touch-action: none; }
 @media (max-width: 900px) { .world-body { flex-direction: column; } .world-panel { width: auto; max-height: 45%; } .world-canvas { min-height: 300px; } }
 .chip.area-0 { color: rgb(var(--c1)); border-color: rgba(var(--c1), 0.5); }
 .chip.area-1 { color: rgb(var(--c2)); border-color: rgba(var(--c2), 0.5); }
