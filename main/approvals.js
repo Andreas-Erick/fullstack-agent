@@ -1,8 +1,9 @@
 // Permission gate for consequential actions (self-modification, settings changes, deletions, commands).
 //  - "ask" mode: the user approves in the app (click) or by voice (a yes spoken on its own: "yes", "yeah", "okay", "go ahead"…).
-//  - "auto" mode: allowed silently — except self-modification in a turn that read external content
-//    (web pages, documents), which always asks: external content is data, never instructions; and
-//    the ALWAYS_ASK kinds, which reach beyond this computer or copy someone's voice.
+//  - "auto" mode: allowed silently, except the ALWAYS_ASK kinds: changing the app's own code (a
+//    prompt injection that slipped past tainting must never be able to rewrite the app), and what
+//    reaches beyond this computer or copies someone's voice. In a turn that read external content
+//    (web pages, documents) the self-change prompt also says so: external content is data, never instructions.
 // Approval is remembered per turn and kind, so one "yes" covers a whole multi-file change.
 const crypto = require('crypto');
 const store = require('./store');
@@ -10,10 +11,10 @@ const log = require('./logger');
 
 const pending = new Map(); // id -> resolve
 
-// Shell commands, calendar changes that email other people, cloning a voice from a recording,
-// publishing to GitHub (push, pull request) and the user's connectors (their accounts in other
-// services) always need a human, even in auto mode.
-const ALWAYS_ASK = new Set(['command', 'invite', 'voice_clone', 'github_publish', 'connector']);
+// Self-changes, shell commands, calendar changes that email other people, cloning a voice from a
+// recording, publishing to GitHub (push, pull request) and the user's connectors (their accounts in
+// other services) always need a human, even in auto mode.
+const ALWAYS_ASK = new Set(['self_modify', 'command', 'invite', 'voice_clone', 'github_publish', 'connector']);
 // Each of these names different people, a different recording or a different service, so one yes
 // never covers the next (claudecode.js remembers a connector's yes per service for the turn).
 const EACH_TIME = new Set(['invite', 'voice_clone', 'github_publish', 'connector']);
@@ -112,4 +113,4 @@ function respond(id, allow, reason) {
   return true;
 }
 
-module.exports = { setSender, newTurn, markTainted, gate, respond, askSecret, askRecording };
+module.exports = { ALWAYS_ASK, setSender, newTurn, markTainted, gate, respond, askSecret, askRecording };

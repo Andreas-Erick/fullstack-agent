@@ -47,7 +47,10 @@ export function initChat() {
   // "↓ Latest" appears when you scrolled up away from the newest message.
   const box = messagesEl();
   const latest = $('#scrollLatest');
-  box.addEventListener('scroll', () => latest.classList.toggle('hidden', box.scrollHeight - box.scrollTop - box.clientHeight < 300));
+  box.addEventListener('scroll', () => {
+    latest.classList.toggle('hidden', box.scrollHeight - box.scrollTop - box.clientHeight < 300);
+    if (box.scrollTop < 200) showEarlier();
+  });
   latest.onclick = () => {
     box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
     latest.classList.add('hidden');
@@ -85,6 +88,9 @@ function sendFromInput() {
 }
 
 // ------------------------------------------------------------- conversations
+const LIST_PAGE = 100;
+let listLimit = LIST_PAGE;
+
 export async function refreshList() {
   conversations = await api.conv.list().catch(() => []);
   renderConvList();
@@ -102,8 +108,10 @@ function renderConvList() {
     ['Earlier', (c) => c.updatedAt < startToday - 7 * 86400000],
   ];
   const filtered = conversations.filter((c) => !q || (c.title || '').toLowerCase().includes(q));
+  // A page at a time: years of conversations shouldn't all become list rows (search covers them all).
+  const page = filtered.slice(0, listLimit);
   for (const [label, test] of groups) {
-    const items = filtered.filter(test);
+    const items = page.filter(test);
     if (!items.length) continue;
     list.append(el('li', { class: 'conv-group' }, label));
     for (const c of items) {
@@ -117,6 +125,9 @@ function renderConvList() {
         ),
       );
     }
+  }
+  if (filtered.length > page.length) {
+    list.append(el('li', {}, el('button', { class: 'btn ghost conv-more', onclick: () => ((listLimit += LIST_PAGE), renderConvList()) }, `Show more (${filtered.length - page.length} older)`)));
   }
   if (!filtered.length) list.append(el('li', { class: 'muted', style: { padding: '10px', fontSize: '13px' } }, q ? 'No matches.' : 'No conversations yet.'));
 }
@@ -140,6 +151,7 @@ async function renameCurrent() {
 export function newChat() {
   if (active) stop();
   currentId = null;
+  earlier = [];
   $('#chatTitle').textContent = 'New conversation';
   messagesEl().innerHTML = '';
   messagesEl().append(emptyStateNode());
@@ -168,10 +180,42 @@ export async function openConversation(id) {
   const box = messagesEl();
   box.innerHTML = '';
   if (!conv.messages.length) box.append(emptyStateNode());
-  for (const m of conv.messages) if (!m.hidden) box.append(messageNode(m));
+  // The latest messages first; older ones are added when you scroll up (or press the button).
+  earlier = conv.messages.filter((m) => !m.hidden);
+  const recent = earlier.splice(-MESSAGE_PAGE);
+  for (const m of recent) box.append(messageNode(m));
+  updateEarlierButton();
   box.scrollTop = box.scrollHeight;
   renderConvList();
   api.llm.prewarm(conv.id).catch(() => {});
+}
+
+const MESSAGE_PAGE = 40;
+let earlier = []; // messages of the open conversation not rendered yet (oldest first)
+
+function updateEarlierButton() {
+  const box = messagesEl();
+  let btn = box.querySelector('.show-earlier');
+  if (!earlier.length) return btn?.remove();
+  if (!btn) {
+    btn = el('button', { class: 'btn ghost show-earlier', onclick: () => showEarlier() });
+    box.prepend(btn);
+  }
+  btn.textContent = `Show ${Math.min(MESSAGE_PAGE, earlier.length)} earlier messages (${earlier.length} in all)`;
+}
+
+// Adds the previous page above the first message, keeping what you are looking at in place.
+function showEarlier() {
+  const box = messagesEl();
+  if (!earlier.length || !box.querySelector('.show-earlier')) return; // another view (setup) replaced the messages
+  const page = earlier.splice(-MESSAGE_PAGE);
+  const before = box.scrollHeight;
+  const anchor = box.querySelector('.show-earlier')?.nextSibling || box.firstChild;
+  const frag = document.createDocumentFragment();
+  for (const m of page) frag.append(messageNode(m));
+  box.insertBefore(frag, anchor);
+  updateEarlierButton();
+  box.scrollTop += box.scrollHeight - before;
 }
 
 // ------------------------------------------------------------------ messages

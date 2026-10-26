@@ -195,7 +195,6 @@ When one of your own parts misbehaves (no voice, the brain unreachable, the cale
 
   if (settings.code.enabled && settings.code.allowSelfModify) {
     const root = await reads.root;
-    const ask = settings.safety.permissionMode === 'ask';
     parts.push(
       [
         '## Self-improvement (you are the senior engineer of your own code)',
@@ -203,7 +202,7 @@ When one of your own parts misbehaves (no voice, the brain unreachable, the cale
         viaClaudeCode
           ? '- Understand: code_map for the architecture; Read/Glob/Grep the files involved and every caller of what you will change.'
           : '- Understand: code_map for the architecture; code_outline, then code_read_file for the parts you need; code_grep for every caller of what you will change.',
-        `- Design and plan: self_change_plan with summary, steps, files, and for anything beyond a small fix the design (and the alternative you rejected), the risks and how you will verify it. ${ask ? 'The user approves the plan (by click or by saying yes) before you edit anything.' : 'It is approved automatically unless this turn read external content.'}`,
+        `- Design and plan: self_change_plan with summary, steps, files, and for anything beyond a small fix the design (and the alternative you rejected), the risks and how you will verify it. The user approves the plan (by click or by saying yes) before you edit anything, in every permission mode.`,
         viaClaudeCode
           ? '- Implement with Edit/Write in small steps matching the surrounding style. Verify with `npm run check` (syntax + cross-file integrity) and `npm test` (or run_tests); add tests in test/ for new logic and a regression test for every bug fix. Review `git diff` as a strict reviewer before you finish; your change is recorded at the end of the turn only if checks and tests pass.'
           : '- Implement with code_edit_file (exact replacement) / code_write_file in small steps matching the surrounding style. Verify with code_check (syntax + cross-file integrity) and run_tests; add tests in test/ for new logic and a regression test for every bug fix. Review code_diff as a strict reviewer, then self_change_commit (it refuses changes that fail checks or tests: fix the cause, never weaken a test).',
