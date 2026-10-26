@@ -26,21 +26,23 @@ public class TodayActivity extends Activity {
     private Link link;
     private LinearLayout col;
     private ScrollView scroll;
+    private Look look;
 
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
         link = new Link(this);
+        look = Look.of(this); // the persona's colors (WatchActivity keeps them current)
         int pad = (int) (getResources().getDisplayMetrics().widthPixels * 0.12f);
         col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(pad, pad, pad, pad);
         scroll = new ScrollView(this);
-        scroll.setBackgroundColor(getColor(R.color.bg));
+        scroll.setBackgroundColor(look.bg);
         scroll.setFocusable(true);
         scroll.addView(col, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(scroll);
-        show(text(getString(R.string.loading), 14, getColor(R.color.muted)));
+        show(text(getString(R.string.loading), 14, look.muted));
     }
 
     @Override
@@ -59,11 +61,11 @@ public class TodayActivity extends Activity {
 
     private void render(Link.Result r) {
         if (r.body == null) {
-            show(text(r.problem != null && r.problem.equals("unpaired") ? getString(R.string.unpaired) : r.problem != null && r.problem.equals("no_relay") ? getString(R.string.no_relay) : r.error != null ? r.error : getString(R.string.no_phone), 14, getColor(R.color.text)));
+            show(text(r.problem != null && r.problem.equals("unpaired") ? getString(R.string.unpaired) : r.problem != null && r.problem.equals("no_relay") ? getString(R.string.no_relay) : r.error != null ? r.error : getString(R.string.no_phone), 14, look.text));
             return;
         }
         col.removeAllViews();
-        TextView title = text(getString(R.string.today).toUpperCase(Locale.ROOT), 13, getColor(R.color.accent));
+        TextView title = text(getString(R.string.today).toUpperCase(Locale.ROOT), 13, look.accent);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setLetterSpacing(0.12f);
         col.addView(title);
@@ -86,10 +88,10 @@ public class TodayActivity extends Activity {
             } catch (Exception ex) {
                 when = "";
             }
-            col.addView(text(when + "  " + e.optString("title"), 14, getColor(R.color.text)));
+            col.addView(text(when + "  " + e.optString("title"), 14, look.text));
             shown++;
         }
-        if (shown == 0) col.addView(text(getString(R.string.nothing_today), 13, getColor(R.color.muted)));
+        if (shown == 0) col.addView(text(getString(R.string.nothing_today), 13, look.muted));
 
         // Habits: tap to check off (or undo).
         col.addView(heading(getString(R.string.habits)));
@@ -101,19 +103,19 @@ public class TodayActivity extends Activity {
             col.addView(habit(h));
             count++;
         }
-        if (count == 0) col.addView(text(getString(R.string.no_habits), 13, getColor(R.color.muted)));
+        if (count == 0) col.addView(text(getString(R.string.no_habits), 13, look.muted));
     }
 
     private View habit(JSONObject h) {
         boolean done = h.optBoolean("doneToday");
         String name = h.optString("name");
         int streak = h.optInt("streak");
-        TextView t = text((done ? "✓  " : "○  ") + name + (streak > 0 ? "  · " + streak + (h.optString("streakUnit").equals("weeks") ? " wk" : " d") : ""), 15, done ? getColor(R.color.bg) : getColor(R.color.text));
+        TextView t = text((done ? "✓  " : "○  ") + name + (streak > 0 ? "  · " + streak + (h.optString("streakUnit").equals("weeks") ? " wk" : " d") : ""), 15, done ? look.bg : look.text);
         t.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         t.setPadding(dp(12), dp(10), dp(12), dp(10));
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(18));
-        bg.setColor(done ? getColor(R.color.accent) : Color.argb(36, 45, 212, 191));
+        bg.setColor(done ? look.accent : Color.argb(36, Color.red(look.accent), Color.green(look.accent), Color.blue(look.accent)));
         t.setBackground(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, dp(4), 0, 0);
@@ -134,7 +136,7 @@ public class TodayActivity extends Activity {
     }
 
     private TextView heading(String s) {
-        TextView t = text(s.toUpperCase(Locale.ROOT), 11, getColor(R.color.muted));
+        TextView t = text(s.toUpperCase(Locale.ROOT), 11, look.muted);
         t.setLetterSpacing(0.14f);
         t.setPadding(0, dp(12), 0, dp(2));
         return t;

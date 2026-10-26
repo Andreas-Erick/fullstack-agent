@@ -5,7 +5,11 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.media.MediaPlayer;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
 import android.util.TypedValue;
@@ -14,28 +18,59 @@ import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.google.android.gms.wearable.Asset;
+import com.google.android.gms.wearable.ChannelClient;
+import com.google.android.gms.wearable.DataClient;
+import com.google.android.gms.wearable.DataEvent;
+import com.google.android.gms.wearable.DataItem;
+import com.google.android.gms.wearable.DataMap;
+import com.google.android.gms.wearable.DataMapItem;
+import com.google.android.gms.wearable.Wearable;
+
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.UUID;
 
 /**
  * Siren on the wrist: tap her to ask by voice; the question goes through the phone to the computer and
- * the answer is spoken (with the watch's voice) and shown. Below: Today (schedule and habits) and a
- * new chat. Turn the bezel or swipe to scroll a long answer. Laid out for round screens: content stays
- * inside the middle of the circle.
+ * the answer is spoken and shown. Below: Today (schedule and habits) and a new chat. Turn the bezel or
+ * swipe to scroll a long answer. Laid out for round screens: content stays inside the middle of the
+ * circle.
+ * The active persona comes from the desktop through the phone: its name and colors (data item
+ * /siren/look), its face as recorded loops (/siren/face, FacePlayer; until one arrives, SirenRing) and
+ * its voice (/siren/speak, the audio over a channel; the watch's own voice when the computer has none).
  */
 public class WatchActivity extends Activity {
     private static final int ASK = 1;
     private static final long REPLY_TIMEOUT_MS = 200_000; // the phone waits up to 180 s for the computer
+    private static final long VOICE_TIMEOUT_MS = 60_000;
+    private static final int MAX_AUDIO = 12 * 1024 * 1024;
 
     private Link link;
     private SirenRing ring;
+    private FacePlayer face;
+    private LinearLayout col;
+    private final java.util.List<Button> buttons = new ArrayList<>();
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private String name = "";
+    private int accent;
+    private int textColor;
+    private int muted;
+    private int bg;
+    private String voiceId; // the reply waiting for the persona's voice
+    private String voiceText;
+    private MediaPlayer player;
     private TextView status;
     private TextView question;
     private TextView answer;
@@ -48,6 +83,11 @@ public class WatchActivity extends Activity {
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
         link = new Link(this);
+        Look look = Look.of(this);
+        accent = look.accent;
+        textColor = look.text;
+        muted = look.muted;
+        bg = look.bg;
         tts = new TextToSpeech(this, (code) -> {
             ttsReady = code == TextToSpeech.SUCCESS;
             if (ttsReady) tts.setLanguage(Locale.getDefault());
@@ -57,31 +97,41 @@ public class WatchActivity extends Activity {
 
     private View build() {
         int pad = (int) (getResources().getDisplayMetrics().widthPixels * 0.13f); // stay inside the circle
-        LinearLayout col = new LinearLayout(this);
+        col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setGravity(Gravity.CENTER_HORIZONTAL);
         col.setPadding(pad, pad / 2, pad, pad);
 
+        // The persona's face (once the phone has brought it) over the built-in ring.
+        int size = (int) (getResources().getDisplayMetrics().widthPixels * 0.46f);
+        FrameLayout stage = new FrameLayout(this);
+        stage.setLayoutParams(new LinearLayout.LayoutParams(size, size));
         ring = new SirenRing(this);
-        int size = (int) (getResources().getDisplayMetrics().widthPixels * 0.42f);
-        ring.setLayoutParams(new LinearLayout.LayoutParams(size, size));
-        ring.setClickable(true);
-        ring.setOnClickListener((v) -> ask());
-        col.addView(ring);
+        face = new FacePlayer(this);
+        face.setVisibility(View.GONE);
+        stage.addView(ring, new FrameLayout.LayoutParams(size, size));
+        stage.addView(face, new FrameLayout.LayoutParams(size, size));
+        stage.setClickable(true);
+        stage.setDefaultFocusHighlightEnabled(false); // no square around the round face
+        stage.setOnClickListener((v) -> ask());
+        stage.setContentDescription(getString(R.string.tap_to_ask));
+        col.addView(stage);
 
-        status = text(getString(R.string.tap_to_ask), 13, getColor(R.color.accent));
+        status = text(getString(R.string.tap_to_ask), 13, accent);
         status.setTypeface(Typeface.DEFAULT_BOLD);
         status.setLetterSpacing(0.08f);
         col.addView(status);
-        question = text("", 13, getColor(R.color.muted));
+        question = text("", 13, muted);
         col.addView(question);
-        answer = text("", 15, getColor(R.color.text));
+        answer = text("", 15, textColor);
         answer.setLineSpacing(0, 1.15f);
         col.addView(answer);
 
+        // One under the other: side by side they would reach the round edge.
         LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER);
-        row.setPadding(0, dp(10), 0, 0);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setGravity(Gravity.CENTER_HORIZONTAL);
+        row.setPadding(0, dp(10), 0, dp(24));
         Button today = button(getString(R.string.today));
         today.setOnClickListener((v) -> startActivity(new Intent(this, TodayActivity.class)));
         Button fresh = button(getString(R.string.new_chat));
@@ -97,7 +147,7 @@ public class WatchActivity extends Activity {
 
         scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(getColor(R.color.bg));
+        scroll.setBackgroundColor(bg);
         scroll.addView(col, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         scroll.setFocusable(true); // the rotating bezel scrolls the focused view
         return scroll;
@@ -108,15 +158,149 @@ public class WatchActivity extends Activity {
         super.onResume();
         link.start();
         scroll.requestFocus();
+        Wearable.getDataClient(this).addListener(dataListener);
+        Wearable.getChannelClient(this).registerChannelCallback(voiceChannel);
+        // What the watch already has, at once; then ask the phone for anything newer.
+        Wearable.getDataClient(this).getDataItems(Uri.parse("wear://*/siren/look")).addOnSuccessListener((items) -> {
+            for (DataItem i : items) applyLook(DataMapItem.fromDataItem(i).getDataMap());
+            items.release();
+        });
+        Wearable.getDataClient(this).getDataItems(Uri.parse("wear://*/siren/face")).addOnSuccessListener((items) -> {
+            for (DataItem i : items) loadFace(DataMapItem.fromDataItem(i).getDataMap());
+            items.release();
+        });
+        link.request("/siren/face", "/siren/face", new JSONObject(), 120_000, (r) -> {});
+    }
+
+    private final DataClient.OnDataChangedListener dataListener = (events) -> {
+        for (DataEvent e : events) {
+            if (e.getType() != DataEvent.TYPE_CHANGED) continue;
+            String path = e.getDataItem().getUri().getPath();
+            DataMap map = DataMapItem.fromDataItem(e.getDataItem()).getDataMap();
+            if ("/siren/look".equals(path)) applyLook(map);
+            else if ("/siren/face".equals(path)) loadFace(map);
+        }
+    };
+
+    /** The persona's name and colors (the desktop theme), on this screen and remembered for Today. */
+    private void applyLook(DataMap map) {
+        name = map.getString("name", "");
+        try {
+            JSONObject c = new JSONObject(map.getString("colors", "{}"));
+            bg = color(c, "bg", getColor(R.color.bg));
+            accent = color(c, "accent", getColor(R.color.accent));
+            textColor = color(c, "text", getColor(R.color.text));
+            muted = color(c, "muted", getColor(R.color.muted));
+            scroll.setBackgroundColor(bg);
+            Look.save(this, bg, accent, textColor, muted);
+        } catch (Exception ignored) {
+            // keep the built-in colors
+        }
+        status.setTextColor(accent);
+        question.setTextColor(muted);
+        answer.setTextColor(textColor);
+        for (Button b : buttons) styleButton(b);
+        if (!busy) status.setText(idleLabel());
+    }
+
+    private static int color(JSONObject c, String key, int fallback) {
+        String v = c.optString(key);
+        if (!v.matches("#[0-9a-fA-F]{6}")) return fallback;
+        return Color.parseColor(v);
+    }
+
+    private void loadFace(DataMap map) {
+        Asset pack = map.getAsset("pack");
+        if (pack == null) return;
+        Wearable.getDataClient(this).getFdForAsset(pack).addOnSuccessListener((fd) -> new Thread(() -> {
+            byte[] bytes;
+            try (InputStream in = fd.getInputStream()) {
+                bytes = readAll(in, 8 * 1024 * 1024);
+            } catch (Exception e) {
+                return;
+            }
+            main.post(() -> {
+                if (face.load(bytes)) {
+                    face.setVisibility(View.VISIBLE);
+                    ring.setVisibility(View.INVISIBLE);
+                }
+            });
+        }, "siren-face").start());
+    }
+
+    private String idleLabel() {
+        return getString(R.string.tap_to_ask);
+    }
+
+    /** Both faces follow the agent's state (the ring knows four of them). */
+    private void setState(String s) {
+        face.setState(s);
+        switch (s) {
+            case "listening":
+                ring.setState(SirenRing.State.LISTENING);
+                break;
+            case "thinking":
+            case "working":
+                ring.setState(SirenRing.State.THINKING);
+                break;
+            case "speaking":
+                ring.setState(SirenRing.State.SPEAKING);
+                break;
+            default:
+                ring.setState(SirenRing.State.IDLE);
+        }
+    }
+
+    // A reply in the persona's voice arrives as a channel from the phone (WearRelayService.speak).
+    private final ChannelClient.ChannelCallback voiceChannel = new ChannelClient.ChannelCallback() {
+        @Override
+        public void onChannelOpened(ChannelClient.Channel ch) {
+            String id = voiceId;
+            if (id == null || !ch.getPath().equals("/siren/voice/" + id)) {
+                Wearable.getChannelClient(WatchActivity.this).close(ch);
+                return;
+            }
+            Wearable.getChannelClient(WatchActivity.this).getInputStream(ch).addOnSuccessListener((in) -> new Thread(() -> {
+                try {
+                    byte[] audio = readAll(in, MAX_AUDIO);
+                    File f = new File(getCacheDir(), "reply.audio");
+                    try (FileOutputStream o = new FileOutputStream(f)) {
+                        o.write(audio);
+                    }
+                    main.post(() -> play(id, f));
+                } catch (Exception e) {
+                    main.post(() -> fallbackVoice(id));
+                } finally {
+                    Wearable.getChannelClient(WatchActivity.this).close(ch);
+                }
+            }, "siren-voice").start());
+        }
+    };
+
+    private static byte[] readAll(InputStream in, int max) throws Exception {
+        try (InputStream s = in) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[16 * 1024];
+            int n;
+            while ((n = s.read(buf)) > 0) {
+                out.write(buf, 0, n);
+                if (out.size() > max) throw new Exception("Too large");
+            }
+            return out.toByteArray();
+        }
     }
 
     @Override
     protected void onPause() {
         link.stop();
+        Wearable.getDataClient(this).removeListener(dataListener);
+        Wearable.getChannelClient(this).unregisterChannelCallback(voiceChannel);
+        voiceId = null;
+        stopPlayer();
         if (busy) {
             busy = false;
-            ring.setState(SirenRing.State.IDLE);
-            status.setText(getString(R.string.tap_to_ask));
+            setState("idle");
+            status.setText(idleLabel());
         }
         super.onPause();
     }
@@ -124,6 +308,7 @@ public class WatchActivity extends Activity {
     @Override
     protected void onDestroy() {
         tts.shutdown();
+        stopPlayer();
         super.onDestroy();
     }
 
@@ -132,15 +317,17 @@ public class WatchActivity extends Activity {
         if (busy) return;
         ring.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
         if (tts.isSpeaking()) tts.stop();
+        voiceId = null;
+        stopPlayer();
         Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.ask_prompt));
         try {
-            ring.setState(SirenRing.State.LISTENING);
+            setState("listening");
             status.setText(getString(R.string.listening));
             startActivityForResult(i, ASK);
         } catch (ActivityNotFoundException e) {
-            ring.setState(SirenRing.State.IDLE);
+            setState("idle");
             status.setText(getString(R.string.tap_to_ask));
             answer.setText(getString(R.string.no_speech));
         }
@@ -152,7 +339,7 @@ public class WatchActivity extends Activity {
         if (request != ASK) return;
         ArrayList<String> heard = data == null ? null : data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
         if (result != RESULT_OK || heard == null || heard.isEmpty() || heard.get(0).trim().isEmpty()) {
-            ring.setState(SirenRing.State.IDLE);
+            setState("idle");
             status.setText(getString(R.string.tap_to_ask));
             return;
         }
@@ -163,7 +350,7 @@ public class WatchActivity extends Activity {
         busy = true;
         question.setText("“" + text + "”");
         answer.setText("");
-        ring.setState(SirenRing.State.THINKING);
+        setState("thinking");
         status.setText(getString(R.string.thinking));
         JSONObject body = new JSONObject();
         try {
@@ -174,7 +361,7 @@ public class WatchActivity extends Activity {
         link.request("/siren/ask", "/siren/reply", body, REPLY_TIMEOUT_MS, (r) -> {
             busy = false;
             if (r.body == null) {
-                ring.setState(SirenRing.State.IDLE);
+                setState("idle");
                 status.setText(getString(R.string.tap_to_ask));
                 answer.setText(problem(r));
                 ring.performHapticFeedback(HapticFeedbackConstants.REJECT);
@@ -187,24 +374,90 @@ public class WatchActivity extends Activity {
         });
     }
 
+    /** The persona's voice from the computer; the watch's own if it has none or doesn't answer in time. */
     private void speak(String text) {
-        if (!ttsReady || text.isEmpty()) {
-            ring.setState(SirenRing.State.IDLE);
-            status.setText(getString(R.string.tap_to_ask));
+        if (text.isEmpty()) {
+            done();
             return;
         }
-        ring.setState(SirenRing.State.SPEAKING);
-        status.setText(getString(R.string.app_name).toUpperCase(Locale.ROOT));
+        String id = UUID.randomUUID().toString();
+        voiceId = id;
+        voiceText = text;
+        setState("speaking");
+        status.setText(speakingLabel());
+        JSONObject body = new JSONObject();
+        try {
+            body.put("id", id).put("text", text);
+        } catch (Exception ignored) {
+            // fixed keys
+        }
+        link.request("/siren/speak", "/siren/speak", body, VOICE_TIMEOUT_MS, (r) -> {
+            if (r.body == null) fallbackVoice(id); // no voice on the computer, or no answer in time
+        });
+    }
+
+    private void play(String id, File f) {
+        if (!id.equals(voiceId)) return;
+        voiceId = null;
+        stopPlayer();
+        try {
+            player = new MediaPlayer();
+            player.setDataSource(f.getPath());
+            player.setOnCompletionListener((mp) -> done());
+            player.setOnErrorListener((mp, what, extra) -> {
+                speakOnWatch(voiceText);
+                return true;
+            });
+            player.prepare();
+            player.start();
+        } catch (Exception e) {
+            speakOnWatch(voiceText);
+        }
+    }
+
+    private void stopPlayer() {
+        if (player == null) return;
+        try {
+            player.release();
+        } catch (Exception ignored) {
+            // already released
+        }
+        player = null;
+    }
+
+    private void fallbackVoice(String id) {
+        if (!id.equals(voiceId)) return;
+        voiceId = null;
+        speakOnWatch(voiceText);
+    }
+
+    /** A moment of "happy" after a reply, then idle (as on the desktop). */
+    private void done() {
+        setState("happy");
+        status.setText(idleLabel());
+        main.postDelayed(() -> {
+            if (!busy && voiceId == null && (player == null || !player.isPlaying())) setState("idle");
+        }, 2200);
+    }
+
+    private String speakingLabel() {
+        return (name.isEmpty() ? getString(R.string.app_name) : name).toUpperCase(Locale.ROOT);
+    }
+
+    private void speakOnWatch(String text) {
+        if (!ttsReady || text == null || text.isEmpty()) {
+            done();
+            return;
+        }
+        setState("speaking");
+        status.setText(speakingLabel());
         tts.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
             @Override
             public void onStart(String id) {}
 
             @Override
             public void onDone(String id) {
-                runOnUiThread(() -> {
-                    ring.setState(SirenRing.State.IDLE);
-                    status.setText(getString(R.string.tap_to_ask));
-                });
+                runOnUiThread(() -> done());
             }
 
             @Override
@@ -246,14 +499,22 @@ public class WatchActivity extends Activity {
         b.setText(s);
         b.setAllCaps(false);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        b.setTextColor(getColor(R.color.text));
-        b.setBackgroundColor(Color.argb(40, 45, 212, 191));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40));
-        lp.setMargins(dp(3), 0, dp(3), 0);
+        buttons.add(b);
+        styleButton(b);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams((int) (getResources().getDisplayMetrics().widthPixels * 0.5f), dp(40));
+        lp.setMargins(0, dp(4), 0, 0);
         b.setLayoutParams(lp);
         b.setMinWidth(0);
         b.setPadding(dp(12), 0, dp(12), 0);
         return b;
+    }
+
+    private void styleButton(Button b) {
+        b.setTextColor(textColor);
+        android.graphics.drawable.GradientDrawable pill = new android.graphics.drawable.GradientDrawable();
+        pill.setCornerRadius(dp(20));
+        pill.setColor(Color.argb(46, Color.red(accent), Color.green(accent), Color.blue(accent)));
+        b.setBackground(pill);
     }
 
     private int dp(int v) {

@@ -62,6 +62,16 @@ final class Prefs {
     }
 
     /** The conversation the watch talks in (its own, so a quick question doesn't land in a long chat). */
+    /** The ETag of the face pack last sent to the watch (WearRelayService.face). */
+    static String faceEtag(Context c) {
+        return sp(c).getString("faceEtag", null);
+    }
+
+    static void setFaceEtag(Context c, String etag) {
+        if (etag == null) sp(c).edit().remove("faceEtag").apply();
+        else sp(c).edit().putString("faceEtag", etag).apply();
+    }
+
     static String watchConversation(Context c) {
         return sp(c).getString("watchConversation", null);
     }
@@ -112,6 +122,14 @@ final class Prefs {
     /** Forgets the address and the token (the user chose "Change address" or was unpaired). */
     static void reset(Context c) {
         sp(c).edit().clear().apply();
+        // Unpaired: the watch forgets the persona's look and face too (WearRelayService.face).
+        try {
+            com.google.android.gms.wearable.DataClient data = com.google.android.gms.wearable.Wearable.getDataClient(c);
+            data.deleteDataItems(android.net.Uri.parse("wear://*/siren/look"));
+            data.deleteDataItems(android.net.Uri.parse("wear://*/siren/face"));
+        } catch (Exception ignored) {
+            // no Google Play services: there is no watch either
+        }
     }
 
     private static SecretKey key() throws Exception {

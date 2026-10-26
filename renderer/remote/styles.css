@@ -95,6 +95,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 /* Landscape, or the keyboard is open on a small phone: the conversation gets the room. */
 @media (max-height: 520px) { .face-wrap { display: none; } }
 #face { width: 100%; height: 100%; display: block; }
+iframe#face { border: 0; background: transparent; color-scheme: normal; }
 .face-state { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-size: 10px; letter-spacing: 0.35em; color: var(--muted); }
 
 .messages-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -538,3 +539,49 @@ body.wide .composer { padding-inline: max(12px, calc((100% - 780px) / 2)); }
 /* Very wide (DeX on a monitor, a big landscape tablet): the world gets more room. */
 @media (min-width: 1400px) { body.wide #main { grid-template-columns: minmax(0, 1fr) clamp(480px, 42vw, 720px); } }
 body.wide .world-wrap { height: 46dvh; }
+
+/* Formulas (KaTeX → MathML, drawn by the browser). */
+math { font-size: 1.08em; }
+math annotation, math annotation-xml { display: none; } /* the TeX source KaTeX keeps for copying */
+math[display='block'] { display: block; margin: 0.5em 0; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+
+/* The skill tree's constellation (screens.js constellation()); colors by area as on the desktop. */
+.sky-wrap { overflow-x: auto; margin: -4px -6px; }
+.sky { display: block; width: max(100%, min(var(--w), 160vw)); height: auto; min-width: 320px; stroke-width: initial; }
+.sky-edge { fill: none; stroke: color-mix(in srgb, var(--text) 16%, transparent); stroke-width: 1.5; stroke-dasharray: 4 5; }
+.sky-edge.lit { stroke: color-mix(in srgb, var(--accent) 60%, transparent); stroke-dasharray: none; }
+.sky-node { --node: var(--accent); cursor: pointer; }
+.sky-node.area-1 { --node: var(--accent2); }
+.sky-node.area-2 { --node: var(--warn); }
+.sky-node.area-3 { --node: var(--ok); }
+.sky-node.area-4 { --node: var(--danger); }
+.sky-node .ring-bg { fill: none; stroke: color-mix(in srgb, var(--text) 12%, transparent); stroke-width: 3; }
+.sky-node .ring { fill: none; stroke: var(--node); stroke-width: 3; stroke-linecap: round; }
+.sky-node .core { fill: color-mix(in srgb, var(--node) 20%, transparent); stroke: var(--node); stroke-width: 1.5; }
+.sky-node.mastered .core { fill: color-mix(in srgb, var(--node) 55%, transparent); }
+.sky-node.locked { opacity: 0.45; }
+.sky-node .glyph { fill: var(--text); stroke: none; font-size: 10px; font-weight: 700; pointer-events: none; }
+.sky-node .label { fill: var(--muted); stroke: none; font-size: 12.5px; pointer-events: none; }
+.sky-node:focus { outline: none; }
+.sky-node:focus-visible .core { stroke-width: 3; }
+.fx-hud .sky-node .ring { filter: drop-shadow(0 0 4px var(--node)); }
+.fx-hud .sky-edge.lit { filter: drop-shadow(0 0 3px var(--accent)); }
+.skill.flash { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: color-mix(in srgb, var(--accent) 25%, transparent); } }
+
+/* Full-screen face (app.js setFaceFull): only the face and its state, over everything. */
+.face-full-btn { position: absolute; right: 10px; bottom: 4px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); display: grid; place-items: center; opacity: 0.7; }
+.face-full-btn svg { width: 18px; height: 18px; }
+.face-full-btn:hover, .face-full-btn:focus-visible { opacity: 1; color: var(--accent); }
+body.face-full .face-wrap { position: fixed; inset: 0; z-index: 40; height: auto; min-height: 0; display: block !important; background: var(--bg); }
+body.face-full .face-state { bottom: max(24px, env(safe-area-inset-bottom)); font-size: 13px; }
+body.face-full .face-full-btn { top: max(14px, env(safe-area-inset-top)); bottom: auto; right: 14px; width: 44px; height: 44px; }
+
+/* Screens open like the desktop's views (screens.js enter): a beam, then the cards cascade in. */
+.fx-hud .panel.enter { position: relative; }
+.fx-hud .panel.enter::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); box-shadow: 0 0 14px var(--accent); animation: hud-beam 0.7s ease-out both; pointer-events: none; z-index: 2; }
+@keyframes hud-beam { from { transform: translateY(0); opacity: 1; } to { transform: translateY(60vh); opacity: 0; } }
+.fx-hud .panel.enter > * { animation: hud-cascade 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(var(--i, 0) * 55ms + 80ms); }
+@keyframes hud-cascade { from { opacity: 0; transform: translateY(10px) scale(0.985); } }
+.fx-still .panel.enter::before, .fx-still .panel.enter > * { animation: none; }
+@media (prefers-reduced-motion: reduce) { .panel.enter::before, .panel.enter > * { animation: none !important; } }

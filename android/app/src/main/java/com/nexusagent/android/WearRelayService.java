@@ -1,16 +1,23 @@
 package com.nexusagent.android;
 
+import com.google.android.gms.tasks.Tasks;
+import com.google.android.gms.wearable.Asset;
+import com.google.android.gms.wearable.ChannelClient;
 import com.google.android.gms.wearable.MessageEvent;
+import com.google.android.gms.wearable.PutDataMapRequest;
 import com.google.android.gms.wearable.Wearable;
 import com.google.android.gms.wearable.WearableListenerService;
 
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 
 /**
  * The phone's side of the Galaxy Watch app (android/wear): the watch can't reach the computer by
@@ -23,16 +30,44 @@ import java.nio.charset.StandardCharsets;
  *   /siren/today {}                   → /siren/today with the desktop's /api/data/today
  *   /siren/habit {name, done}         → checks a habit off; answers /siren/today
  *   /siren/new   {}                   → the next question starts a new conversation
+ *   /siren/face  {}                   → the persona's look for the watch: data items /siren/look
+ *                                        {name, colors} and /siren/face {pack, etag} (the face recorded
+ *                                        as loops on the desktop, main/facecapture.js); answers /siren/face
+ *   /siren/speak {id, text}           → the reply in the persona's voice (/api/speak), sent to the watch
+ *                                        over a channel /siren/voice/<id>; answers /siren/speak {id}, or
+ *                                        status "novoice" when the computer has no voice on (the watch
+ *                                        then uses its own)
  * Every answer also carries "status": ok | unpaired | offline, so the watch can say what to do.
- * Only the watch app with this app's package name and signing key can send these (Data Layer rule).
+ * Only the watch app with this app's package name and signing key can send these (Data Layer rule);
+ * still, each message is size-checked and the watch is held to a request rate.
  */
 public class WearRelayService extends WearableListenerService {
     private static final long TURN_TIMEOUT_MS = 180_000;
+    private static final int MAX_MESSAGE = 16 * 1024;
+    private static final int MAX_TEXT = 4000;
+    private static final int PER_MINUTE = 30;
+    private static final int MAX_PACK = 8 * 1024 * 1024;
+    private static final int MAX_AUDIO = 12 * 1024 * 1024;
+    private static final ArrayDeque<Long> recent = new ArrayDeque<>();
+
+    /** At most PER_MINUTE requests a minute from the watch (a stuck loop can't flood the computer). */
+    private static synchronized boolean underLimit() {
+        long now = System.currentTimeMillis();
+        while (!recent.isEmpty() && now - recent.peekFirst() > 60_000) recent.pollFirst();
+        if (recent.size() >= PER_MINUTE) return false;
+        recent.addLast(now);
+        return true;
+    }
 
     @Override
     public void onMessageReceived(MessageEvent ev) {
         String path = ev.getPath();
         String node = ev.getSourceNodeId();
+        if (ev.getData() == null || ev.getData().length > MAX_MESSAGE || !path.startsWith("/siren/")) return;
+        if (!underLimit()) {
+            reply(node, replyPath(path), put(new JSONObject(), "error", "Too many requests from the watch; wait a minute"), "offline");
+            return;
+        }
         JSONObject in;
         try {
             in = new JSONObject(new String(ev.getData(), StandardCharsets.UTF_8));
@@ -48,7 +83,7 @@ public class WearRelayService extends WearableListenerService {
         String server = Prefs.server(this);
         String token = Prefs.token(this);
         if (server == null || token == null) {
-            reply(node, path.equals("/siren/ask") ? "/siren/reply" : path, put(new JSONObject(), "id", in.optString("id")), "unpaired");
+            reply(node, replyPath(path), put(new JSONObject(), "id", in.optString("id")), "unpaired");
             return;
         }
         try {
@@ -67,15 +102,114 @@ public class WearRelayService extends WearableListenerService {
                     Prefs.setWatchConversation(this, null);
                     reply(node, "/siren/new", new JSONObject(), "ok");
                     break;
+                case "/siren/face":
+                    reply(node, "/siren/face", face(server, token), "ok");
+                    break;
+                case "/siren/speak":
+                    speak(server, token, node, in);
+                    break;
                 default:
                     break;
             }
         } catch (Unpaired e) {
-            reply(node, path.equals("/siren/ask") ? "/siren/reply" : path, put(new JSONObject(), "id", in.optString("id")), "unpaired");
+            reply(node, replyPath(path), put(new JSONObject(), "id", in.optString("id")), "unpaired");
         } catch (Exception e) {
             JSONObject out = put(new JSONObject(), "id", in.optString("id"));
             put(out, "error", e.getMessage() == null ? "No connection to the computer" : e.getMessage());
-            reply(node, path.equals("/siren/ask") ? "/siren/reply" : path, out, "offline");
+            reply(node, replyPath(path), out, "offline");
+        }
+    }
+
+    private static String replyPath(String path) {
+        return path.equals("/siren/ask") ? "/siren/reply" : path;
+    }
+
+    /**
+     * The persona's name and colors, and the face recorded on the desktop, as data items the watch keeps
+     * (so they show at once next time, even without the phone). The pack is fetched again only when the
+     * desktop's face, theme or name changed (ETag).
+     */
+    private JSONObject face(String server, String token) throws Exception {
+        JSONObject info = get(server + "/api/info", token);
+        PutDataMapRequest look = PutDataMapRequest.create("/siren/look");
+        look.getDataMap().putString("name", info.optString("name", "Siren"));
+        JSONObject colors = info.optJSONObject("colors");
+        look.getDataMap().putString("colors", colors == null ? "{}" : colors.toString());
+        Tasks.await(Wearable.getDataClient(this).putDataItem(look.asPutDataRequest().setUrgent()));
+
+        HttpURLConnection c = ConnectionService.open(server + "/api/face/frames", token);
+        c.setRequestProperty("Accept", "application/octet-stream");
+        c.setReadTimeout(90_000); // a new face is recorded first (about half a minute)
+        String etag = Prefs.faceEtag(this);
+        if (etag != null) c.setRequestProperty("If-None-Match", etag);
+        try {
+            int code = c.getResponseCode();
+            if (code == 401) throw new Unpaired();
+            if (code == 304) return new JSONObject().put("changed", false);
+            if (code != 200) throw new Exception("The computer answered " + code);
+            byte[] pack = readAll(c.getInputStream(), MAX_PACK);
+            PutDataMapRequest face = PutDataMapRequest.create("/siren/face");
+            face.getDataMap().putAsset("pack", Asset.createFromBytes(pack));
+            String tag = c.getHeaderField("ETag");
+            face.getDataMap().putString("etag", tag == null ? "" : tag);
+            Tasks.await(Wearable.getDataClient(this).putDataItem(face.asPutDataRequest().setUrgent()));
+            Prefs.setFaceEtag(this, tag);
+            return new JSONObject().put("changed", true);
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    /** The reply in the persona's voice: the audio goes to the watch over a channel of its own. */
+    private void speak(String server, String token, String node, JSONObject in) throws Exception {
+        String id = in.optString("id").replaceAll("[^A-Za-z0-9-]", "");
+        String text = in.optString("text").trim();
+        if (text.length() > MAX_TEXT) text = text.substring(0, MAX_TEXT);
+        if (id.isEmpty() || text.isEmpty() || !get(server + "/api/info", token).optBoolean("voice")) {
+            reply(node, "/siren/speak", put(new JSONObject(), "id", id), "novoice");
+            return;
+        }
+        HttpURLConnection c = ConnectionService.open(server + "/api/speak", token);
+        c.setRequestMethod("POST");
+        c.setRequestProperty("Accept", "audio/*");
+        c.setRequestProperty("Content-Type", "application/json");
+        c.setReadTimeout(90_000);
+        c.setDoOutput(true);
+        byte[] audio;
+        try {
+            try (OutputStream o = c.getOutputStream()) {
+                o.write(new JSONObject().put("text", text).toString().getBytes(StandardCharsets.UTF_8));
+            }
+            int code = c.getResponseCode();
+            if (code == 401) throw new Unpaired();
+            if (code != 200) {
+                reply(node, "/siren/speak", put(new JSONObject(), "id", id), "novoice");
+                return;
+            }
+            audio = readAll(c.getInputStream(), MAX_AUDIO);
+        } finally {
+            c.disconnect();
+        }
+        ChannelClient channels = Wearable.getChannelClient(this);
+        ChannelClient.Channel ch = Tasks.await(channels.openChannel(node, "/siren/voice/" + id));
+        try (OutputStream o = Tasks.await(channels.getOutputStream(ch))) {
+            o.write(audio);
+        } finally {
+            channels.close(ch);
+        }
+        reply(node, "/siren/speak", put(new JSONObject(), "id", id), "ok");
+    }
+
+    private static byte[] readAll(InputStream in, int max) throws Exception {
+        try (InputStream s = in) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[16 * 1024];
+            int n;
+            while ((n = s.read(buf)) > 0) {
+                out.write(buf, 0, n);
+                if (out.size() > max) throw new Exception("Too large");
+            }
+            return out.toByteArray();
         }
     }
 
@@ -86,6 +220,7 @@ public class WearRelayService extends WearableListenerService {
     private JSONObject ask(String server, String token, JSONObject in) throws Exception {
         String text = in.optString("text").trim();
         if (text.isEmpty()) throw new Exception("Nothing was heard");
+        if (text.length() > MAX_TEXT) text = text.substring(0, MAX_TEXT);
         HttpURLConnection events = ConnectionService.open(server + "/api/events", token);
         events.setReadTimeout(60_000);
         try {

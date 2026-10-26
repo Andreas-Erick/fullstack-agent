@@ -186,7 +186,12 @@ public class ConnectionService extends Service {
                 .setCategory(Notification.CATEGORY_REMINDER)
                 .setOnlyAlertOnce(true) // open approvals are replayed after a reconnect
                 .addAction(action(R.string.action_deny, ApprovalReceiver.intent(this, id, false, nid), nid * 2))
-                .addAction(action(R.string.action_allow, ApprovalReceiver.intent(this, id, true, nid), nid * 2 + 1));
+                // Allow on the phone only once it is unlocked: a locked phone in someone else's hand can't say yes.
+                .addAction(action(R.string.action_allow, ApprovalReceiver.intent(this, id, true, nid), nid * 2 + 1, true))
+                // On a paired watch (locked by its own PIN once off the wrist) both answers work right away.
+                .extend(new Notification.WearableExtender()
+                        .addAction(action(R.string.action_deny, ApprovalReceiver.intent(this, id, false, nid), nid * 2))
+                        .addAction(action(R.string.action_allow, ApprovalReceiver.intent(this, id, true, nid), nid * 2 + 1)));
         if (a.optInt("timeoutSec", 0) > 0) b.setTimeoutAfter(a.optInt("timeoutSec") * 1000L);
         getSystemService(NotificationManager.class).notify(nid, b.build());
     }
@@ -225,11 +230,19 @@ public class ConnectionService extends Service {
     }
 
     private Notification.Builder alertBuilder(String title, String text) {
+        // The lock screen shows only that something came in; what it says needs the phone unlocked.
+        Notification hidden = new Notification.Builder(this, CH_ALERTS)
+                .setSmallIcon(R.drawable.ic_stat)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(getString(R.string.locked_alert))
+                .build();
         return new Notification.Builder(this, CH_ALERTS)
                 .setSmallIcon(R.drawable.ic_stat)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(new Notification.BigTextStyle().bigText(text))
+                .setVisibility(Notification.VISIBILITY_PRIVATE)
+                .setPublicVersion(hidden)
                 .setAutoCancel(true)
                 .setContentIntent(openApp(1));
     }
@@ -245,8 +258,14 @@ public class ConnectionService extends Service {
     }
 
     private Notification.Action action(int label, Intent intent, int requestCode) {
+        return action(label, intent, requestCode, false);
+    }
+
+    private Notification.Action action(int label, Intent intent, int requestCode, boolean unlocked) {
         PendingIntent pi = PendingIntent.getBroadcast(this, requestCode, intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        return new Notification.Action.Builder(null, getString(label), pi).build();
+        Notification.Action.Builder b = new Notification.Action.Builder(null, getString(label), pi);
+        if (unlocked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) b.setAuthenticationRequired(true);
+        return b.build();
     }
 
     private PendingIntent openApp(int requestCode) {

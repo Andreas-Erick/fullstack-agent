@@ -72,7 +72,12 @@ async function learn() {
 
 async function tree() {
   const v = await require('./skilltree').view();
-  return { skills: v.skills.map((k) => ({ name: k.name, area: k.area, needs: k.needs || [], state: k.state, progress: k.progress })), thresholds: v.thresholds };
+  // The constellation as on the desktop: positions (0..1) and links between the skills.
+  const names = new Set(v.skills.map((k) => k.name));
+  const pos = {};
+  for (const [n, p] of Object.entries(v.layout?.pos || {})) if (names.has(n)) pos[n] = { x: +p.x || 0, y: +p.y || 0, depth: +p.depth || 0 };
+  const edges = (v.layout?.edges || []).filter((e) => names.has(e.from) && names.has(e.to)).map((e) => ({ from: e.from, to: e.to }));
+  return { skills: v.skills.map((k) => ({ name: k.name, area: k.area, needs: k.needs || [], state: k.state, progress: k.progress })), thresholds: v.thresholds, layout: { pos, edges, depth: +v.layout?.depth || 0, areas: (v.layout?.areas || []).map(String) } };
 }
 
 async function memories(q = '') {
