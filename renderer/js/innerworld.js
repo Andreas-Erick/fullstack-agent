@@ -7,14 +7,14 @@
 // Lookout…); your skill tree shines in the night sky; banners, flowers, books and tables show your
 // habits, topics and decks. Drag to look around, scroll to zoom, double-click a building to step inside.
 // The side panel tells today; click a building, a resident or a star for theirs.
-import { $, api, el, toast, toastError, on, promptDialog } from './util.js';
+import { $, api, el, toast, toastError, on, promptDialog, logEvent } from './util.js';
 import { switchView, currentView } from './nav.js';
 import { send } from './chat.js';
 import { state, saveSettings } from './state.js';
 import { fxLevel } from './hud.js';
 import { buildMap, route, along } from './world/map.js';
 import { palette, W, HZ } from './world/art.js';
-import { buildIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf } from './world/scene.js';
+import { buildIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf, bounds as sceneBounds } from './world/scene.js';
 
 const ACTIONS = {
   library: ['Study session', () => ask('/study-session')],
@@ -282,21 +282,48 @@ function sceneData() {
 }
 
 // The part of the island the camera sees, with a margin, at the camera's zoom (sharp when zoomed in).
+// Bitmap budget for the cached island (pixels): big screens and deep zoom stay within it.
+const BUDGET = () => (lite() ? 8e6 : 16e6);
+
 function ensureIsland(force = false) {
   const d = sceneData();
   const key = JSON.stringify([d.places.map((p) => p.level), d.details, interior, P.key]);
-  const scale = Math.min(lite() ? 2 : 3.2, cam.z * size.dpr);
+  const all = islandBounds();
   const tl = toWorld(cam, size.w, size.h, { x: 0, y: 0 });
   const br = toWorld(cam, size.w, size.h, { x: size.w, y: size.h });
-  const mx = (br.x - tl.x) * 0.4;
-  const my = (br.y - tl.y) * 0.4;
-  const inside = island && island.region.minX <= tl.x && island.region.minY <= tl.y && island.region.maxX >= br.x && island.region.maxY >= br.y;
-  const sharp = island && island.scale / scale > 0.8 && island.scale / scale < 1.3;
+  // What is on screen (never more than the island), with a margin for panning.
+  const view = { minX: Math.max(all.minX, tl.x), minY: Math.max(all.minY, tl.y), maxX: Math.min(all.maxX, br.x), maxY: Math.min(all.maxY, br.y) };
+  const inside = island && island.region.minX <= view.minX && island.region.minY <= view.minY && island.region.maxX >= view.maxX && island.region.maxY >= view.maxY;
+  const want = Math.min(lite() ? 2 : 3.2, cam.z * size.dpr);
+  const sharp = island && island.scale / want > 0.8 && island.scale / want < 1.3;
   if (!force && island && key === islandKey && inside && sharp) return;
   if (!force && island && key === islandKey) return scheduleRebuild();
-  island = buildIsland(d, scale, { minX: tl.x - mx, minY: tl.y - my, maxX: br.x + mx, maxY: br.y + my });
+  let margin = 0.4;
+  let region;
+  let scale = want;
+  for (;;) {
+    const mx = (view.maxX - view.minX) * margin;
+    const my = (view.maxY - view.minY) * margin;
+    region = { minX: Math.max(all.minX, view.minX - mx), minY: Math.max(all.minY, view.minY - my), maxX: Math.min(all.maxX, view.maxX + mx), maxY: Math.min(all.maxY, view.maxY + my) };
+    const px = (region.maxX - region.minX) * (region.maxY - region.minY) * scale * scale;
+    if (px <= BUDGET()) break;
+    if (margin > 0.05) margin /= 2; // first give up panning room…
+    else {
+      scale *= Math.sqrt(BUDGET() / px) * 0.98; // …then sharpness
+      break;
+    }
+  }
+  const started = performance.now();
+  island = buildIsland(d, scale, region);
   islandKey = key;
+  logEvent('info', 'inner world painted', { w: island.canvas.width, h: island.canvas.height, mpx: Math.round((island.canvas.width * island.canvas.height) / 1e5) / 10, ms: Math.round(performance.now() - started), sharp: Math.round((scale / want) * 100) / 100 });
 }
+
+// The island's picture area in world pixels (from the island's bounds, see scene.bounds).
+function islandBounds() {
+  return islandBoundsCache || (islandBoundsCache = sceneBounds());
+}
+let islandBoundsCache = null;
 
 function scheduleRebuild() {
   clearTimeout(rebuildTimer);
@@ -341,7 +368,7 @@ function spot(placeId, j) {
     const a = 2.3 + j * 0.9;
     return { x: s.gx + Math.cos(a) * 1.35, y: s.gy + Math.sin(a) * 1.35 };
   }
-  return { x: s.gx + s.a + 0.75 - (j % 2) * 0.1, y: s.gy + s.b * 0.35 - j * 0.6 };
+  return { x: s.gx + s.a + 0.7 + (j % 2) * 0.55, y: s.gy + s.b * 0.45 - Math.floor(j / 2) * 0.62 };
 }
 
 const groundZ = (g) => map.hgt(Math.floor(g.x), Math.floor(g.y)) * HZ;
