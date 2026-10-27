@@ -26,12 +26,14 @@ async function today() {
     safe(() => require('./handoff').read(), null),
     safe(() => require('./learning').topics(), []),
   ]);
+  const cards = await safe(() => require('./flashcards').dueToday(), []);
   return {
     date: day,
     events: (events || []).map(({ title, location, allDay, start, end }) => ({ title: clip(title, 200), location: clip(location, 200), allDay, start, end })),
     habits: habitList(habits),
     priorities: clip(stripFrontmatter(priorities), 4000),
     decks: (decks || []).map(({ language, total, dueCount, newCount }) => ({ language, total, dueCount, newCount })),
+    cards: (cards || []).map(({ id, name, dueNow }) => ({ id, name: clip(name, 80), dueNow })),
     handoff: handoff && !handoff.dismissed ? { topic: clip(handoff.topic || handoff.title, 200), summary: clip(handoff.summary, 1200), nextSteps: (handoff.nextSteps || []).slice(0, 5).map((x) => clip(x, 200)), at: handoff.at } : null,
     shaky: (topics || []).flatMap((t) => (t.shaky || []).slice(0, 2).map((x) => ({ topic: t.topic, text: clip(x, 200) }))).slice(0, 5),
   };
@@ -145,4 +147,32 @@ async function routines() {
   return { routines: (await require('./routines').list()).map((r) => ({ name: r.name, enabled: r.enabled, schedule: r.schedule, lastRun: r.lastRun || 0, lastStatus: r.lastStatus || '' })) };
 }
 
-module.exports = { today, habits, logHabit, learn, tree, memories, stream, notes, note, world, skills, routines, arch };
+// ------------------------------------------------------------------ flashcards
+// The decks and studying them (flashcards.js): the second write a device may make, besides checking a
+// habit off, is answering a card (and undoing that). Cards carry their own images and sounds as data
+// URLs (only those in the vault's Flashcards/ media); nothing else of the vault comes along.
+const deckId = (v) => {
+  const id = String(v || '');
+  if (!/^[fv]:[^/\\]{1,80}$/.test(id)) throw Object.assign(new Error('Unknown deck'), { status: 404 });
+  return id;
+};
+const studyView = (r) => ({
+  id: r.id,
+  name: clip(r.name, 80),
+  kind: r.kind,
+  counts: r.counts,
+  laterAt: r.laterAt || null,
+  canUndo: Boolean(r.canUndo),
+  scheduler: r.scheduler,
+  card: r.card ? { id: r.card.id, front: String(r.card.front).slice(0, 12e6), back: String(r.card.back).slice(0, 12e6), preview: r.card.preview, tags: (r.card.tags || []).slice(0, 10).map((t) => clip(t, 40)), status: r.card.status, leech: r.card.leech } : null,
+});
+
+async function flashcards() {
+  const r = await require('./flashcards').decks();
+  return { vault: r.vault, decks: r.decks.map((d) => ({ id: d.id, name: clip(d.name, 80), kind: d.kind, new: d.new, learn: d.learn, review: d.review, dueNow: d.dueNow, total: d.total, mature: d.mature, scheduler: d.scheduler, nextDue: d.nextDue })) };
+}
+const flashcardNext = async (deck) => studyView(await require('./flashcards').next(deckId(deck)));
+const flashcardAnswer = async (deck, card, grade) => studyView(await require('./flashcards').answer(deckId(deck), String(card || '').slice(0, 60), String(grade || '')));
+const flashcardUndo = async (deck) => studyView(await require('./flashcards').undoLast(deckId(deck)));
+
+module.exports = { today, habits, logHabit, learn, tree, memories, stream, notes, note, world, skills, routines, arch, flashcards, flashcardNext, flashcardAnswer, flashcardUndo };

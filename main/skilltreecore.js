@@ -131,7 +131,10 @@ function compute(tree, evidence = {}) {
       if (f.type === 'deck') {
         const d = decks.get(keyOf(f.name));
         if (!d) return { ...f, progress: 0, detail: 'no deck yet' };
-        return { ...f, progress: clamp01(d.mature / target), detail: `${d.mature} of ${target} cards mature (${d.total} in the deck)` };
+        // A flashcard or vocabulary deck: mature cards (21+ days, Anki's "known") of the whole deck,
+        // up to 300; a target set on the link wins.
+        const goal = f.target || Math.min(DEFAULT_TARGET.deck, Math.max(10, d.total));
+        return { ...f, progress: clamp01(d.mature / goal), detail: `${d.mature} of ${goal} cards mature (${d.total} in the deck)` };
       }
       const h = habits.get(keyOf(f.name));
       if (!h) return { ...f, progress: 0, detail: 'not tracked yet' };

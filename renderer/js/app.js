@@ -24,6 +24,7 @@ import { initSettings } from './settings.js';
 import { initEvolution, refresh as refreshEvolution } from './evolution.js';
 import { initSkills, refresh as refreshSkills } from './skills.js';
 import { initHabits, refresh as refreshHabits } from './habits.js';
+import { initFlashcards, refresh as refreshFlashcards } from './flashcards.js';
 import { initSkillTree, refresh as refreshSkillTree } from './skilltree.js';
 import { initInnerWorld, refresh as refreshInnerWorld } from './innerworld.js';
 import { initArchMap, refresh as refreshArchMap } from './archmap.js';
@@ -80,6 +81,7 @@ async function boot() {
   initEvolution();
   initSkills();
   initHabits();
+  initFlashcards();
   initSkillTree();
   initInnerWorld();
   initArchMap();
@@ -114,6 +116,7 @@ async function boot() {
     if (name === 'evolution') refreshEvolution();
     if (name === 'skills') refreshSkills();
     if (name === 'habits') refreshHabits();
+    if (name === 'cards') refreshFlashcards();
     if (name === 'tree') refreshSkillTree();
     if (name === 'world') requestAnimationFrame(() => refreshInnerWorld());
     if (name === 'arch') requestAnimationFrame(() => refreshArchMap());

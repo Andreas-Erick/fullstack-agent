@@ -84,6 +84,7 @@ const TOOLS = [
   ...require('./tools/guide'),
   ...require('./tools/browser'),
   ...require('./tools/learning'),
+  ...require('./tools/flashcards'),
   ...require('./tools/world'),
   ...require('./tools/habits'),
   ...require('./tools/skilltree'),

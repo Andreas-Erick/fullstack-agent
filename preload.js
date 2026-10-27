@@ -59,6 +59,7 @@ const channels = {
   system: ['watch', 'bluetooth', 'network', 'speedtest', 'usage', 'free'],
   app: ['info', 'ready'],
   updates: ['status', 'check', 'skip', 'open'],
+  flashcards: ['decks', 'browse', 'card', 'next', 'answer', 'undo', 'create', 'add', 'edit', 'options', 'delete', 'importable', 'import'],
 };
 
 const api = { on };

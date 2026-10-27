@@ -88,6 +88,9 @@
         <button class="rail-btn" data-view="habits" title="Habits and routines (Ctrl+9)">
           <svg viewBox="0 0 24 24"><path d="M4 12l4 4 8-9" /><path d="M14 17h6M17 14v6" /></svg><span>Habits</span>
         </button>
+        <button class="rail-btn" data-view="cards" title="Flashcards — spaced repetition, as in Anki">
+          <svg viewBox="0 0 24 24"><rect x="3" y="7" width="13" height="10" rx="2" /><path d="M8 4h11a2 2 0 0 1 2 2v9" /><path d="M7 12h5" /></svg><span>Cards</span>
+        </button>
         <button class="rail-btn" data-view="tree" title="Skill tree — what you are growing">
           <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2" /><circle cx="13" cy="6" r="2" /><circle cx="13" cy="18" r="2" /><circle cx="20" cy="12" r="2" /><path d="M7 11l4-4M7 13l4 4M15 7l3.5 4M15 17l3.5-4" /></svg><span>Tree</span>
         </button>
@@ -340,6 +343,13 @@
             <div class="world-cam">
               <button class="btn small hidden" id="worldLeave" title="Step back outside (Esc)">← Outside</button>
               <button class="btn small" id="worldFit" title="Show the whole island (0)">⤢ Whole island</button>
+              <select class="input small world-fps" id="worldFps" title="Frame rate of the village (also in Settings → Inner World)" aria-label="Frame rate">
+                <option value="auto">Auto fps</option>
+                <option value="15">15 fps</option>
+                <option value="30">30 fps</option>
+                <option value="60">60 fps</option>
+                <option value="120">120 fps</option>
+              </select>
               <span class="world-follow hidden" id="worldFollow">👁 Following <b id="worldFollowName"></b> <button class="icon-btn" id="worldFollowStop" title="Stop following (Esc)">✕</button></span>
             </div>
             <div class="replay-slot" id="worldTimeline"></div>
@@ -373,6 +383,16 @@
           </div>
         </section>
 
+        <section class="view padded" id="view-cards">
+          <div class="view-head">
+            <h2 class="display">Flashcards</h2>
+            <div class="actions">
+              <button class="btn" id="fcImport" title="Import a CSV, TSV, Anki text export (.txt) or Anki package (.apkg, .colpkg)">📥 Import…</button>
+              <button class="btn primary" id="fcNewDeck">＋ New deck</button>
+            </div>
+          </div>
+          <div id="fcBody"></div>
+        </section>
         <section class="view padded" id="view-habits">
           <div class="view-head">
             <h2 class="display">Habits</h2>

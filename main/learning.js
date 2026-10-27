@@ -105,9 +105,11 @@ async function gradeCard(language, front, grade) {
   return withLock(deckRel(language), async () => {
     const { rel, deck, exists } = await readDeck(language);
     if (!exists) throw new Error(`No deck for ${language} yet.`);
-    const r = srs.grade(deck, front, grade, obsidian.ymd());
+    const r = srs.grade(deck, front, grade, Date.now());
     await writeDeck(rel, r.deck);
-    return { front: r.card.front, nextReview: r.card.due, intervalDays: r.card.ivl };
+    // In its learning steps a card comes back in minutes (Anki's scheduler), not on a later day.
+    const at = r.card.at ? new Date(r.card.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    return { front: r.card.front, nextReview: at ? `${at} today (learning step)` : r.card.due, intervalDays: r.card.ivl };
   });
 }
 

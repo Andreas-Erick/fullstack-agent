@@ -512,6 +512,30 @@ function registerIpc() {
   handle('obsidian:list', (folder) => obsidian.listNotes(folder));
   handle('obsidian:read', (p) => obsidian.readNote(p));
   handle('obsidian:search', (q) => obsidian.search(q, 30));
+  // Flashcards (flashcards.js): decks, studying, editing, importing (a file the user picks is allowed).
+  const fc = () => require('./flashcards');
+  handle('flashcards:decks', () => fc().decks());
+  handle('flashcards:browse', (id, opts) => fc().browse(String(id), opts || {}));
+  handle('flashcards:next', (id) => fc().next(String(id)));
+  handle('flashcards:card', (id, cardId) => fc().card(String(id), String(cardId)));
+  handle('flashcards:answer', (id, cardId, grade) => fc().answer(String(id), String(cardId), String(grade)));
+  handle('flashcards:undo', (id) => fc().undoLast(String(id)));
+  handle('flashcards:create', (name, opts) => fc().createDeck(String(name || ''), opts || {}));
+  handle('flashcards:add', (id, cards) => fc().addCards(String(id), Array.isArray(cards) ? cards.slice(0, 2000) : []));
+  handle('flashcards:edit', (id, cardId, patch) => fc().editCard(String(id), String(cardId), patch || {}));
+  handle('flashcards:options', (id, opts) => fc().setOptions(String(id), opts || {}));
+  handle('flashcards:delete', (id) => fc().deleteDeck(String(id)));
+  handle('flashcards:importable', () => fc().importable());
+  handle('flashcards:import', async (file, deck) => {
+    // No path: the user picks one; a picked file may be anywhere (it is the user's choice).
+    let p = file;
+    if (!p) {
+      const r = await dialog.showOpenDialog(win, { title: 'Import flashcards', properties: ['openFile'], filters: [{ name: 'Flashcards', extensions: ['csv', 'tsv', 'txt', 'apkg', 'colpkg'] }] });
+      if (r.canceled || !r.filePaths[0]) return null;
+      p = r.filePaths[0];
+    }
+    return fc().importFile(p, { deck: deck || '', fromUser: !file });
+  });
   handle('obsidian:links', async (rel) => require('./linkindex').forNote(await obsidian.vaultPath(), String(rel || '')));
 
   // Documents

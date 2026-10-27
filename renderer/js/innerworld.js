@@ -87,6 +87,10 @@ export function initInnerWorld() {
   $('#worldLeave').onclick = () => leave();
   $('#worldFollowStop').onclick = () => stopFollowing();
   $('#worldLapse').onclick = () => (lapse ? endLapse() : startLapse());
+  const fps = $('#worldFps');
+  fps.value = String(state.settings?.innerWorld?.fps || 'auto');
+  fps.onchange = () => saveSettings({ innerWorld: { fps: fps.value } }).then(() => loop());
+  on('settings', () => (fps.value = String(state.settings?.innerWorld?.fps || 'auto')));
   on('world-changed', refresh);
   on('settings', () => {
     P = null;
@@ -819,17 +823,22 @@ function positions(m) {
 let lastDrawAt = 0;
 // The timelapse playing (or a building still warm from it) and a fresh level-up need frames even
 // without the village's own animation.
+// The village's frame time: the user's choice (innerWorld.fps), or 30 a second (15 on Balanced).
+const frameMs = () => {
+  const fps = Number(state.settings?.innerWorld?.fps);
+  return [15, 30, 60, 120].includes(fps) ? 1000 / fps : lite() ? 66 : 33;
+};
 const busyGlowing = () => Boolean((lapse && (lapse.replay.state.playing || lapse.replay.state.heat.size)) || celebrating());
 function loop(once = false) {
   cancelAnimationFrame(frameId);
   if (currentView !== 'world' || document.hidden) return;
   const step = (now = performance.now()) => {
     if (currentView !== 'world' || document.hidden) return;
-    // Camera motion runs at the display's rate; the village's own animation at 30 frames a second
-    // (15 on Balanced), on the display's own beat: frames are skipped, never put off with a timer,
+    // Camera motion runs at the display's rate; the village's own animation at the chosen frame rate
+    // (innerWorld.fps; automatic: 30, or 15 on Balanced), on the display's own beat: frames are skipped, never put off with a timer,
     // so each one lands on a vertical sync instead of between two.
     const moving = flight || glide || follow;
-    const every = lite() ? 66 : 33;
+    const every = frameMs();
     if (!moving && now - lastDrawAt < every - 4) {
       frameId = requestAnimationFrame(step);
       return;

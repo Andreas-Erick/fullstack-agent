@@ -515,7 +515,7 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.3s cubic-bezier(0.2, 
 .hud-beam::after { content: ''; position: absolute; left: 0; right: 0; top: -140px; height: 140px; background: linear-gradient(to bottom, transparent, rgba(var(--c1), 0.07)); }
 @keyframes hud-beam { from { transform: translateY(0); opacity: 1; } 85% { opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
 /* Cards and rows arrive one after another (js sets --hud-i). Tree stars only fade: their position is an SVG transform. */
-.fx-hud .hud-cascade :is(.mem-card, .skill-card, .habit-row, .routine-row, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *, .world-scene, .world-res, .stream-row) {
+.fx-hud .hud-cascade :is(.mem-card, .skill-card, .habit-row, .fc-deck, .routine-row, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *, .world-scene, .world-res, .stream-row) {
   animation: hud-card-in 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   animation-delay: calc(var(--hud-i, 0) * 32ms);
 }
@@ -529,14 +529,14 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.3s cubic-bezier(0.2, 
 @keyframes hud-fade-in { from { opacity: 0; } }
 
 /* ---------------------------------------------------------------- lock-on hover */
-:is(.fx-hud, .fx-subtle) :is(.mem-card, .skill-card, .habit-row, .routine-row, .settings > .card) { transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s, border-color 0.25s; }
-:is(.fx-hud, .fx-subtle) :is(.mem-card, .skill-card, .habit-row, .routine-row):hover {
+:is(.fx-hud, .fx-subtle) :is(.mem-card, .skill-card, .habit-row, .fc-deck, .routine-row, .settings > .card) { transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s, border-color 0.25s; }
+:is(.fx-hud, .fx-subtle) :is(.mem-card, .skill-card, .habit-row, .fc-deck, .routine-row):hover {
   --hud-bracket: rgb(var(--c1-soft));
   --hud-bracket-size: 26px;
   border-color: var(--line-strong);
   box-shadow: var(--glow), 0 0 26px -6px rgba(var(--c1), 0.55), inset 0 0 22px -12px rgba(var(--c1), 0.6);
 }
-.fx-hud :is(.mem-card, .skill-card, .habit-row, .routine-row):hover { transform: translateY(-3px); }
+.fx-hud :is(.mem-card, .skill-card, .habit-row, .fc-deck, .routine-row):hover { transform: translateY(-3px); }
 /* List rows: an energy bar grows on the left. */
 :is(.fx-hud, .fx-subtle) :is(.kb-item, .conv-item, .docs-recent li, .evo-item) { position: relative; }
 :is(.fx-hud, .fx-subtle) :is(.kb-item, .conv-item, .docs-recent li)::before {

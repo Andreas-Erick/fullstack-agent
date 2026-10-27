@@ -1095,6 +1095,7 @@ function worldCard() {
     toggle('innerWorld.townsfolk', 'Two villagers of its own live there too (Wren the archivist and Bram the gardener)'),
     select('innerWorld.season', 'Season', [['auto', 'Follow the calendar'], ['spring', 'Always spring'], ['summer', 'Always summer'], ['autumn', 'Always autumn'], ['winter', 'Always winter']]),
     select('innerWorld.art', 'Art', [['rendered', 'Rendered 3D models (Kenney, CC0)'], ['drawn', 'Drawn by code']]),
+    select('innerWorld.fps', 'Frame rate', [['auto', 'Automatic (30, or 15 on Balanced)'], ['15', '15 frames a second (lightest)'], ['30', '30 frames a second'], ['60', '60 frames a second'], ['120', '120 frames a second (smoothest, uses the most power; needs a 120 Hz display)']]),
   );
 }
 

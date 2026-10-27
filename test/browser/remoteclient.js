@@ -83,6 +83,10 @@ async function run() {
   const store = require('../../main/store');
   const companion = require('../../main/companion');
   await store.setSettings({ onboarded: true, remote: { shareData: true }, innerWorld: { enabled: true } });
+  // A flashcard deck to study on the phone (main/flashcards.js, in the throwaway vault).
+  const fc = require('../../main/flashcards');
+  const deck = (await fc.createDeck('Browser deck')).id;
+  await fc.addCards(deck, [{ front: 'What is $2+2$?', back: '**4**' }, { front: 'Capital of Italy', back: 'Rome' }, { front: 'The {{c1::heart}} pumps blood.' }]);
   companion.init({
     startTurn: async () => ({ conversationId: null }),
     abortTurn() {},
@@ -125,6 +129,25 @@ async function run() {
       await until(wc, `document.querySelectorAll('.more-tile').length > ${i}`);
       await wc.executeJavaScript(`document.querySelectorAll('.more-tile')[${i}].click()`, true);
       await settled(wc, `${size.name}/more/${name}`);
+    }
+    // Studying: open the deck, show the answer, grade it; the computer must have the answer.
+    await wc.executeJavaScript(`document.querySelector('#tabs [data-tab="more"]').click()`, true);
+    await until(wc, `[...document.querySelectorAll('.more-tile b')].some((b) => b.textContent === 'Flashcards')`);
+    await wc.executeJavaScript(`[...document.querySelectorAll('.more-tile')].find((t) => t.textContent.includes('Flashcards')).click()`, true);
+    const label = `${size.name}/flashcards study`;
+    if (!(await until(wc, `!!document.querySelector('#panel .fc-deck')`))) problems.push(`${label}: no deck on the screen`);
+    else {
+      const before = (await fc.next(deck)).studiedToday;
+      await wc.executeJavaScript(`document.querySelector('#panel .fc-deck').click()`, true);
+      if (!(await until(wc, `!!document.querySelector('#panel .fc-show')`))) problems.push(`${label}: no "Show answer"`);
+      await wc.executeJavaScript(`document.querySelector('#panel .fc-show').click()`, true);
+      if (!(await until(wc, `document.querySelectorAll('#panel .fc-grade').length === 4`))) problems.push(`${label}: no grade buttons after showing the answer`);
+      const previews = await wc.executeJavaScript(`[...document.querySelectorAll('#panel .fc-grade small')].map((s) => s.textContent)`);
+      if (previews.join(' ') !== '1m 6m 10m 4d') problems.push(`${label}: unexpected button intervals ${previews.join(' ')}`);
+      await wc.executeJavaScript(`document.querySelector('#panel .fc-grade.good').click()`, true);
+      await until(wc, `!!document.querySelector('#panel .fc-show') || !document.querySelector('#panel .fc-grade')`);
+      if ((await fc.next(deck)).studiedToday !== before + 1) problems.push(`${label}: the answer did not reach the computer`);
+      screens[label] = await wc.executeJavaScript(`document.querySelector('#panel').innerText.replace(/\\s+/g, ' ').slice(0, 160)`);
     }
     win.destroy();
   }

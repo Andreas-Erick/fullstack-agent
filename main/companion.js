@@ -585,7 +585,7 @@ async function info() {
   const sleepAfterMin = Math.max(0, Math.min(240, Number(s.ui?.sleepAfterMin) || 0));
   const t = tunnel.status();
   const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
-  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', update: await require('./updates').forDevices().catch(() => null) };
+  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, update: await require('./updates').forDevices().catch(() => null) };
 }
 
 async function speak(req, res) {
@@ -757,6 +757,8 @@ const DATA_GET = {
   skills: () => data.skills(),
   routines: () => data.routines(),
   arch: () => data.arch(),
+  flashcards: () => data.flashcards(),
+  'flashcards/next': (url) => data.flashcardNext(url.searchParams.get('deck')),
 };
 
 async function dataRoute(req, res, url, device) {
@@ -769,6 +771,16 @@ async function dataRoute(req, res, url, device) {
     if (req.method === 'POST' && name === 'habits/log') {
       const body = await readBody(req);
       return json(res, 200, await data.logHabit(body.name, body.done, body.date));
+    }
+    // Studying a deck: answering a card and undoing that (companiondata.js; view-only devices can't).
+    if (req.method === 'POST' && name === 'flashcards/answer') {
+      if (!underLimit('cards', device.id, 240)) return fail(res, 429, 'Too many answers; wait a minute');
+      const body = await readBody(req);
+      return json(res, 200, await data.flashcardAnswer(body.deck, body.card, body.grade));
+    }
+    if (req.method === 'POST' && name === 'flashcards/undo') {
+      const body = await readBody(req);
+      return json(res, 200, await data.flashcardUndo(body.deck));
     }
     return fail(res, 404, 'Not found');
   } catch (err) {
