@@ -1,6 +1,10 @@
 # Changelog
 
-## 2.1.0 — 2026-10-27
+## 2.1.1 — 2026-10-27
+
+The first release of everything below. (2.1.0 was tagged but never published: its new release check, which opens the phone app in a browser, gave up too early on the slower build machine. It now waits for each picture to be drawn.)
+
+## 2.1.0 — 2026-10-27 (not published)
 
 Updates you hear about, a village that celebrates, history replays, a vault that knows its links, and a Siren you can use from the keyboard.
 
