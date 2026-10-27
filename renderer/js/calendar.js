@@ -28,7 +28,85 @@ const cal = {
   problems: [],
   upcoming: [],
   nowTimer: null,
+  // Todoist / TickTick tasks (main/tasks.js): what the assistant last fetched with the connectors.
+  tasks: { tasks: [], sources: {}, available: [], ready: false, reason: '', syncing: false },
 };
+
+// ------------------------------------------------------------ tasks from to-do apps
+const SOURCE_NAME = { todoist: 'Todoist', ticktick: 'TickTick' };
+const byTime = (a, b) => (a.time || '99').localeCompare(b.time || '99') || (b.priority || 0) - (a.priority || 0);
+const tasksOn = (day) => cal.tasks.tasks.filter((t) => t.date === ymd(day) && !t.done).sort(byTime);
+const overdueTasks = () => cal.tasks.tasks.filter((t) => t.date && t.date < ymd(new Date()) && !t.done).sort((a, b) => a.date.localeCompare(b.date));
+
+function taskPill(t) {
+  return el(
+    'button',
+    { class: `cal-pill cal-task ${t.source}`, title: `${SOURCE_NAME[t.source]} task${t.time ? ` · ${t.time}` : ''}${t.project ? ` · ${t.project}` : ''}: ${t.title}`, onclick: (ev) => (ev.stopPropagation(), taskDetails(t)) },
+    el('i', { class: 'cal-check', 'aria-hidden': 'true' }),
+    t.time ? el('b', {}, t.time) : null,
+    el('span', {}, t.title),
+  );
+}
+
+function taskRow(t, { showDate = false } = {}) {
+  const late = t.date && t.date < ymd(new Date());
+  return el(
+    'button',
+    { class: `cal-row cal-task-row ${t.source}${late ? ' late' : ''}`, onclick: () => taskDetails(t) },
+    el('span', { class: 'tm' }, showDate || late ? new Date(`${t.date}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : t.time || 'Task'),
+    el('i', { class: 'cal-check', 'aria-hidden': 'true' }),
+    el('span', { class: 'what' }, el('b', {}, t.title), el('small', {}, [SOURCE_NAME[t.source], t.project, t.priority >= 3 ? (t.priority === 4 ? '‼ urgent' : '! high') : ''].filter(Boolean).join(' · '))),
+  );
+}
+
+function taskDetails(t) {
+  modal((box, close) => {
+    box.append(
+      el('h3', { class: 'display' }, t.title),
+      el('p', { class: 'muted' }, [`${SOURCE_NAME[t.source]} task`, t.project, t.date && `due ${new Date(`${t.date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}${t.time ? ` at ${t.time}` : ''}`, t.priority ? `priority ${t.priority}` : ''].filter(Boolean).join(' · ')),
+      el('p', { class: 'hint' }, `Shown from your last sync. Changes happen in ${SOURCE_NAME[t.source]}, or ask the assistant.`),
+      el(
+        'div',
+        { class: 'modal-actions' },
+        el('button', { class: 'btn', onclick: () => close(null) }, 'Close'),
+        el('button', { class: 'btn', onclick: () => (close(null), askAgent(`In ${SOURCE_NAME[t.source]}, move the task “${t.title}” to `)) }, 'Reschedule…'),
+        t.url ? el('button', { class: 'btn', onclick: () => api.shell.openExternal(t.url) }, `Open in ${SOURCE_NAME[t.source]} ↗`) : null,
+        el('button', { class: 'btn primary', onclick: () => (close(null), askAgent(`Mark the ${SOURCE_NAME[t.source]} task “${t.title}” as done.`)) }, 'Mark done…'),
+      ),
+    );
+  });
+}
+
+async function syncTasks() {
+  cal.tasks.syncing = true;
+  $('.cal-side')?.replaceWith(sidePanel());
+  try {
+    await api.tasks.sync();
+    toast('Tasks synced.');
+  } catch (err) {
+    toastError(err);
+  }
+  refresh();
+}
+
+function tasksPanel() {
+  const t = cal.tasks;
+  if (!t.available.length && !t.tasks.length) return null;
+  const synced = Object.entries(t.sources).map(([s, v]) => `${SOURCE_NAME[s]} ${new Date(v.at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`).join(' · ');
+  const late = overdueTasks();
+  const today = tasksOn(cal.selected);
+  const why = { 'connectors-off': 'Turn on “Use my Claude connectors and plugins” in Settings → AI brain to sync.', 'no-claude': 'Syncing needs the Claude account brain (Settings → AI brain).' }[t.reason];
+  return el(
+    'section',
+    { class: 'cal-tasks glass' },
+    el('div', { class: 'cal-tasks-head' }, el('h4', { class: 'display' }, 'Tasks'), el('button', { class: 'btn small', disabled: !t.ready || t.syncing, onclick: syncTasks, title: 'The assistant fetches your tasks with the connector' }, t.syncing ? 'Syncing…' : '↻ Sync')),
+    why ? el('p', { class: 'hint' }, why) : null,
+    !t.tasks.length && t.ready && !t.syncing ? el('p', { class: 'muted' }, `Show your ${t.available.map((s) => SOURCE_NAME[s]).join(' and ')} tasks here: press Sync.`) : null,
+    late.length ? el('div', { class: 'cal-task-group' }, el('small', { class: 'cal-late' }, `OVERDUE · ${late.length}`), late.slice(0, 6).map((x) => taskRow(x))) : null,
+    t.tasks.length ? el('div', { class: 'cal-task-group' }, el('small', {}, sameDay(cal.selected, new Date()) ? 'TODAY' : cal.selected.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()), today.length ? today.map((x) => taskRow(x)) : el('p', { class: 'muted' }, 'No tasks due.')) : null,
+    synced ? el('small', { class: 'hint' }, `Last sync: ${synced}`) : null,
+  );
+}
 
 function readMode() {
   try {
@@ -85,6 +163,7 @@ export function initCalendar() {
     };
   }
   on('calendar-changed', refresh);
+  api.on('tasks:changed', () => $('#view-calendar').classList.contains('active') && refresh());
   on('vault-changed', (p) => p === 'Schedule.md' && $('#view-calendar').classList.contains('active') && refresh());
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey || !$('#view-calendar').classList.contains('active') || e.target.closest('input, textarea, select, [contenteditable]') || !$('#modal').classList.contains('hidden')) return;
@@ -131,12 +210,13 @@ export async function refresh() {
   $('#calObsidian').classList.toggle('hidden', !status.vault);
   if (!status.vault || !status.enabled) return body.replaceChildren(offPanel(status));
   try {
-    const [events, list, upcoming] = await Promise.all([
+    const [events, list, upcoming, tasks] = await Promise.all([
       api.calendar.events({ start: local(from), end: local(to) }),
       api.calendar.entries(),
       api.calendar.events({ start: new Date(Date.now() - 6 * 3600000).toISOString(), end: local(addDays(new Date(), 8)) }),
+      api.tasks.status().catch(() => cal.tasks),
     ]);
-    Object.assign(cal, { events, entries: list.entries, problems: list.problems, upcoming });
+    Object.assign(cal, { events, entries: list.entries, problems: list.problems, upcoming, tasks });
   } catch (err) {
     body.replaceChildren(el('p', { class: 'muted' }, err.message));
     return toastError(err);
@@ -180,13 +260,14 @@ function monthView(from) {
   const cells = el('div', { class: 'cal-cells' });
   for (let i = 0; i < 42; i++) {
     const day = addDays(from, i);
-    const list = onDay(cal.events, day);
+    // Schedule entries first, then the day's tasks from the to-do apps.
+    const list = [...onDay(cal.events, day).map((e) => ({ e })), ...tasksOn(day).map((t) => ({ t }))];
     const cls = ['cal-cell', day.getMonth() !== cal.anchor.getMonth() && 'out', sameDay(day, today) && 'today', sameDay(day, cal.selected) && 'sel', day < today && 'past'].filter(Boolean).join(' ');
     const cell = el(
       'div',
       { class: cls, tabindex: '0', 'aria-label': day.toDateString(), onclick: () => select(day), ondblclick: () => editor({ date: ymd(day) }), onkeydown: (e) => e.key === 'Enter' && editor({ date: ymd(day) }) },
       el('div', { class: 'cal-num' }, el('span', {}, day.getDate()), list.length ? el('i', { class: 'cal-count' }, list.length) : null),
-      el('div', { class: 'cal-pills' }, list.slice(0, 3).map(pill), list.length > 3 ? el('button', { class: 'cal-more', onclick: (ev) => (ev.stopPropagation(), select(day)) }, `+${list.length - 3} more`) : null),
+      el('div', { class: 'cal-pills' }, list.slice(0, 3).map((x) => (x.e ? pill(x.e) : taskPill(x.t))), list.length > 3 ? el('button', { class: 'cal-more', onclick: (ev) => (ev.stopPropagation(), select(day)) }, `+${list.length - 3} more`) : null),
     );
     cells.append(cell);
   }
@@ -223,7 +304,7 @@ function weekView(from) {
     el('div', { class: 'cal-wk-gutter' }, `W${isoWeek(from)}`),
     days.map((d) => el('button', { class: `cal-wk-day ${sameDay(d, today) ? 'today' : ''} ${sameDay(d, cal.selected) ? 'sel' : ''}`, onclick: () => select(d) }, el('span', {}, WEEKDAYS[d.getDay()]), el('b', {}, d.getDate()))),
   );
-  const allDay = el('div', { class: 'cal-wk-allday' }, el('div', { class: 'cal-wk-gutter' }, 'all day'), days.map((d) => el('div', {}, onDay(cal.events, d).filter((e) => e.allDay).map(pill))));
+  const allDay = el('div', { class: 'cal-wk-allday' }, el('div', { class: 'cal-wk-gutter' }, 'all day'), days.map((d) => el('div', {}, onDay(cal.events, d).filter((e) => e.allDay).map(pill), tasksOn(d).map(taskPill))));
   const hours = el('div', { class: 'cal-wk-hours' }, [...Array(24)].map((_, h) => el('div', { style: { height: `${HOUR_PX}px` } }, h ? `${pad(h)}:00` : '')));
   const cols = days.map((d) => dayColumn(d, sameDay(d, today)));
   const grid = el('div', { class: 'cal-wk-grid', style: { height: `${24 * HOUR_PX}px` } }, hours, cols);
@@ -303,13 +384,15 @@ function agendaView() {
   for (let i = 0; i < 28; i++) {
     const day = addDays(cal.anchor, i);
     const items = onDay(cal.events, day);
-    if (!items.length) continue;
+    const todo = tasksOn(day);
+    if (!items.length && !todo.length) continue;
     list.append(
       el(
         'section',
         { class: `cal-ag-day ${sameDay(day, today) ? 'today' : ''}` },
         el('header', {}, el('b', {}, day.getDate()), el('span', {}, day.toLocaleDateString(undefined, { weekday: 'long', month: 'long' })), sameDay(day, today) ? el('i', {}, 'TODAY') : null),
         items.map(row),
+        todo.map((t) => taskRow(t)),
       ),
     );
   }
@@ -344,6 +427,7 @@ function sidePanel() {
       el('div', { class: 'cal-day-list' }, unique.length ? unique.map(row) : el('p', { class: 'muted' }, sameDay(day, new Date()) ? 'Nothing scheduled today.' : 'Nothing scheduled.')),
       el('button', { class: 'btn small', onclick: () => editor({ date: ymd(day) }) }, '＋ Add to this day'),
     ),
+    tasksPanel(),
     el(
       'section',
       { class: 'cal-rules glass' },

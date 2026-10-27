@@ -200,7 +200,7 @@ export function bootScreen() {
   const lines = [
     ['NEURAL CORE', [PROVIDERS[s.llm.provider] || s.llm.provider, false]],
     ['VOICE SYNTHESIS', on_(s.voice.ttsEnabled)],
-    ['SPEECH INPUT', on_(s.stt.enabled, s.stt.engine === 'local' ? 'LOCAL WHISPER' : 'REMOTE')],
+    ['SPEECH INPUT', on_(s.stt.enabled, s.stt.engine === 'local' ? (s.stt.cloudFallback ? 'LOCAL WHISPER + GROQ' : 'LOCAL WHISPER') : s.stt.engine === 'groq' ? 'GROQ WHISPER' : 'REMOTE')],
     ['MEMORY VAULT', on_(s.obsidian.enabled, 'MOUNTED')],
     ['CALENDAR LINK', on_(s.calendar.enabled)],
     ['REMOTE ACCESS', on_(s.remote?.enabled, 'ON')],

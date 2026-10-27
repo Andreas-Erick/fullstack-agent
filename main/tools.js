@@ -16,7 +16,7 @@ const SETTABLE = {
   claudeCode: ['model', 'effort', 'fastModel', 'deepModel', 'cliPath', 'idleMinutes'],
   anthropic: ['model', 'effort', 'fastModel', 'deepModel'],
   voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'thinkingSound', 'thinkingVolume', 'filler', 'fallback', 'localVoice'],
-  stt: ['enabled', 'engine', 'localModel', 'remoteUrl', 'remoteModel', 'language', 'pttKey', 'autoSend', 'micMode', 'micDevice', 'headphones', 'vadSensitivity'],
+  stt: ['enabled', 'engine', 'localModel', 'language', 'pttKey', 'autoSend', 'micMode', 'micDevice', 'headphones', 'vadSensitivity'],
   calendar: ['daysAhead'],
   routing: ['smart', 'cooldownMin'],
   gemini: ['model', 'fastModel', 'deepModel'],

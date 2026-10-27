@@ -73,21 +73,41 @@ async function ping() {
 // Remote STT: OpenAI-compatible POST /audio/transcriptions (e.g. FreeLLMAPI → Groq Whisper).
 // The words from voice calibration go along as Whisper's prompt, which biases it towards spelling
 // those names right (skipped for raw calibration measurements).
-async function transcribe(wavBytes, { raw = false } = {}) {
-  const s = await store.getSettings();
+const GROQ_STT = { base: 'https://api.groq.com/openai/v1', model: 'whisper-large-v3-turbo', models: ['whisper-large-v3-turbo', 'whisper-large-v3'] };
+
+/**
+ * Where a cloud transcription goes: { base, key, model, name }. `provider` 'groq' (engine "groq", or the
+ * fallback of local Whisper) uses the Groq key the AI brain uses too; anything else is the custom
+ * OpenAI-compatible endpoint (engine "remote").
+ */
+function sttEndpoint(s, provider = s.stt.engine) {
+  if (provider === 'groq') {
+    if (!s.groq?.apiKey) throw new Error('Cloud speech-to-text needs a Groq API key (free at console.groq.com/keys): Settings → Voice input.');
+    return { base: GROQ_STT.base, key: s.groq.apiKey, model: GROQ_STT.models.includes(s.stt.groqModel) ? s.stt.groqModel : GROQ_STT.model, name: 'Groq' };
+  }
   const base = (s.stt.remoteUrl || s.llm.baseUrl || '').replace(/\/+$/, '');
   if (!base) throw new Error('Set a transcription URL in Settings → Voice input');
-  const key = s.stt.remoteKey || s.llm.apiKey;
+  return { base, key: s.stt.remoteKey || s.llm.apiKey, model: s.stt.remoteModel || 'whisper-1', name: 'remote' };
+}
+
+async function transcribe(wavBytes, { raw = false, provider } = {}) {
+  const s = await store.getSettings();
+  const { base, key, model } = sttEndpoint(s, provider === 'groq' ? 'groq' : s.stt.engine);
   const form = new FormData();
   form.append('file', new Blob([wavBytes], { type: 'audio/wav' }), 'speech.wav');
-  form.append('model', s.stt.remoteModel || 'whisper-1');
+  form.append('model', model);
   const language = s.learning?.practiceLanguage || s.stt.language; // language practice listens for that language
   if (language) form.append('language', language);
   if (!raw && s.stt.vocabulary?.length) form.append('prompt', s.stt.vocabulary.join(', '));
   const url = base.endsWith('/audio/transcriptions') ? base : `${base}/audio/transcriptions`;
   const res = await fetch(url, { method: 'POST', headers: authHeaders(key), body: form, signal: AbortSignal.timeout(120000) });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Transcription error ${res.status}: ${text.slice(0, 300)}`);
+  if (!res.ok) {
+    const via = provider === 'groq' || s.stt.engine === 'groq' ? 'Groq' : 'The transcription service';
+    if (res.status === 401 || res.status === 403) throw new Error(`${via} did not accept the API key (Settings → Voice input).`);
+    if (res.status === 429) throw new Error(`${via}'s limit is used up for now; try again in a while, or switch to local Whisper.`);
+    throw new Error(`Transcription error ${res.status}: ${text.slice(0, 300)}`);
+  }
   try {
     return JSON.parse(text).text || '';
   } catch {
@@ -95,4 +115,4 @@ async function transcribe(wavBytes, { raw = false } = {}) {
   }
 }
 
-module.exports = { speak, voices, transcribe, ping };
+module.exports = { speak, voices, transcribe, ping, sttEndpoint, GROQ_STT };

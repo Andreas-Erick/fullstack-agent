@@ -901,14 +901,28 @@ function sttCard() {
   };
   const children = [
     el('div', { class: 'grid2' }, toggle('stt.enabled', 'Enable voice input'), toggle('stt.autoSend', 'Send automatically after speaking')),
-    select('stt.engine', 'Speech-to-text engine', [['local', 'Local Whisper (in-app, offline after first download)'], ['remote', 'OpenAI-compatible /audio/transcriptions endpoint']], { onChange: () => render() }),
+    select('stt.engine', 'Speech-to-text engine', [['local', 'Local Whisper (in-app, private, offline after first download)'], ['groq', 'Cloud: Groq Whisper Large v3 Turbo (fast and accurate; free key)'], ['remote', 'Other OpenAI-compatible /audio/transcriptions endpoint']], { onChange: () => render() }),
   ];
+  // The Groq key (shared with the Groq AI brain) and where to get one for free.
+  const groqKey = () =>
+    el(
+      'div',
+      { class: 'row' },
+      el('div', { style: { flex: 1 } }, text('groq.apiKey', 'Groq API key', { type: 'password', placeholder: 'gsk_…', hint: 'Free, no card: sign up at console.groq.com and create a key. Also used by the Groq AI brain.' })),
+      el('button', { class: 'btn small', style: { alignSelf: 'center' }, onclick: () => api.shell.openExternal('https://console.groq.com/keys') }, 'Get a free key ↗'),
+    );
+  const groqModel = () => select('stt.groqModel', 'Groq model', [['whisper-large-v3-turbo', 'Whisper Large v3 Turbo: fastest, ~$0.04 per audio hour'], ['whisper-large-v3', 'Whisper Large v3: a little more accurate, ~$0.11 per audio hour']], { hint: 'Both are free within Groq’s daily free allowance.' });
+  const cloudNote = el('div', { class: 'hint', style: { fontSize: '12.5px' } }, 'With the cloud, what you say is sent to Groq to be written down (not your conversations or files). Local Whisper keeps your voice on this computer.');
   if (engine === 'local') {
     children.push(
       select('stt.localModel', 'Whisper model', WHISPER_MODELS, { hint: 'Downloaded once from Hugging Face, then cached. Runs on GPU (WebGPU) when available.' }),
       el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => (progress.textContent = 'Loading…', preloadLocalModel()) }, '⬇ Download / load model now')),
       progress,
+      toggle('stt.cloudFallback', 'Use Groq in the cloud while local Whisper is loading or if it fails', () => render()),
     );
+    if (state.settings.stt.cloudFallback) children.push(groqKey(), groqModel(), cloudNote);
+  } else if (engine === 'groq') {
+    children.push(groqKey(), groqModel(), cloudNote);
   } else {
     children.push(
       text('stt.remoteUrl', 'Transcription base URL', { placeholder: 'defaults to the FreeLLMAPI URL', hint: 'POSTs to <code>{url}/audio/transcriptions</code>.' }),

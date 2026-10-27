@@ -7,7 +7,7 @@ const FEATURES = [
   {
     id: 'talk',
     title: 'Talking with me',
-    what: 'Type or talk. Push-to-talk (hold the talk key) or hands-free; I answer in a voice (the offline voice runs right in the app; VoiceStudio is an optional app with more natural, cloneable voices) and my face shows what I am doing (listening, thinking, working, speaking). Voice calibration teaches me how your names and words come through.',
+    what: 'Type or talk. Push-to-talk (hold the talk key) or hands-free; I answer in a voice (the offline voice runs right in the app; VoiceStudio is an optional app with more natural, cloneable voices) and my face shows what I am doing (listening, thinking, working, speaking). Speech is recognized on this computer with Whisper by default; Groq in the cloud can stand in while it loads or replace it (Settings → Voice input, free key). Voice calibration teaches me how your names and words come through.',
     say: ['"Calibrate my voice"', '"Switch to hands-free"', '"Speak slower"'],
     where: 'Settings → Voice output and Voice input; the face (Ctrl+2); the chat layouts (Ctrl+Shift+1/2/3).',
     status: (s) => `${s.voice.ttsEnabled ? `voice on (${s.voice.engine === 'local' ? 'offline voice' : 'VoiceStudio'})` : 'voice off'}; ${s.stt.enabled ? (s.stt.micMode === 'open' ? 'hands-free' : `push-to-talk (${s.stt.pttKey})`) : 'voice input off'}`,
@@ -87,7 +87,7 @@ const FEATURES = [
   {
     id: 'schedule',
     title: 'Your schedule and calendar',
-    what: 'Tell me appointments and repeating things ("Linear Algebra every Monday at 10 in H1 until February") and I keep them in Schedule.md in your vault; a calendar view with month, week and agenda. A routine can sync your Google Calendar in.',
+    what: 'Tell me appointments and repeating things ("Linear Algebra every Monday at 10 in H1 until February") and I keep them in Schedule.md in your vault; a calendar view with month, week and agenda. A routine can sync your Google Calendar in. With the Todoist or TickTick connector, your dated tasks appear in the calendar too: press Sync in the calendar (or I save them whenever I look them up), then open one to reschedule it or mark it done.',
     say: ['"I have the dentist on the 28th at 2"', '"What\'s on tomorrow?"', '"Skip the lecture next Monday"'],
     where: 'Calendar (Ctrl+4).',
     status: (s) => (s.calendar.enabled ? 'on' : 'off'),

@@ -337,6 +337,7 @@ const TOOL_LABELS = {
   ToolSearch: '🔌 Looked up a connector',
   connectors_list: '🔌 Checked your connectors',
   connector_permission: '🔌 Changed a connector’s permission',
+  tasks_save: '🗓 Updated the calendar’s tasks',
   Skill: '⚡ Loaded a plugin skill',
   code_list_files: '💾 Listed source files',
   code_read_file: '💾 Read source',

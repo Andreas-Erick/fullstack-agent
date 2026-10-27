@@ -62,6 +62,24 @@ module.exports = [
     },
   },
   {
+    name: 'tasks_save',
+    group: 'connectors',
+    description:
+      'Show the user\'s Todoist or TickTick tasks in the Calendar view: after fetching tasks with that connector, save them here (it replaces what was saved for that service before). Do it when the user asks to sync their tasks, and also whenever you have just listed their dated tasks anyway, so the calendar stays current. Only tasks with a due date appear in the calendar; nothing is changed in the task app.',
+    parameters: obj(
+      {
+        source: { type: 'string', enum: ['todoist', 'ticktick'], description: 'Which service the tasks came from' },
+        tasks: {
+          type: 'array',
+          description: 'The tasks: [{ id, title, due ("YYYY-MM-DD" or "YYYY-MM-DDTHH:MM"), project, priority (1-4, 4 = most urgent), url, done }]',
+          items: { type: 'object', properties: { id: str('The task id in that app'), title: str('The task'), due: str('YYYY-MM-DD or YYYY-MM-DDTHH:MM'), project: str('Project or list name'), priority: { type: 'integer', description: '1-4, 4 = most urgent' }, url: str('Link to the task (https)'), done: bool('Completed') }, required: ['title'], additionalProperties: false },
+        },
+      },
+      ['source', 'tasks'],
+    ),
+    run: async (a) => require('../tasks').save(a.source, a.tasks),
+  },
+  {
     name: 'connector_permission',
     group: 'connectors',
     description:

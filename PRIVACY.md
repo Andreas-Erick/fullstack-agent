@@ -36,7 +36,7 @@ Only what is needed for a feature **you** turned on is sent, and only to the ser
 | Screen sharing | The AI provider answering that message | A screenshot of the screen or window **you** picked, only while sharing is on (red "Sharing" badge). Not recorded, not stored |
 | Web search and pages | DuckDuckGo (default), or SearXNG, Brave or Tavily if you choose them, and the websites the agent opens | Search queries and page requests |
 | Voice output | The offline Kokoro voice (default; runs in the app), or VoiceStudio if you choose it (runs on your computer; when it is unreachable, the offline voice or your operating system's voice) | The text to speak, which stays on this computer |
-| Remote speech recognition (optional) | The transcription server you configure | Recordings of what you say |
+| Cloud speech recognition (optional) | Groq (Whisper Large v3 Turbo), with the Groq key you enter, or a transcription server you configure | Recordings of what you say, sent when you choose the cloud engine, or (with "use Groq while local Whisper is loading or if it fails") only at those moments. Not your conversations or files. |
 | GitHub | GitHub, through the GitHub CLI you signed in to | Reads, and the pushes and pull requests you approve |
 | Routines (only the ones you set up) | Whatever their instructions use: the AI brain, and any connector or website they call | Routines run on their own on a schedule while the app is open, with the same tools and approvals as a chat; an approval nobody answers is declined. They are listed (and can be paused or deleted) in the Habits view |
 | Skill import (only when you import) | GitHub (api.github.com, raw.githubusercontent.com) | The repository name you give; the skill files are downloaded, nothing is sent |
