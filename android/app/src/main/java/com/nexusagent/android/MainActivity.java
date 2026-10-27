@@ -99,6 +99,8 @@ public class MainActivity extends Activity {
         foreground = true;
         if (web != null) web.onResume();
         if (!locked && Prefs.appLock(this) && leftAt > 0 && System.currentTimeMillis() - leftAt > AppLock.RELOCK_MS) lock();
+        // The background connection gives up after a while without the computer; opening the app starts it again.
+        if (Prefs.background(this)) ConnectionService.start(this);
     }
 
     @Override
@@ -509,6 +511,13 @@ public class MainActivity extends Activity {
                     ConnectionService.start(MainActivity.this);
                 }
             });
+        }
+
+        /** The page heard that the persona or its look changed: a paired watch gets the new one (WearRelayService). */
+        @JavascriptInterface
+        public void lookChanged() {
+            if (!trusted()) return;
+            WearRelayService.refreshLook(MainActivity.this);
         }
 
         @JavascriptInterface

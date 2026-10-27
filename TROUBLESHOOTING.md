@@ -180,6 +180,19 @@ Also in the log: failed IPC calls (`ipc failed` + channel), console errors of ev
 - **UI errors** are logged as `ui error` / `ui unhandled rejection` (once a minute per message) and never stop the app.
 - Leftover temp files (`nexus-cc-*` session folders, `*.tmp` from interrupted saves) are cleaned up at startup.
 
+## The old Nexus logo still shows (Windows)
+
+`assets/icon.ico` and the installer carry Siren's face since 2.0.0; the window, taskbar and installer use it. If a
+computer still shows the old "N" logo:
+
+- **An older version is installed there.** Help → About (or the title bar's tooltip) shows the version; install the
+  current release from GitHub.
+- **Windows' icon cache.** Windows keeps icons by file path and may show the old picture for a shortcut or pinned
+  taskbar button long after the program changed. Unpin and pin the app again, or rebuild the cache: close the app,
+  run `ie4uinit.exe -show` in a Command Prompt (or delete `%LOCALAPPDATA%\IconCache.db` and sign out and in).
+- **A shortcut you made yourself** (pointing at the old `Nexus Agent.exe` or a copied folder) keeps whatever icon it
+  was made with: make a new one from the installed `Siren Assistant.exe`.
+
 ## Faces
 
 - **The face stays idle while the agent talks:** the system-voice fallback has no audio analyser, so the face uses a synthetic level. Check VoiceStudio.

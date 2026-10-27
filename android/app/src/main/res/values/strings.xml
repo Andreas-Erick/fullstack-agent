@@ -27,7 +27,7 @@
     <string name="ch_alerts">Approvals and replies</string>
     <string name="status_connecting">Connecting…</string>
     <string name="status_connected">Connected: approvals and replies arrive here</string>
-    <string name="status_reconnecting">Reconnecting…</string>
+    <string name="status_reconnecting">Can\'t reach the computer right now. Trying again…</string>
     <string name="action_disconnect">Turn off</string>
     <string name="action_allow">Allow</string>
     <string name="action_deny">Deny</string>

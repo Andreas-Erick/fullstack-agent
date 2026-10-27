@@ -1,8 +1,10 @@
 package com.nexusagent.android.wear;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.media.MediaPlayer;
@@ -10,7 +12,9 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.util.TypedValue;
@@ -55,6 +59,7 @@ import java.util.UUID;
  */
 public class WatchActivity extends Activity {
     private static final int ASK = 1;
+    private static final int REQ_MIC = 2;
     private static final long REPLY_TIMEOUT_MS = 200_000; // the phone waits up to 180 s for the computer
     private static final long VOICE_TIMEOUT_MS = 60_000;
     private static final int MAX_AUDIO = 12 * 1024 * 1024;
@@ -83,6 +88,10 @@ public class WatchActivity extends Activity {
     private TextToSpeech tts;
     private boolean ttsReady;
     private boolean busy;
+    // Listening on this screen (her face stays in view) instead of the system's speech screen.
+    private SpeechRecognizer recognizer;
+    private boolean listening;
+    private boolean recognizerFailed; // this session: use the system screen instead
 
     @Override
     protected void onCreate(Bundle saved) {
@@ -346,6 +355,12 @@ public class WatchActivity extends Activity {
         Wearable.getChannelClient(this).unregisterChannelCallback(voiceChannel);
         voiceId = null;
         stopPlayer();
+        if (listening && recognizer != null) {
+            recognizer.cancel();
+            listening = false;
+            setState("idle");
+            status.setText(idleLabel());
+        }
         if (busy) {
             busy = false;
             setState("idle");
@@ -358,16 +373,123 @@ public class WatchActivity extends Activity {
     protected void onDestroy() {
         tts.shutdown();
         stopPlayer();
+        if (recognizer != null) recognizer.destroy();
         super.onDestroy();
     }
 
     // ------------------------------------------------------------ asking
+    /**
+     * Tap her face: she listens right here (SpeechRecognizer, the watch's speech service) with her face
+     * in view, instead of the system's speech screen covering the app. A second tap ends the listening
+     * early. The system screen stays the fallback: no speech service, or one that keeps failing.
+     */
     private void ask() {
         if (busy) return;
+        if (listening) {
+            recognizer.stopListening(); // what was heard so far is the question
+            return;
+        }
         ring.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
         if (tts.isSpeaking()) tts.stop();
         voiceId = null;
         stopPlayer();
+        if (!recognizerFailed && SpeechRecognizer.isRecognitionAvailable(this)) {
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[] {Manifest.permission.RECORD_AUDIO}, REQ_MIC);
+                return;
+            }
+            listenHere();
+            return;
+        }
+        askWithSystemScreen();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        if (code != REQ_MIC) return;
+        if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) listenHere();
+        else askWithSystemScreen(); // the system's speech screen records with its own permission
+    }
+
+    private void listenHere() {
+        if (recognizer == null) {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this);
+            recognizer.setRecognitionListener(new RecognitionListener() {
+                @Override
+                public void onReadyForSpeech(Bundle params) {}
+
+                @Override
+                public void onBeginningOfSpeech() {}
+
+                @Override
+                public void onRmsChanged(float rmsdB) {}
+
+                @Override
+                public void onBufferReceived(byte[] buffer) {}
+
+                @Override
+                public void onEndOfSpeech() {
+                    status.setText(getString(R.string.thinking));
+                }
+
+                @Override
+                public void onPartialResults(Bundle partial) {
+                    ArrayList<String> heard = partial.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (heard != null && !heard.isEmpty() && !heard.get(0).trim().isEmpty()) question.setText("“" + heard.get(0).trim() + "…”");
+                }
+
+                @Override
+                public void onResults(Bundle results) {
+                    listening = false;
+                    ArrayList<String> heard = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (heard == null || heard.isEmpty() || heard.get(0).trim().isEmpty()) heardNothing();
+                    else send(heard.get(0).trim());
+                }
+
+                @Override
+                public void onError(int error) {
+                    listening = false;
+                    if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                        heardNothing();
+                        return;
+                    }
+                    if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                        recognizer.cancel();
+                        heardNothing();
+                        return;
+                    }
+                    // Permission taken away, no speech service, an audio or network problem: the system's
+                    // speech screen takes over for the rest of this session.
+                    Log.w(TAG, "in-place speech recognition failed: " + error);
+                    recognizerFailed = true;
+                    askWithSystemScreen();
+                }
+
+                @Override
+                public void onEvent(int eventType, Bundle params) {}
+            });
+        }
+        listening = true;
+        question.setText("");
+        setState("listening");
+        status.setText(getString(R.string.listening));
+        recognizer.startListening(new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName())
+                .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1));
+    }
+
+    private void heardNothing() {
+        setState("idle");
+        status.setText(getString(R.string.tap_to_ask));
+        question.setText("");
+        answer.setText(getString(R.string.didnt_catch));
+    }
+
+    /** The fallback: the system's own speech screen (RecognizerIntent), as before. */
+    private void askWithSystemScreen() {
         Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.ask_prompt));

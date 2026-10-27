@@ -446,6 +446,14 @@ async function getSettings() {
   return merged;
 }
 
+// Called after every save with (settings, patch): the one place that sees all changes, whoever made
+// them (Settings, a tool, a persona switch). A listener that throws doesn't stop the save.
+const changeListeners = new Set();
+function onChange(fn) {
+  changeListeners.add(fn);
+  return () => changeListeners.delete(fn);
+}
+
 async function setSettings(patch) {
   const current = await getSettings();
   const next = deepMerge(current, patch);
@@ -456,6 +464,14 @@ async function setSettings(patch) {
   for (const [section, key] of SECRET_FIELDS) onDisk[section][key] = encrypt(onDisk[section][key]);
   await writeJsonAtomic(settingsFile(), onDisk);
   setSealing(next.privacy?.encryptConversations !== false);
+  for (const fn of changeListeners) {
+    try {
+      fn(next, patch);
+    } catch (err) {
+      // The logger requires the store; a listener's problem is its own, not the save's.
+      console.warn('settings listener failed', err);
+    }
+  }
   return next;
 }
 
@@ -670,6 +686,7 @@ module.exports = {
   dataDir,
   getSettings,
   setSettings,
+  onChange,
   resetSettings,
   getSecretBlob,
   setSecretBlob,

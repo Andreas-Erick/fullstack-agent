@@ -33,6 +33,12 @@ public class ConnectionService extends Service {
     static final String CH_ALERTS = "alerts";
     private static final int ID_STATUS = 1;
     private static final String ACTION_STOP = "com.nexusagent.android.STOP";
+    /**
+     * Without a connection for this long (the computer is off, the phone left the network), the service
+     * stops quietly instead of showing "Reconnecting…" all day. It starts again the next time the app
+     * opens (MainActivity.onResume): the switch stays on.
+     */
+    private static final long GIVE_UP_MS = 10 * 60 * 1000;
 
     private volatile boolean running;
     private volatile HttpURLConnection conn;
@@ -99,6 +105,7 @@ public class ConnectionService extends Service {
     // ------------------------------------------------------------ stream
     private void loop() {
         long delay = 1000;
+        long lastConnected = System.currentTimeMillis();
         while (running) {
             String server = Prefs.server(this);
             String token = Prefs.token(this);
@@ -117,9 +124,13 @@ public class ConnectionService extends Service {
                 if (code != 200) throw new Exception("HTTP " + code);
                 status(getString(R.string.status_connected));
                 delay = 1000;
+                lastConnected = System.currentTimeMillis();
                 read(c);
+                lastConnected = System.currentTimeMillis();
             } catch (Exception e) {
                 if (!running) break;
+                // Out of reach for a while: stop quietly (no notification) until the app is opened again.
+                if (System.currentTimeMillis() - lastConnected > GIVE_UP_MS) break;
                 status(getString(R.string.status_reconnecting));
             }
             try {
@@ -171,6 +182,8 @@ public class ConnectionService extends Service {
             if (event.equals("approval.request")) onApproval(p);
             else if (event.equals("approval.cancel")) cancel(notifId(p.optString("id")));
             else if (event.equals("chat.event")) onChat(p);
+            // The persona, its look or its face changed on the computer: a paired watch gets the new one.
+            else if (event.equals("info.changed")) WearRelayService.refreshLook(this);
         } catch (Exception ignored) {
             // a malformed event is skipped
         }
@@ -220,6 +233,7 @@ public class ConnectionService extends Service {
                 .setContentTitle(getString(R.string.app_name))
                 .setContentText(text)
                 .setOngoing(true)
+                .setOnlyAlertOnce(true) // its text changes (connected, reconnecting) without a new alert
                 .setContentIntent(openApp(0))
                 .addAction(new Notification.Action.Builder(null, getString(R.string.action_disconnect), PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_IMMUTABLE)).build())
                 .build();

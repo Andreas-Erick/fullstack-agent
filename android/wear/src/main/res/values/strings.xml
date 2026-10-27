@@ -13,6 +13,7 @@
     <string name="no_relay">Install the Siren app on your phone and pair it with your computer first.</string>
     <string name="unpaired">Open Siren on your phone and pair it with your computer (Settings → Remote access on the computer).</string>
     <string name="no_speech">Voice input isn\'t available on this watch.</string>
+    <string name="didnt_catch">I didn\'t catch that. Tap to try again.</string>
     <string name="timeout">No answer from your phone. Is Siren running on your computer?</string>
     <string name="habits">Habits</string>
     <string name="schedule">Schedule</string>

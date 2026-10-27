@@ -16,7 +16,7 @@ import { buildMap, route, along } from './world/map.js';
 import { seasonOf } from './world/season.js';
 import { loadSprites, spritesReady } from './world/sprites.js';
 import { palette, W, HZ } from './world/art.js';
-import { buildIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf, bounds as sceneBounds } from './world/scene.js';
+import { buildIsland, release as releaseIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf, bounds as sceneBounds } from './world/scene.js';
 
 const ACTIONS = {
   library: ['Study session', () => ask('/study-session')],
@@ -95,7 +95,10 @@ export function initInnerWorld() {
   api.on('world:event', (ev) => {
     if (ev.type === 'work') {
       live = { place: ev.place, label: ev.label, tool: ev.tool, at: Date.now(), done: 0 };
-      if (data?.details?.work) data.details.work.today[ev.place] = (data.details.work.today[ev.place] || 0) + 1;
+      if (data?.details?.work) {
+        data.details.work.today[ev.place] = (data.details.work.today[ev.place] || 0) + 1;
+        sceneCache = null; // the count is painted on the building
+      }
       if (currentView === 'world') (renderNow(), draw());
       return;
     }
@@ -232,38 +235,47 @@ function resize() {
   draw();
 }
 
-// The data the picture depends on; when it changes, the island is painted again.
+// The data the picture depends on; when it changes, the island is painted again. Worked out once per
+// data load (it is asked for every frame) and again when the interior, the palette or the art changes.
+let sceneCache = null; // { data, interior, P, rendered, value, key }
 function sceneData() {
   P ||= palette(season());
+  const rendered = (state.settings?.innerWorld?.art || 'rendered') === 'rendered' && spritesReady();
+  const c = sceneCache;
+  if (c && c.data === data && c.interior === interior && c.P === P && c.rendered === rendered) return c.value;
   const places = data.places.map((p) => ({ id: p.id, x: p.x, y: p.y, name: p.name, level: p.level }));
   const key = places.map((p) => `${p.id}:${p.x}:${p.y}`).join('|');
-  if (key !== mapKey) ((map = buildMap(places)), (mapKey = key));
+  if (key !== mapKey) ((map = buildMap(places)), (mapKey = key), (routes = new Map()));
   const details = { ...data.details, residents: data.residents.map((r) => r.name), lastRehearsal: data.rehearsals?.[0]?.title || '' };
-  const rendered = (state.settings?.innerWorld?.art || 'rendered') === 'rendered' && spritesReady();
   // The village grows houses with everything else: two to start, then one per two levels across the places.
   const levels = places.reduce((n, p) => n + p.level, 0);
   const homes = Math.min(map.lots?.length || 0, 2 + Math.floor(levels / 2) + Math.max(0, data.residents.filter((r) => !r.npc).length - 1));
   // Which design each place has (some have two) is fixed per install, from the first persona's id.
   const seed = String(data.residents.find((r) => !r.npc)?.id || 'nexus');
   const designs = Object.fromEntries(places.map((p) => [p.id, [...(seed + p.id)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % 2]));
-  return { map, P, places, details, interior, rendered, homes, designs };
+  const value = { map, P, places, details, interior, rendered, homes, designs };
+  value.key = JSON.stringify([places.map((p) => p.level), details, interior, P.key, rendered, homes, designs]);
+  sceneCache = { data, interior, P, rendered, value };
+  return value;
 }
 
 // The part of the island the camera sees, with a margin, at the camera's zoom (sharp when zoomed in).
-// Bitmap budget for the cached island (pixels): big screens and deep zoom stay within it.
-const BUDGET = () => (lite() ? 8e6 : 16e6);
+// Bitmap budget for the cached island (pixels): big screens and deep zoom stay within it. Painting it
+// takes a moment, so the budget is modest; the camera's margin takes the rest.
+const BUDGET = () => (lite() ? 5e6 : 10e6);
 
 function ensureIsland(force = false) {
   const d = sceneData();
-  const key = JSON.stringify([d.places.map((p) => p.level), d.details, interior, P.key, d.rendered, d.homes, d.designs]);
+  const key = d.key;
   const all = islandBounds();
   const tl = toWorld(cam, size.w, size.h, { x: 0, y: 0 });
   const br = toWorld(cam, size.w, size.h, { x: size.w, y: size.h });
   // What is on screen (never more than the island), with a margin for panning.
   const view = { minX: Math.max(all.minX, tl.x), minY: Math.max(all.minY, tl.y), maxX: Math.min(all.maxX, br.x), maxY: Math.min(all.maxY, br.y) };
   const inside = island && island.region.minX <= view.minX && island.region.minY <= view.minY && island.region.maxX >= view.maxX && island.region.maxY >= view.maxY;
-  const want = Math.min(lite() ? 2 : 3.2, cam.z * size.dpr);
-  const sharp = island && island.scale / want > 0.8 && island.scale / want < 1.3;
+  const want = Math.min(lite() ? 2 : 3, cam.z * size.dpr);
+  // A picture within this range of the wanted sharpness is kept (a repaint per small zoom step stutters).
+  const sharp = island && island.scale / want > 0.7 && island.scale / want < 1.5;
   if (!force && island && key === islandKey && inside && sharp) return;
   if (!force && island && key === islandKey) return scheduleRebuild();
   let margin = 0.4;
@@ -282,7 +294,9 @@ function ensureIsland(force = false) {
     }
   }
   const started = performance.now();
+  const old = island;
   island = buildIsland(d, scale, region);
+  releaseIsland(old);
   islandKey = key;
   logEvent('info', 'inner world painted', { w: island.canvas.width, h: island.canvas.height, mpx: Math.round((island.canvas.width * island.canvas.height) / 1e5) / 10, ms: Math.round(performance.now() - started), sharp: Math.round((scale / want) * 100) / 100 });
 }
@@ -650,6 +664,16 @@ function spot(placeId, j) {
 
 const groundZ = (g) => map.hgt(Math.floor(g.x), Math.floor(g.y)) * HZ;
 
+// The road from one place to another, found once per pair (it is asked for every frame while someone
+// walks it); emptied when the island is laid out again.
+let routes = new Map();
+function routeBetween(from, to) {
+  const key = `${from}>${to}`;
+  let path = routes.get(key);
+  if (!path) routes.set(key, (path = route(map, from, to)));
+  return path;
+}
+
 const colorOf = (r, i) => {
   P ||= palette(season()); // the side panel can ask before the first draw
   const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(r.color || '');
@@ -714,7 +738,7 @@ function positions(m) {
   for (const p of out) {
     let g = spot(p.place, crowd.get(p.place).indexOf(p.name));
     if (p.from) {
-      const path = route(map, p.from, p.place);
+      const path = routeBetween(p.from, p.place);
       g = path.length ? along([spot(p.from, 0), ...path, g], p.k) : g;
     }
     const wp = W(g.x, g.y, groundZ(g));
@@ -724,12 +748,24 @@ function positions(m) {
 }
 
 // ------------------------------------------------------------ drawing
+let lastDrawAt = 0;
 function loop(once = false) {
   cancelAnimationFrame(frameId);
   if (currentView !== 'world' || document.hidden) return;
-  const step = () => {
+  const step = (now = performance.now()) => {
+    if (currentView !== 'world' || document.hidden) return;
+    // Camera motion runs at the display's rate; the village's own animation at 30 frames a second
+    // (15 on Balanced), on the display's own beat: frames are skipped, never put off with a timer,
+    // so each one lands on a vertical sync instead of between two.
+    const moving = flight || glide || follow;
+    const every = lite() ? 66 : 33;
+    if (!moving && now - lastDrawAt < every - 4) {
+      frameId = requestAnimationFrame(step);
+      return;
+    }
+    lastDrawAt = now;
     if (flight) {
-      const k = Math.min(1, (performance.now() - flight.start) / 650);
+      const k = Math.min(1, (now - flight.start) / 650);
       const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
       cam = { x: flight.from.x + (flight.to.x - flight.from.x) * e, y: flight.from.y + (flight.to.y - flight.from.y) * e, z: flight.from.z + (flight.to.z - flight.from.z) * e };
       if (k >= 1) {
@@ -740,10 +776,7 @@ function loop(once = false) {
       }
     }
     draw();
-    if (currentView !== 'world' || document.hidden) return;
-    // Camera motion runs at the display's rate; the village's own animation at 30 (15 on Balanced).
-    if (flight || glide || follow) frameId = requestAnimationFrame(step);
-    else if (animated()) frameId = requestAnimationFrame(() => setTimeout(step, lite() ? 66 : 33));
+    if (flight || glide || follow || animated()) frameId = requestAnimationFrame(step);
   };
   if (once || animated() || flight || glide || follow) step();
   else draw();

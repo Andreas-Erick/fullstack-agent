@@ -189,6 +189,13 @@ export function buildIsland(data, scale, region = bounds()) {
   return { canvas: cv, scale, region: b, hits, lights, emitters, water, fall, minX: b.minX, minY: b.minY };
 }
 
+/** Lets go of an island bitmap's memory at once (a phone's GPU memory is small; the GC comes late). */
+export function release(island) {
+  if (!island?.canvas) return;
+  island.canvas.width = 0;
+  island.canvas.height = 0;
+}
+
 // Lamps along the roads, every few steps, set beside the road.
 function roadLamps(map) {
   const out = [];
@@ -262,8 +269,11 @@ export function frame(ctx, f) {
   L.translate(w / 2, h / 2);
   L.scale(cam.z, cam.z);
   L.translate(-cam.x, -cam.y);
-  L.drawImage(island.canvas, island.minX, island.minY, island.canvas.width / island.scale, island.canvas.height / island.scale);
-  if (f.anim && P.season !== 'winter') waterMotion(L, P, island, f.t);
+  // An empty bitmap (a view with no size yet) would make drawImage throw and stop the loop.
+  if (island.canvas.width && island.canvas.height) L.drawImage(island.canvas, island.minX, island.minY, island.canvas.width / island.scale, island.canvas.height / island.scale);
+  // What the camera sees, in world px: moving water is only drawn there.
+  const seen = { minX: toWorld(cam, w, h, { x: 0, y: 0 }).x - 30, minY: toWorld(cam, w, h, { x: 0, y: 0 }).y - 30, maxX: toWorld(cam, w, h, { x: w, y: h }).x + 30, maxY: toWorld(cam, w, h, { x: w, y: h }).y + 30 };
+  if (f.anim && P.season !== 'winter') waterMotion(L, P, island, f.t, seen);
   waterfall(L, P, island, f.t, f.anim);
   for (const e of island.emitters) emitter(L, P, e, f);
   for (const p of [...f.residents].sort((a, b) => a.y - b.y)) {
@@ -326,12 +336,34 @@ export function frame(ctx, f) {
   return out;
 }
 
+// A soft light: a radial gradient rasterized once per color and drawn as a picture (a lamp per frame
+// used to build its own gradient; with dozens of lamps and lights that was most of a night frame).
+const GLOW_PX = 96;
+const glows = new Map();
+function glowSprite(tone) {
+  const key = tone.join(',');
+  let cv = glows.get(key);
+  if (!cv) {
+    cv = document.createElement('canvas');
+    cv.width = cv.height = GLOW_PX;
+    const g = cv.getContext('2d');
+    const half = GLOW_PX / 2;
+    const grad = g.createRadialGradient(half, half, 0, half, half, half);
+    grad.addColorStop(0, rgba(tone, 1));
+    grad.addColorStop(1, rgba(tone, 0));
+    g.fillStyle = grad;
+    g.fillRect(0, 0, GLOW_PX, GLOW_PX);
+    glows.set(key, cv);
+  }
+  return cv;
+}
+
 function glow(c, x, y, r, tone, a) {
-  const g = c.createRadialGradient(x, y, 0, x, y, r);
-  g.addColorStop(0, rgba(tone, a));
-  g.addColorStop(1, rgba(tone, 0));
-  c.fillStyle = g;
-  c.fillRect(x - r, y - r, r * 2, r * 2);
+  if (a <= 0 || r <= 0) return;
+  const was = c.globalAlpha;
+  c.globalAlpha = was * Math.min(1, a);
+  c.drawImage(glowSprite(tone), x - r, y - r, r * 2, r * 2);
+  c.globalAlpha = was;
 }
 
 // ------------------------------------------------------------ sky
@@ -384,13 +416,16 @@ function sky(c, f, night, dusk, out) {
 }
 
 // Your skill tree as constellations in the upper sky; mastered stars glow and are named at night.
-function constellations(c, f, night, out) {
-  const { w, h, P, t } = f;
-  const skills = f.skills || [];
+// Where the stars sit depends only on the view's size and the skills' names, so it is worked out once
+// (spreading them apart is thirty rounds over every pair) and kept until either changes.
+let starMap = { key: '', pos: null };
+function starPositions(w, h, skills) {
+  const key = `${w}|${h}|${skills.map((s) => s.name).join('\n')}`;
+  if (starMap.key === key) return starMap.pos;
   const pos = new Map();
   for (const sk of skills) {
     const r = rng(hashStr(sk.name));
-    pos.set(sk.name, { x: w * (0.4 + r() * 0.56), y: h * (0.05 + r() * 0.22), sk });
+    pos.set(sk.name, { x: w * (0.4 + r() * 0.56), y: h * (0.05 + r() * 0.22) });
   }
   const list = [...pos.values()];
   for (let round = 0; round < 30; round++) {
@@ -409,6 +444,17 @@ function constellations(c, f, night, out) {
     }
     for (const p of list) p.x = Math.max(w * 0.38, Math.min(w * 0.97, p.x));
   }
+  starMap = { key, pos };
+  return pos;
+}
+
+function constellations(c, f, night, out) {
+  const { w, h, P, t } = f;
+  const skills = f.skills || [];
+  if (!skills.length) return;
+  const where = starPositions(w, h, skills);
+  const pos = new Map(skills.map((sk) => [sk.name, { ...where.get(sk.name), sk }]));
+  const list = [...pos.values()];
   const vis = Math.max(0.15, night);
   for (const { x, y, sk } of list) {
     for (const n of sk.needs || []) {
@@ -470,16 +516,17 @@ function clouds(c, f, night, which) {
 }
 
 // ------------------------------------------------------------ moving things (world space)
-function waterMotion(c, P, island, t) {
+function waterMotion(c, P, island, t, seen) {
   c.strokeStyle = rgba(P.foam, 0.55);
   c.lineWidth = 1.2;
+  c.beginPath();
   island.water.forEach((p, i) => {
+    if (seen && (p.x < seen.minX || p.x > seen.maxX || p.y < seen.minY || p.y > seen.maxY)) return;
     const k = ((t / 1600 + i * 0.37) % 1) - 0.5;
-    c.beginPath();
     c.moveTo(p.x + k * 22 - 5, p.y + k * 6);
     c.lineTo(p.x + k * 22 + 3, p.y + k * 6 - 2);
-    c.stroke();
   });
+  c.stroke(); // one path for every ripple in view, instead of a stroke per tile
 }
 
 function waterfall(c, P, island, t, anim) {

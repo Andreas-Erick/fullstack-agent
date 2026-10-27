@@ -37,7 +37,8 @@ button:disabled { cursor: default; opacity: 0.55; }
 svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .send.stop svg { fill: currentColor; }
 
-.screen { height: 100dvh; display: flex; flex-direction: column; }
+/* The plain vh first: a fallback for browsers without dvh (iOS before 15.4). */
+.screen { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
 
 .input {
   width: 100%;
@@ -93,7 +94,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.9s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.face-wrap { position: relative; height: 22dvh; min-height: 120px; flex: none; }
+.face-wrap { position: relative; height: 22vh; height: 22dvh; min-height: 120px; flex: none; }
 /* Landscape, or the keyboard is open on a small phone: the conversation gets the room. */
 @media (max-height: 520px) { .face-wrap { display: none; } }
 #face { width: 100%; height: 100%; display: block; }
@@ -144,13 +145,14 @@ iframe#face { border: 0; background: transparent; color-scheme: normal; }
 .composer textarea:focus { border-color: var(--accent); }
 .send { width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--accent); color: var(--bg); flex: none; display: grid; place-items: center; }
 .send.stop { background: var(--danger); color: #fff; }
-.mic { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); flex: none; display: grid; place-items: center; touch-action: none; user-select: none; -webkit-user-select: none; }
+/* -webkit-touch-callout: holding the button on an iPhone must not open the copy / share menu. */
+.mic { width: 46px; height: 46px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); flex: none; display: grid; place-items: center; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .mic svg { pointer-events: none; }
 .mic.live { background: var(--danger); border-color: var(--danger); box-shadow: 0 0 0 6px color-mix(in srgb, var(--danger) 25%, transparent); }
 .mic.busy { opacity: 0.5; }
 
 /* Approvals sit above the composer */
-.approvals { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 0; max-height: 50dvh; overflow-y: auto; flex: none; }
+.approvals { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 0; max-height: 50vh; max-height: 50dvh; overflow-y: auto; flex: none; }
 .approvals:empty { display: none; }
 .approval { padding: 12px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--surface); box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 25%, transparent); animation: rise 0.2s ease-out; }
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
@@ -495,9 +497,44 @@ body:not(.wide).view-panel .face-wrap, body:not(.wide).view-panel .messages-wrap
 .more-tile { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 14px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); }
 .more-tile svg { color: var(--accent); width: 26px; height: 26px; margin-bottom: 4px; }
 .more-tile small { color: var(--muted); font-size: 12px; line-height: 1.35; }
-.world-wrap { position: relative; height: 52dvh; min-height: 260px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); flex: none; }
+.world-wrap { position: relative; height: 52vh; height: 52dvh; min-height: 260px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); flex: none; }
 .world-canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 .world-info { display: flex; flex-direction: column; gap: 12px; }
+
+/* The Architecture map (screens.js arch(), drawn by /js/archdraw.js): the canvas, its two buttons, the
+   crumbs of where you are, and the cards below it. */
+.arch-wrap { position: relative; height: 52vh; height: 52dvh; min-height: 260px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: var(--bg); flex: none; }
+.arch-canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+.arch-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
+.arch-tool { width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 85%, transparent); color: var(--accent); display: grid; place-items: center; }
+.arch-tool svg { width: 20px; height: 20px; }
+.arch-crumbs { position: absolute; left: 8px; right: 54px; bottom: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: 12px; pointer-events: none; }
+.arch-crumbs button { pointer-events: auto; border: 1px solid transparent; background: color-mix(in srgb, var(--surface) 85%, transparent); color: var(--muted); padding: 3px 9px; border-radius: 999px; font-size: 12px; white-space: nowrap; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+.arch-crumbs button:last-child { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.arch-crumbs .sep { color: var(--muted); }
+.arch-info { display: flex; flex-direction: column; gap: 12px; }
+.arch-name { margin: 0; font-size: 20px; }
+.arch-path { gap: 4px; }
+.arch-file { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.arch-chip { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--text); }
+.arch-lesson { border: 1px solid color-mix(in srgb, var(--accent2) 40%, transparent); border-left: 3px solid var(--accent2); background: color-mix(in srgb, var(--accent2) 8%, transparent); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.arch-lesson b { font-size: 12.5px; color: var(--accent2); }
+.arch-conn { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--text); font-size: 14px; text-align: left; }
+.arch-conn span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arch-conn small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.arch-syms { list-style: none; margin: 0; padding: 0; font-family: ui-monospace, 'SF Mono', 'Roboto Mono', monospace; font-size: 12px; max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; }
+.arch-syms li { display: grid; grid-template-columns: 62px 1fr 36px; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.arch-syms li .n { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arch-syms li.pub .n { font-weight: 700; color: var(--ok); }
+.arch-syms .k { font-size: 10.5px; }
+.arch-syms .l { text-align: right; }
+.arch-c4 { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.arch-kinds { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.arch-kindrow { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
+.arch-kindrow .arch-swatch { display: none; }
+.arch-kindrow span { grid-column: 2; }
+.card h4 { margin: 6px 0 0; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+body.wide .arch-wrap { height: 46vh; height: 46dvh; }
 @media (min-width: 720px) { .panel { padding-inline: max(12px, calc((100% - 680px) / 2)); } }
 :is(.fx-hud, .fx-subtle) .card h3, :is(.fx-hud, .fx-subtle) .tabs button span { font-family: var(--mono); }
 .fx-hud .card { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 18%, transparent); }
@@ -533,7 +570,7 @@ body.wide #main > * { min-width: 0; }
 body.wide .messages-wrap, body.wide .messages { min-width: 0; }
 body.wide #main > .top { grid-area: top; }
 body.wide #banner { grid-area: banner; }
-body.wide .face-wrap { grid-area: face; height: 30dvh; min-height: 180px; }
+body.wide .face-wrap { grid-area: face; height: 30vh; height: 30dvh; min-height: 180px; }
 body.wide .messages-wrap { grid-area: msgs; }
 body.wide #approvals { grid-area: appr; }
 body.wide #recBar { grid-area: rec; }
@@ -546,7 +583,7 @@ body.wide .messages { padding-inline: max(16px, calc((100% - 760px) / 2)); }
 body.wide .composer { padding-inline: max(12px, calc((100% - 780px) / 2)); }
 /* Very wide (DeX on a monitor, a big landscape tablet): the world gets more room. */
 @media (min-width: 1400px) { body.wide #main { grid-template-columns: minmax(0, 1fr) clamp(480px, 42vw, 720px); } }
-body.wide .world-wrap { height: 46dvh; }
+body.wide .world-wrap { height: 46vh; height: 46dvh; }
 
 /* Formulas (KaTeX → MathML, drawn by the browser). */
 math { font-size: 1.08em; }

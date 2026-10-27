@@ -86,6 +86,9 @@ function applyZoom(z) {
 const FOLDS = 5;
 let fitFrame = 0;
 
+const STATE_WORDS = ['idle', 'listening', 'thinking', 'working', 'speaking', 'happy', 'sleeping', 'alert'];
+let measure = null;
+
 function initTitlebarFit() {
   const bar = $('.titlebar');
   const refit = () => fitFrame || (fitFrame = requestAnimationFrame(fitTitlebar));
@@ -94,8 +97,32 @@ function initTitlebarFit() {
   const watch = { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] };
   new MutationObserver(refit).observe($('.status-pills'), watch);
   new MutationObserver(refit).observe($('.brand'), watch);
+  // The state capsule's font changes with the theme and the effects level.
+  on('settings', refit);
+  on('theme', refit);
   document.fonts?.ready.then(refit);
   refit();
+}
+
+// The agent's state name ("idle", "speaking"…) changes many times during a spoken reply. Its capsule is
+// kept as wide as the longest name, so the bar's width (and so its folding) doesn't follow the state.
+function reserveStateWidth() {
+  const el = $('#brandState');
+  if (!el) return;
+  const cs = getComputedStyle(el);
+  measure ||= document.createElement('canvas').getContext('2d');
+  measure.font = cs.font || `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const spacing = parseFloat(cs.letterSpacing) || 0;
+  const upper = cs.textTransform === 'uppercase';
+  let widest = 0;
+  for (const word of STATE_WORDS) {
+    const t = upper ? word.toUpperCase() : word;
+    widest = Math.max(widest, measure.measureText(t).width + spacing * t.length);
+  }
+  // The HUD look adds a dot before the name (hud.css ::before: 5px + 6px gap).
+  const hud = document.body.classList.contains('fx-hud') || document.body.classList.contains('fx-subtle');
+  const px = `${Math.ceil(widest) + (hud ? 11 : 0)}px`;
+  if (el.style.minWidth !== px) el.style.minWidth = px;
 }
 
 function fitTitlebar() {
@@ -103,10 +130,26 @@ function fitTitlebar() {
   const bar = $('.titlebar');
   const brand = $('.brand');
   const pills = $('.status-pills');
-  const crowded = () => brand.getBoundingClientRect().right + 10 > pills.getBoundingClientRect().left || bar.scrollWidth > bar.clientWidth + 1;
+  reserveStateWidth();
+  // Free space between the two sides; negative when the bar overflows (overflow is hidden).
+  const slack = () => (bar.scrollWidth > bar.clientWidth + 1 ? bar.clientWidth - bar.scrollWidth : pills.getBoundingClientRect().left - brand.getBoundingClientRect().right);
+  const slackAt = (level) => ((bar.dataset.fold = String(level)), slack());
+  const before = Number(bar.dataset.fold) || 0;
   let level = 0;
-  bar.dataset.fold = '0';
-  while (level < FOLDS && crowded()) bar.dataset.fold = String(++level);
+  while (level < FOLDS && slackAt(level) < 10) level++;
+  // Hysteresis: unfolding needs comfortable room, so a bar that barely fits doesn't flip between two
+  // levels (labels appearing and vanishing) as a counter or a name changes by a few pixels.
+  if (level < before) {
+    let keep = before;
+    for (let l = level; l < before; l++) {
+      if (slackAt(l) >= 40) {
+        keep = l;
+        break;
+      }
+    }
+    level = keep;
+  }
+  bar.dataset.fold = String(level);
 }
 
 // ---------------------------------------------------------------- layout

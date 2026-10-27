@@ -1392,25 +1392,28 @@ function remoteCard() {
     for (const d of st.devices) {
       const seen = d.connected ? 'connected now' : d.lastSeen ? `last seen ${new Date(d.lastSeen).toLocaleString()}` : 'never used';
       const from = d.lastVia ? ` · via ${d.lastVia}${d.lastIp && d.lastVia !== 'this computer' ? ` (${d.lastIp})` : ''}` : '';
+      // The item is a three-column grid (light, text, actions): both buttons share the third column.
       devices.append(el('div', { class: `health-item ${d.connected ? 'ok' : 'off'}` },
         el('span', { class: 'ic' }, d.connected ? '●' : '○'),
         el('div', { style: { flex: 1 } }, el('b', {}, d.name, d.readOnly ? ' · view only' : ''), el('div', { class: 'd' }, `Paired ${new Date(d.createdAt).toLocaleDateString()} · ${seen}${from}`)),
-        el('button', {
-          class: 'btn small',
-          title: d.readOnly ? 'Let this device chat, answer approvals and check habits off again' : 'This device can only read: no chatting, approvals, push-to-talk or checking habits off (a shared tablet, a display)',
-          onclick: async () => {
-            await api.remote.setReadOnly(d.id, !d.readOnly).catch(toastError);
-            refresh();
-          },
-        }, d.readOnly ? 'Allow full access' : 'Make view only'),
-        el('button', {
-          class: 'btn small',
-          onclick: async () => {
-            if (!(await confirmDialog('Remove device', `“${d.name}” will no longer be able to reach the assistant.`, 'Remove'))) return;
-            await api.remote.revoke(d.id).catch(toastError);
-            refresh();
-          },
-        }, 'Remove'),
+        el('div', { class: 'row device-actions' },
+          el('button', {
+            class: 'btn small',
+            title: d.readOnly ? 'Let this device chat, answer approvals and check habits off again' : 'This device can only read: no chatting, approvals, push-to-talk or checking habits off (a shared tablet, a display)',
+            onclick: async () => {
+              await api.remote.setReadOnly(d.id, !d.readOnly).catch(toastError);
+              refresh();
+            },
+          }, d.readOnly ? 'Allow full access' : 'Make view only'),
+          el('button', {
+            class: 'btn small',
+            onclick: async () => {
+              if (!(await confirmDialog('Remove device', `“${d.name}” will no longer be able to reach the assistant.`, 'Remove'))) return;
+              await api.remote.revoke(d.id).catch(toastError);
+              refresh();
+            },
+          }, 'Remove'),
+        ),
       ));
     }
     if (st.devices.length > 1) {

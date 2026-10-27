@@ -154,6 +154,36 @@ test('devices never see setup, tool inputs/results or raw provider data', async 
   assert.match(streamed, /"expiresIn":7[45]/);
 });
 
+test('a persona or look change reaches devices as info.changed; unrelated settings do not', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Tablet')}` };
+  assert.strictEqual((await fetch(`${base}/js/archdraw.js`)).status, 200, 'the architecture map’s drawing code is served');
+  const ctl = new AbortController();
+  const res = await fetch(`${base}/api/events`, { headers: auth, signal: ctl.signal });
+  const reader = res.body.getReader();
+  let streamed = '';
+  const pump = (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        streamed += Buffer.from(value).toString();
+      }
+    } catch {
+      /* aborted */
+    }
+  })();
+  companion.settingsChanged({ logging: { debug: true } });
+  await new Promise((r) => setTimeout(r, 600));
+  assert.ok(!streamed.includes('info.changed'), 'a setting the phone never sees changes nothing');
+  companion.settingsChanged({ agent: { name: 'Skully' }, personas: { active: 'p2' } });
+  companion.settingsChanged({ appearance: { theme: {} } }); // two saves in a row: one event
+  await new Promise((r) => setTimeout(r, 700));
+  ctl.abort();
+  await pump;
+  assert.strictEqual(streamed.split('event: info.changed').length - 1, 1, streamed);
+  assert.ok(!streamed.includes('Skully'), 'the event carries no settings; the device asks /api/info');
+});
+
 test('idle devices expire; a corrupt entry does not break the rest; remove all', async () => {
   const token = await pairDevice('Old phone');
   const list = JSON.parse(fs.readFileSync(devicesFile, 'utf8'));
