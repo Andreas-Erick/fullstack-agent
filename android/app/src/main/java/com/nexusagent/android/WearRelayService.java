@@ -1,5 +1,6 @@
 package com.nexusagent.android;
 
+import android.content.Context;
 import android.util.Log;
 
 import com.google.android.gms.tasks.Tasks;
@@ -105,7 +106,7 @@ public class WearRelayService extends WearableListenerService {
                     reply(node, "/siren/new", new JSONObject(), "ok");
                     break;
                 case "/siren/face":
-                    reply(node, "/siren/face", face(server, token), "ok");
+                    reply(node, "/siren/face", face(this, server, token), "ok");
                     break;
                 case "/siren/speak":
                     speak(server, token, node, in);
@@ -132,18 +133,18 @@ public class WearRelayService extends WearableListenerService {
      * (so they show at once next time, even without the phone). The pack is fetched again only when the
      * desktop's face, theme or name changed (ETag).
      */
-    private JSONObject face(String server, String token) throws Exception {
+    static JSONObject face(Context ctx, String server, String token) throws Exception {
         JSONObject info = get(server + "/api/info", token);
         PutDataMapRequest look = PutDataMapRequest.create("/siren/look");
         look.getDataMap().putString("name", info.optString("name", "Siren"));
         JSONObject colors = info.optJSONObject("colors");
         look.getDataMap().putString("colors", colors == null ? "{}" : colors.toString());
-        Tasks.await(Wearable.getDataClient(this).putDataItem(look.asPutDataRequest().setUrgent()));
+        Tasks.await(Wearable.getDataClient(ctx).putDataItem(look.asPutDataRequest().setUrgent()));
 
         HttpURLConnection c = ConnectionService.open(server + "/api/face/frames", token);
         c.setRequestProperty("Accept", "application/octet-stream");
         c.setReadTimeout(90_000); // a new face is recorded first (about half a minute)
-        String etag = Prefs.faceEtag(this);
+        String etag = Prefs.faceEtag(ctx);
         if (etag != null) c.setRequestProperty("If-None-Match", etag);
         try {
             int code = c.getResponseCode();
@@ -155,13 +156,38 @@ public class WearRelayService extends WearableListenerService {
             face.getDataMap().putAsset("pack", Asset.createFromBytes(pack));
             String tag = c.getHeaderField("ETag");
             face.getDataMap().putString("etag", tag == null ? "" : tag);
-            Tasks.await(Wearable.getDataClient(this).putDataItem(face.asPutDataRequest().setUrgent()));
-            Prefs.setFaceEtag(this, tag);
+            Tasks.await(Wearable.getDataClient(ctx).putDataItem(face.asPutDataRequest().setUrgent()));
+            Prefs.setFaceEtag(ctx, tag);
             Log.i("SirenRelay", "face sent to the watch: " + pack.length + " bytes");
             return new JSONObject().put("changed", true);
         } finally {
             c.disconnect();
         }
+    }
+
+    private static volatile long lastLookRefresh;
+
+    /**
+     * The persona, its theme or its face changed on the computer (the "info.changed" event): a watch that
+     * has shown her face before gets the new look and face now, not only when it next asks. The data
+     * items reach the watch whenever it is connected, so this is cheap to call; it is throttled anyway.
+     */
+    static void refreshLook(Context c) {
+        if (Prefs.faceEtag(c) == null) return; // no watch has ever asked for her face
+        long now = System.currentTimeMillis();
+        if (now - lastLookRefresh < 5_000) return;
+        lastLookRefresh = now;
+        String server = Prefs.server(c);
+        String token = Prefs.token(c);
+        if (server == null || token == null) return;
+        Context app = c.getApplicationContext();
+        new Thread(() -> {
+            try {
+                face(app, server, token);
+            } catch (Exception e) {
+                Log.w("SirenRelay", "sending the new look to the watch failed", e);
+            }
+        }, "siren-look").start();
     }
 
     /** The reply in the persona's voice: the audio goes to the watch over a channel of its own. */

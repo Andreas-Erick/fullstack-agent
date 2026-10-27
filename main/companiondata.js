@@ -127,8 +127,22 @@ async function skills() {
   return { skills: (await require('./skills').list()).map((k) => ({ slug: k.slug, name: k.name, description: clip(k.description, 300) })) };
 }
 
+/**
+ * The architecture map (main/archmap.js: the app's own code, not the user's data) for the phone's
+ * Architecture screen: the cached map as the desktop shows it, with each file's symbol list cut short.
+ */
+async function arch() {
+  const path = require('path');
+  const m = await require('./archmap').get(path.join(__dirname, '..'));
+  const nodes = m.nodes.map(({ id, parent, level, kind, name, tech, about, lesson, tone, auto, x, y, w, h, head, lines, path: p, symbols }) => ({
+    id, parent, level, kind, name, tech, about: clip(about, 400), lesson: clip(lesson, 600), tone, auto: Boolean(auto), x, y, w, h, head, lines, path: p,
+    symbols: (symbols || []).slice(0, 60).map((s) => ({ kind: s.kind, name: clip(s.name, 80), line: s.line, exported: Boolean(s.exported), detail: clip(s.detail, 60) })),
+  }));
+  return { nodes, edges: m.edges, bounds: m.bounds, stats: m.stats, principles: m.principles, sizes: m.sizes, builtAt: m.builtAt, stale: Boolean(m.stale) };
+}
+
 async function routines() {
   return { routines: (await require('./routines').list()).map((r) => ({ name: r.name, enabled: r.enabled, schedule: r.schedule, lastRun: r.lastRun || 0, lastStatus: r.lastStatus || '' })) };
 }
 
-module.exports = { today, habits, logHabit, learn, tree, memories, stream, notes, note, world, skills, routines };
+module.exports = { today, habits, logHabit, learn, tree, memories, stream, notes, note, world, skills, routines, arch };

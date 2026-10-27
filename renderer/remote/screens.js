@@ -8,7 +8,7 @@ export function initScreens(c) {
   ctx = c;
 }
 
-export const TITLES = { today: 'Today', habits: 'Habits', learn: 'Learning', memory: 'Memory', notes: 'Notes', tree: 'Skill tree', world: 'Inner World', skills: 'Skills & routines', more: 'More' };
+export const TITLES = { today: 'Today', habits: 'Habits', learn: 'Learning', memory: 'Memory', notes: 'Notes', tree: 'Skill tree', world: 'Inner World', arch: 'Architecture', skills: 'Skills & routines', more: 'More' };
 
 // The "More" menu: every screen, with what it shows.
 const MORE = [
@@ -17,6 +17,7 @@ const MORE = [
   ['notes', 'note', 'Notes', 'Your vault: read and search every note'],
   ['tree', 'tree', 'Skill tree', 'What you are growing, and how far along'],
   ['world', 'world', 'Inner World', 'The village where your personas live'],
+  ['arch', 'arch', 'Architecture', 'How she is built: a map of her own code, to explore and learn from'],
   ['skills', 'spark', 'Skills & routines', 'Ready-made workflows to run, and what runs on a schedule'],
 ];
 
@@ -24,6 +25,7 @@ const MORE = [
 export async function render(view, box) {
   const { el } = ctx;
   stopWorld();
+  stopArch();
   box.replaceChildren(el('div', { class: 'panel-loading muted' }, 'Loading…'));
   try {
     const node = await SCREENS[view]();
@@ -37,7 +39,7 @@ export async function render(view, box) {
   }
 }
 
-const SCREENS = { today, habits, learn, memory, notes, tree, world, skills, more };
+const SCREENS = { today, habits, learn, memory, notes, tree, world, arch, skills, more };
 
 // The desktop's view opening (renderer/js/hud.js): a beam crosses the screen and its cards cascade in.
 // Only with the HUD on (styles.css .fx-hud .panel.enter); the CSS stops it under reduced motion.
@@ -371,19 +373,28 @@ async function world() {
     }).filter((p) => !p.asleep);
   };
 
-  // The island's bitmap stays within ~6 megapixels: sharp enough on a phone, light on its memory.
+  // The island's bitmap stays within 4 megapixels and 4096 px a side: sharp enough on a phone or tablet,
+  // and within what a mobile GPU holds as one picture (a bigger canvas can go black on some devices).
   const full = scene.bounds();
-  const islandScale = (want) => Math.min(want, Math.sqrt(6e6 / ((full.maxX - full.minX) * (full.maxY - full.minY))));
+  const fullW = full.maxX - full.minX;
+  const fullH = full.maxY - full.minY;
+  const islandScale = (want) => Math.max(0.05, Math.min(want, Math.sqrt(4e6 / (fullW * fullH)), 4096 / Math.max(fullW, fullH)));
   const size = { w: 0, h: 0, dpr: 1 };
   let cam = null;
   let home = null;
   let island = null;
   let selected = null;
   let flight = null; // { from, to, start }: the camera gliding into or out of a building
+  let lastDraw = 0;
   const g = canvas.getContext('2d');
+  const paint = (scale) => {
+    const old = island;
+    island = scene.buildIsland(data, scale);
+    scene.release(old); // the old bitmap's memory goes at once (a phone has little to spare)
+  };
   const resize = () => {
     const r = canvas.getBoundingClientRect();
-    if (!r.width) return false;
+    if (!r.width || !r.height) return false;
     size.dpr = Math.min(window.devicePixelRatio || 1, 2);
     size.w = r.width;
     size.h = r.height;
@@ -391,7 +402,7 @@ async function world() {
     canvas.height = Math.round(r.height * size.dpr);
     home = scene.fit(size.w, size.h, map);
     cam ||= { ...home };
-    island = scene.buildIsland(data, islandScale(cam.z * size.dpr));
+    paint(islandScale(cam.z * size.dpr));
     return true;
   };
   const draw = (t) => {
@@ -402,15 +413,26 @@ async function world() {
     scene.frame(g, f);
     scene.labels(g, f, island, { selected });
   };
+  // 30 frames a second on the display's own beat (every frame is more than a phone needs), the camera's
+  // glide at full rate. A frame that throws stops the loop and says why, instead of a silent black box.
   const tick = (t) => {
     if (!canvas.isConnected) return stopWorld();
-    if (flight) {
-      const k = Math.min(1, (performance.now() - flight.start) / 600);
-      const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
-      cam = { x: flight.from.x + (flight.to.x - flight.from.x) * e, y: flight.from.y + (flight.to.y - flight.from.y) * e, z: flight.from.z + (flight.to.z - flight.from.z) * e };
-      if (k >= 1) ((flight = null), rescale());
+    try {
+      if (flight) {
+        const k = Math.min(1, (performance.now() - flight.start) / 600);
+        const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+        cam = { x: flight.from.x + (flight.to.x - flight.from.x) * e, y: flight.from.y + (flight.to.y - flight.from.y) * e, z: flight.from.z + (flight.to.z - flight.from.z) * e };
+        if (k >= 1) ((flight = null), rescale());
+      }
+      if (flight || gesture || t - lastDraw >= 29) {
+        lastDraw = t;
+        draw(t);
+      }
+    } catch (err) {
+      stopWorld();
+      info.replaceChildren(empty(`The village couldn’t be drawn on this device: ${err.message}`, ask('Tell Siren', `The Inner World screen on my phone failed with: ${err.message}`)));
+      return;
     }
-    draw(t);
     worldLoop.raf = requestAnimationFrame(tick);
   };
 
@@ -419,7 +441,7 @@ async function world() {
   // goes back out.
   const rescale = () => {
     const want = islandScale(cam.z * size.dpr);
-    if (Math.abs(want - island.scale) / island.scale > 0.4) island = scene.buildIsland(data, want);
+    if (Math.abs(want - island.scale) / island.scale > 0.4) paint(want);
   };
   const canEnter = (id) => Boolean(map.sites[id] && places.find((p) => p.id === id)?.level);
   const enter = (id) => {
@@ -428,14 +450,14 @@ async function world() {
     const c = W(s.gx, s.gy, s.h * HZ + 12);
     data.interior = id;
     selected = id;
-    island = scene.buildIsland(data, islandScale(home.z * 2.6 * size.dpr));
+    paint(islandScale(home.z * 2.6 * size.dpr));
     flight = { from: { ...cam }, to: { x: c.x, y: c.y, z: home.z * 2.6 }, start: performance.now() };
     showPlace(info, d, id, nav);
   };
   const leave = ({ fly = true } = {}) => {
     if (!data.interior) return;
     data.interior = null;
-    island = scene.buildIsland(data, islandScale(cam.z * size.dpr));
+    paint(islandScale(cam.z * size.dpr));
     if (fly) flight = { from: { ...cam }, to: { ...home }, start: performance.now() };
     showPlace(info, d, selected, nav);
   };
@@ -493,12 +515,275 @@ async function world() {
   };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
-  const onResize = () => resize();
-  window.addEventListener('resize', onResize);
-  worldLoop = { raf: 0, off: () => window.removeEventListener('resize', onResize) };
+  // The canvas follows its box (a tablet's side pane, rotation, split screen), not only the window.
+  const onResize = () => size.w && resize();
+  let ro = null;
+  if (typeof ResizeObserver === 'function') {
+    ro = new ResizeObserver(onResize);
+    ro.observe(wrap);
+  } else window.addEventListener('resize', onResize);
+  worldLoop = { raf: 0, off: () => (ro ? ro.disconnect() : window.removeEventListener('resize', onResize), scene.release(island)) };
   worldLoop.raf = requestAnimationFrame(tick);
 
   showPlace(info, d, null, nav);
+  return [wrap, info];
+}
+
+// --------------------------------------------------------------- Architecture
+// The same map as the desktop's Architecture view (renderer/js/archdraw.js draws it; the model comes
+// from the computer, /api/data/arch): drag to move, pinch to zoom, tap a box for what it is and what it
+// talks to, double tap to dive in. Below the map: the part you tapped, or how to read the map and the
+// design principles behind it.
+let archLoop = null;
+function stopArch() {
+  if (archLoop) cancelAnimationFrame(archLoop.raf);
+  archLoop?.off?.();
+  archLoop = null;
+}
+
+async function arch() {
+  const { el, icon } = ctx;
+  const [m, draw] = await Promise.all([ctx.api('/api/data/arch'), import('/js/archdraw.js')]);
+  const { createArchScene, hexToTriplet, KINDS, LEVEL, KIND_LABEL } = draw;
+  const scene = createArchScene();
+  const css = getComputedStyle(document.documentElement);
+  const c = (name) => hexToTriplet(css.getPropertyValue(name));
+  scene.setColors({ c1: c('--accent'), c2: c('--accent2'), c3: c('--danger'), ok: c('--ok'), warn: c('--warn'), err: c('--danger'), text: c('--text'), surface: c('--surface'), bg: c('--bg'), display: 'system-ui, sans-serif', body: 'system-ui, sans-serif', mono: 'ui-monospace, "SF Mono", "Roboto Mono", monospace' });
+  const fx = document.body.classList.contains('fx-hud') ? 'hud' : document.body.classList.contains('fx-subtle') ? 'subtle' : 'off';
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const animated = fx === 'hud' && !still;
+  scene.setFx(fx);
+  scene.setAnimated(animated);
+  scene.setTop(8);
+  scene.load(m);
+
+  const canvas = el('canvas', { class: 'arch-canvas', 'aria-label': 'Architecture map: drag to move, pinch to zoom, tap a part for details' });
+  const crumbs = el('div', { class: 'arch-crumbs' });
+  const fitBtn = el('button', { class: 'arch-tool', type: 'button', 'aria-label': 'Show everything', title: 'Show everything' }, icon('fit'));
+  const learnBtn = el('button', { class: 'arch-tool', type: 'button', 'aria-label': 'How to read this map', title: 'How to read this map' }, icon('learn'));
+  const wrap = el('div', { class: 'arch-wrap' }, canvas, el('div', { class: 'arch-tools' }, learnBtn, fitBtn), crumbs);
+  const info = el('div', { class: 'arch-info' });
+  const g = canvas.getContext('2d');
+  const size = { w: 0, h: 0, dpr: 1 };
+  let dirty = true;
+  let lastDraw = 0;
+  let lastCrumbs = '';
+  const redraw = () => (dirty = true);
+  const resize = () => {
+    const r = canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    size.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    size.w = r.width;
+    size.h = r.height;
+    canvas.width = Math.round(r.width * size.dpr);
+    canvas.height = Math.round(r.height * size.dpr);
+    const first = !scene.size.w;
+    scene.setSize(r.width, r.height);
+    if (first) scene.fitAll(false);
+    redraw();
+    return true;
+  };
+  const drawCrumbs = () => {
+    const path = scene.focusPath();
+    const sig = path.map((n) => n.id).join('>');
+    if (sig === lastCrumbs) return;
+    lastCrumbs = sig;
+    crumbs.replaceChildren(el('button', { type: 'button', onclick: () => home() }, ctx.state.name), ...path.flatMap((n) => [el('span', { class: 'sep' }, '›'), el('button', { type: 'button', title: LEVEL[n.level], onclick: () => dive(n) }, n.name)]));
+  };
+  const tick = (t) => {
+    if (!canvas.isConnected) return stopArch();
+    try {
+      if (!size.w && !resize()) {
+        archLoop.raf = requestAnimationFrame(tick);
+        return;
+      }
+      const due = scene.moving || dirty || (animated && t - lastDraw >= 29);
+      if (due) {
+        lastDraw = t;
+        dirty = false;
+        g.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
+        scene.render(g, t);
+        drawCrumbs();
+      }
+    } catch (err) {
+      stopArch();
+      info.replaceChildren(empty(`The map couldn’t be drawn on this device: ${err.message}`));
+      return;
+    }
+    archLoop.raf = requestAnimationFrame(tick);
+  };
+
+  // Moving around: fit, dive into a part, the overview card.
+  const fly = (b, pad) => (scene.flyTo(b, !still, pad), redraw());
+  const dive = (n) => {
+    scene.selected = n;
+    fly(n, n.level === 'file' ? 40 : 20);
+    showArchNode(n);
+  };
+  const home = () => {
+    scene.selected = null;
+    scene.fitAll(!still);
+    redraw();
+    showArchHome();
+  };
+  const chipTo = (n, text) => el('button', { class: 'chip arch-chip', type: 'button', title: n.about || '', onclick: () => dive(n) }, text || n.name);
+
+  function showArchHome() {
+    const s = m.stats;
+    const built = m.builtAt ? new Date(m.builtAt).toLocaleString() : '';
+    info.replaceChildren(
+      card(`${ctx.state.name}’s architecture`,
+        el('p', { class: 'muted' }, `${s.containers} containers · ${s.components} components · ${s.files} files · ${s.lines.toLocaleString()} lines · ${s.connections} connections${built ? ` · built ${built}` : ''}${m.stale ? ' · the code changed since (rebuild on the computer)' : ''}`),
+        el('p', {}, 'Pinch to zoom in and the parts open up: containers, then their components, then the files and what is in them. Drag to move, tap a box for what it does and what it talks to, double tap to dive in.'),
+        el('div', { class: 'row' }, ask('Explain the big picture', 'Walk me through your own architecture at the top level: the containers, why they are separate, and the one idea each of them embodies.')),
+      ),
+      learnCard(),
+    );
+  }
+
+  function learnCard() {
+    return card('Reading this map',
+      el('p', {}, 'It follows the C4 model: software at four zoom levels. Each level answers a different question.'),
+      el('ol', { class: 'arch-c4' },
+        el('li', {}, el('b', {}, 'Context'), ' — who uses the system and which outside systems it depends on.'),
+        el('li', {}, el('b', {}, 'Containers'), ' — the things that run separately: processes, apps, windows, servers. Their boundaries are where security and protocols matter.'),
+        el('li', {}, el('b', {}, 'Components'), ' — groups of modules with one responsibility inside a container.'),
+        el('li', {}, el('b', {}, 'Code'), ' — the files and the functions in them. Bold names are a module’s public interface.'),
+      ),
+      el('div', { class: 'arch-kinds' }, ...Object.entries(KINDS).map(([, v]) => el('div', { class: 'arch-kindrow' }, el('b', {}, v.label), el('span', { class: 'muted' }, v.what)))),
+      el('h4', {}, 'Principles in this design'),
+      ...(m.principles || []).map((p) =>
+        el('details', { class: 'mem' },
+          el('summary', {}, el('b', {}, p.title)),
+          el('p', {}, p.idea),
+          el('p', { class: 'muted' }, el('b', {}, 'Why: '), p.why),
+          el('p', { class: 'muted' }, el('b', {}, 'In your projects: '), p.apply),
+          el('div', { class: 'row' }, ...p.where.map((id) => scene.byId.get(id)).filter(Boolean).map((n) => chipTo(n))),
+        ),
+      ),
+      el('div', { class: 'row' }, ask('Quiz me', 'Quiz me on your own architecture, one question at a time: which part does what, why a boundary is where it is, what would break if a rule were removed. Start easy and adapt to my answers.'), ask('Design mine', 'Help me design the architecture of a project of mine, using the principles in your own design as examples. Start by asking me what I want to build, then sketch containers, components and their connections with me.')),
+    );
+  }
+
+  function showArchNode(n) {
+    const path = scene.ancestors(n);
+    const conn = scene.connections(n);
+    const link = (x) => el('button', { class: 'arch-conn', type: 'button', onclick: () => dive(x.peer) }, el('span', {}, x.peer.name), el('small', {}, `${KINDS[x.kind]?.label || x.kind}${x.count > 1 ? ` ×${x.count}` : ''}`));
+    const outs = conn.filter((x) => x.dir === 'out').map(link);
+    const ins = conn.filter((x) => x.dir === 'in').map(link);
+    const children = scene.kids.get(n.id) || [];
+    const counts = scene.counts(n);
+    const links = conn.slice(0, 8).map((x) => `${x.dir === 'out' ? '→' : '←'} ${x.peer.name} (${KINDS[x.kind]?.label})`).join(', ');
+    const explain = `Teach me how the ${n.path ? `file ${n.path}` : `${LEVEL[n.level].toLowerCase()} “${n.name}”`} in your own architecture works: what it is responsible for, how it talks to the rest${links ? ` (${links})` : ''}, and the design principle behind it that I could reuse in my own projects. Keep it concrete.`;
+    info.replaceChildren(...[
+      card(`${KIND_LABEL[n.kind]}${n.level === 'container' ? ' · C4 level 2' : n.level === 'component' ? ' · C4 level 3' : ' · C4 level 4'}`,
+        el('h2', { class: 'arch-name' }, n.name),
+        path.length ? el('div', { class: 'row arch-path' }, ...path.flatMap((p, i) => [i ? el('span', { class: 'muted' }, '›') : null, chipTo(p)])) : null,
+        n.path && !n.path.startsWith('virtual/') ? el('code', { class: 'arch-file' }, n.path) : null,
+        n.tech ? el('small', { class: 'muted' }, n.tech) : null,
+        n.auto ? el('p', { class: 'muted' }, 'Found by the last rebuild; no description yet.') : null,
+        el('p', {}, n.about || 'No description yet.'),
+        n.lesson ? el('div', { class: 'arch-lesson' }, el('b', {}, '💡 Design note'), el('p', {}, n.lesson)) : null,
+        n.level !== 'file' && children.length ? el('p', { class: 'muted' }, [[counts.comps, 'components'], [counts.files, 'files'], [counts.lines, 'lines']].filter(([v]) => v).map(([v, l]) => `${v.toLocaleString()} ${l}`).join(' · ')) : null,
+        el('div', { class: 'row' }, el('button', { class: 'btn primary small', type: 'button', onclick: () => (ctx.showView('chat'), ctx.send(explain)) }, '💬 Explain this to me'), el('button', { class: 'btn small', type: 'button', onclick: () => dive(n) }, '⤢ Zoom here')),
+      ),
+      outs.length ? card('Talks to', ...outs) : null,
+      ins.length ? card('Used by', ...ins) : null,
+      children.length ? card(n.level === 'container' ? 'Components' : 'Files', el('div', { class: 'row' }, ...children.map((k) => chipTo(k)))) : null,
+      n.symbols?.length ? card(`Inside (${n.symbols.length})`, el('ul', { class: 'arch-syms' }, ...n.symbols.slice(0, 40).map((s) => el('li', { class: s.exported ? 'pub' : '' }, el('span', { class: 'k' }, String(s.kind).replace('export ', '')), el('span', { class: 'n' }, s.name), el('span', { class: 'l' }, String(s.line))))), n.symbols.length > 40 ? el('p', { class: 'muted' }, `and ${n.symbols.length - 40} more`) : null) : null,
+      el('button', { class: 'btn ghost small', type: 'button', onclick: home }, '‹ The whole map'),
+    ].filter(Boolean));
+  }
+
+  // Touch and mouse: one finger drags (and glides on), two pinch around their midpoint, a tap picks a
+  // box, a double tap dives in; a mouse wheel (DeX, a tablet keyboard with a trackpad) zooms.
+  const pts = new Map();
+  let gesture = null; // { pts: start positions, view: start view, moved, trail, dist }
+  let lastTap = { at: 0, id: null };
+  const local = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, local(e));
+    scene.hold();
+    gesture = { pts: new Map([...pts].map(([k, v]) => [k, { ...v }])), view: { ...scene.view }, moved: false, trail: [], dist: null };
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!pts.has(e.pointerId) || !gesture) return;
+    pts.set(e.pointerId, local(e));
+    const [a, b] = [...pts.values()];
+    const [a0, b0] = [...gesture.pts.values()];
+    if (b && b0) {
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      if (gesture.dist) scene.zoomBy(mid.x, mid.y, dist / gesture.dist);
+      if (gesture.mid) {
+        scene.view.x += mid.x - gesture.mid.x;
+        scene.view.y += mid.y - gesture.mid.y;
+      }
+      gesture.dist = dist;
+      gesture.mid = mid;
+      gesture.moved = true;
+    } else if (a0) {
+      const dx = a.x - a0.x;
+      const dy = a.y - a0.y;
+      if (Math.hypot(dx, dy) > 6) gesture.moved = true;
+      if (gesture.moved) {
+        scene.view.x = gesture.view.x + dx;
+        scene.view.y = gesture.view.y + dy;
+        gesture.trail.push({ x: a.x, y: a.y, t: performance.now() });
+        if (gesture.trail.length > 6) gesture.trail.shift();
+      }
+    }
+    redraw();
+  });
+  const end = (e) => {
+    const was = gesture;
+    const wasTap = was && !was.moved && pts.size === 1;
+    const p = pts.get(e.pointerId);
+    pts.delete(e.pointerId);
+    if (wasTap && p) {
+      const n = scene.pick(p.x, p.y);
+      const double = lastTap.id === (n?.id || null) && performance.now() - lastTap.at < 400;
+      lastTap = { at: performance.now(), id: n?.id || null };
+      if (double) n ? dive(n) : home();
+      else if (n) ((scene.selected = n), showArchNode(n));
+      else ((scene.selected = null), showArchHome());
+      redraw();
+    } else if (was?.moved && pts.size === 0 && animated) {
+      // Let go while moving: glide on.
+      const t = was.trail.filter((x) => performance.now() - x.t < 80);
+      if (t.length > 1) {
+        const dt = Math.max(1, t[t.length - 1].t - t[0].t);
+        scene.setGlide({ vx: ((t[t.length - 1].x - t[0].x) / dt) * 16, vy: ((t[t.length - 1].y - t[0].y) / dt) * 16 });
+        redraw();
+      }
+    }
+    // A finger lifted mid-pinch: the one left drags from here.
+    gesture = pts.size ? { pts: new Map([...pts].map(([k, v]) => [k, { ...v }])), view: { ...scene.view }, moved: true, trail: [], dist: null } : null;
+  };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const p = local(e);
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    scene.zoomAt(p.x, p.y, Math.exp(-Math.max(-120, Math.min(120, dy)) * 0.0018));
+    redraw();
+  }, { passive: false });
+  fitBtn.addEventListener('click', home);
+  learnBtn.addEventListener('click', () => ((scene.selected = null), redraw(), info.replaceChildren(learnCard()), info.scrollIntoView?.({ behavior: still ? 'auto' : 'smooth', block: 'start' })));
+
+  let ro = null;
+  if (typeof ResizeObserver === 'function') {
+    ro = new ResizeObserver(() => size.w && resize());
+    ro.observe(wrap);
+  }
+  archLoop = { raf: 0, off: () => ro?.disconnect() };
+  archLoop.raf = requestAnimationFrame(tick);
+  showArchHome();
   return [wrap, info];
 }
 

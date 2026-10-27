@@ -62,6 +62,8 @@ const STATIC = {
   '/js/world/scene.js': 'renderer/js/world/scene.js',
   '/js/world/sprites.js': 'renderer/js/world/sprites.js',
   '/js/world/season.js': 'renderer/js/world/season.js',
+  // The Architecture map's drawing code (app code, no data), so a tablet draws the same map.
+  '/js/archdraw.js': 'renderer/js/archdraw.js',
 };
 // The village's rendered art (renderer/assets/world: WebP sprites and their manifest; CC0, no data).
 const WORLD_ART = /^\/assets\/world\/([\w.-]+\.(webp|json))$/;
@@ -94,7 +96,9 @@ const TURNS_PER_MIN = 20;
 const STREAMS_PER_DEVICE = 3;
 const MAX_CONNECTIONS = 64;
 const DEVICE_IDLE_MS = 90 * 24 * 60 * 60 * 1000; // a device unused this long is unpaired
-const STREAMED = new Set(['chat:event', 'approval:request', 'approval:cancel']);
+const STREAMED = new Set(['chat:event', 'approval:request', 'approval:cancel', 'info:changed']);
+// Settings sections that change what /api/info says (the persona's name, colors, face, effects, voice…).
+const INFO_SECTIONS = ['agent', 'appearance', 'ui', 'voice', 'calendar', 'remote', 'innerWorld', 'personas'];
 const CHAT_TYPES = new Set(['start', 'text', 'retract', 'tool_start', 'tool_end', 'notice', 'done', 'error', 'aborted']);
 
 let hooks = null; // { startTurn, abortTurn, notify } from main.js
@@ -299,6 +303,17 @@ function publish(channel, payload) {
 }
 
 const sse = (channel, payload) => `event: ${channel.replace(':', '.')}\ndata: ${JSON.stringify(payload)}\n\n`;
+
+// Settings changed (store.onChange): if the persona, its look or anything else /api/info carries may
+// have changed, devices hear "info.changed" and fetch /api/info again (coalesced: Settings saves often).
+let infoTimer = null;
+function settingsChanged(patch) {
+  if (!server || !patch || typeof patch !== 'object') return;
+  if (!Object.keys(patch).some((k) => INFO_SECTIONS.includes(k))) return;
+  clearTimeout(infoTimer);
+  infoTimer = setTimeout(() => publish('info:changed', { at: Date.now() }), 400);
+  infoTimer.unref?.();
+}
 
 // Devices get what the phone shows, nothing more: no tool arguments or results (file contents, commands,
 // notes), no internal events (settings, vault, self-change). The window keeps the full events.
@@ -693,6 +708,7 @@ const DATA_GET = {
   world: () => data.world(),
   skills: () => data.skills(),
   routines: () => data.routines(),
+  arch: () => data.arch(),
 };
 
 async function dataRoute(req, res, url, device) {
@@ -807,4 +823,4 @@ async function chat(req, res, device) {
   return json(res, 200, { requestId, conversationId: r.conversationId });
 }
 
-module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish };
+module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged };

@@ -898,6 +898,8 @@ app.whenReady().then(async () => {
       remoteAlert(ev);
     },
   });
+  // A persona switch or a changed look reaches paired phones (and, through them, the watch) at once.
+  store.onChange((s, patch) => companion.settingsChanged(patch));
   require('./tunnel').setListener((st) => send('remote:event', { type: 'tunnel', tunnel: st }));
   screenshare.setListener((st) => send('screen:state', st));
   docwindows.init({ root: ROOT, preload: path.join(ROOT, 'preload.js'), mainWindow: () => win, agentWindow: () => agentwindow.window(), guard: guardNavigation, captureConsole });

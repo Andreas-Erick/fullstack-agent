@@ -76,7 +76,7 @@ body.fx-rest *, body.fx-rest *::before, body.fx-rest *::after { animation-play-s
 }
 body.mac .titlebar { padding-left: 84px; padding-right: 14px; }
 /* Neither side shrinks under the other: when they don't fit, layout.js folds the bar (data-fold, below). */
-.brand { flex: none; display: flex; align-items: center; gap: 12px; }
+.brand { flex: none; min-width: max-content; display: flex; align-items: center; gap: 12px; }
 .brand-avatar { flex: none; width: 26px; height: 26px; border-radius: 50%; background: radial-gradient(circle, rgb(var(--c1)) 0 25%, transparent 30%), conic-gradient(from 0deg, rgb(var(--c1)), rgb(var(--c2)), rgb(var(--c3)), rgb(var(--c1))); background-size: cover; background-position: center; box-shadow: 0 0 12px rgba(var(--c1), 0.6); }
 .brand-name { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.24em; font-size: 14px; white-space: nowrap; background: linear-gradient(90deg, rgb(var(--c1-soft)), rgb(var(--c1)) 55%, rgb(var(--c2-soft))); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 8px rgba(var(--c1), 0.45)); }
 /* select.input: beats .input's padding (defined later), which squeezed the text in the 38px title bar. */
@@ -91,7 +91,8 @@ select.input.persona-select { width: auto; max-width: 180px; height: 26px; paddi
 .brand-status:has(:is(.listening, .thinking, .working, .speaking, .happy, .alert)) { color: rgb(var(--st)); border-color: rgba(var(--st), 0.5); box-shadow: 0 0 14px -4px rgba(var(--st), 0.6), inset 0 0 10px -6px rgba(var(--st), 0.7); }
 .state-wave { display: inline-flex; align-items: center; gap: 2px; height: 12px; }
 .state-wave i { width: 2px; height: 12px; border-radius: 1px; background: currentColor; transform: scaleY(0.25); }
-.brand-state { font-family: var(--font-display); font-size: 10px; letter-spacing: 0.18em; text-transform: var(--display-transform); color: inherit; }
+/* Its width is reserved for the longest state name (layout.js reserveStateWidth), so the capsule, and with it the whole bar, doesn't change width with every state. */
+.brand-state { font-family: var(--font-display); font-size: 10px; letter-spacing: 0.18em; text-transform: var(--display-transform); color: inherit; white-space: nowrap; }
 /* Groups: tools (zoom, agent window, system meter) and connections (brain, voice, calendar, vault). */
 .status-pills { flex: none; display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
 .tb-group { display: inline-flex; align-items: center; gap: 2px; height: 28px; box-sizing: border-box; padding: 0 3px; border: 1px solid var(--line); border-radius: 999px; background: rgba(var(--well), 0.5); }
@@ -127,7 +128,7 @@ select.input.persona-select { width: auto; max-width: 180px; height: 26px; paddi
 .shell { position: relative; z-index: 1; display: flex; height: calc(100% - var(--titlebar)); }
 .rail { width: 74px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; border-right: 1px solid var(--line); background: rgba(var(--bg-rgb), 0.55); }
 .rail-spacer { flex: 1; }
-.rail-btn { width: 58px; padding: 9px 0 7px; display: flex; flex-direction: column; align-items: center; gap: 4px; border: 1px solid transparent; border-radius: 12px; background: none; color: var(--muted); cursor: pointer; transition: 0.15s; }
+.rail-btn { width: 58px; padding: 9px 0 7px; display: flex; flex-direction: column; align-items: center; gap: 4px; border: 1px solid transparent; border-radius: 12px; background: none; color: var(--muted); cursor: pointer; transition: color 0.18s, background-color 0.18s, border-color 0.18s, box-shadow 0.25s; }
 .rail-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .rail-btn span { font-family: var(--font-display); font-size: 8.5px; letter-spacing: 0.12em; text-transform: var(--display-transform); }
 .rail-btn:hover { color: var(--text); background: rgba(var(--c1), 0.05); }
@@ -135,6 +136,12 @@ select.input.persona-select { width: auto; max-width: 180px; height: 26px; paddi
 .views { flex: 1; position: relative; min-width: 0; }
 .view { position: absolute; inset: 0; display: none; }
 .view.active { display: flex; }
+/* Views ease in instead of popping (the subtle look; "off" stays plain, and the HUD look has its own
+   entrance in hud.css: .materialize, with the beam and cascade): opacity and transform only, which the
+   compositor animates without repainting the view. */
+body.fx-subtle .view.active { animation: view-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes view-in { from { opacity: 0; transform: translateY(6px); } }
+body.fx-still .view.active { animation: none; }
 .view.padded { flex-direction: column; padding: 22px 28px; overflow: auto; }
 .view-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
 .view-head h2 { margin: 0; font-size: 20px; color: rgb(var(--c1-soft)); text-shadow: 0 0 18px rgba(var(--c1), 0.35); }
@@ -473,6 +480,9 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .health-item.off { opacity: 0.6; }
 .health-item .d { color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; margin-top: 2px; }
 .health-item .f { color: rgb(var(--warn)); font-size: 12px; margin-top: 2px; }
+/* A paired device's buttons share the third column (each in a column of its own, "Remove" ended up in the 22px light column, one letter per line). */
+.health-item .device-actions { gap: 6px; justify-content: flex-end; align-self: center; }
+.health-item .device-actions .btn { white-space: nowrap; }
 .log-view { max-height: 320px; overflow: auto; font-family: var(--font-mono); font-size: 11.5px; white-space: pre-wrap; background: rgba(var(--well), 0.7); border: 1px solid var(--line); border-radius: 10px; padding: 10px; color: var(--text-2); }
 
 /* ================= Onboarding ================= */

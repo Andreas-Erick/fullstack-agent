@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.0.3 — 2026-10-27
+
+The architecture map on your tablet, a quieter phone app, the watch listens on her own screen, and smoother motion on the desktop.
+
+- The Architecture map on your phone and tablet. *(More → Architecture: the same map as on the desktop, drawn from the same code. Pinch to zoom from containers to components to files, drag to move, tap a part for what it does and what it talks to, double tap to dive in; "Explain this to me" asks her in the chat. The design principles are there to read too.)*
+- Switching the persona reaches your devices at once. *(A persona switch or a changed look on the computer updates the name, colors and face on paired phones and tablets right away, and the phone passes the new look and face on to the watch. Before, the phone noticed only when it reconnected and the watch only when its app was opened again.)*
+- The watch listens on her own screen. *(Tap her face and she listens right there, her face in view, instead of the system's speech screen covering the app; a second tap sends what was heard so far. The first time it asks for the microphone. The system screen stays the fallback.)*
+- The phone app's "Reconnecting…" notification knows when to stop. *(With notifications-while-closed on, the connection now gives up quietly after ten minutes without the computer and starts again when you open the app, instead of showing "Reconnecting…" all day; its text no longer re-alerts on every change.)*
+- Siren's own mark in the Android status bar. *(The notification, tile and shortcut icon was still an "N" in a circle.)*
+- The title bar stopped flickering while she talks. *(Its state capsule changed width with every state (idle, speaking, thinking…), so a bar that barely fit folded and unfolded with each change and its labels flashed. The capsule now keeps the width of the longest state, and the bar unfolds only with room to spare.)*
+- "Remove" next to a paired device is a button again. *(It had landed in the narrow first column of the row and showed one letter per line.)*
+- Smoother transitions. *(Views ease in with motion the graphics card animates on its own; the blur that was applied to the whole view while it appeared, and the brightness flash on every card, stuttered on laptops and are gone. The same for the rail buttons.)*
+- A lighter Inner World. *(The village now draws at a steady 30 frames a second on the display's own beat instead of between frames; lamp light and the night sky's constellations are prepared once instead of every frame; the island is repainted less often while zooming and at a smaller size that still looks sharp; residents' roads are found once per route. On phones and tablets the picture is capped at what a mobile graphics chip holds, old pictures are freed at once, and a frame that fails says so on the screen instead of leaving a black box.)*
+- The phone app in Safari (iPhone, iPad). *(Added to the Home Screen it opens as its own app with the dark status bar; older Safari versions without dynamic viewport units or requestSubmit still work; holding the talk button no longer opens the copy menu; an iPad is named as one when pairing; and a script error shows as a notice so it can be reported.)*
+- Help for the old Nexus logo. *(The app and installer carry Siren's face since 2.0.0. If a computer still shows the "N", it is an older install or Windows' icon cache: TROUBLESHOOTING.md says what to do.)*
+
 ## 2.0.2 — 2026-10-27
 
 The watch shows her face reliably, the pairing QR code opens the app, and many fixes found by measuring every screen.

@@ -7,7 +7,9 @@ desktop version: the chat with the face and voice, and tabs for **Today** (sched
 - **Notifications while the app is closed** (switch in the app's menu): approvals with **Allow / Deny**
   buttons right in the notification, and replies to messages you sent from the phone. A small
   "Connected" notification stays while this is on; **Turn off** in it stops it. The connection goes
-  straight to your desktop. No push service or server of ours is involved.
+  straight to your desktop. No push service or server of ours is involved. When the computer can't be
+  reached for ten minutes (it is off, or the phone left the network), the connection stops quietly,
+  notification and all, and starts again the next time you open the app; the switch stays on.
 - **Talk tile** in Quick Settings and a **Talk** shortcut (long-press the icon): open the app and start
   listening; tap the mic to send. Needs the secure (https) address.
 - **Share → Siren** from any app puts the text in the message box.
@@ -22,7 +24,7 @@ The same app, laid out for big screens: on a tablet (upright or sideways), in De
 
 ## Galaxy Watch (Wear OS)
 
-`android/wear` is a small watch app for the Galaxy Watch 4 and newer (Wear OS 3+; the older Tizen watches can't run it). Tap Siren to ask by voice: the question goes **through the Siren app on your phone** (Bluetooth, Google's Wear Data Layer) to your computer, and the answer is spoken by the watch and shown on it. **Today** shows what's still coming on your schedule and your habits; tap one to check it off. **New chat** starts a fresh conversation (the watch keeps its own, apart from the phone's).
+`android/wear` is a small watch app for the Galaxy Watch 4 and newer (Wear OS 3+; the older Tizen watches can't run it). Tap Siren to ask by voice: she listens right on her own screen (the watch's speech recognition service; the first time it asks for the microphone), so her face stays in view instead of the system's speech screen covering the app (that screen is only the fallback when no speech service answers). A second tap ends the listening early. The question goes **through the Siren app on your phone** (Bluetooth, Google's Wear Data Layer) to your computer, and the answer is spoken by the watch and shown on it. **Today** shows what's still coming on your schedule and your habits; tap one to check it off. **New chat** starts a fresh conversation (the watch keeps its own, apart from the phone's).
 
 - **Install walkthrough** in the app too: Settings → Remote access → Install Siren on a Galaxy Watch, and the vault note "Install on your Galaxy Watch" (`main/guides/`).
 - **Nothing to pair on the watch:** it uses the phone's pairing. The phone app must be installed and connected to your computer. It works wherever the phone works, including over the phone's Tailscale.
@@ -30,7 +32,7 @@ The same app, laid out for big screens: on a tablet (upright or sideways), in De
 - **Approvals on the wrist:** turn on "Notify me about approvals and replies while the app is closed" in the phone app's menu. The phone's Allow / Deny notifications then appear on the watch by themselves.
 - **Install:** the watch app isn't in the Play Store yet, so it is installed from a computer with adb. On the watch: Settings → About watch → Software → tap *Software version* five times (developer options), then Settings → Developer options → **ADB debugging** and **Wireless debugging** on → *Pair new device*. On the computer (Android SDK platform-tools): `adb pair <ip>:<port>` with the code shown, `adb connect <ip>:<port>`, then `adb install Siren-Wear-x.y.z.apk`.
 - **Install both from the same release:** the phone and watch apps must be signed with the same key to talk to each other (both `-debug` or both signed).
-- **The persona on the wrist:** the watch shows the active persona's name and colors, her face (built-in or your custom one: the computer records it as short loops per state, sent once and again only when the face, theme or name changes) and speaks in her voice when the computer has one; otherwise the watch's own voice.
+- **The persona on the wrist:** the watch shows the active persona's name and colors, her face (built-in or your custom one: the computer records it as short loops per state, sent once and again only when the face, theme or name changes) and speaks in her voice when the computer has one; otherwise the watch's own voice. Switching the persona on the computer reaches the phone (its page and, with notifications on, the background connection) at once, and the phone passes the new look and face on to the watch.
 - What the watch shows says what to do when something is missing: the phone out of reach, the Siren phone app not installed or not paired, or the computer not answering.
 - **Security:** the watch app has no internet permission; it only talks to the Siren phone app, which accepts only the watch app signed with the same key, checks each message's size and allows 30 requests a minute.
 

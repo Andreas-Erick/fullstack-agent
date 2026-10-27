@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Monochrome notification / tile icon. -->
+<!-- Monochrome notification / tile / shortcut icon: Siren's mark, a ring with her song (a wave) inside.
+     Android paints it in one color, so only the shape matters. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -11,6 +12,13 @@
         android:strokeWidth="2"
         android:pathData="M12,3a9,9 0,1 1,0 18a9,9 0,1 1,0 -18z" />
     <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M6.5,12c1.4,-3.6 2.8,-3.6 4.2,0s2.8,3.6 4.2,0 2.4,-2.9 3.3,-1.2" />
+    <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M8.5,16V8h1.8l3.4,5V8h1.8v8h-1.8L10.3,11v5z" />
+        android:pathData="M12,6.2a1.1,1.1 0,1 1,0 2.2a1.1,1.1 0,1 1,0 -2.2z" />
 </vector>

@@ -115,6 +115,24 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.add('hidden'), 4000);
 }
 
+// A phone has no developer console: a script error (a screen that failed to draw, a browser missing a
+// feature) shows as a notice instead of a silent blank, so it can be reported.
+let lastError = '';
+window.addEventListener('error', (e) => {
+  const text = String(e.message || e.error?.message || 'Script error');
+  if (text === lastError) return;
+  lastError = text;
+  toast(`Something went wrong: ${text.slice(0, 160)}`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason;
+  if (r instanceof AuthError || r?.name === 'AbortError') return;
+  const text = String(r?.message || r || 'Error');
+  if (text === lastError) return;
+  lastError = text;
+  toast(`Something went wrong: ${text.slice(0, 160)}`);
+});
+
 class AuthError extends Error {}
 
 async function api(path, { method = 'GET', body, raw = false } = {}) {
@@ -215,13 +233,21 @@ $('#pairForm').addEventListener('submit', (e) => {
 $('#pairCode').addEventListener('input', (e) => {
   const v = e.target.value.replace(/\D/g, '').slice(0, 6);
   if (v !== e.target.value) e.target.value = v;
-  if (v.length === 6 && document.activeElement === e.target) $('#pairForm').requestSubmit();
+  if (v.length === 6 && document.activeElement === e.target) submitForm($('#pairForm'));
 });
+
+// Submits a form the way Enter would (older Safari has no requestSubmit).
+function submitForm(form) {
+  if (form.requestSubmit) form.requestSubmit();
+  else form.querySelector('button[type="submit"]')?.click();
+}
 
 function guessName() {
   const ua = navigator.userAgent;
-  if (/Android/i.test(ua)) return 'Android phone';
-  if (/iPhone|iPad/i.test(ua)) return 'iPhone';
+  if (/Android/i.test(ua)) return /Mobile/i.test(ua) ? 'Android phone' : 'Android tablet';
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  // An iPad announces itself as a Mac (Safari's desktop mode), but a Mac has no touch screen.
+  if (/iPad/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) return 'iPad';
   return 'Browser';
 }
 
@@ -284,6 +310,18 @@ function dispatch(block) {
   if (event === 'chat.event') onChat(payload);
   else if (event === 'approval.request') addApproval(payload);
   else if (event === 'approval.cancel') removeApproval(payload.id);
+  else if (event === 'info.changed') onInfoChanged();
+}
+
+// The persona was switched, or its look changed, on the computer: name, colors, face and the rest of
+// /api/info follow here at once; the Android app passes the news on to a paired watch.
+let infoTimer = null;
+function onInfoChanged() {
+  clearTimeout(infoTimer);
+  infoTimer = setTimeout(() => {
+    applyInfo();
+    android?.lookChanged?.();
+  }, 250);
 }
 
 let connTimer;
@@ -554,7 +592,7 @@ $('#input').addEventListener('keydown', (e) => {
   // Tablets count too: a Book Cover keyboard doesn't make the pointer "fine".
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && (matchMedia('(pointer: fine)').matches || document.body.classList.contains('wide'))) {
     e.preventDefault();
-    $('#composer').requestSubmit();
+    submitForm($('#composer'));
   }
 });
 const autosize = () => {
