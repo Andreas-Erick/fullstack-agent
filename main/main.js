@@ -271,6 +271,23 @@ function startRoutines() {
   });
 }
 
+// Tasks from Todoist / TickTick (tasks.js): "Sync tasks" in the calendar is an assistant turn in its own
+// conversation (it fetches with the connector and saves with tasks_save); the calendar hears about changes.
+function startTasks() {
+  require('./tasks').init({
+    run: (text, conversationId) =>
+      new Promise((resolve) => {
+        const requestId = `tk${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+        const timer = setTimeout(() => {
+          activeRequests.get(requestId)?.abort();
+          resolve({ ok: false, error: 'Stopped after 5 minutes.' });
+        }, 5 * 60000);
+        startTurn({ conversationId: conversationId || undefined, text, requestId, display: '🔄 Sync my tasks for the calendar', onFinish: (r) => (clearTimeout(timer), resolve(r)) }).catch((err) => (clearTimeout(timer), resolve({ ok: false, error: err.message })));
+      }),
+    changed: () => toWindow('tasks:changed', {}),
+  });
+}
+
 // Security events from remote access get a system notification too, so they are seen when the window
 // is in the background: a device was paired, or a paired device connected from a network it never used.
 function remoteAlert(ev) {
@@ -500,6 +517,8 @@ function registerIpc() {
   // Calendar
   // Schedule (Schedule.md in the vault); changes made here are the user's own.
   handle('calendar:status', () => calendar.status());
+  handle('tasks:status', () => require('./tasks').status());
+  handle('tasks:sync', () => require('./tasks').sync());
   handle('calendar:events', (range) => calendar.events(range || {}));
   handle('calendar:entries', () => calendar.entries());
   handle('calendar:add', (input) => calendar.add(scheduleInput(input), { source: 'user' }));
@@ -986,6 +1005,7 @@ app.whenReady().then(async () => {
   if (!smoke.active) helperApps.ensureAll(s, 'launch');
   journal.start();
   startRoutines();
+  startTasks();
   require('./innerworld').start({ notify: (ev) => toWindow('world:event', ev) });
   if (!smoke.active) require('./updates').start({ notify: (st) => toWindow('updates:state', st) });
   store.sweepStaleTemp().catch(() => {});

@@ -907,6 +907,20 @@ body.doc-popup .toasts { right: 14px; bottom: 30px; }
 .cal-row .bar, .cal-rule .bar, .cal-modal-head .bar { align-self: stretch; width: 3px; border-radius: 3px; background: var(--ev-c); box-shadow: 0 0 8px rgba(var(--ev), 0.7); }
 .cal-row .what { display: flex; flex-direction: column; min-width: 0; }
 .cal-row .what b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Tasks from Todoist / TickTick (calendar.js tasksPanel, taskPill, taskRow): a checkbox mark and the
+   app's colour (theme tokens: Todoist the error red, TickTick the second accent). */
+:is(.cal-task, .cal-task-row).todoist { --ev: var(--err); --ev-c: rgb(var(--err)); }
+:is(.cal-task, .cal-task-row).ticktick { --ev: var(--c2); --ev-c: rgb(var(--c2)); }
+.cal-pill.cal-task { background: rgba(var(--ev), 0.08); box-shadow: inset 0 0 0 1px rgba(var(--ev), 0.35); }
+.cal-check { flex: none; width: 10px; height: 10px; border-radius: 3px; border: 1.5px solid var(--ev-c); background: none; }
+.cal-task-row { grid-template-columns: 72px 12px minmax(0, 1fr); }
+.cal-task-row .cal-check { justify-self: center; }
+.cal-task-row.late .tm { color: rgb(var(--warn)); }
+.cal-task-row .what small { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-tasks-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cal-task-group { display: flex; flex-direction: column; gap: 2px; }
+.cal-task-group > small { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em; color: var(--muted); margin: 4px 0 2px; }
+.cal-task-group > small.cal-late { color: rgb(var(--warn)); }
 .cal-row small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cal-side .cal-row { grid-template-columns: 88px 3px minmax(0, 1fr); padding: 6px 4px; gap: 9px; }
 .cal-side .cal-row .tm { font-size: 11px; }

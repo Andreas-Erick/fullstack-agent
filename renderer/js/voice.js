@@ -797,7 +797,28 @@ function encodeWav(samples, rate = 16000) {
 // raw: skip the vocabulary hint and the learned corrections (voice calibration measures without them).
 export async function transcribe(samples, { raw = false } = {}) {
   const s = state.settings.stt;
-  if (s.engine === 'remote') return cleanTranscript(await api.stt.transcribe(encodeWav(samples), { raw }), { raw });
+  // Cloud: Groq's Whisper Large v3 Turbo ("groq") or a custom endpoint ("remote"), sent by main/voice.js.
+  if (s.engine === 'remote' || s.engine === 'groq') return cleanTranscript(await api.stt.transcribe(encodeWav(samples), { raw }), { raw });
+  // Local, with Groq as the fallback (stt.cloudFallback): while the model is still loading (the first
+  // minutes after a start or after it was unloaded), or if it fails, the cloud answers instead; the
+  // local model keeps loading for next time.
+  if (s.cloudFallback && !raw) {
+    if (!workerReady) {
+      getWorker(currentPlan());
+      return cleanTranscript(await api.stt.transcribe(encodeWav(samples), { provider: 'groq' }));
+    }
+    try {
+      return await transcribeLocal(samples, { raw });
+    } catch (err) {
+      logEvent('warn', 'local speech-to-text failed; using Groq', { error: err.message });
+      return cleanTranscript(await api.stt.transcribe(encodeWav(samples), { provider: 'groq' }));
+    }
+  }
+  return transcribeLocal(samples, { raw });
+}
+
+async function transcribeLocal(samples, { raw = false } = {}) {
+  const s = state.settings.stt;
   const w = getWorker(currentPlan());
   const id = ++reqId;
   const copy = new Float32Array(samples);

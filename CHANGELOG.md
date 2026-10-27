@@ -1,6 +1,13 @@
 # Changelog
 
-## 2.3.0 — 2026-10-27
+## 2.3.1 — 2026-10-27
+
+The first release of everything below. (2.3.0 was tagged but never published: its new launch check found two layout problems on the build machine's smaller screen, fixed here.)
+
+- Your Todoist and TickTick tasks in the calendar. *(With the connector on, press Sync in the calendar and the assistant fetches your tasks with a due date; they appear in the month, week and agenda views with their app's colour, and the side panel lists what is overdue and due on the selected day. Open one to reschedule it or mark it done through the assistant, or to open it in the app. The assistant also refreshes them whenever it looks your tasks up.)*
+- Cloud speech recognition as an option. *(Local Whisper stays the default and keeps your voice on your computer. In Settings → Voice input you can let Groq's Whisper (free key, no card) stand in while the local model loads or if it fails, or use it instead, with a choice of Turbo (fastest) or Large v3 (a little more accurate).)*
+
+## 2.3.0 — 2026-10-27 (not published)
 
 Study packs with exact charts and PDFs, mixed flashcard learning, a redesigned Flashcards view, quicker answers to quick questions, fewer “may I?” questions for your connected services, a clear screen on the phone when the computer can’t be reached, and many fixes found by new tests.
 
