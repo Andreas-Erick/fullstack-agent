@@ -709,6 +709,8 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .world-body { position: relative; flex: 1; min-height: 0; display: flex; gap: 12px; padding: 0 16px 16px; }
 .world-canvas { flex: 1; min-width: 0; height: 100%; display: block; border-radius: var(--radius); }
 .world-panel { width: min(380px, 40%); padding: 16px 18px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+/* Its cards and buttons keep their height and the panel scrolls (a short window squeezed the "Wake the world" button and cut its text). */
+.world-panel > * { flex-shrink: 0; }
 .world-panel h3 { margin: 0; display: flex; align-items: center; gap: 6px; }
 .world-panel p { margin: 0; color: var(--text-2); line-height: 1.5; }
 .world-sec { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
