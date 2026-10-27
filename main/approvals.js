@@ -14,10 +14,11 @@ const pending = new Map(); // id -> resolve
 // Self-changes, shell commands, calendar changes that email other people, cloning a voice from a
 // recording, publishing to GitHub (push, pull request) and the user's connectors (their accounts in
 // other services) always need a human, even in auto mode.
-const ALWAYS_ASK = new Set(['self_modify', 'command', 'invite', 'voice_clone', 'github_publish', 'connector']);
+// Giving a connector more permission (tool connector_permission) always asks too.
+const ALWAYS_ASK = new Set(['self_modify', 'command', 'invite', 'voice_clone', 'github_publish', 'connector', 'connector_trust']);
 // Each of these names different people, a different recording or a different service, so one yes
 // never covers the next (claudecode.js remembers a connector's yes per service for the turn).
-const EACH_TIME = new Set(['invite', 'voice_clone', 'github_publish', 'connector']);
+const EACH_TIME = new Set(['invite', 'voice_clone', 'github_publish', 'connector', 'connector_trust']);
 let sender = null;
 
 function setSender(fn) {
@@ -37,9 +38,10 @@ function markTainted(turn, source) {
 /**
  * @param {object} turn per-turn state from newTurn()
  * @param {string} kind self_modify | settings | delete | command | calendar | invite | voice | voice_clone | repo_change | github_publish | connector | browser
- * @returns {Promise<{allow: boolean, reason?: string}>}
+ * @param {object} [extra] e.g. `remember`: [{ level, label }] "from now on" choices the dialog offers
+ * @returns {Promise<{allow: boolean, reason?: string, remember?: string}>} remember = the choice the user picked
  */
-async function gate(turn, kind, title, detail = '') {
+async function gate(turn, kind, title, detail = '', extra = {}) {
   const s = await store.getSettings();
   if (turn?.approved.has(kind) && !EACH_TIME.has(kind)) return { allow: true };
   const tainted = Boolean(turn?.tainted) && kind === 'self_modify' && s.safety.taintGuard;
@@ -47,8 +49,8 @@ async function gate(turn, kind, title, detail = '') {
     turn?.approved.add(kind);
     return { allow: true, auto: true };
   }
-  const res = await ask({ kind, title, detail, tainted, sources: turn?.taintSources || [], timeoutSec: s.safety.approvalTimeoutSec || 75 });
-  log.info('approval', { kind, title, allow: res.allow, reason: res.reason });
+  const res = await ask({ ...extra, kind, title, detail, tainted, sources: turn?.taintSources || [], timeoutSec: s.safety.approvalTimeoutSec || 75 });
+  log.info('approval', { kind, title, allow: res.allow, reason: res.reason, remember: res.remember });
   if (res.allow) turn?.approved.add(kind);
   return res;
 }
@@ -103,11 +105,12 @@ function askRecording({ script, seconds, mode = 'clone', title, intro }) {
   });
 }
 
-function respond(id, allow, reason) {
+// `remember` (a "from now on" choice) comes only from the app window (approval:respond), never from a device.
+function respond(id, allow, reason, remember) {
   const resolve = pending.get(id);
   if (!resolve) return false;
   pending.delete(id);
-  resolve({ allow: Boolean(allow), reason: reason || (allow ? '' : 'The user said no.') });
+  resolve({ allow: Boolean(allow), reason: reason || (allow ? '' : 'The user said no.'), ...(allow && typeof remember === 'string' ? { remember } : {}) });
   // Answered in one place (desktop, phone, notification): close it everywhere else.
   sender?.('approval:cancel', { id, answered: true });
   return true;

@@ -15,6 +15,7 @@
     <string name="no_speech">Voice input isn\'t available on this watch.</string>
     <string name="didnt_catch">I didn\'t catch that. Tap to try again.</string>
     <string name="timeout">No answer from your phone. Is Siren running on your computer?</string>
+    <string name="computer_offline">Your computer isn\'t answering. Is it on, with Siren open? Your phone keeps trying; tap to ask again.</string>
     <string name="habits">Habits</string>
     <string name="schedule">Schedule</string>
     <string name="nothing_today">Nothing more scheduled today.</string>

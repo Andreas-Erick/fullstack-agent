@@ -16,7 +16,12 @@
     <string name="setup_connect">Connect</string>
     <string name="setup_invalid">Enter an address starting with https:// or http://</string>
     <string name="error_title">Can\'t reach the assistant</string>
-    <string name="error_retry">Try again</string>
+    <string name="error_retry">Try again now</string>
+    <string name="error_unreachable">Your computer isn\'t answering. It may be off or asleep, or Siren may be closed on it.</string>
+    <string name="error_not_found">This address can\'t be found from here. Check your internet connection, or whether the address is still right.</string>
+    <string name="error_gateway">The secure address works, but the computer behind it isn\'t answering: it may be off or asleep, or Siren may be closed.</string>
+    <string name="error_checks">Check that the computer is on and awake, Siren is open, and remote access is on (Settings → Remote access).</string>
+    <string name="error_auto">Trying again by itself in %d s</string>
     <string name="error_change">Change address</string>
     <string name="error_tailscale">This is a Tailscale address. Check, in this order:
 1. The Tailscale app on this phone says Connected, signed in with the same account as the computer.

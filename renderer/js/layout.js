@@ -131,8 +131,16 @@ function fitTitlebar() {
   const brand = $('.brand');
   const pills = $('.status-pills');
   reserveStateWidth();
-  // Free space between the two sides; negative when the bar overflows (overflow is hidden).
-  const slack = () => (bar.scrollWidth > bar.clientWidth + 1 ? bar.clientWidth - bar.scrollWidth : pills.getBoundingClientRect().left - brand.getBoundingClientRect().right);
+  // Free space between the two sides; negative when the bar overflows (overflow is hidden). Measured on
+  // the content itself, never with scrollWidth: the HUD's scan line (.titlebar::after, a transform that
+  // sweeps past the right edge every few seconds) inflates scrollWidth, and a fit at that moment folded
+  // the bar for nothing, which then unfolded or stuck folded: the title bar's jitter.
+  const slack = () => {
+    const box = bar.getBoundingClientRect();
+    const end = box.left + bar.clientLeft + bar.clientWidth - (parseFloat(getComputedStyle(bar).paddingRight) || 0);
+    const over = pills.getBoundingClientRect().right - end;
+    return over > 1 ? -over : pills.getBoundingClientRect().left - brand.getBoundingClientRect().right;
+  };
   const slackAt = (level) => ((bar.dataset.fold = String(level)), slack());
   const before = Number(bar.dataset.fold) || 0;
   let level = 0;

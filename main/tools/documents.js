@@ -30,7 +30,38 @@ module.exports = [
       const r = await require('../diagrams').save(a.title, a.html);
       ctx.emit({ type: 'vault_changed', path: r.vaultPath });
       const shown = a.open === false ? null : documents.popup().open(r.path, { monitor: a.monitor });
-      return { saved: r.vaultPath, opened: Boolean(shown), monitor: shown?.monitor };
+      return { saved: r.vaultPath, opened: Boolean(shown), monitor: shown?.monitor, embedInPdf: `![[${r.vaultPath}]]` };
+    },
+  },
+  {
+    name: 'chart_create',
+    group: 'documents',
+    description:
+      'Draw an exact chart for study material or an explanation, computed by the app (never sketch a function plot by hand): kind line (formulas in x such as "x^2 - 3x + 2", "sin(x)/x", "e^(-x^2)", "ln(x)", and/or data points), scatter (points) or bar (labels and values). Up to 7 series, labelled, in print-friendly colours. Saved in the vault\'s Diagrams/ folder and shown; put it into a PDF with the returned embedInPdf line. Formulas: x, pi, e, + - * / ^, parentheses, sin cos tan asin acos atan sinh cosh tanh exp ln log (base 10) log2 sqrt cbrt abs floor ceil round sign; "2x" and "3(x+1)" work.',
+    parameters: obj(
+      {
+        title: str('Chart title (also the file name)'),
+        kind: { type: 'string', enum: ['line', 'scatter', 'bar'], description: 'line (default) | scatter | bar' },
+        series: {
+          type: 'array',
+          description: 'line/scatter: [{ label, fn } or { label, points: [[x, y], …] }]; bar: [{ label, values: [one number per label] }]',
+          items: { type: 'object', properties: { label: str('Legend label'), fn: str('A formula in x (line charts)'), points: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: '[[x, y], …]' }, values: { type: 'array', items: { type: 'number' }, description: 'Bar heights, one per label' } }, additionalProperties: false },
+        },
+        labels: { type: 'array', items: { type: 'string' }, description: 'Bar charts: the category names' },
+        xRange: { type: 'array', items: { type: 'number' }, description: '[from, to]; required with formulas' },
+        yRange: { type: 'array', items: { type: 'number' }, description: 'Optional [from, to]; chosen automatically otherwise (asymptotes are cut off)' },
+        xLabel: str('Optional x-axis label'),
+        yLabel: str('Optional y-axis label'),
+        open: bool('Show it now (default true)'),
+      },
+      ['title', 'series'],
+    ),
+    run: async (a, ctx) => {
+      const svg = require('../chartcore').render(a);
+      const r = await require('../diagrams').save(a.title, svg);
+      ctx.emit({ type: 'vault_changed', path: r.vaultPath });
+      const shown = a.open === false ? null : documents.popup().open(r.path);
+      return { saved: r.vaultPath, opened: Boolean(shown), embedInPdf: `![[${r.vaultPath}]]` };
     },
   },
   {
@@ -99,13 +130,17 @@ module.exports = [
     name: 'create_pdf',
     group: 'documents',
     description:
-      "Create a PDF the user can keep, print or send: from Markdown you write (a summary, report, letter, checklist…) or from a vault note (vault_note). Saved in the user's workspace folder (or Documents/Siren Exports) without overwriting anything, and opened in a window unless open is false. Remote images are not included.",
+      "Create a PDF the user can keep, print or send: from Markdown you write (a summary, study sheet, report, letter, checklist…) or from a vault note (vault_note). Formulas in $…$ / $$…$$ are typeset. Put diagrams and charts in by their saved path on a line of its own: ![[Diagrams/2026-10-27 Krebs cycle.html]] (optionally ![[…|caption]]), as returned by diagram_save and chart_create. Saved in the user's workspace folder (or Documents/Siren Exports) without overwriting anything, and opened in a window unless open is false. Remote images are not included.",
     parameters: obj({ title: str('Document title (also the file name)'), content: str('Markdown content (omit when exporting a vault note)'), vault_note: str('Vault note to export instead (path or name)'), open: bool('Open it afterwards (default true)') }, ['title']),
     run: async (a) => {
       let markdown = a.content;
       if (a.vault_note) markdown = (await obsidian.readNote(a.vault_note)).content.replace(/^---[\s\S]*?---\s*/, '');
       if (!String(markdown || '').trim()) throw new Error('Give the content (Markdown) or a vault_note to export.');
-      const r = await pdf.create({ title: a.title, markdown });
+      // Diagrams and charts from the vault's Diagrams/ folder, drawn into the PDF.
+      const root = await obsidian.vaultPath();
+      const read = (rel) => require('fs').promises.readFile(require('../files').resolveInside(root, rel), 'utf8');
+      const doc = root ? await require('../diagrams').embedDiagrams(markdown, read) : { markdown, embeds: [] };
+      const r = await pdf.create({ title: a.title, markdown: doc.markdown, embeds: doc.embeds });
       if (a.open !== false) documents.popup().open(r.path);
       return { saved: r.path, sizeKB: r.kb, opened: a.open !== false };
     },

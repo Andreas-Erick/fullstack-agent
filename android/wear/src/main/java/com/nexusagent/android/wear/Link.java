@@ -28,7 +28,7 @@ final class Link {
     /** What came back: the JSON answer, or why there is none. */
     static final class Result {
         final JSONObject body; // null on failure
-        final String problem; // null | no_phone | no_relay | unpaired | offline | timeout
+        final String problem; // null | no_phone | no_relay | unpaired | unreachable | offline | timeout
         final String error; // a readable reason from the computer, for offline
 
         Result(JSONObject body, String problem, String error) {
@@ -54,7 +54,9 @@ final class Link {
         if (cb == null) return;
         String status = body.optString("status", "ok");
         Consumer<Result> done = cb;
-        main.post(() -> done.accept(status.equals("ok") ? new Result(body, null, null) : new Result(null, status, body.optString("error", null))));
+        // "offline" + reason "unreachable": the computer didn't answer at all; the watch words that itself.
+        String problem = status.equals("offline") && body.optString("reason").equals("unreachable") ? "unreachable" : status;
+        main.post(() -> done.accept(status.equals("ok") ? new Result(body, null, null) : new Result(null, problem, body.optString("error", null))));
     };
 
     Link(Context context) {

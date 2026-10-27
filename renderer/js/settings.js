@@ -648,6 +648,8 @@ function brainCard() {
       select('llm.modelMode', 'Model mode', [['default', 'Default'], ['fast', 'Fast'], ['deep', 'Deep']], { hint: 'Also by voice: “switch to the fast / deep model”.' }),
       el('div', { style: { alignSelf: 'center' } }, toggle('llm.voiceUsesFast', 'Use the fast model for spoken turns')),
     ),
+    toggle('llm.autoPace', 'Match thinking to the message: quick lookups (“what’s on tomorrow?”) get the fast model, explanations get more thought'),
+    el('div', { class: 'hint' }, 'Decided on this computer in an instant, per message, with no restart. Only in model mode Default.'),
     toggle('llm.useTools', 'Enable tools (memory, calendar, notes, code, documents)'),
     text('llm.maxToolRounds', 'Max tool rounds per reply', { type: 'number' }),
     el('div', { class: 'row' }, test),

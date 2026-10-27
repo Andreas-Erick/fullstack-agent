@@ -18,6 +18,7 @@ const approvals = require('./approvals');
 const router = require('./router');
 const log = require('./logger');
 const { isEngineeringTask, toolBudget, upgradeBudget, turnEffort } = require('./engineering');
+const pace = require('./pace');
 
 const noToolSupport = new Set(); // `${baseUrl}|${model}` combos that rejected the tools parameter
 
@@ -137,9 +138,10 @@ async function testAll(settings, started) {
  * @param {AbortSignal} opts.signal
  * @returns {Promise<{ text: string, toolCalls: Array, raw: object|null, model: string }>}
  */
-// The model for this turn, honoring the fast/deep mode (switchable by voice) and "fast for voice".
-function effectiveModel(settings, { voice = false } = {}) {
-  const mode = voice && settings.llm.voiceUsesFast ? 'fast' : settings.llm.modelMode || 'default';
+// The model for this turn, honoring the fast/deep mode (switchable by voice) and "fast for voice";
+// `mode` overrides both (the turn's pace, pace.js).
+function effectiveModel(settings, { voice = false, mode: forced } = {}) {
+  const mode = forced || (voice && settings.llm.voiceUsesFast ? 'fast' : settings.llm.modelMode || 'default');
   const pick = (cfg, base) => (mode === 'fast' && cfg.fastModel) || (mode === 'deep' && cfg.deepModel) || base;
   if (settings.llm.provider === 'claude-code') return pick(settings.claudeCode, settings.claudeCode.model);
   if (settings.llm.provider === 'anthropic') return pick(settings.anthropic, settings.anthropic.model);
@@ -151,7 +153,7 @@ function sessionConfigKey(settings) {
   const { agent, appearance, voice, safety, code, web } = settings;
   return JSON.stringify([agent.name, agent.personality, agent.aesthetic, appearance.personaNotes, voice.ttsEnabled && voice.autoSpeak, safety.permissionMode, code.enabled, code.allowSelfModify, web.enabled, PROMPT_VERSION]);
 }
-const PROMPT_VERSION = 10;
+const PROMPT_VERSION = 11;
 
 async function claudeCodeOptions(settings, active, model) {
   const names = active.map((t) => t.name);
@@ -228,13 +230,16 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   const lastText = String(history[history.length - 1]?.content || '');
   // Spoken turns stay quick unless they actually start engineering work (upgraded in runTool).
   const engineering = !setup && !voice && isEngineeringTask(lastText);
-  const ctx = { emit, turn: approvals.newTurn(), logTags: log.context(), budget: toolBudget(settings, engineering) };
+  // How much thinking this message needs (pace.js): a lookup gets the fast model at low effort.
+  const base = settings.llm.provider === 'claude-code' ? settings.claudeCode.effort : settings.llm.provider === 'anthropic' ? settings.anthropic.effort : 'default';
+  const paced = pace.plan(settings, { text: lastText, voice, setup, engineering, base });
+  const ctx = { emit, turn: approvals.newTurn(), logTags: log.context(), budget: toolBudget(settings, engineering), effort: paced.effort };
   // A screenshot can contain anything on screen (web pages, emails): it is external content.
   if (images.length) approvals.markTainted(ctx.turn, 'the shared screen');
-  const model = effectiveModel(settings, { voice });
-  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', voice, setup, engineering: engineering || undefined, images: images.length || undefined, conversation: conv.id, text: lastText.slice(0, 200) });
+  const model = effectiveModel(settings, { voice, mode: paced.mode });
+  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', pace: paced.pace, effort: paced.effort, voice, setup, engineering: engineering || undefined, images: images.length || undefined, conversation: conv.id, text: lastText.slice(0, 200) });
   if (settings.llm.provider === 'claude-code') {
-    const opts = await claudeCodeOptions(settings, active, model);
+    const opts = { ...(await claudeCodeOptions(settings, active, model)), effort: paced.effort };
     if (setup) {
       // The setup interview keeps one stable session even though the answers change the persona.
       opts.configKey = 'first-run-setup';

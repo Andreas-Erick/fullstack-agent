@@ -261,6 +261,17 @@ class Session {
     this.requestedModel = want;
   }
 
+  // The turn's effort (pace.js), also in place: apply_flag_settings sets effortLevel on the live
+  // session; null drops back to what the session started with (no --effort = the model's default).
+  setEffort(level) {
+    if (level === undefined) return;
+    const want = level && level !== 'default' ? level : this.baseEffort;
+    if (!this.alive() || want === this.requestedEffort) return;
+    this.child.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: crypto.randomUUID(), request: { subtype: 'apply_flag_settings', settings: { effortLevel: want } } })}\n`);
+    log.info('claude effort switched', { conversation: this.convId, from: this.requestedEffort || 'default', to: want || 'default' });
+    this.requestedEffort = want;
+  }
+
   async spawn(spec) {
     // The old process must be gone before the conversation is resumed in a new one.
     await this.kill();
@@ -272,6 +283,8 @@ class Session {
     if (spec.extensions?.['gods-eye-view']) store.getSettings().then((s) => require('./extensions').ensureGodsEye(s)).catch((err) => log.warn('godseye warm start failed', { error: err }));
     this.spec = spec;
     this.requestedModel = spec.model || 'default';
+    this.baseEffort = spec.effort && spec.effort !== 'default' ? spec.effort : null;
+    this.requestedEffort = this.baseEffort;
     this.dead = false;
     this.stderr = '';
     this.sentAny = false;
@@ -428,17 +441,22 @@ class Session {
     if (connectors.isConnectorTool(tool)) {
       if (!this.spec.connectors && !(connectors.toolServer(tool) in (this.spec.extensions || {}))) return { behavior: 'deny', message: 'Connectors are turned off in Settings.' };
       // Connectors act in the user's accounts (send, post, create, delete), so they ask even in auto
-      // mode; one yes covers that connector for the rest of the turn. A connector the user marked
-      // "always allow" is in --allowedTools and never gets here.
+      // mode; one yes covers that connector for the rest of the turn. The user's level for the service
+      // (connectors.levelOf: allow reading / all but deleting / everything) is read live, so a change
+      // applies at once, even mid-turn, and taking a permission back never waits for a restart.
       const server = connectors.toolServer(tool);
       if (turnState?.connectorsApproved?.has(server)) return { behavior: 'allow', updatedInput: input };
-      // "Allow reading": a tool whose name says it only reads runs without asking (routines need this).
-      if (this.spec.readOnly?.includes(server) && connectors.isReadOnly(tool)) return { behavior: 'allow', updatedInput: input };
-      // "Allow all but deleting": creating and changing run on their own; anything that deletes still asks.
-      if (this.spec.write?.includes(server) && !connectors.isDestructive(tool)) return { behavior: 'allow', updatedInput: input };
+      const cc = (await store.getSettings()).claudeCode;
+      if (connectors.permits(connectors.levelOf(cc, server), tool)) return { behavior: 'allow', updatedInput: input };
       const { service, action } = connectors.describeTool(tool);
-      const r = await approvals.gate(turnState, 'connector', `Use ${service}: ${action}`, JSON.stringify(input, null, 2).slice(0, 1500));
+      const choices = connectors.rememberChoices(tool);
+      const r = await approvals.gate(turnState, 'connector', `Use ${service}: ${action}`, JSON.stringify(input, null, 2).slice(0, 1500), { remember: choices });
       if (r.allow && turnState) (turnState.connectorsApproved ||= new Set()).add(server);
+      // "Always allow…" in the dialog (the user's click or spoken "always"): only a level offered for this tool.
+      if (r.allow && choices.some((c) => c.level === r.remember)) {
+        await store.setSettings({ claudeCode: connectors.levelPatch((await store.getSettings()).claudeCode, server, r.remember) });
+        log.info('connector level set from approval', { server, level: r.remember });
+      }
       return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
     }
     if (tool === 'Read' || tool === 'Glob' || tool === 'Grep') {
@@ -530,6 +548,11 @@ class Session {
     if (msg.type === 'rate_limit_event') return claudeUsage.update(msg.rate_limit_info);
     // The end of a turn that was interrupted (see interrupt()).
     if (msg.type === 'result' && this.afterInterrupt) return this.afterInterrupt();
+    // A control request (model, effort, interrupt) the CLI refused: worth knowing, never fatal.
+    if (msg.type === 'control_response') {
+      if (msg.response?.subtype === 'error') log.warn('claude control request refused', { error: String(msg.response.error || '').slice(0, 300) });
+      return;
+    }
     if (!t || t.settled) return;
     if (msg.type === 'result') {
       // A plan's usage limit can come back as the reply text itself; it is an error (so multi-provider mode falls back).
@@ -607,24 +630,20 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   // Extensions (extensions.js): MCP servers Nexus adds itself; they work with connectors off too.
   const extensionServers = require('./extensions').mcpServers(settings);
   const extensionKeys = Object.keys(extensionServers);
-  // Permission levels apply to every server in reach: all of them with connectors on, else the extensions.
-  const inReach = (list) => connectors.allowedKeys(list).filter((k) => withConnectors || extensionKeys.includes(k));
+  // Connector and extension tools are never pre-allowed: every call comes to approve(), which checks
+  // the user's permission level for that server live (no session restart when a level changes).
   if (withConnectors || extensionKeys.length) {
     builtins.push('ToolSearch');
-    allowed.push('ToolSearch', ...inReach(cc.connectorsAllowed).map((k) => `mcp__${k}`));
+    allowed.push('ToolSearch');
   }
   if (withConnectors) {
     builtins.push('Skill');
     allowed.push('Skill');
   }
   const toolNames = activeTools.map((t) => t.name);
-  const readOnly = inReach(cc.connectorsReadOnly);
-  const write = inReach(cc.connectorsWrite);
   const spec = {
     connectors: withConnectors,
     extensions: extensionServers,
-    readOnly,
-    write,
     system: '',
     builtins,
     allowed,
@@ -644,7 +663,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   // memories change (those reach the agent through the per-turn context) and not for a model switch
   // (Session.setModel changes it in place).
   // Each part named, so a restart can say what changed (see ensureSession).
-  spec.keyParts = { config: configKey, builtins, allowed, tools: toolNames, folders: [cwd, vault, repos, ...readRoots], effort: cc.effort, connectors: [withConnectors, readOnly, write], extensions: extensionServers };
+  spec.keyParts = { config: configKey, builtins, allowed, tools: toolNames, folders: [cwd, vault, repos, ...readRoots], effort: cc.effort, connectors: withConnectors, extensions: extensionServers };
   spec.key = crypto.createHash('sha1').update(JSON.stringify(Object.values(spec.keyParts))).digest('hex');
   return spec;
 }
@@ -663,7 +682,7 @@ function changedParts(before = {}, after = {}) {
   return out.join('; ');
 }
 
-async function ensureSession(conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, folders, model }) {
+async function ensureSession(conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, folders, model, effort }) {
   let session = sessions.get(conv.id);
   if (!session) {
     session = new Session(conv.id);
@@ -672,6 +691,7 @@ async function ensureSession(conv, { settings, configKey, buildPrompt, activeToo
   const spec = sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, folders, model });
   if (session.alive() && session.key === spec.key) {
     session.setModel(model);
+    session.setEffort(effort);
     return session;
   }
   // A restart costs a cold start (several seconds); the log says why it happened.
@@ -682,6 +702,7 @@ async function ensureSession(conv, { settings, configKey, buildPrompt, activeToo
   session.memIds = p.memIds;
   if (perf.profile(settings) === 'balanced') closeExcessSessions(conv.id);
   await session.spawn(spec);
+  session.setEffort(effort);
   return session;
 }
 

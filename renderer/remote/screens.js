@@ -35,8 +35,13 @@ export async function render(view, box) {
     box.scrollTop = 0;
     enter(box);
   } catch (err) {
-    if (err instanceof ctx.AuthError) return;
-    box.replaceChildren(el('div', { class: 'panel-empty' }, el('p', {}, err.message)));
+    if (err instanceof ctx.AuthError || ctx.state.view !== view) return;
+    // The computer is out of reach: say so, and offer to try again (it also comes back by itself on reconnect).
+    if (err instanceof ctx.NetError) {
+      box.replaceChildren(el('div', { class: 'panel-empty panel-offline' }, ctx.icon('unlink'), el('h3', {}, 'Your computer is out of reach'), el('p', { class: 'muted' }, `${TITLES[view] || 'This screen'} comes from your computer. It shows up again as soon as the link is back.`), el('button', { class: 'btn', type: 'button', onclick: () => render(view, box) }, 'Try again')));
+      return;
+    }
+    box.replaceChildren(el('div', { class: 'panel-empty panel-offline' }, el('h3', {}, 'This screen didn’t load'), el('p', { class: 'muted' }, err.message), el('button', { class: 'btn', type: 'button', onclick: () => render(view, box) }, 'Try again')));
   }
 }
 
@@ -307,58 +312,93 @@ function describe(s) {
 }
 
 // --------------------------------------------------------------- Flashcards
-// The decks (main/flashcards.js through /api/data/flashcards), and studying one: the front, "Show
-// answer", then Again / Hard / Good / Easy with what each would do, as in Anki. A keyboard works too
-// (tablets): Space shows the answer, 1–4 grade it, U undoes.
-let deckOpen = null; // the deck being studied: { id, data, shown }
-const openDeck = (id) => ((deckOpen = { id, data: null, shown: false }), ctx.showView('cards'));
+// The decks (main/flashcards.js through /api/data/flashcards), and studying: one deck, or mixed
+// learning across all of them (mixed review of today's due cards, or every card shuffled as practice;
+// /api/data/flashcards/mix). The front, "Show answer", then Again / Hard / Good / Easy with what each
+// would do, as in Anki. A keyboard works too (tablets): Space shows the answer, 1–4 grade it, U undoes.
+let deckOpen = null; // what is being studied: { mode: 'deck' | 'mix', id (deck or session), data, shown, start }
+const openDeck = (id) => ((deckOpen = { mode: 'deck', id, data: null, shown: false }), ctx.showView('cards'));
+const openMix = (start) => ((deckOpen = { mode: 'mix', id: null, data: null, shown: false, start }), ctx.showView('cards'));
 const fcNum = (n, cls) => ctx.el('span', { class: `fc-num ${cls}${n ? '' : ' zero'}` }, String(n));
+const fcPill = (n, label, cls) => ctx.el('span', { class: `fc-pill ${cls}${n ? '' : ' zero'}` }, ctx.el('b', {}, String(n)), ` ${label}`);
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 async function cards() {
   const { el, api } = ctx;
   if (deckOpen) {
     // Fresh from the computer, unless this is the redraw after showing the answer or grading a card.
-    if (!deckOpen.keep || !deckOpen.data) deckOpen.data = await api(`/api/data/flashcards/next?deck=${encodeURIComponent(deckOpen.id)}`);
+    if (!deckOpen.keep || !deckOpen.data) {
+      if (deckOpen.mode === 'deck') deckOpen.data = await api(`/api/data/flashcards/next?deck=${encodeURIComponent(deckOpen.id)}`);
+      else if (!deckOpen.id) {
+        deckOpen.data = await api('/api/data/flashcards/mix', { method: 'POST', body: { mode: deckOpen.start } });
+        deckOpen.id = deckOpen.data.session;
+      } else deckOpen.data = await api(`/api/data/flashcards/mix?session=${encodeURIComponent(deckOpen.id)}`);
+    }
     deckOpen.keep = false;
     return studyScreen();
   }
   const d = await api('/api/data/flashcards');
   if (!d.vault) return empty('Flashcards live in the vault on your computer; set one up there first.');
   if (!d.decks.length) return empty('No decks yet. Ask her to make some, or to import a CSV or an Anki deck from your workspace folder.', ask('Make flashcards', 'Make me flashcards about what I am learning.'));
-  return d.decks.map((x) =>
-    el(
-      'button',
-      { class: 'card fc-deck', type: 'button', onclick: () => openDeck(x.id), 'aria-label': `${x.name}: ${x.new} new, ${x.learn} learning, ${x.review} due` },
-      el('div', { class: 'fc-deck-main' }, el('b', {}, x.name), el('small', { class: 'muted' }, `${x.kind === 'vocab' ? 'vocabulary · ' : ''}${x.total} cards · ${x.mature} mature${!x.dueNow && x.nextDue ? ` · next ${x.nextDue}` : ''}`)),
-      el('span', { class: 'fc-nums' }, fcNum(x.new, 'n'), fcNum(x.learn, 'l'), fcNum(x.review, 'r')),
-    ),
+  const sum = (k) => d.decks.reduce((n, x) => n + (x[k] || 0), 0);
+  const due = sum('dueNow');
+  const today = el(
+    'section',
+    { class: 'card fc-today' },
+    el('div', { class: 'fc-today-top' }, el('div', { class: 'fc-big' }, el('b', {}, due ? String(due) : '✓'), el('small', {}, due ? 'to study today' : 'all done today')), el('div', { class: 'fc-pills' }, fcPill(sum('new'), 'new', 'n'), fcPill(sum('learn'), 'learning', 'l'), fcPill(sum('review'), 'due', 'r'))),
+    el('div', { class: 'fc-today-actions' }, el('button', { class: 'btn primary', type: 'button', disabled: !due, onclick: () => openMix('due') }, '🔀 Mixed review'), el('button', { class: 'btn', type: 'button', onclick: () => openMix('all') }, '🎲 Shuffle all')),
+    el('small', { class: 'muted' }, due ? 'Every deck at once: each card comes from another deck than the last.' : 'Shuffle all practises every card; it changes no schedule.'),
   );
+  return [
+    today,
+    ...d.decks.map((x) =>
+      el(
+        'button',
+        { class: `card fc-deck${x.dueNow ? ' due' : ''}`, type: 'button', onclick: () => openDeck(x.id), 'aria-label': `${x.name}: ${x.new} new, ${x.learn} learning, ${x.review} due` },
+        el('div', { class: 'fc-deck-main' }, el('b', {}, x.name), el('small', { class: 'muted' }, `${x.kind === 'vocab' ? 'Vocabulary · ' : ''}${plural(x.total, 'card')} · ${x.mature} mature${!x.dueNow && x.nextDue ? ` · next ${x.nextDue}` : ''}`)),
+        el('span', { class: 'fc-nums' }, fcNum(x.new, 'n'), fcNum(x.learn, 'l'), fcNum(x.review, 'r')),
+      ),
+    ),
+    el('p', { class: 'muted fc-legend' }, el('span', { class: 'fc-num n' }, 'new'), ' · ', el('span', { class: 'fc-num l' }, 'learning'), ' · ', el('span', { class: 'fc-num r' }, 'due')),
+  ];
 }
 
 function studyScreen() {
   const { el, cardMarkdown } = ctx;
   const d = deckOpen.data;
-  const c = d.counts;
+  const c = d.counts || {};
+  const mix = deckOpen.mode === 'mix';
+  const practice = mix && d.mode === 'all';
+  const left = practice ? c.left || 0 : (c.new || 0) + (c.learn || 0) + (c.review || 0);
+  const answered = mix ? d.stats?.answered || 0 : deckOpen.answered || 0;
+  const title = mix ? (practice ? 'Shuffle all' : 'Mixed review') : d.name;
   const head = el(
     'div',
     { class: 'fc-head' },
     el('button', { class: 'btn ghost small', type: 'button', onclick: () => ((deckOpen = null), render('cards', document.querySelector('#panel'))) }, '← Decks'),
-    el('b', {}, d.name),
-    el('span', { class: 'fc-nums' }, fcNum(c.new, 'n'), fcNum(c.learn, 'l'), fcNum(c.review, 'r')),
+    el('b', {}, title),
+    practice ? el('span', { class: 'fc-pills' }, fcPill(left, 'left', 'r')) : el('span', { class: 'fc-nums' }, fcNum(c.new || 0, 'n'), fcNum(c.learn || 0, 'l'), fcNum(c.review || 0, 'r')),
     d.canUndo ? el('button', { class: 'btn ghost small', type: 'button', onclick: () => act('undo') }, '↶ Undo') : null,
   );
+  // Width through the CSSOM: the page's CSP forbids style attributes.
+  const bar = el('i');
+  bar.style.width = `${answered + left ? (answered / (answered + left)) * 100 : 100}%`;
+  const progress = el('div', { class: 'fc-progress', role: 'progressbar', 'aria-label': 'Session progress' }, bar);
   if (!d.card) {
     const later = d.laterAt ? new Date(d.laterAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    return [head, card('Congratulations!', el('p', {}, later ? `Done for now. A card in its learning steps comes back at ${later}.` : 'You have finished this deck for today.'))];
+    const right = d.stats?.answered ? ` ${Math.round((d.stats.right / d.stats.answered) * 100)}% right.` : '';
+    const text = practice ? `You went through every card.${right} Your schedules are unchanged.` : later ? `Done for now. A card in its learning steps comes back at ${later}.` : mix ? 'Every deck is done for today.' : 'You have finished this deck for today.';
+    return [head, progress, el('section', { class: 'card fc-done' }, el('div', { class: 'fc-done-icon', 'aria-hidden': 'true' }, '✦'), el('h3', {}, answered ? 'Well done' : 'All caught up'), el('p', {}, text), el('button', { class: 'btn primary', type: 'button', onclick: () => ((deckOpen = null), render('cards', document.querySelector('#panel'))) }, 'Back to the decks'))];
   }
   const side = (md) => el('div', { class: 'fc-side' }, cardMarkdown(md));
   const body = [side(d.card.front)];
-  if (deckOpen.shown && d.card.back) body.push(el('hr', { class: 'fc-hr' }), side(d.card.back));
+  if (deckOpen.shown && d.card.back) body.push(el('div', { class: 'fc-divider' }, el('span', {}, 'Answer')), side(d.card.back));
   const tags = [d.card.leech ? 'leech' : '', d.card.status === 'new' ? 'new' : d.card.status === 'learn' ? 'learning' : ''].filter(Boolean);
+  const top = el('div', { class: 'fc-card-top' }, mix && d.deck ? el('span', { class: 'fc-from' }, d.deck.name) : el('span'), tags.length ? el('div', { class: 'fc-tags' }, ...tags.map((t) => chip(t))) : null);
   const buttons = deckOpen.shown
-    ? el('div', { class: 'fc-grades' }, ...[['again', 'Again'], ['hard', 'Hard'], ['good', 'Good'], ['easy', 'Easy']].map(([g, label]) => el('button', { class: `btn fc-grade ${g}`, type: 'button', onclick: () => act(g) }, el('small', {}, d.card.preview[g]), el('span', {}, label))))
+    ? el('div', { class: 'fc-grades' }, ...[['again', 'Again'], ['hard', 'Hard'], ['good', 'Good'], ['easy', 'Easy']].map(([g, label]) => el('button', { class: `btn fc-grade ${g}`, type: 'button', onclick: () => act(g) }, el('span', {}, label), el('small', {}, d.card.preview[g]))))
     : el('div', { class: 'fc-grades' }, el('button', { class: 'btn fc-show', type: 'button', onclick: showAnswer }, 'Show answer'));
-  return [head, el('section', { class: 'card fc-card', 'aria-live': 'polite' }, tags.length ? el('div', { class: 'fc-tags' }, ...tags.map((t) => chip(t))) : null, ...body), buttons];
+  return [head, progress, el('section', { class: `card fc-card${deckOpen.shown ? ' revealed' : ''}`, 'aria-live': 'polite' }, top, el('div', { class: 'fc-sides' }, ...body)), buttons];
 }
 
 async function showAnswer() {
@@ -374,8 +414,12 @@ async function act(what) {
   if (acting || !deckOpen) return;
   acting = true;
   try {
-    const body = what === 'undo' ? { deck: deckOpen.id } : { deck: deckOpen.id, card: deckOpen.data.card.id, grade: what };
-    deckOpen.data = await ctx.api(`/api/data/flashcards/${what === 'undo' ? 'undo' : 'answer'}`, { method: 'POST', body });
+    if (deckOpen.mode === 'mix') deckOpen.data = await ctx.api(`/api/data/flashcards/mix/${what === 'undo' ? 'undo' : 'answer'}`, { method: 'POST', body: { session: deckOpen.id, grade: what, card: deckOpen.data.card?.id } });
+    else {
+      const body = what === 'undo' ? { deck: deckOpen.id } : { deck: deckOpen.id, card: deckOpen.data.card.id, grade: what };
+      deckOpen.data = await ctx.api(`/api/data/flashcards/${what === 'undo' ? 'undo' : 'answer'}`, { method: 'POST', body });
+      deckOpen.answered = Math.max(0, (deckOpen.answered || 0) + (what === 'undo' ? -1 : 1));
+    }
     deckOpen.shown = false;
     deckOpen.keep = true;
     await render('cards', document.querySelector('#panel'));

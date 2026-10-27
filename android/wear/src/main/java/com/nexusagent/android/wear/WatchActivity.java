@@ -647,8 +647,10 @@ public class WatchActivity extends Activity {
                 return getString(R.string.unpaired);
             case "timeout":
                 return getString(R.string.timeout);
+            case "unreachable":
+                return getString(R.string.computer_offline);
             case "offline":
-                return r.error != null ? r.error : getString(R.string.timeout);
+                return r.error != null && !r.error.isEmpty() ? r.error : getString(R.string.computer_offline);
             default:
                 return getString(R.string.no_phone);
         }

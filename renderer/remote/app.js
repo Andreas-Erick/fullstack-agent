@@ -161,13 +161,25 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 class AuthError extends Error {}
+// The computer didn't answer at all (off, asleep, Siren closed, another network): the screens show a
+// "can't reach your computer" card instead of the browser's "Failed to fetch".
+class NetError extends Error {}
 
 async function api(path, { method = 'GET', body, raw = false } = {}) {
-  const res = await fetch(path, {
-    method,
-    headers: { Authorization: `Bearer ${state.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: { Authorization: `Bearer ${state.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    if (err?.name === 'AbortError') throw err;
+    throw new NetError('Can’t reach your computer right now.');
+  }
+  // A tunnel or proxy answering for a computer that is off (Cloudflare's or Tailscale Serve's error page);
+  // the computer's own errors (voice 502/503 among them) are JSON.
+  if ([502, 503, 504, 530].includes(res.status) && !/json/i.test(res.headers.get('content-type') || '')) throw new NetError('Your computer isn’t answering right now.');
   if (res.status === 401) {
     unpair('This device was disconnected from the assistant. Pair it again.');
     throw new AuthError('Not paired');
@@ -315,7 +327,13 @@ async function openStream() {
       if (ctl.signal.aborted && !state.token) return;
     }
     setConn(false);
-    await new Promise((r) => setTimeout(r, delay));
+    // "Try again now" on the offline screen ends the wait early (state.wake).
+    state.retryAt = Date.now() + delay;
+    await new Promise((r) => {
+      state.wake = r;
+      setTimeout(r, delay);
+    });
+    state.wake = null;
     delay = Math.min(15000, delay * 2);
   }
 }
@@ -363,8 +381,66 @@ function setConn(ok) {
   // A short drop isn't worth a banner; a longer one is (timed from the first failure, not each retry).
   if (ok) {
     clearTimeout(connTimer);
+    store.set(SEEN_KEY, String(Date.now()));
+    if (was === false && state.view !== 'chat') showView(state.view); // the screen behind may show an offline card
+    state.offlineDismissed = false;
     renderBanner();
   } else if (was !== false) connTimer = setTimeout(renderBanner, 2500);
+  renderOffline();
+}
+
+// ------------------------------------------------------------------ can't reach the computer
+// Instead of an empty screen: what is going on, what to check, when it tries again, and a button to try
+// now. Shown once the link has been down for a moment (state.connected false after the banner's delay);
+// "Continue offline" keeps the banner and whatever is already on the screen.
+const SEEN_KEY = 'nexus.lastSeen';
+let offlineTick = null;
+function renderOffline() {
+  let box = $('#offline');
+  const down = state.token && state.connected === false && !state.offlineDismissed && $('#banner').classList.contains('offline');
+  if (!down) {
+    clearInterval(offlineTick);
+    offlineTick = null;
+    box?.remove();
+    return;
+  }
+  if (!box) {
+    box = el('div', { id: 'offline', class: 'offline-screen', role: 'alertdialog', 'aria-labelledby': 'offlineTitle', 'aria-describedby': 'offlineText' });
+    document.body.append(box);
+  }
+  const seen = Number(store.get(SEEN_KEY)) || 0;
+  const lan = /^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\.|\.local$|^localhost$/.test(location.hostname);
+  const tips = [
+    'Siren is open on your computer, and the computer is awake.',
+    'Remote access is on there (Settings → Remote access).',
+    lan ? 'This device is on the same Wi-Fi as the computer.' : /\.ts\.net$/.test(location.hostname) ? 'Tailscale is on, on this device and on the computer.' : 'The computer is online.',
+  ];
+  const when = el('span', { class: 'offline-when' });
+  const tick = () => {
+    const s = Math.max(0, Math.round(((state.retryAt || 0) - Date.now()) / 1000));
+    when.textContent = s ? `Trying again in ${s} s` : 'Trying again…';
+  };
+  box.replaceChildren(
+    el(
+      'div',
+      { class: 'offline-card' },
+      el('div', { class: 'offline-orb', 'aria-hidden': 'true' }, el('span'), icon('unlink')),
+      el('h2', { id: 'offlineTitle' }, 'Can’t reach your computer'),
+      el('p', { id: 'offlineText', class: 'muted' }, `${state.name || 'Siren'} lives on your computer${location.host ? ` (${location.host})` : ''}, and it isn’t answering.${seen ? ` Last connected ${ago(seen)}.` : ''}`),
+      el('ul', { class: 'offline-tips' }, ...tips.map((t) => el('li', {}, t))),
+      el('div', { class: 'offline-status' }, el('span', { class: 'spin', 'aria-hidden': 'true' }), when),
+      el(
+        'div',
+        { class: 'offline-actions' },
+        el('button', { class: 'btn primary', type: 'button', onclick: () => (state.wake?.(), (state.retryAt = Date.now()), tick()) }, 'Try again now'),
+        android ? el('button', { class: 'btn', type: 'button', onclick: () => android.changeServer() }, 'Change the address') : null,
+        el('button', { class: 'btn ghost', type: 'button', onclick: () => ((state.offlineDismissed = true), renderOffline()) }, 'Continue offline'),
+      ),
+    ),
+  );
+  tick();
+  clearInterval(offlineTick);
+  offlineTick = setInterval(tick, 1000);
 }
 
 // Plain http on another machine: the token and messages cross the network unencrypted.
@@ -399,6 +475,7 @@ function renderBanner() {
       renderBanner();
     } }, icon('close')));
   } else b.classList.add('hidden');
+  renderOffline();
 }
 
 // ------------------------------------------------------------------ chat
@@ -716,7 +793,7 @@ $('#newBtn').addEventListener('click', () => openConversation(null));
 $('#unpairBtn').addEventListener('click', () => unpair('Disconnected. To remove this device completely, remove it in the desktop app’s Settings too.'));
 
 // ------------------------------------------------------------------ approvals
-const KIND = { self_modify: 'Change its own code', settings: 'Change a setting', delete: 'Delete something', command: 'Run a command', calendar: 'Change your calendar', invite: 'Send calendar invitations', voice: 'Change its voice', voice_clone: 'Clone a voice', repo_change: 'Change a repository', github_publish: 'Publish to GitHub' };
+const KIND = { self_modify: 'Change its own code', settings: 'Change a setting', delete: 'Delete something', command: 'Run a command', calendar: 'Change your calendar', invite: 'Send calendar invitations', voice: 'Change its voice', voice_clone: 'Clone a voice', repo_change: 'Change a repository', github_publish: 'Publish to GitHub', connector: 'Use a connected service', connector_trust: 'Stop asking for a service', browser: 'Act on a website' };
 
 // The buttons wait a moment before they respond, so a tap meant for something else (the card pops in
 // above the keyboard while typing) can't answer it.
@@ -1579,7 +1656,7 @@ document.addEventListener('keydown', (e) => {
 
 // The tab bar and the screens beyond the chat (screens.js).
 for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => (navigator.vibrate?.(6), showView(b.dataset.tab)));
-initScreens({ api, el, icon, markdown, cardMarkdown, toast, send, prefill, showView, AuthError, state });
+initScreens({ api, el, icon, markdown, cardMarkdown, toast, send, prefill, showView, AuthError, NetError, state });
 
 $('#pairInsecure').classList.toggle('hidden', !insecure);
 // Offline app shell (needs HTTPS or localhost; on the plain local network the browser doesn't allow it).

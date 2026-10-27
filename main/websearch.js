@@ -104,16 +104,27 @@ async function assertPublic(urlStr) {
   const addrs = net.isIP(host) ? [host] : (await dns.lookup(host, { all: true }).catch(() => [])).map((a) => a.address);
   if (!addrs.length) throw new Error(`Could not resolve ${host}`);
   for (const a of addrs) {
-    if (
-      /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(a) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(a) ||
-      /^(::1|fc|fd|fe80)/i.test(a) ||
-      a === '::'
-    ) {
-      throw new Error('Fetching local or private network addresses is not allowed');
-    }
+    if (isPrivateAddress(a)) throw new Error('Fetching local or private network addresses is not allowed');
   }
   return u;
+}
+
+/**
+ * True for any address that isn't the public internet: loopback, private and link-local ranges, the
+ * shared range 100.64/10 (Tailscale and carrier NAT: the user's other devices), multicast and reserved,
+ * the unspecified address, and IPv4 written inside IPv6 (::ffff:127.0.0.1, which URLs turn into
+ * ::ffff:7f00:1). Anything that doesn't parse counts as private.
+ */
+function isPrivateAddress(addr) {
+  let a = String(addr || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  const mapped = /^(?:0{0,4}:){0,4}:?(?:0{0,4}:)?ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(a);
+  if (mapped) a = mapped[1] || [parseInt(mapped[2], 16) >> 8, parseInt(mapped[2], 16) & 255, parseInt(mapped[3], 16) >> 8, parseInt(mapped[3], 16) & 255].join('.');
+  if (net.isIPv4(a)) {
+    const [p, q] = a.split('.').map(Number);
+    return p === 0 || p === 10 || p === 127 || p >= 224 || (p === 100 && q >= 64 && q <= 127) || (p === 169 && q === 254) || (p === 172 && q >= 16 && q <= 31) || (p === 192 && q === 168) || (p === 192 && q === 0) || (p === 198 && (q === 18 || q === 19));
+  }
+  if (net.isIPv6(a)) return a === '::' || a === '::1' || /^(f[cd]|fe[89ab]|fe[c-f]|ff)/.test(a) || /^::(\d|$)/.test(a) || /^64:ff9b:/.test(a);
+  return true;
 }
 
 function htmlToText(html) {
@@ -160,4 +171,4 @@ async function fetchPage(url, maxChars = 20000) {
   };
 }
 
-module.exports = { search, fetchPage, htmlToText, assertPublic };
+module.exports = { search, fetchPage, htmlToText, assertPublic, isPrivateAddress };

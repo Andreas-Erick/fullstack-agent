@@ -40,6 +40,7 @@ const PRINT_CSS = `
   table { border-collapse: collapse; margin: 8px 0; } th, td { border: 1px solid #d0d5dd; padding: 4px 8px; } th { background: #f5f7fa; }
   blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid #d0d5dd; color: #475467; }
   img { max-width: 100%; }
+  figure.diagram { margin: 14px 0; text-align: center; page-break-inside: avoid; } figure.diagram img { display: block; margin: 0 auto 6px; max-height: 120mm; } figcaption { font-size: 9pt; color: #475467; }
   .turn { margin: 0 0 14px; page-break-inside: avoid; } .turn .who { font-weight: 600; font-size: 9pt; color: #667085; text-transform: uppercase; letter-spacing: .05em; }
   .turn.user .body { background: #eef4ff; border-radius: 8px; padding: 6px 10px; white-space: pre-wrap; }
 `;
@@ -69,9 +70,11 @@ async function markdownHtml(markdown) {
   });
 }
 
-async function toHtml({ title, markdown, html }) {
+async function toHtml({ title, markdown, html, embeds = [] }) {
+  // Diagrams and charts (diagrams.embedDiagrams): placeholders become their figures after Markdown.
+  const withFigures = (h) => h.replace(/<p>%%DIAGRAM-(\d+)%%<\/p>/g, (m, i) => embeds[Number(i)] ?? '');
   // Remote images are never fetched (the page is offline); a note stands in for them.
-  const body = (html ?? (await markdownHtml(markdown))).replace(/<img\b[^>]*\bsrc="(?!data:)[^"]*"[^>]*>/gi, (tag) => `<em>[image${(tag.match(/\balt="([^"]*)"/i) || [])[1] ? `: ${tag.match(/\balt="([^"]*)"/i)[1]}` : ''}]</em>`);
+  const body = withFigures(html ?? (await markdownHtml(markdown))).replace(/<img\b[^>]*\bsrc="(?!data:)[^"]*"[^>]*>/gi, (tag) => `<em>[image${(tag.match(/\balt="([^"]*)"/i) || [])[1] ? `: ${tag.match(/\balt="([^"]*)"/i)[1]}` : ''}]</em>`);
   const when = new Date().toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' });
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}</style></head><body><header><h1>${esc(title)}</h1><div class="meta">${esc(when)}</div></header>${body}</body></html>`;
 }
@@ -86,8 +89,8 @@ function isolatedSession() {
 }
 
 /** Renders and saves a PDF; returns { path, pages? }. `dir` defaults to exportsDir(). */
-async function create({ title, markdown, html, dir, file }) {
-  const page = await toHtml({ title: title || 'Export', markdown, html });
+async function create({ title, markdown, html, embeds, dir, file }) {
+  const page = await toHtml({ title: title || 'Export', markdown, html, embeds });
   const win = new BrowserWindow({ show: false, width: 900, height: 1200, webPreferences: { javascript: false, sandbox: true, session: isolatedSession(), images: true } });
   try {
     await win.loadURL(`data:text/html;charset=utf-8;base64,${Buffer.from(page, 'utf8').toString('base64')}`);

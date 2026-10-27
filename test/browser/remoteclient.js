@@ -41,6 +41,19 @@ async function until(wc, expr, ms = 15000) {
   return false;
 }
 
+// NEXUS_SHOTS=<folder>: a PNG of every screen at every size too (for design work).
+const SHOTS = process.env.NEXUS_SHOTS || '';
+async function shot(wc, label) {
+  if (!SHOTS) return;
+  fs.mkdirSync(SHOTS, { recursive: true });
+  await wait(1800); // entrance animations
+  // A hidden window paints only when asked: a forced repaint, then the picture (else it lags a step).
+  wc.invalidate();
+  await wc.capturePage();
+  await wait(250);
+  fs.writeFileSync(path.join(SHOTS, `${label.replace(/[^\w-]+/g, '_')}.png`), (await wc.capturePage()).toPNG());
+}
+
 // The screen in #panel finished loading (or the chat is showing); canvases get until PAINT_MS to draw
 // (the village loads its art first; a CI machine without a graphics card is several times slower).
 const PAINT_MS = 15000;
@@ -55,6 +68,16 @@ async function settled(wc, label) {
     await wait(500);
   } while (Date.now() < end);
   for (const c of screens[label].canvas) if (c.painted >= 0 && c.painted < 5) problems.push(`${label}: the ${c.size} canvas is blank (${c.painted}% painted) after ${PAINT_MS / 1000} s`);
+  await clipped(wc, label);
+  await shot(wc, label);
+}
+
+// Text cut off on the screen (renderer/js/cliptest.js, the same check the desktop's launch check runs;
+// the phone page doesn't serve it, so its code is sent along).
+const CLIPTEST = fs.readFileSync(path.join(__dirname, '..', '..', 'renderer', 'js', 'cliptest.js'), 'utf8').replace(/^export /gm, '');
+async function clipped(wc, label) {
+  const found = await wc.executeJavaScript(`(() => { ${CLIPTEST}\nreturn findClippedText(); })()`).catch((err) => [{ where: 'cliptest', text: err.message, how: 'failed' }]);
+  for (const c of found) problems.push(`${label}: text cut off (${c.how}) at ${c.where}: "${c.text}"`);
 }
 
 async function measure(wc, label) {
@@ -142,6 +165,8 @@ async function run() {
       if (!(await until(wc, `!!document.querySelector('#panel .fc-show')`))) problems.push(`${label}: no "Show answer"`);
       await wc.executeJavaScript(`document.querySelector('#panel .fc-show').click()`, true);
       if (!(await until(wc, `document.querySelectorAll('#panel .fc-grade').length === 4`))) problems.push(`${label}: no grade buttons after showing the answer`);
+      await clipped(wc, label);
+      await shot(wc, label);
       const previews = await wc.executeJavaScript(`[...document.querySelectorAll('#panel .fc-grade small')].map((s) => s.textContent)`);
       if (previews.join(' ') !== '1m 6m 10m 4d') problems.push(`${label}: unexpected button intervals ${previews.join(' ')}`);
       await wc.executeJavaScript(`document.querySelector('#panel .fc-grade.good').click()`, true);
@@ -149,9 +174,71 @@ async function run() {
       if ((await fc.next(deck)).studiedToday !== before + 1) problems.push(`${label}: the answer did not reach the computer`);
       screens[label] = await wc.executeJavaScript(`document.querySelector('#panel').innerText.replace(/\\s+/g, ' ').slice(0, 160)`);
     }
+    // Mixed learning: Shuffle all from the Flashcards screen; a card from a deck, answered "again".
+    const mixLabel = `${size.name}/flashcards mixed`;
+    await wc.executeJavaScript(`document.querySelector('#panel .fc-head .btn')?.click()`, true);
+    if (!(await until(wc, `!!document.querySelector('#panel .fc-today-actions')`))) problems.push(`${mixLabel}: no mixed learning buttons`);
+    else {
+      await wc.executeJavaScript(`document.querySelectorAll('#panel .fc-today-actions .btn')[1].click()`, true);
+      if (!(await until(wc, `!!document.querySelector('#panel .fc-show')`))) problems.push(`${mixLabel}: no card`);
+      else {
+        const from = await wc.executeJavaScript(`document.querySelector('#panel .fc-from')?.textContent || ''`);
+        if (from !== 'Browser deck') problems.push(`${mixLabel}: the card doesn't say its deck (${from})`);
+        await wc.executeJavaScript(`document.querySelector('#panel .fc-show').click()`, true);
+        await until(wc, `document.querySelectorAll('#panel .fc-grade').length === 4`);
+        await clipped(wc, mixLabel);
+        await shot(wc, mixLabel);
+        const left = () => wc.executeJavaScript(`document.querySelector('#panel .fc-pill b')?.textContent`);
+        const before = await left();
+        await wc.executeJavaScript(`document.querySelector('#panel .fc-grade.again').click()`, true);
+        await until(wc, `!!document.querySelector('#panel .fc-show')`);
+        if ((await left()) !== before) problems.push(`${mixLabel}: "again" in practice should keep the card in the round (${before} → ${await left()})`);
+      }
+    }
+    // An approval card with a long title and detail: readable, with a heading, nothing cut off.
+    const apLabel = `${size.name}/approval`;
+    const id = `browser-${size.name}`;
+    companion.publish('approval:request', { id, kind: 'connector', title: 'Use Google Calendar (someone.with.a.long.address@example.com): create an event “Machine Learning Q&A with the whole study group”', detail: JSON.stringify({ summary: 'Machine Learning Q&A', start: '2026-10-28T12:00:00', attendees: ['a@example.com', 'b@example.com'] }, null, 2), timeoutSec: 60, sources: [] });
+    if (!(await until(wc, `!!document.querySelector('#approvals .approval')`))) problems.push(`${apLabel}: the card never showed`);
+    else {
+      const kind = await wc.executeJavaScript(`document.querySelector('#approvals .approval .kind').firstChild.textContent`);
+      if (/connector/.test(kind)) problems.push(`${apLabel}: the heading shows the raw kind "${kind}"`);
+      await wait(1000);
+      await clipped(wc, apLabel);
+      await shot(wc, apLabel);
+    }
+    companion.publish('approval:cancel', { id });
     win.destroy();
   }
+
+  // The computer goes away (Siren closed, computer asleep): the phone shows what is going on and what
+  // to check, a screen opened meanwhile says it is out of reach, and nothing throws.
+  const win = new BrowserWindow({ show: false, width: 390, height: 844, useContentSize: true, webPreferences: { backgroundThrottling: false } });
+  const wc = win.webContents;
+  wc.on('console-message', (e) => {
+    if (e.level === 'error' && !/Failed to load resource|ERR_CONNECTION_REFUSED/.test(e.message)) problems.push(`offline console: ${String(e.message).slice(0, 300)}`);
+  });
+  await win.loadURL(`${base}/`);
+  await wc.executeJavaScript(`localStorage.setItem('nexus.token', ${JSON.stringify(token)})`);
+  await win.loadURL(`${base}/`);
+  await until(wc, `!document.querySelector('#tabs').classList.contains('hidden')`);
+  await until(wc, `document.querySelector('#conn')?.classList.contains('ok')`);
   await companion.stop();
+  if (!(await until(wc, `!!document.querySelector('#offline .offline-card')`, 20000))) problems.push('offline: no "can’t reach your computer" screen within 20 s');
+  else {
+    const text = await wc.executeJavaScript(`document.querySelector('#offline').innerText`);
+    if (!/Can’t reach your computer/i.test(text) || !/Try again now/i.test(text)) problems.push(`offline: unexpected screen text: ${text.slice(0, 200)}`);
+    await clipped(wc, 'phone/offline');
+    await shot(wc, 'phone/offline');
+    await wc.executeJavaScript(`[...document.querySelectorAll('#offline button')].find((b) => /Try again now/.test(b.textContent)).click()`, true);
+    await wc.executeJavaScript(`[...document.querySelectorAll('#offline button')].find((b) => /Continue offline/.test(b.textContent)).click()`, true);
+    if (await wc.executeJavaScript(`!!document.querySelector('#offline')`)) problems.push('offline: "Continue offline" did not close the screen');
+    await wc.executeJavaScript(`document.querySelector('#tabs [data-tab="habits"]').click()`, true);
+    if (!(await until(wc, `!!document.querySelector('#panel .panel-offline')`))) problems.push('offline: a screen opened while offline shows no "out of reach" card');
+    else await shot(wc, 'phone/offline screen');
+    screens['phone/offline'] = await wc.executeJavaScript(`document.querySelector('#panel').innerText.replace(/\\s+/g, ' ').slice(0, 160)`);
+  }
+  win.destroy();
 }
 
 app.whenReady().then(async () => {

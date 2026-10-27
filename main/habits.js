@@ -29,7 +29,10 @@ async function add(habit) {
 async function log(names, { date, done = true } = {}) {
   const today = obsidian.ymd();
   const day = !date || date === 'today' ? today : date === 'yesterday' ? core.addDays(today, -1) : String(date);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > today) throw new Error('date must be today, yesterday or a past YYYY-MM-DD.');
+  // A real calendar day (not 2026-02-31), not in the future.
+  const t = new Date(`${day}T12:00:00Z`);
+  const real = /^\d{4}-\d{2}-\d{2}$/.test(day) && !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === day;
+  if (!real || day > today) throw new Error('date must be today, yesterday or a past YYYY-MM-DD.');
   const r = await withLock(NOTE, async () => {
     const changed = core.setDone(await read(), names, day, done);
     await write(changed.habits);

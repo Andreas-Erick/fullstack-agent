@@ -759,6 +759,7 @@ const DATA_GET = {
   arch: () => data.arch(),
   flashcards: () => data.flashcards(),
   'flashcards/next': (url) => data.flashcardNext(url.searchParams.get('deck')),
+  'flashcards/mix': (url) => data.mixNext(url.searchParams.get('session')),
 };
 
 async function dataRoute(req, res, url, device) {
@@ -781,6 +782,20 @@ async function dataRoute(req, res, url, device) {
     if (req.method === 'POST' && name === 'flashcards/undo') {
       const body = await readBody(req);
       return json(res, 200, await data.flashcardUndo(body.deck));
+    }
+    // Mixed learning: a session over several decks (start, answer, undo; a practice round writes nothing).
+    if (req.method === 'POST' && name === 'flashcards/mix') {
+      const body = await readBody(req);
+      return json(res, 200, await data.mixStart(body.mode, body.decks));
+    }
+    if (req.method === 'POST' && name === 'flashcards/mix/answer') {
+      if (!underLimit('cards', device.id, 240)) return fail(res, 429, 'Too many answers; wait a minute');
+      const body = await readBody(req);
+      return json(res, 200, await data.mixAnswer(body.session, body.grade, body.card));
+    }
+    if (req.method === 'POST' && name === 'flashcards/mix/undo') {
+      const body = await readBody(req);
+      return json(res, 200, await data.mixUndo(body.session));
     }
     return fail(res, 404, 'Not found');
   } catch (err) {

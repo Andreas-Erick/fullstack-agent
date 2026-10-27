@@ -12,7 +12,7 @@ const { FACES, obj, str, UNTRUSTED_NOTICE, requireApproval } = require('./tools/
 // Settings the agent may change itself (to fix its own tools). Never safety, permissions, code
 // access, document roots or secrets — the agent must not expand its own access.
 const SETTABLE = {
-  llm: ['baseUrl', 'model', 'temperature', 'maxTokens', 'historyLimit', 'modelMode', 'fastModel', 'deepModel', 'maxToolRounds', 'engineeringToolRounds'],
+  llm: ['baseUrl', 'model', 'temperature', 'maxTokens', 'historyLimit', 'modelMode', 'autoPace', 'fastModel', 'deepModel', 'maxToolRounds', 'engineeringToolRounds'],
   claudeCode: ['model', 'effort', 'fastModel', 'deepModel', 'cliPath', 'idleMinutes'],
   anthropic: ['model', 'effort', 'fastModel', 'deepModel'],
   voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'thinkingSound', 'thinkingVolume', 'filler', 'fallback', 'localVoice'],

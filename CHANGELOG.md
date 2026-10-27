@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.3.0 — 2026-10-27
+
+Study packs with exact charts and PDFs, mixed flashcard learning, a redesigned Flashcards view, quicker answers to quick questions, fewer “may I?” questions for your connected services, a clear screen on the phone when the computer can’t be reached, and many fixes found by new tests.
+
+- Study material that teaches. *(Ask for a study pack, a study guide or a cheat sheet: she writes a vault note in a learning order (the intuition, the precise statement, a worked example and the typical mistake for each idea, then practice questions with the answers apart), draws the diagrams, plots the charts, makes a printable PDF with all of it inside and formulas typeset, and adds flashcards. New "Study pack" skill.)*
+- Exact charts. *(“Plot sin(x) and its derivative”, a parabola, data points, a bar chart: computed by the app, not sketched, with labelled axes, a legend that stays out of the way, breaks at asymptotes, and print-friendly colours. Kept in Diagrams/ in your vault.)*
+- Diagrams and charts inside PDFs. *(A PDF she makes now includes the diagrams and charts it refers to.)*
+- Quick questions get quick answers. *(Each message is sized up on your computer in an instant: a lookup or a small task ("what's my schedule tomorrow?", "add milk to my Todoist", "thanks!") goes to the fast model with little thinking, while "explain…", "why…", "compare…", plans and code get more thought. Nothing restarts; Settings → AI brain can turn it off, and choosing the fast or deep model yourself still wins.)*
+- A redesigned Flashcards view. *(Today at a glance: what is due across every deck, with a ring for what you already did. Decks as tiles with labelled numbers and a bar of how mature their cards are. Studying: a progress bar, a bigger card, the answer under a divider, the keys on the buttons, and a summary when you finish. The phone and tablet got the same treatment.)*
+- Mixed learning. *(Study every deck at once, each card from another deck than the last, so you recall without the context of the card before: Mixed review takes today’s due cards and counts for your schedule; Shuffle everything goes through every card in random order as practice and changes no schedule (a missed card comes back a few cards later). Choose the decks, or say “let’s do a mixed review”. On the phone and tablet too.)*
+- When your phone or tablet can’t reach the computer, it says so. *(Instead of a black screen or “Failed to fetch”: what is going on, what to check, a countdown to the next try and a “Try again now” button; a screen opened meanwhile says it is out of reach. The Android app gives up on an address that doesn’t answer after 15 seconds instead of a minute, explains the error in words and keeps trying by itself. The watch says your computer isn’t answering instead of a technical message.)*
+- Fixed: the title bar no longer jitters in a window that isn’t full screen. *(A moving light effect made it think it was too narrow now and then, so it folded and unfolded, or stayed folded at full width.)*
+- Fixed: the Inner World on the phone no longer fails with "Cannot read properties of null (reading 'k')". *(If one of the village's pictures didn't come through, the watermill or windmill tried to draw it anyway; now that building is just left out until the next load.)*
+- Fixed: text cut off in the permission dialog. *(The buttons were squeezed into one row and lost the end of their labels; the "don’t ask again" choices now have their own line, and buttons in every dialog wrap instead of being cut.)* The warning about outside content no longer runs out of the dialog with a long web address, the phone’s approval card names connector requests instead of showing “connector”, long addresses and links break inside their box everywhere, and wide tables in the chat scroll sideways instead of breaking words in half.
+- Fixed: settings changed quickly one after another all stick. *(Two toggles flipped in quick succession could lose the first.)*
+- Fixed: the Inner World on the phone no longer fails when one of its pictures doesn't load over a weak connection.
+- Fixed: cards you type by hand in Obsidian (“Front :: Back”) can be answered before the app has saved the deck once. A double tap on a grade button counts once.
+- Safer web fetching. *(The assistant’s web fetch now also refuses addresses on your Tailscale network and local addresses written inside IPv6.)*
+- Stop the "may I?" questions for a service. *(When she asks to use Google Calendar, Todoist, Plaud or another connector, press "Always allow reading" or "Always allow (except deleting)", or say "always". Or just tell her: "stop asking me before reading my calendar", and confirm once. Changes apply at once, even mid-reply, and taking one back does too. Deleting always asks unless you choose "Allow everything" in Settings.)*
+
 ## 2.2.0 — 2026-10-27
 
 Flashcards, scheduled the way Anki does it, on the computer, the phone and the tablet.
