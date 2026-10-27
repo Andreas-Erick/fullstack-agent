@@ -10,7 +10,7 @@ Pick an item, read `ENGINEERING.md`, and start; tick the box and note the versio
 
 ## 1. Self-updating desktop and Android apps — L
 
-- [x] **Done in 2.1.0, as an update *check*:** `main/updates.js` asks GitHub's releases API (no new
+- [x] **Done in 2.1.1, as an update *check*:** `main/updates.js` asks GitHub's releases API (no new
   dependency), the title bar's Update pill opens the download, and paired Android apps learn the newest
   APK through `/api/info`. Still open: installing in place with `electron-updater` (the user runs
   `npm install electron-updater`; needs the signing secrets so it installs without warnings).
@@ -27,7 +27,7 @@ Pick an item, read `ENGINEERING.md`, and start; tick the box and note the versio
 
 ## 2. A browser test for the phone and tablet client — M
 
-- [x] **Done in 2.1.0** with Electron as the browser (no Playwright): `npm run test:browser`. WebKit
+- [x] **Done in 2.1.1** with Electron as the browser (no Playwright): `npm run test:browser`. WebKit
   (Safari) is still untested: it needs Playwright's WebKit.
 - **Why:** `renderer/remote/app.js` and `screens.js` (about 2,300 lines) have no tests; the
   tablet's black village and the Safari question could not be checked from the desktop.
@@ -41,7 +41,7 @@ Pick an item, read `ENGINEERING.md`, and start; tick the box and note the versio
 
 ## 3. Testable renderer views — L (incremental)
 
-- [ ] **Started in 2.1.0:** chat (`renderer/js/chatcore.js`). Next: the settings cards' field definitions.
+- [ ] **Started in 2.1.1:** chat (`renderer/js/chatcore.js`). Next: the settings cards' field definitions.
 - **Why:** 14 of 59 test files touch `renderer/js`, all pure modules. The views (`settings.js`
   at 1,600 lines, `chat.js`, `voice.js`) have none; layout bugs like the vertical "Remove" button
   live there.
@@ -52,7 +52,7 @@ Pick an item, read `ENGINEERING.md`, and start; tick the box and note the versio
 
 ## 4. Split `main/tools.js` — M
 
-- [x] **Done in 2.1.0:** `main/tools/<group>.js` + `main/tools/common.js`.
+- [x] **Done in 2.1.1:** `main/tools/<group>.js` + `main/tools/common.js`.
 - **Why:** 1,900 lines, every tool in one file; the architecture map, self-changes and reviews all
   get coarser because of it.
 - **What:** `main/tools/<group>.js` (calendar, learning, habits, vault, world, browser…), each
@@ -62,7 +62,7 @@ Pick an item, read `ENGINEERING.md`, and start; tick the box and note the versio
 
 ## 5. A health signal for the phone link — S/M
 
-- [x] **Done in 2.1.0.**
+- [x] **Done in 2.1.1.**
 - **Why:** the title-bar pill knows only whether the tunnel is up, not whether a phone is
   connected, when a device was last seen, or that the background connection gave up (now silent by
   design).
@@ -74,16 +74,16 @@ Pick an item, read `ENGINEERING.md`, and start; tick the box and note the versio
 
 ## 6. Inner World: the cheap roadmap items — S each
 
-- [x] **Timelapse** (2.1.0; `ROADMAP-inner-world.md` item 7): the replay built for the Architecture map
+- [x] **Timelapse** (2.1.1; `ROADMAP-inner-world.md` item 7): the replay built for the Architecture map
   (`renderer/js/replay.js`), pointed at the village's chronicle days instead of git: buildings
   rising level by level, banners appearing.
-- [x] **Level-up celebrations** (2.1.0; item 1): a glow on the building and a line in the panel when a place
+- [x] **Level-up celebrations** (2.1.1; item 1): a glow on the building and a line in the panel when a place
   gains a level, driven by `world:event`.
 - Leave the expensive ones (talking to a resident, soundscape) as they are.
 
 ## 7. Vault links and the index — L (when wanted)
 
-- [x] **Done in 2.1.0:** `main/linkindex.js` (links and backlinks, map edges, the `vault_links` tool).
+- [x] **Done in 2.1.1:** `main/linkindex.js` (links and backlinks, map edges, the `vault_links` tool).
   Search does not use it yet.
 - **Why:** the Growth replay and the vault map (`main/replaycore.js` vaultMap) have no edges; the
   audit deferred an inverted index until about 10,000 notes.
@@ -93,7 +93,7 @@ Pick an item, read `ENGINEERING.md`, and start; tick the box and note the versio
 
 ## 8. Keyboard and screen-reader pass on the desktop — M
 
-- [x] **Done in 2.1.0:** `docs/KEYBOARD.md`, a live region for finished replies (not `aria-live` on the
+- [x] **Done in 2.1.1:** `docs/KEYBOARD.md`, a live region for finished replies (not `aria-live` on the
   whole list, which would read every streamed word), focus rings, arrow keys on the rail.
 - **Why:** the canvas views (village, map, replay, skill tree) mirror their content in HTML
   panels, which is right, but focus order across the rail and views is uneven and streamed replies
@@ -103,7 +103,7 @@ Pick an item, read `ENGINEERING.md`, and start; tick the box and note the versio
 
 ## 9. Electron upgrades with a launch check — S per upgrade
 
-- [x] **Done in 2.1.0:** `npm run smoke`, in `release.yml` on Windows and macOS.
+- [x] **Done in 2.1.1:** `npm run smoke`, in `release.yml` on Windows and macOS.
 - **Why:** Electron majors arrive about every eight weeks; the fuses test and the `runAsNode`
   requirement (`claudecode.js`, `selfchange.js`) mean each upgrade needs a real launch, which nothing
   automates.

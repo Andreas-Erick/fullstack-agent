@@ -41,11 +41,23 @@ async function until(wc, expr, ms = 15000) {
   return false;
 }
 
-// The screen in #panel finished loading (or the chat is showing); then a moment for canvases to draw.
+// The screen in #panel finished loading (or the chat is showing); canvases get until PAINT_MS to draw
+// (the village loads its art first; a CI machine without a graphics card is several times slower).
+const PAINT_MS = 15000;
 async function settled(wc, label) {
   const ok = await until(wc, `!document.querySelector('#panel .panel-loading')`);
   if (!ok) problems.push(`${label}: still loading after 15 s`);
-  await wait(1500);
+  await wait(800);
+  const end = Date.now() + PAINT_MS;
+  do {
+    await measure(wc, label);
+    if (screens[label].canvas.every((c) => c.painted < 0 || c.painted >= 5)) break;
+    await wait(500);
+  } while (Date.now() < end);
+  for (const c of screens[label].canvas) if (c.painted >= 0 && c.painted < 5) problems.push(`${label}: the ${c.size} canvas is blank (${c.painted}% painted) after ${PAINT_MS / 1000} s`);
+}
+
+async function measure(wc, label) {
   screens[label] = await wc.executeJavaScript(`(() => {
     const p = document.querySelector('#panel');
     const shown = p && !p.classList.contains('hidden');
@@ -65,7 +77,6 @@ async function settled(wc, label) {
     const canvas = shown ? [...p.querySelectorAll('canvas')].map((c) => ({ size: c.width + 'x' + c.height, painted: painted(c) })) : [];
     return { text, canvas, wide: document.body.classList.contains('wide') };
   })()`);
-  for (const c of screens[label].canvas) if (c.painted >= 0 && c.painted < 5) problems.push(`${label}: the ${c.size} canvas is blank (${c.painted}% painted)`);
 }
 
 async function run() {
