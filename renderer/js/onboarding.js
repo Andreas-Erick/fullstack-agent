@@ -26,7 +26,7 @@ const GOALS = [
 ];
 
 // Icons for the tour (main/guide.js FEATURES ids).
-const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '🎓', languages: '🗣', coaching: '🌱', skilltree: '🌳', innerworld: '🏡', routines: '⏰', schedule: '📅', connectors: '🔌', documents: '📄', folders: '📁', 'agent-window': '🌐', architecture: '🏛', performance: '⚡', system: '📊', usage: '⏳', skills: '✨', diagrams: '📐', extensions: '🧩', 'web-code': '💻', remote: '📱', watch: '⌚', keyboard: '⌨', updates: '⬆', safety: '🛡' };
+const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '🎓', flashcards: '🗂', languages: '🗣', coaching: '🌱', skilltree: '🌳', innerworld: '🏡', routines: '⏰', schedule: '📅', connectors: '🔌', documents: '📄', folders: '📁', 'agent-window': '🌐', architecture: '🏛', performance: '⚡', system: '📊', usage: '⏳', skills: '✨', diagrams: '📐', extensions: '🧩', 'web-code': '💻', remote: '📱', watch: '⌚', keyboard: '⌨', updates: '⬆', safety: '🛡' };
 
 let step = 0;
 const draft = {};
@@ -404,7 +404,7 @@ async function connectStep(s) {
   const skills = await api.skills.list().catch(() => []);
   const parts = [
     el('h2', {}, 'Connectors and extras'),
-    point('✅', 'Built in, nothing to set up', 'Your schedule, notes, memory, habits, learning tracker, web search, documents and PDFs, diagrams, routines and the Inner World all run inside the app. GitHub works once the GitHub CLI is signed in.'),
+    point('✅', 'Built in, nothing to set up', 'Your schedule, notes, memory, habits, learning tracker, flashcards (Anki decks import too), web search, documents and PDFs, diagrams, routines and the Inner World all run inside the app. GitHub works once the GitHub CLI is signed in.'),
     point('✨', `${skills.length} skills included`, 'Ready-made workflows such as /explain, /proof-coach, /study-session, /weekly-review and /tour. Add your own, or import more from GitHub, in the Skills view.'),
   ];
   if (claudeBrain) {

@@ -37,6 +37,14 @@ const FEATURES = [
     status: (_s, f) => (f.vault ? `${f.topics} topic${f.topics === 1 ? '' : 's'} tracked` : 'needs the vault'),
   },
   {
+    id: 'flashcards',
+    title: 'Flashcards',
+    what: 'Decks of flashcards scheduled the way Anki does it: learning steps, then intervals that grow with Again, Hard, Good and Easy (Anki’s SM-2), or FSRS, Anki’s newer scheduler, as a deck option. Study them in the Cards view (Space shows the answer, 1–4 grade it), on your phone and tablet (More → Flashcards), or with me in the chat. I make cards for you (cloze cards too) and import them: put a CSV, TSV, Anki text export or an Anki deck (.apkg) in your workspace folder and ask me, or use Import in the view. Images, sounds and the schedule Anki had come along. Your vocabulary decks are here too. Link a deck to a skill in your skill tree and the skill grows as its cards mature.',
+    say: ['"Import the Anki deck in my workspace."', '"Make me flashcards about the Krebs cycle."', '"Quiz me on my Biology deck."', '"Switch my Spanish deck to FSRS."'],
+    where: 'Cards in the rail; Flashcards/ in your vault (one note per deck); More → Flashcards on the phone.',
+    status: (_s, f) => (!f.vault ? 'needs the vault' : 'on'),
+  },
+  {
     id: 'languages',
     title: 'Languages (polyglots)',
     what: 'Vocabulary and phrase decks with spaced repetition, reviews by voice, and speaking practice: say "let\'s practice Spanish" and speech recognition and my voice switch to that language, with gentle corrections.',
@@ -63,7 +71,7 @@ const FEATURES = [
   {
     id: 'innerworld',
     title: 'The Inner World and rehearsals',
-    what: 'A small fantasy village where your personas (and two villagers) live a fictional day: every morning a narrator writes their plans, meetings and conversations, and each of them remembers it. It mirrors you: the Library grows with what you understand, the Café with your vocabulary, the Training Grounds fly a banner per habit (raised when kept today), the Garden blooms for each habit kept, and at night your skill tree shines as constellations. Whatever I am doing right now you can watch: at the forge when I write code, up the Lookout when I search the web. When a building gains a level it lights up and sparks for a moment, and ⏳ Timelapse replays how the village grew, day by day, with the seasons turning. On its Stage I can rehearse a conversation you are preparing for, with characters who have their own hidden goals, and debrief it.',
+    what: 'A small fantasy village where your personas (and two villagers) live a fictional day: every morning a narrator writes their plans, meetings and conversations, and each of them remembers it. It mirrors you: the Library grows with what you understand, the Café with your vocabulary, the Training Grounds fly a banner per habit (raised when kept today), the Garden blooms for each habit kept, and at night your skill tree shines as constellations. Whatever I am doing right now you can watch: at the forge when I write code, up the Lookout when I search the web. You choose its frame rate (automatic, 15, 30, 60 or 120 a second) in the view. When a building gains a level it lights up and sparks for a moment, and ⏳ Timelapse replays how the village grew, day by day, with the seasons turning. On its Stage I can rehearse a conversation you are preparing for, with characters who have their own hidden goals, and debrief it.',
     say: ['"What did you do today in the Inner World?"', '"Help me rehearse asking for a raise"', '"Rehearse my thesis defense with a skeptical examiner"'],
     where: 'World view (rail; ⚙ there or Settings → Inner World for season, art and villagers); Inner World/ in the vault (Chronicle, residents’ memories, Rehearsals).',
     status: (s, f) => (!f.vault ? 'needs the vault' : s.innerWorld?.enabled ? 'awake' : 'asleep: wake it in the World view (rehearsals work anyway)'),

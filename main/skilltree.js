@@ -1,5 +1,5 @@
 // The skill tree in the vault (Skill Tree.md; format, progress and layout in skilltreecore.js), with
-// its evidence gathered from the learning tracker, vocabulary decks and habits.
+// its evidence gathered from the learning tracker, flashcard and vocabulary decks, and habits.
 const obsidian = require('./obsidian');
 const core = require('./skilltreecore');
 const { withLock } = require('./notelock');
@@ -10,10 +10,18 @@ async function read() {
   return core.parse(await obsidian.readOptional(NOTE));
 }
 
+// Decks: every flashcard deck and vocabulary deck (flashcards.js), by name; a flashcard deck and a
+// language deck with the same name count together.
 async function evidence() {
   const learning = require('./learning');
-  const [topics, decks, habits] = await Promise.all([learning.topics().catch(() => []), learning.deckSummaries().catch(() => []), require('./habits').status().catch(() => ({ habits: [] }))]);
-  return { learning: topics, decks, habits: habits.habits };
+  const [topics, cardDecks, habits] = await Promise.all([learning.topics().catch(() => []), require('./flashcards').evidence().catch(() => []), require('./habits').status().catch(() => ({ habits: [] }))]);
+  const decks = new Map();
+  for (const d of cardDecks) {
+    const k = d.name.toLowerCase();
+    const x = decks.get(k) || { language: d.name, mature: 0, total: 0 };
+    decks.set(k, { ...x, mature: x.mature + d.mature, total: x.total + d.total });
+  }
+  return { learning: topics, decks: [...decks.values()], habits: habits.habits };
 }
 
 /** The tree with progress and states, the layout, and what can be linked as a source. */

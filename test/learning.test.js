@@ -58,17 +58,21 @@ test('topic names become safe file names', () => {
   assert.throws(() => core.fileName('  '), /name/);
 });
 
-test('SM-2 scheduling: again comes back today, good grows the interval', () => {
+test('vocabulary cards follow Anki’s scheduler: learning steps, then days; a lapse relearns', () => {
+  const at = (s) => Date.parse(s);
   let c = { front: 'hola', due: '', ivl: 0, ease: 2.5, reps: 0, lapses: 0 };
-  c = srs.schedule(c, 'good', '2026-10-25');
-  assert.deepStrictEqual([c.ivl, c.due, c.reps], [1, '2026-10-26', 1]);
-  c = srs.schedule(c, 'good', '2026-10-26');
-  assert.deepStrictEqual([c.ivl, c.due], [3, '2026-10-29']);
-  c = srs.schedule(c, 'good', '2026-10-29');
-  assert.strictEqual(c.ivl, 8); // round(3 × 2.5)
-  c = srs.schedule(c, 'again', '2026-11-06');
-  assert.deepStrictEqual([c.ivl, c.due, c.reps, c.lapses], [0, '2026-11-06', 0, 1]);
+  c = srs.schedule(c, 'good', at('2026-10-25T10:00:00'));
+  assert.deepStrictEqual([c.type, c.step, c.due, c.at - at('2026-10-25T10:00:00')], ['learn', 1, '2026-10-25', 10 * 60000], 'the second learning step: 10 minutes');
+  c = srs.schedule(c, 'good', at('2026-10-25T10:10:00'));
+  assert.deepStrictEqual([c.type, c.ivl, c.due], [undefined, 1, '2026-10-26'], 'graduated: one day');
+  c = srs.schedule(c, 'good', at('2026-10-26T10:00:00'));
+  assert.ok(c.ivl >= 2 && c.ivl <= 4, `ivl ${c.ivl}`);
+  c = srs.schedule(c, 'again', at('2026-11-06T10:00:00'));
+  assert.deepStrictEqual([c.type, c.lapses, c.due], ['relearn', 1, '2026-11-06']);
   assert.ok(c.ease < 2.5 && c.ease >= 1.3);
+  const line = srs.serializeDeck({ before: '', cards: [c], after: '' });
+  assert.match(line, /type=relearn/);
+  assert.deepStrictEqual(srs.parseDeck(line).cards[0].type, 'relearn', 'the learning state survives the note');
   assert.throws(() => srs.schedule(c, 'perfect', '2026-11-06'), /Grade/);
 });
 
@@ -107,8 +111,11 @@ test('through the vault: tracker, deck, review and the agent\'s summary', async 
   const due = await learning.due('Spanish', { limit: 5 });
   assert.strictEqual(due.cards.length, 1);
   const g = await learning.gradeCard('Spanish', 'echar de menos', 'good');
-  assert.strictEqual(g.nextReview, '2026-10-26');
-  assert.strictEqual((await learning.due('Spanish')).cards.length, 0, 'graded: not due again today');
+  assert.match(g.nextReview, /today \(learning step\)$/, 'a new card first goes through the learning steps');
+  const e = await learning.gradeCard('Spanish', 'echar de menos', 'easy');
+  assert.match(e.nextReview, /^\d{4}-\d{2}-\d{2}$/);
+  assert.strictEqual(e.intervalDays, 4, 'easy graduates with the easy interval');
+  assert.strictEqual((await learning.due('Spanish')).cards.length, 0, 'graduated: not due again today');
 
   const block = await learning.promptBlock();
   assert.match(block, /Linear Algebra: 1 understood; shaky: diagonalization; open: when is a matrix not diagonalizable/);

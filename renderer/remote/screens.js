@@ -8,11 +8,12 @@ export function initScreens(c) {
   ctx = c;
 }
 
-export const TITLES = { today: 'Today', habits: 'Habits', learn: 'Learning', memory: 'Memory', notes: 'Notes', tree: 'Skill tree', world: 'Inner World', arch: 'Architecture', skills: 'Skills & routines', more: 'More' };
+export const TITLES = { today: 'Today', habits: 'Habits', learn: 'Learning', memory: 'Memory', notes: 'Notes', tree: 'Skill tree', world: 'Inner World', arch: 'Architecture', skills: 'Skills & routines', cards: 'Flashcards', more: 'More' };
 
 // The "More" menu: every screen, with what it shows.
 const MORE = [
   ['sched', 'calendar', 'Schedule', 'Your week, from Schedule.md'],
+  ['cards', 'cards', 'Flashcards', 'Study your decks: the same cards and schedule as on the computer'],
   ['memory', 'brain', 'Memory', 'What she remembers about you, and her stream of observations'],
   ['notes', 'note', 'Notes', 'Your vault: read and search every note'],
   ['tree', 'tree', 'Skill tree', 'What you are growing, and how far along'],
@@ -39,7 +40,7 @@ export async function render(view, box) {
   }
 }
 
-const SCREENS = { today, habits, learn, memory, notes, tree, world, arch, skills, more };
+const SCREENS = { today, habits, learn, memory, notes, tree, world, arch, skills, cards, more };
 
 // The desktop's view opening (renderer/js/hud.js): a beam crosses the screen and its cards cascade in.
 // Only with the HUD on (styles.css .fx-hud .panel.enter); the CSS stops it under reduced motion.
@@ -72,8 +73,8 @@ async function today() {
   out.push(card('Schedule', ...(upcoming.length ? upcoming.map((e) => el('div', { class: 'today-ev' }, el('b', {}, e.allDay ? 'all day' : timeOf(e.start)), el('span', {}, e.title, e.location ? el('small', {}, ` · ${e.location}`) : null))) : [el('p', { class: 'muted' }, d.events.length ? 'Nothing more today.' : 'Nothing scheduled today.')])));
   const active = d.habits.filter((h) => !h.paused);
   if (active.length) out.push(card(`Habits · ${active.filter((h) => h.doneToday).length} of ${active.length} done`, habitRows(active, () => render('today', document.querySelector('#panel')))));
-  const due = d.decks.filter((x) => x.dueCount || x.newCount);
-  if (due.length) out.push(card('Cards to review', ...due.map((x) => el('div', { class: 'today-ev' }, el('b', {}, x.language), el('span', {}, `${x.dueCount} due · ${x.newCount} new`), ask('Review', `Let’s review my ${x.language} vocabulary.`)))));
+  const due = (d.cards || []).filter((x) => x.dueNow);
+  if (due.length) out.push(card('Cards to study', ...due.map((x) => el('div', { class: 'today-ev' }, el('b', {}, x.name), el('span', {}, `${x.dueNow} to study`), el('button', { class: 'btn ghost small', type: 'button', onclick: () => openDeck(x.id) }, 'Study')))));
   if (d.shaky.length) out.push(card('Still shaky', ...d.shaky.map((s) => el('div', { class: 'li' }, el('b', {}, `${s.topic}: `), s.text)), el('div', { class: 'row' }, ask('Go over them', 'Help me go over what is still shaky in what I am learning.'))));
   if (d.priorities) out.push(card('Active priorities', el('div', { class: 'md' }, ...htmlOf(markdown(d.priorities)))));
   return out;
@@ -135,6 +136,7 @@ async function learn() {
   const { el, api } = ctx;
   const d = await api('/api/data/learn');
   const out = [];
+  out.push(card('Flashcards', el('p', { class: 'muted' }, 'Your decks, studied with the same schedule as on the computer.'), el('div', { class: 'row' }, el('button', { class: 'btn small', type: 'button', onclick: () => ctx.showView('cards') }, 'Open flashcards'))));
   if (d.decks.length) {
     out.push(card('Vocabulary', ...d.decks.map((x) => el('div', { class: 'deck' },
       el('div', {}, el('b', {}, x.language), el('small', {}, `${x.total} cards · ${x.mature} known`)),
@@ -304,6 +306,96 @@ function describe(s) {
   return s.kind || '';
 }
 
+// --------------------------------------------------------------- Flashcards
+// The decks (main/flashcards.js through /api/data/flashcards), and studying one: the front, "Show
+// answer", then Again / Hard / Good / Easy with what each would do, as in Anki. A keyboard works too
+// (tablets): Space shows the answer, 1–4 grade it, U undoes.
+let deckOpen = null; // the deck being studied: { id, data, shown }
+const openDeck = (id) => ((deckOpen = { id, data: null, shown: false }), ctx.showView('cards'));
+const fcNum = (n, cls) => ctx.el('span', { class: `fc-num ${cls}${n ? '' : ' zero'}` }, String(n));
+
+async function cards() {
+  const { el, api } = ctx;
+  if (deckOpen) {
+    // Fresh from the computer, unless this is the redraw after showing the answer or grading a card.
+    if (!deckOpen.keep || !deckOpen.data) deckOpen.data = await api(`/api/data/flashcards/next?deck=${encodeURIComponent(deckOpen.id)}`);
+    deckOpen.keep = false;
+    return studyScreen();
+  }
+  const d = await api('/api/data/flashcards');
+  if (!d.vault) return empty('Flashcards live in the vault on your computer; set one up there first.');
+  if (!d.decks.length) return empty('No decks yet. Ask her to make some, or to import a CSV or an Anki deck from your workspace folder.', ask('Make flashcards', 'Make me flashcards about what I am learning.'));
+  return d.decks.map((x) =>
+    el(
+      'button',
+      { class: 'card fc-deck', type: 'button', onclick: () => openDeck(x.id), 'aria-label': `${x.name}: ${x.new} new, ${x.learn} learning, ${x.review} due` },
+      el('div', { class: 'fc-deck-main' }, el('b', {}, x.name), el('small', { class: 'muted' }, `${x.kind === 'vocab' ? 'vocabulary · ' : ''}${x.total} cards · ${x.mature} mature${!x.dueNow && x.nextDue ? ` · next ${x.nextDue}` : ''}`)),
+      el('span', { class: 'fc-nums' }, fcNum(x.new, 'n'), fcNum(x.learn, 'l'), fcNum(x.review, 'r')),
+    ),
+  );
+}
+
+function studyScreen() {
+  const { el, cardMarkdown } = ctx;
+  const d = deckOpen.data;
+  const c = d.counts;
+  const head = el(
+    'div',
+    { class: 'fc-head' },
+    el('button', { class: 'btn ghost small', type: 'button', onclick: () => ((deckOpen = null), render('cards', document.querySelector('#panel'))) }, '← Decks'),
+    el('b', {}, d.name),
+    el('span', { class: 'fc-nums' }, fcNum(c.new, 'n'), fcNum(c.learn, 'l'), fcNum(c.review, 'r')),
+    d.canUndo ? el('button', { class: 'btn ghost small', type: 'button', onclick: () => act('undo') }, '↶ Undo') : null,
+  );
+  if (!d.card) {
+    const later = d.laterAt ? new Date(d.laterAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    return [head, card('Congratulations!', el('p', {}, later ? `Done for now. A card in its learning steps comes back at ${later}.` : 'You have finished this deck for today.'))];
+  }
+  const side = (md) => el('div', { class: 'fc-side' }, cardMarkdown(md));
+  const body = [side(d.card.front)];
+  if (deckOpen.shown && d.card.back) body.push(el('hr', { class: 'fc-hr' }), side(d.card.back));
+  const tags = [d.card.leech ? 'leech' : '', d.card.status === 'new' ? 'new' : d.card.status === 'learn' ? 'learning' : ''].filter(Boolean);
+  const buttons = deckOpen.shown
+    ? el('div', { class: 'fc-grades' }, ...[['again', 'Again'], ['hard', 'Hard'], ['good', 'Good'], ['easy', 'Easy']].map(([g, label]) => el('button', { class: `btn fc-grade ${g}`, type: 'button', onclick: () => act(g) }, el('small', {}, d.card.preview[g]), el('span', {}, label))))
+    : el('div', { class: 'fc-grades' }, el('button', { class: 'btn fc-show', type: 'button', onclick: showAnswer }, 'Show answer'));
+  return [head, el('section', { class: 'card fc-card', 'aria-live': 'polite' }, tags.length ? el('div', { class: 'fc-tags' }, ...tags.map((t) => chip(t))) : null, ...body), buttons];
+}
+
+async function showAnswer() {
+  if (!deckOpen?.data?.card) return;
+  deckOpen.shown = true;
+  deckOpen.keep = true;
+  await render('cards', document.querySelector('#panel'));
+  document.querySelector('#panel .fc-side:last-child audio')?.play?.().catch(() => {});
+}
+
+let acting = false;
+async function act(what) {
+  if (acting || !deckOpen) return;
+  acting = true;
+  try {
+    const body = what === 'undo' ? { deck: deckOpen.id } : { deck: deckOpen.id, card: deckOpen.data.card.id, grade: what };
+    deckOpen.data = await ctx.api(`/api/data/flashcards/${what === 'undo' ? 'undo' : 'answer'}`, { method: 'POST', body });
+    deckOpen.shown = false;
+    deckOpen.keep = true;
+    await render('cards', document.querySelector('#panel'));
+  } catch (err) {
+    ctx.toast(err.message);
+  } finally {
+    acting = false;
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (ctx?.state.view !== 'cards' || !deckOpen?.data?.card || e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) return;
+  const k = e.key.toLowerCase();
+  if ((k === ' ' || k === 'enter') && !deckOpen.shown) showAnswer();
+  else if (deckOpen.shown && ['1', '2', '3', '4'].includes(k)) act(['again', 'hard', 'good', 'easy'][Number(k) - 1]);
+  else if (k === 'u' && deckOpen.data.canUndo) act('undo');
+  else return;
+  e.preventDefault();
+});
+
 // --------------------------------------------------------------- More
 // In the Android app: a newer APK than this one is out (the computer checks GitHub, /api/info `update`).
 function appUpdate() {
@@ -429,8 +521,8 @@ async function world() {
     scene.frame(g, f);
     scene.labels(g, f, island, { selected });
   };
-  // 30 frames a second on the display's own beat (every frame is more than a phone needs), the camera's
-  // glide at full rate. A frame that throws stops the loop and says why, instead of a silent black box.
+  // The computer's frame rate setting (innerWorld.fps; 30 unless chosen) on the display's own beat, the
+  // camera's glide at full rate. A frame that throws stops the loop and says why, instead of a silent black box.
   const tick = (t) => {
     if (!canvas.isConnected) return stopWorld();
     try {
@@ -440,7 +532,7 @@ async function world() {
         cam = { x: flight.from.x + (flight.to.x - flight.from.x) * e, y: flight.from.y + (flight.to.y - flight.from.y) * e, z: flight.from.z + (flight.to.z - flight.from.z) * e };
         if (k >= 1) ((flight = null), rescale());
       }
-      if (flight || gesture || t - lastDraw >= 29) {
+      if (flight || gesture || t - lastDraw >= 1000 / (ctx.state.info?.worldFps || 30) - 4) {
         lastDraw = t;
         draw(t);
       }

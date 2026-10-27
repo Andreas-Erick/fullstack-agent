@@ -88,6 +88,33 @@ function markdown(text) {
   return window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input', 'img'], FORBID_ATTR: ['style'], ADD_ATTR: ['target'] });
 }
 
+// A flashcard (screens.js): Markdown like a reply, plus the card's own pictures and sounds, which the
+// computer sends inside the card as data: URLs. Nothing is loaded from anywhere else: any other image
+// or audio source is dropped. Sounds become blob: URLs (this page's CSP allows media only from those).
+function cardMarkdown(text) {
+  const math = window.katex && mathtext ? mathtext.extractMath(String(text ?? '')) : { text: String(text ?? ''), items: [] };
+  let html = window.marked.parse(math.text, { breaks: true, gfm: true });
+  if (math.items.length) html = mathtext.restoreMath(html, math.items, renderTex);
+  const frag = window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input'], FORBID_ATTR: ['style'], ADD_ATTR: ['target', 'controls'], RETURN_DOM_FRAGMENT: true });
+  for (const n of frag.querySelectorAll('img, audio, video, source')) {
+    const src = n.getAttribute('src') || '';
+    if (n.tagName === 'IMG' && /^data:image\/(png|jpe?g|gif|webp|bmp);base64,/i.test(src)) continue;
+    if (n.tagName === 'AUDIO' && /^data:audio\/[\w.+-]+;base64,/i.test(src)) {
+      try {
+        const [head, b64] = src.split(',');
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        n.setAttribute('src', URL.createObjectURL(new Blob([bytes], { type: head.slice(5, head.indexOf(';')) })));
+        n.setAttribute('controls', '');
+        continue;
+      } catch {
+        /* a broken sound: dropped below */
+      }
+    }
+    n.remove();
+  }
+  return frag;
+}
+
 function renderTex(tex, display) {
   try {
     // Without the TeX source KaTeX keeps in <annotation>: the sanitizer would leave it as visible text.
@@ -1552,7 +1579,7 @@ document.addEventListener('keydown', (e) => {
 
 // The tab bar and the screens beyond the chat (screens.js).
 for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => (navigator.vibrate?.(6), showView(b.dataset.tab)));
-initScreens({ api, el, icon, markdown, toast, send, prefill, showView, AuthError, state });
+initScreens({ api, el, icon, markdown, cardMarkdown, toast, send, prefill, showView, AuthError, state });
 
 $('#pairInsecure').classList.toggle('hidden', !insecure);
 // Offline app shell (needs HTTPS or localhost; on the plain local network the browser doesn't allow it).

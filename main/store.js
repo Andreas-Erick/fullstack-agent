@@ -226,6 +226,7 @@ const DEFAULTS = {
     townsfolk: true, // two residents of the village's own besides the personas
     season: 'auto', // auto (follows the date, on the user's half of the world) | spring | summer | autumn | winter
     art: 'rendered', // rendered (sprites from tools/world-art) | drawn (everything drawn by code)
+    fps: 'auto', // the village's frame rate: auto (30, 15 on Balanced) | 15 | 30 | 60 | 120 (120 needs a 120 Hz display)
   },
   documents: {
     allowedRoots: [], // folders the user added beyond the workspace (Settings → Documents); never set by the agent

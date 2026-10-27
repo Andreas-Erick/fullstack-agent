@@ -28,6 +28,7 @@ The open view is marked as the current page for screen readers.
 | --- | --- | --- |
 | Chat | Enter sends, Shift+Enter a new line; `/` suggests skills (↑ ↓, Tab or Enter picks) | Closes the skill suggestions, else stops speaking |
 | Calendar | ← / → previous / next, T today, N new entry; Enter on a day opens it | Closes the entry editor |
+| Flashcards (studying) | Space or Enter shows the answer; then 1 Again, 2 Hard, 3 Good (or Space), 4 Easy; U undoes the last answer; E edits the card. Tab and Enter open a deck from the list | Back to the decks |
 | Skill tree | Tab to a skill, Enter for its details | — |
 | Inner World | Arrows or WASD pan, + / - zoom, 0 the whole island; the side panel lists every place and resident as buttons | Leaves the timelapse, stops following, steps outside, clears the selection (in that order) |
 | Inner World timelapse | Space play / pause (when focus is not on a button); Tab reaches the bar's play button, slider and speed | Leaves the timelapse |

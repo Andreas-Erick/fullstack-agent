@@ -640,3 +640,27 @@ body.face-full .face-full-btn { top: max(14px, env(safe-area-inset-top)); bottom
 body.view-only .view-only-note { display: block; }
 body.view-only #composer, body.view-only #approvals, body.view-only #recBar { display: none !important; }
 body.wide .view-only-note { grid-area: comp; }
+
+/* Flashcards (screens.js): decks with Anki's numbers, the card, the four buttons. */
+.fc-deck { flex-direction: row; align-items: center; justify-content: space-between; text-align: left; width: 100%; color: inherit; font: inherit; cursor: pointer; }
+.fc-deck-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fc-nums { display: flex; gap: 10px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.fc-num.n { color: var(--accent2); }
+.fc-num.l { color: var(--warn); }
+.fc-num.r { color: var(--ok); }
+.fc-num.zero { opacity: 0.35; }
+.fc-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.fc-head b { flex: 1; min-width: 0; }
+.fc-card { text-align: center; font-size: 18px; line-height: 1.5; min-height: 160px; justify-content: center; overflow-wrap: anywhere; }
+.fc-card img { max-width: 100%; max-height: 40vh; border-radius: 8px; }
+.fc-card audio { width: 100%; }
+.fc-hr { border: none; border-top: 1px solid var(--line); width: 100%; margin: 6px 0; }
+.fc-tags { display: flex; gap: 6px; justify-content: center; }
+.fc-grades { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.fc-grades .fc-show { grid-column: 1 / -1; padding: 14px; font-size: 16px; }
+.fc-grade { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; }
+.fc-grade small { font-size: 11px; color: var(--muted); }
+.fc-grade.again { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
+.fc-grade.hard { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.fc-grade.good { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
+.fc-grade.easy { color: var(--accent2); border-color: color-mix(in srgb, var(--accent2) 55%, transparent); }

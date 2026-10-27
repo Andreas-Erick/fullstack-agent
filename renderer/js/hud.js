@@ -78,7 +78,7 @@ export function initHud() {
 }
 
 // ------------------------------------------------------------ cinematic view entrances
-const CASCADE = '.mem-card, .skill-card, .habit-row, .routine-row, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *, .tree-node, .world-scene, .world-res, .stream-row';
+const CASCADE = '.mem-card, .skill-card, .habit-row, .fc-deck, .routine-row, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *, .tree-node, .world-scene, .world-res, .stream-row';
 const GLYPHS = '#%&@$*+=<>/\\|[]{}01ΔΣΞΛ';
 const viewTitle = (v) => v.querySelector('.view-head h2, .tree-head h2, .arch-head h2, .world-head h2');
 

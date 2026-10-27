@@ -242,6 +242,13 @@ function toolChip(t) {
 const TOOL_LABELS = {
   create_pdf: '📄 Created a PDF',
   vault_links: '🔗 Looked at a note’s links',
+  flashcards_decks: '🗂 Looked at your flashcard decks',
+  flashcards_import: '📥 Imported flashcards',
+  flashcards_add: '🗂 Added flashcards',
+  flashcards_next: '🗂 Next flashcard',
+  flashcards_answer: '🗂 Graded a flashcard',
+  flashcards_browse: '🗂 Browsed a deck',
+  flashcards_options: '⚙ Changed deck options',
   quick_note: '📝 Jotted a note',
   skill_list: '⚡ Listed skills',
   skill_run: '⚡ Ran a skill',

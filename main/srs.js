@@ -1,10 +1,13 @@
 // Vocabulary decks with spaced repetition (Languages/<Language>.md in the vault). One card per line,
 // readable and editable in Obsidian; the schedule hides in an HTML comment:
 //   - **el desarrollo** — development · _El desarrollo es lento._ <!-- srs due=2026-10-26 ivl=1 ease=2.5 reps=1 lapses=0 -->
-// Scheduling is SM-2 (as in Anki's classic algorithm) with four grades. Pure: no I/O, dates as YYYY-MM-DD.
+// Scheduling is Anki's (ankicore.js, the same as the Flashcards view: learning steps, then SM-2 days);
+// a card in its learning steps also keeps type, step, at (when it is due, ms) and last in the comment,
+// and FSRS's s and d when its deck uses FSRS. Pure: no I/O.
+const anki = require('./ankicore');
 
-const GRADES = ['again', 'hard', 'good', 'easy'];
-const MIN_EASE = 1.3;
+const GRADES = anki.GRADES;
+const EXTRA = ['type', 'step', 'at', 'last', 's', 'd'];
 const CARD = /^\s*[-*]\s+\*\*(.+?)\*\*\s*(?:[—–-]\s*(.*?))?\s*(?:·\s*_(.*?)_)?\s*(?:<!--\s*srs\s+(.*?)\s*-->)?\s*$/;
 
 const clean = (s, n = 200) => String(s ?? '').replace(/\s*\n\s*/g, ' ').replace(/\*\*|<!--|-->/g, '').trim().slice(0, n);
@@ -37,13 +40,37 @@ function parseDeck(text) {
       ease: Number(meta.ease) || 2.5,
       reps: Number(meta.reps) || 0,
       lapses: Number(meta.lapses) || 0,
+      ...Object.fromEntries(EXTRA.filter((k) => meta[k] !== undefined && meta[k] !== '').map((k) => [k, ['type', 'last'].includes(k) ? meta[k] : Number(meta[k])])),
     });
   });
   return { cards, before: first < 0 ? lines.join('\n').trimEnd() : lines.slice(0, first).join('\n').trimEnd(), after: last < 0 ? '' : lines.slice(last + 1).join('\n').trim() };
 }
 
 function cardLine(c) {
-  return `- **${clean(c.front)}**${c.back ? ` — ${clean(c.back, 300)}` : ''}${c.example ? ` · _${clean(c.example, 300).replace(/_/g, ' ')}_` : ''} <!-- srs due=${c.due || ''} ivl=${c.ivl} ease=${Number(c.ease).toFixed(2)} reps=${c.reps} lapses=${c.lapses} -->`;
+  return `- **${clean(c.front)}**${c.back ? ` — ${clean(c.back, 300)}` : ''}${c.example ? ` · _${clean(c.example, 300).replace(/_/g, ' ')}_` : ''} <!-- srs due=${c.due || ''} ivl=${c.ivl} ease=${Number(c.ease).toFixed(2)} reps=${c.reps} lapses=${c.lapses}${extras(c)} -->`;
+}
+
+const extras = (c) =>
+  EXTRA.filter((k) => c[k] !== undefined && c[k] !== '' && !(k === 'type' && c[k] === 'review') && !(k === 'step' && !c[k]))
+    .map((k) => ` ${k}=${typeof c[k] === 'number' && !Number.isInteger(c[k]) ? c[k].toFixed(3) : c[k]}`)
+    .join('');
+
+/** A vocabulary card's schedule in ankicore's terms. */
+function toSched(c) {
+  const type = c.type || (c.due ? 'review' : 'new');
+  return anki.normalize({ type, step: c.step, dueAt: c.at, due: type === 'review' ? c.due : undefined, ivl: c.ivl, ease: c.ease, reps: c.reps, lapses: c.lapses, last: c.last, s: c.s, d: c.d });
+}
+
+/** The card with a new schedule written back into its fields (a learning card is due today). */
+function withSched(c, s, today) {
+  const out = { front: c.front, back: c.back, example: c.example, ivl: s.ivl || 0, ease: s.ease || 2.5, reps: s.reps, lapses: s.lapses };
+  out.due = s.type === 'review' ? s.due : s.type === 'new' ? '' : today;
+  if (s.type !== 'review') out.type = s.type;
+  if (s.step) out.step = s.step;
+  if (s.dueAt) out.at = s.dueAt;
+  if (s.last) out.last = s.last;
+  if (s.s) Object.assign(out, { s: s.s, d: s.d });
+  return out;
 }
 
 function serializeDeck(deck) {
@@ -69,25 +96,14 @@ function addCards(deck, items) {
   return { deck: { ...deck, cards }, added };
 }
 
-/** SM-2 with four grades. "again" brings the card back today; the others push it out. */
-function schedule(card, grade, today) {
-  if (!GRADES.includes(grade)) throw new Error(`Grade must be one of: ${GRADES.join(', ')}`);
-  const c = { ...card };
-  if (grade === 'again') {
-    c.lapses += c.reps ? 1 : 0;
-    c.reps = 0;
-    c.ivl = 0;
-    c.ease = Math.max(MIN_EASE, c.ease - 0.2);
-    c.due = today;
-    return c;
-  }
-  c.ease = Math.max(MIN_EASE, c.ease + { hard: -0.15, good: 0, easy: 0.15 }[grade]);
-  if (c.reps === 0) c.ivl = { hard: 1, good: 1, easy: 4 }[grade];
-  else if (c.reps === 1) c.ivl = { hard: 2, good: 3, easy: 6 }[grade];
-  else c.ivl = Math.max(c.ivl + 1, Math.round(c.ivl * { hard: 1.2, good: c.ease, easy: c.ease * 1.3 }[grade]));
-  c.reps += 1;
-  c.due = addDays(today, c.ivl);
-  return c;
+// A moment: ms, or a day ('YYYY-MM-DD', taken at noon).
+const momentOf = (now) => (typeof now === 'number' ? now : Date.parse(`${now}T12:00:00`));
+
+/** Anki's scheduler with four grades (ankicore.answer). opts: the deck's options (Flashcards view). */
+function schedule(card, grade, now, opts = {}) {
+  const ms = momentOf(now);
+  const { card: s } = anki.answer(toSched(card), grade, ms, opts, keyOf(card.front));
+  return withSched(card, s, anki.dayOf(ms));
 }
 
 /** Cards to review now: due ones first (oldest first), then new ones up to `newLimit`. */
@@ -103,12 +119,12 @@ function dueCards(deck, today, { limit = 10, newLimit = 5 } = {}) {
   };
 }
 
-function grade(deck, front, g, today) {
+function grade(deck, front, g, now, opts) {
   const i = deck.cards.findIndex((c) => keyOf(c.front) === keyOf(front));
   if (i < 0) throw new Error(`No card "${front}" in this deck.`);
   const cards = deck.cards.slice();
-  cards[i] = schedule(cards[i], g, today);
+  cards[i] = schedule(cards[i], g, now, opts);
   return { deck: { ...deck, cards }, card: cards[i] };
 }
 
-module.exports = { GRADES, parseDeck, serializeDeck, addCards, schedule, dueCards, grade, addDays };
+module.exports = { GRADES, parseDeck, serializeDeck, addCards, schedule, dueCards, grade, addDays, toSched, withSched, keyOf };

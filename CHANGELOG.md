@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0 — 2026-10-27
+
+Flashcards, scheduled the way Anki does it, on the computer, the phone and the tablet.
+
+- A Cards view for flashcards. *(Your decks with Anki's three numbers (new, learning, due). Study a deck: Show answer, then Again, Hard, Good or Easy, each showing when the card comes back; Undo, Edit and Suspend are there too, and the keyboard works like Anki's (Space, 1–4, U, E). Browse a deck's cards with their intervals and ease, add cards (cloze cards too: "The {{c1::nucleus}} holds the DNA"), and set each deck's options as in Anki.)*
+- Anki's scheduler. *(Learning steps of 1 and 10 minutes, then intervals that grow with your ease, Hard × 1.2, Easy with a bonus, lapses that relearn, the same small random spread Anki adds, leeches marked, and the day rolling over at 4 am. Or switch a deck to FSRS, Anki's newer scheduler, with Anki's default parameters and a desired retention you choose.)*
+- Import from a file. *(Put a CSV, a TSV, Anki's "Notes in Plain Text" export or an Anki deck (.apkg or .colpkg, old and new formats) into your workspace folder and ask her to import it, or use Import in the view. Anki decks bring their card templates, cloze and reversed cards, images and sounds, and the schedule they had. Nothing is overwritten; importing twice adds nothing twice.)*
+- Your decks live in your vault. *(One Markdown note per deck in Flashcards/, readable and editable in Obsidian: a card is its question, a line with ?, and its answer. Type "Front :: Back" on a line and it becomes a card.)*
+- Study on your phone and tablet. *(More → Flashcards, and Today shows what is due: the same decks and schedule, pictures and sounds included; your answers are saved on the computer.)*
+- Your vocabulary decks are flashcards too. *(The language decks appear in the Cards view and are now scheduled with the same Anki scheduler, also when she quizzes you in the chat: a new word comes back after a few minutes before it moves on to days.)*
+- Flashcards grow your skill tree. *(Link a deck to a skill (she offers it) and the skill grows as the deck's cards mature. A deck's goal is now its own size instead of a fixed 300 cards.)*
+- Choose the Inner World's frame rate. *(Automatic, 15, 30, 60 or 120 frames a second, in the World view or Settings → Inner World; the phone follows. 120 needs a 120 Hz display.)*
+- Sturdier checks. *(The release check now opens every view once, and the syntax check covers every file in subfolders too; both caught mistakes in this release before it reached you.)*
+
 ## 2.1.1 — 2026-10-27
 
 The first release of everything below. (2.1.0 was tagged but never published: its new release check, which opens the phone app in a browser, gave up too early on the slower build machine. It now waits for each picture to be drawn.)

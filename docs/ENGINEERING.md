@@ -96,8 +96,8 @@ Read `code_diff` top to bottom and ask:
   `test/helpers.js` (`stub()`, `load()`, `fileStore()`), as in `test/handoff.test.js`.
 - A bug fix comes with a test that fails without the fix.
 - Two slower checks drive the real thing, in Electron (no browser to install): `npm run smoke` starts
-  the app on a throwaway data folder and fails on any console error or crash before and just after
-  boot (`main/smoke.js`), and `npm run test:browser` loads the phone client against the real companion
+  the app on a throwaway data folder, opens every view in the rail once and fails on any console error
+  or crash (`main/smoke.js`), and `npm run test:browser` loads the phone client against the real companion
   server at phone and tablet sizes and opens every screen (`test/remoteclient.browser.test.js`). Run
   both after an Electron upgrade or a change to the window's boot or the phone client; `release.yml`
   runs them before publishing.
