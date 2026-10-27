@@ -520,6 +520,10 @@ function registerIpc() {
   handle('flashcards:card', (id, cardId) => fc().card(String(id), String(cardId)));
   handle('flashcards:answer', (id, cardId, grade) => fc().answer(String(id), String(cardId), String(grade)));
   handle('flashcards:undo', (id) => fc().undoLast(String(id)));
+  handle('flashcards:mixStart', (opts) => fc().mixStart({ mode: opts?.mode, decks: Array.isArray(opts?.decks) ? opts.decks.map(String) : null }));
+  handle('flashcards:mixNext', (sid) => fc().mixNext(String(sid)));
+  handle('flashcards:mixAnswer', (sid, grade, cardId) => fc().mixAnswer(String(sid), String(grade), cardId ? String(cardId) : ''));
+  handle('flashcards:mixUndo', (sid) => fc().mixUndo(String(sid)));
   handle('flashcards:create', (name, opts) => fc().createDeck(String(name || ''), opts || {}));
   handle('flashcards:add', (id, cards) => fc().addCards(String(id), Array.isArray(cards) ? cards.slice(0, 2000) : []));
   handle('flashcards:edit', (id, cardId, patch) => fc().editCard(String(id), String(cardId), patch || {}));
@@ -714,7 +718,7 @@ function registerIpc() {
   handle('web:search', (q) => websearch.search(q, 5));
 
   // Approvals (answered in the app by click or voice)
-  handle('approval:respond', (id, allow, reason) => approvals.respond(id, allow, reason));
+  handle('approval:respond', (id, allow, reason, remember) => approvals.respond(id, allow, reason, remember));
 
   // Mechanic: diagnostics + log
   handle('diag:run', () => diagnostics.run());

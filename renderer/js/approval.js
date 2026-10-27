@@ -19,12 +19,15 @@ const KIND_LABEL = {
   repo_change: 'Change a repository (local branch)',
   github_publish: 'Publish to GitHub',
   connector: 'Use a connected service',
+  connector_trust: 'Let a connected service run without asking',
   browser: 'Act on a website (agent window)',
 };
 let current = null;
 
 // Spoken alone, these approve. Anything longer is a sentence, so it declines and goes back as the reason.
 const YES = new Set(['yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'go ahead', 'do it', 'approved', 'yes please', 'yeah yes', 'yes do it', 'yes go ahead']);
+// These approve and pick the first "from now on" choice (a connector: allow reading, else all but deleting).
+const ALWAYS = new Set(['always', 'always allow', 'always allow it', 'yes always', 'allow always', 'yes always allow', 'dont ask again', 'yes dont ask again', 'stop asking']);
 
 export function initApprovals() {
   api.on('approval:request', show);
@@ -44,8 +47,9 @@ export function handleSpokenAnswer(text) {
   if (!current) return false;
   if (current.secret || current.recording) return true; // secrets are typed, never spoken; recordings use the buttons
   // Whisper adds interior punctuation ("Yes, please."), so match on letters only.
-  const t = text.toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const t = text.toLowerCase().replace(/'/g, '').replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
   if (YES.has(t)) answer(true);
+  else if (ALWAYS.has(t) && current.remember?.length) answer(true, '', current.remember[0].level);
   else if (/^(details|show details|what exactly)$/.test(t)) speaker.say(`${current.title}. ${current.detail.slice(0, 400)}`);
   else answer(false, text);
   return true;
@@ -69,7 +73,11 @@ function show(req) {
     el('div', { style: { fontSize: '16px' } }, `${state.settings.agent.name} wants to: `, el('b', {}, req.title)),
     req.tainted ? el('div', { class: 'evo-banner' }, `This turn read external content (${(req.sources || []).join(', ') || 'web/documents'}). Make sure this change is what you asked for — not something a web page or document told the agent to do.`) : '',
     req.detail ? el('pre', { class: 'diff', style: { maxHeight: '260px', whiteSpace: 'pre-wrap', padding: '10px 12px' } }, req.detail) : '',
-    el('div', { class: 'muted', style: { fontSize: '12px' } }, 'Say “yes” to approve, “details” to hear more — anything else declines. ', countdown),
+    el('div', { class: 'muted', style: { fontSize: '12px' } }, `Say “yes” to approve${req.remember?.length ? ', “always” to stop asking' : ''}, “details” to hear more — anything else declines. `, countdown),
+    // "From now on" (connectors): approves and sets that service's level; changeable in Settings → AI brain.
+    req.remember?.length
+      ? el('div', { class: 'approval-remember' }, el('span', { class: 'hint' }, 'Approve, and don’t ask again:'), ...req.remember.map((c) => el('button', { class: 'chip-btn', title: 'Changeable any time in Settings → AI brain', onclick: () => answer(true, '', c.level) }, c.label)))
+      : '',
     el('div', { class: 'modal-actions' }, el('button', { class: 'btn danger', onclick: () => answer(false, 'The user clicked Deny.') }, 'Deny'), el('button', { class: 'btn primary', onclick: () => answer(true) }, 'Approve')),
   );
   wrap.classList.remove('hidden');
@@ -184,9 +192,9 @@ function toBase64(bytes) {
   return btoa(bin);
 }
 
-function answer(allow, reason) {
+function answer(allow, reason, remember) {
   if (!current) return;
-  api.approval.respond(current.id, allow, reason || '').catch(() => {});
+  api.approval.respond(current.id, allow, reason || '', remember).catch(() => {});
   close(allow, reason);
 }
 

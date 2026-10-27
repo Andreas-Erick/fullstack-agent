@@ -51,6 +51,7 @@ const DEFAULTS = {
     compaction: true, // summarize older turns instead of dropping them
     modelMode: 'default', // default | fast | deep (switchable by voice)
     voiceUsesFast: true, // use the fast model for spoken turns (switched in place, no session restart)
+    autoPace: true, // per message: lookups get the fast model at low effort, explanations more (pace.js; model mode Default only)
     fastModel: '',
     deepModel: '',
   },
@@ -460,7 +461,17 @@ function onChange(fn) {
   return () => changeListeners.delete(fn);
 }
 
-async function setSettings(patch) {
+// One save at a time, each on top of the one before: two saves started together (toggles flipped
+// quickly, a tool and the Settings view at once) used to read the same old settings, and the second
+// wrote over the first's change.
+let saving = Promise.resolve();
+function setSettings(patch) {
+  const run = saving.then(() => applySettings(patch));
+  saving = run.catch(() => {});
+  return run;
+}
+
+async function applySettings(patch) {
   const current = await getSettings();
   const next = deepMerge(current, patch);
   // Whatever changed in the live persona (name, prompt, theme, face, voice…) is saved with it.

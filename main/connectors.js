@@ -86,4 +86,53 @@ function allowedKeys(list) {
   return [...new Set((Array.isArray(list) ? list : []).map(serverKey).filter((k) => k && k !== OWN_SERVER))];
 }
 
-module.exports = { OWN_SERVER, serverKey, toolServer, isConnectorTool, isReadOnly, isDestructive, describeTool, parseMcpList, byStatus, allowedKeys };
+// Permission levels per server (Settings → AI brain, the approval dialog's "Always…" buttons, and the
+// tool connector_permission, which asks the user first): ask < read < write < all.
+const LEVELS = ['ask', 'read', 'write', 'all'];
+const LEVEL_LISTS = { all: 'connectorsAllowed', write: 'connectorsWrite', read: 'connectorsReadOnly' };
+const LEVEL_LABEL = { ask: 'ask every time', read: 'allow reading', write: 'allow all but deleting', all: 'allow everything' };
+
+/** The level the user set for a server, from the claudeCode settings. */
+function levelOf(cc, server) {
+  for (const level of ['all', 'write', 'read']) if (allowedKeys(cc?.[LEVEL_LISTS[level]]).includes(server)) return level;
+  return 'ask';
+}
+
+/** Whether a level lets this tool run without asking. */
+function permits(level, toolName) {
+  if (level === 'all') return true;
+  if (level === 'write') return !isDestructive(toolName);
+  if (level === 'read') return isReadOnly(toolName);
+  return false;
+}
+
+/** The settings patch that puts a server at a level (and takes it out of the other lists). */
+function levelPatch(cc, server, level) {
+  const patch = {};
+  for (const [lv, field] of Object.entries(LEVEL_LISTS)) {
+    const keys = allowedKeys(cc?.[field]).filter((k) => k !== server);
+    if (lv === level) keys.push(server);
+    patch[field] = keys;
+  }
+  return patch;
+}
+
+/** The "from now on" choices the approval dialog offers for this tool (never "everything"). */
+function rememberChoices(toolName) {
+  const { service } = describeTool(toolName);
+  const out = [];
+  if (isReadOnly(toolName)) out.push({ level: 'read', label: `Always allow reading ${service}` });
+  if (!isDestructive(toolName)) out.push({ level: 'write', label: `Always allow ${service} (except deleting)` });
+  return out;
+}
+
+/** A service name the user said ("google calendar") → the matching servers from the last check, best first. */
+function findServers(list, name) {
+  const want = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!want) return [];
+  const clean = (c) => c.name.replace(/^claude\.ai /, '').replace(/^plugin:[^:]+:/, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const rank = (c) => (clean(c) === want ? 0 : 2) + (c.status === 'connected' ? 0 : 4) + (c.source === 'connector' ? 0 : 1);
+  return (list || []).filter((c) => clean(c).includes(want) || c.key.toLowerCase() === want.replace(/ /g, '_')).sort((a, b) => rank(a) - rank(b));
+}
+
+module.exports = { OWN_SERVER, LEVELS, LEVEL_LABEL, serverKey, toolServer, isConnectorTool, isReadOnly, isDestructive, describeTool, parseMcpList, byStatus, allowedKeys, levelOf, permits, levelPatch, rememberChoices, findServers };

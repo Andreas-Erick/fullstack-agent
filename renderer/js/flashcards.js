@@ -1,7 +1,9 @@
-// Flashcards view (main/flashcards.js): the decks with Anki's three numbers (new, learning, due), a
+// Flashcards view (main/flashcards.js): today at a glance (what is due across every deck, how far you
+// got), the decks as tiles with Anki's three numbers (new, learning, due) and how mature they are, a
 // study screen (Space shows the answer, 1–4 grade it with what each button would do, U undoes, E edits,
-// Esc goes back), browsing and editing a deck's cards, its options (Anki SM-2 or FSRS, daily limits,
-// steps), and importing a file. Vocabulary decks from language learning are studied here too.
+// Esc goes back), mixed learning across decks (interleaved due cards, or every card shuffled as
+// practice: flashcards.js mixStart), browsing and editing a deck's cards, its options (Anki SM-2 or
+// FSRS, daily limits, steps), and importing a file. Vocabulary decks from language learning are here too.
 import { $, api, el, toast, toastError, renderMarkdown, modal, confirmDialog, promptDialog, on } from './util.js';
 import { currentView, switchView } from './nav.js';
 import { send } from './chat.js';
@@ -12,7 +14,9 @@ const GRADES = [
   ['good', 'Good', 'ok'],
   ['easy', 'Easy', 'c2'],
 ];
-let study = null; // { id, data, shown } while studying a deck
+// While studying: { mode: 'deck' | 'mix', id (deck id or session id), data, shown, answered }.
+let study = null;
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export function initFlashcards() {
   $('#fcNewDeck').onclick = newDeck;
@@ -32,100 +36,248 @@ export async function refresh() {
     return;
   }
   if (!r.vault) {
-    body.replaceChildren(el('div', { class: 'fc-empty' }, el('p', {}, 'Flashcards live in your vault, as Markdown notes in Flashcards/. Set up the vault first.'), el('button', { class: 'btn', onclick: () => switchView('settings', 'obsidian') }, 'Set up the vault')));
+    body.replaceChildren(el('div', { class: 'fc-empty' }, el('div', { class: 'fc-empty-icon', 'aria-hidden': 'true' }, '🗂'), el('h3', { class: 'display' }, 'Set up your vault first'), el('p', {}, 'Flashcards live in your vault, as Markdown notes in Flashcards/, readable in Obsidian.'), el('button', { class: 'btn primary', onclick: () => switchView('settings', 'obsidian') }, 'Set up the vault')));
     return;
   }
   const decks = r.decks;
-  const total = decks.reduce((n, d) => n + d.dueNow, 0);
+  if (!decks.length) return body.replaceChildren(emptyState());
   body.replaceChildren(
-    el('p', { class: 'muted' }, decks.length ? `${total ? `${total} card${total === 1 ? '' : 's'} to study today.` : 'Nothing due right now.'} Decks are notes in Flashcards/ in your vault, scheduled like Anki. Drop a CSV or Anki file into your workspace folder and ask her to import it, or use Import.` : ''),
-    decks.length ? el('div', { class: 'fc-decks' }, ...decks.map(deckRow)) : emptyState(),
+    todayPanel(decks),
+    el('div', { class: 'fc-section-head' }, el('h3', { class: 'display' }, 'Decks'), el('span', { class: 'hint' }, `${plural(decks.length, 'deck')} · ${plural(decks.reduce((n, d) => n + d.total, 0), 'card')}`)),
+    el('div', { class: 'fc-decks' }, ...decks.map(deckTile), el('button', { class: 'fc-deck fc-deck-new', onclick: newDeck }, el('span', { class: 'fc-plus', 'aria-hidden': 'true' }, '＋'), el('b', {}, 'New deck'), el('span', { class: 'hint' }, 'or import a CSV / Anki file'))),
+    el('p', { class: 'hint fc-foot' }, 'Decks are notes in Flashcards/ in your vault, scheduled like Anki. Drop a CSV or Anki file into your workspace folder and ask her to import it, or use Import.'),
   );
 }
+
+// Today: everything due across the decks, a ring for what is already done, and the two mixed modes.
+function todayPanel(decks) {
+  const sum = (k) => decks.reduce((n, d) => n + (d[k] || 0), 0);
+  const due = sum('dueNow');
+  const done = sum('studiedToday');
+  const share = done + due ? done / (done + due) : 1;
+  const ring = el('div', { class: 'fc-ring', style: { '--p': share.toFixed(3) }, role: 'img', 'aria-label': `${Math.round(share * 100)}% of today's cards done` }, el('b', {}, due ? String(due) : '✓'), el('small', {}, due ? 'to study' : 'all done'));
+  const title = due ? `${plural(due, 'card')} waiting today` : done ? 'You are done for today' : 'Nothing due right now';
+  const sub = due ? `${done ? `${done} studied so far. ` : ''}Mix them all: every card comes from another deck than the last.` : done ? `${plural(done, 'card')} studied. Shuffle everything for extra practice; it changes no schedule.` : 'Shuffle everything to practise without changing any schedule.';
+  return el(
+    'section',
+    { class: 'fc-today glass' },
+    ring,
+    el(
+      'div',
+      { class: 'fc-today-main' },
+      el('div', { class: 'fc-kicker' }, 'Today'),
+      el('h3', { class: 'display' }, title),
+      el('p', {}, sub),
+      el('div', { class: 'fc-pills' }, pill(sum('new'), 'new', 'n'), pill(sum('learn'), 'learning', 'l'), pill(sum('review'), 'review', 'r')),
+    ),
+    el(
+      'div',
+      { class: 'fc-today-actions' },
+      el('button', { class: 'btn primary fc-cta', disabled: !due, onclick: () => startMix('due'), title: 'Today’s due cards from every deck, interleaved' }, el('span', { 'aria-hidden': 'true' }, '🔀'), ' Mixed review'),
+      el('button', { class: 'btn', onclick: () => mixDialog(decks), title: 'Every card, shuffled across decks, as practice' }, el('span', { 'aria-hidden': 'true' }, '🎲'), ' Shuffle everything…'),
+    ),
+  );
+}
+
+const pill = (n, label, cls) => el('span', { class: `fc-pill ${cls}${n ? '' : ' zero'}` }, el('b', {}, String(n)), ` ${label}`);
+const num = (n, cls, title) => el('span', { class: `fc-num ${cls}${n ? '' : ' zero'}`, title }, String(n));
 
 function emptyState() {
   return el(
     'div',
     { class: 'fc-empty' },
+    el('div', { class: 'fc-empty-icon', 'aria-hidden': 'true' }, '🗂'),
     el('h3', { class: 'display' }, 'No decks yet'),
-    el('p', {}, 'Create a deck, import a CSV or an Anki deck (.apkg), or ask: “Make me flashcards about the Krebs cycle.”'),
+    el('p', {}, 'Create a deck, import a CSV or an Anki deck (.apkg), or just ask: “Make me flashcards about the Krebs cycle.”'),
     el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: newDeck }, '＋ New deck'), el('button', { class: 'btn', onclick: () => importFile() }, '📥 Import a file'), el('button', { class: 'btn', onclick: () => (switchView('chat'), send('Import the flashcards in my workspace folder.')) }, 'Ask her to import from the workspace')),
   );
 }
 
-const num = (n, cls, title) => el('span', { class: `fc-num ${cls}${n ? '' : ' zero'}`, title }, String(n));
-
-function deckRow(d) {
+// A deck tile: name, kind, the three numbers with labels, a bar of how mature its cards are.
+function deckTile(d) {
+  const seen = d.total || 1;
+  const bar = el(
+    'div',
+    { class: 'fc-mature', role: 'img', 'aria-label': `${d.mature} mature, ${d.young} young, ${d.unseen} not seen yet` },
+    el('i', { class: 'm', style: { width: `${(d.mature / seen) * 100}%` } }),
+    el('i', { class: 'y', style: { width: `${(d.young / seen) * 100}%` } }),
+  );
+  const when = d.dueNow ? `${d.dueNow} to study` : d.nextDue ? `Next review ${d.nextDue}` : 'Up to date';
   return el(
     'div',
-    { class: 'fc-deck', tabindex: '0', role: 'button', 'aria-label': `${d.name}: ${d.new} new, ${d.learn} learning, ${d.review} due`, onclick: () => startStudy(d.id), onkeydown: (e) => e.key === 'Enter' && e.target === e.currentTarget && startStudy(d.id) },
-    el('div', { class: 'fc-deck-main' }, el('b', {}, d.name), el('div', { class: 'hint' }, `${d.kind === 'vocab' ? '🗣 vocabulary · ' : ''}${d.total} cards · ${d.mature} mature · ${d.scheduler === 'fsrs' ? 'FSRS' : 'SM-2'}${d.studiedToday ? ` · ${d.studiedToday} studied today` : ''}${!d.dueNow && d.nextDue ? ` · next ${d.nextDue}` : ''}`)),
-    el('div', { class: 'fc-nums' }, num(d.new, 'n', 'New'), num(d.learn, 'l', 'Learning'), num(d.review, 'r', 'Due')),
+    { class: `fc-deck${d.dueNow ? ' due' : ''}`, tabindex: '0', role: 'button', 'aria-label': `${d.name}: ${d.new} new, ${d.learn} learning, ${d.review} due`, onclick: () => startStudy(d.id), onkeydown: (e) => e.key === 'Enter' && e.target === e.currentTarget && startStudy(d.id) },
     el(
       'div',
-      { class: 'row fc-deck-actions', onclick: (e) => e.stopPropagation() },
-      el('button', { class: 'btn small', onclick: () => browse(d.id) }, 'Browse'),
-      el('button', { class: 'btn small', onclick: () => addDialog(d.id, d.name) }, '＋ Card'),
-      d.kind === 'flash' ? el('button', { class: 'btn small', title: 'Deck options', 'aria-label': `Options for ${d.name}`, onclick: () => optionsDialog(d.id) }, '⚙') : null,
+      { class: 'fc-deck-top' },
+      el('div', { class: 'fc-deck-main' }, el('b', {}, d.name), el('div', { class: 'hint' }, `${d.kind === 'vocab' ? 'Vocabulary · ' : ''}${plural(d.total, 'card')} · ${d.scheduler === 'fsrs' ? 'FSRS' : 'SM-2'}`)),
+      el(
+        'div',
+        { class: 'fc-deck-actions', onclick: (e) => e.stopPropagation() },
+        el('button', { class: 'icon-btn', title: 'Browse cards', 'aria-label': `Browse ${d.name}`, onclick: () => browse(d.id) }, '☰'),
+        el('button', { class: 'icon-btn', title: 'Add a card', 'aria-label': `Add a card to ${d.name}`, onclick: () => addDialog(d.id, d.name) }, '＋'),
+        d.kind === 'flash' ? el('button', { class: 'icon-btn', title: 'Deck options', 'aria-label': `Options for ${d.name}`, onclick: () => optionsDialog(d.id) }, '⚙') : null,
+      ),
     ),
+    el('div', { class: 'fc-counts' }, count(d.new, 'New', 'n'), count(d.learn, 'Learning', 'l'), count(d.review, 'Due', 'r')),
+    bar,
+    el('div', { class: 'fc-deck-foot' }, el('span', { class: 'hint' }, `${d.mature} mature${d.studiedToday ? ` · ${d.studiedToday} today` : ''}`), el('span', { class: `fc-when${d.dueNow ? ' on' : ''}` }, when)),
   );
+}
+
+const count = (n, label, cls) => el('div', { class: `fc-count ${cls}${n ? '' : ' zero'}` }, el('b', {}, String(n)), el('small', {}, label));
+
+// ------------------------------------------------------------ mixed learning
+function mixDialog(decks) {
+  modal((box, close) => {
+    let mode = 'all';
+    const picks = decks.map((d) => ({ d, box: el('input', { type: 'checkbox', checked: true }) }));
+    const option = (value, icon, title, text) => {
+      const b = el('button', { class: `fc-mode${value === mode ? ' on' : ''}`, type: 'button', 'aria-pressed': String(value === mode), onclick: () => ((mode = value), box.querySelectorAll('.fc-mode').forEach((x) => (x.classList.toggle('on', x === b), x.setAttribute('aria-pressed', String(x === b)))), update()) }, el('span', { class: 'fc-mode-icon', 'aria-hidden': 'true' }, icon), el('b', {}, title), el('span', { class: 'hint' }, text));
+      return b;
+    };
+    const go = el('button', { class: 'btn primary' }, 'Start');
+    const update = () => {
+      const chosen = picks.filter((p) => p.box.checked).map((p) => p.d);
+      const n = chosen.reduce((s, d) => s + (mode === 'due' ? d.dueNow : d.total), 0);
+      go.disabled = !n;
+      go.textContent = n ? `Start · ${plural(n, 'card')}` : mode === 'due' ? 'Nothing due in these decks' : 'Pick a deck';
+    };
+    for (const p of picks) p.box.addEventListener('change', update);
+    go.onclick = () => (close(true), startMix(mode, picks.filter((p) => p.box.checked).map((p) => p.d.id)));
+    box.append(
+      el('h3', { class: 'display' }, 'Mixed learning'),
+      el('p', { class: 'muted' }, 'Cards from different decks, one after another: each answer has to come without the context of the last one. Harder in the moment, better remembered.'),
+      el('div', { class: 'fc-modes' }, option('all', '🎲', 'Shuffle everything', 'Every card, in random order. Practice: no schedule changes.'), option('due', '🔀', 'Mixed review', 'Today’s due cards, interleaved. Counts for your schedule.')),
+      el('div', { class: 'field' }, el('label', {}, 'Decks'), el('div', { class: 'fc-picks' }, ...picks.map((p) => el('label', { class: 'fc-pick' }, p.box, el('span', {}, p.d.name), el('small', { class: 'hint' }, `${p.d.total}`))))),
+      el('div', { class: 'row', style: { justifyContent: 'flex-end' } }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), go),
+    );
+    update();
+  });
+}
+
+async function startMix(mode, decks = null) {
+  study = { mode: 'mix', id: null, data: null, shown: false, answered: 0 };
+  renderStudy();
+  try {
+    study.data = await api.flashcards.mixStart({ mode, decks });
+    study.id = study.data.session;
+  } catch (err) {
+    toastError(err);
+    return stopStudy();
+  }
+  renderStudy();
 }
 
 // ------------------------------------------------------------ studying
 async function startStudy(id) {
-  study = { id, data: null, shown: false };
+  study = { mode: 'deck', id, data: null, shown: false, answered: 0 };
   await load(() => api.flashcards.next(id));
 }
 
+// One request at a time (keys pressed quickly send one answer), and a reply that arrives after the user
+// left the study screen (Esc) or started another session is dropped.
 async function load(fn) {
+  const s = study;
+  if (!s || s.busy) return;
+  s.busy = true;
   try {
-    study.data = await fn();
-    study.shown = false;
+    const data = await fn();
+    if (study !== s) return;
+    s.data = data;
+    s.shown = false;
   } catch (err) {
-    toastError(err);
+    if (study === s) toastError(err);
+  } finally {
+    s.busy = false;
   }
-  renderStudy();
+  if (study === s) renderStudy();
 }
+
+const reload = () => study && load(() => (study.mode === 'mix' ? api.flashcards.mixNext(study.id) : api.flashcards.next(study.id)));
 
 function stopStudy() {
   study = null;
   refresh();
 }
 
+// What the screen shows, whichever way we study: a deck, mixed due cards, or a shuffled practice round.
+function viewModel(d) {
+  const practice = study.mode === 'mix' && d.mode === 'all';
+  const c = d.counts || {};
+  const left = practice ? c.left || 0 : (c.new || 0) + (c.learn || 0) + (c.review || 0);
+  const answered = practice ? d.stats?.answered || 0 : study.mode === 'mix' ? d.stats?.answered || 0 : study.answered;
+  return {
+    practice,
+    title: study.mode === 'mix' ? (practice ? 'Shuffle everything' : 'Mixed review') : d.name,
+    sub: study.mode === 'mix' ? `${plural(d.decks || 0, 'deck')}${practice ? ' · practice, no schedule changes' : ' · interleaved'}` : `${d.kind === 'vocab' ? 'Vocabulary · ' : ''}${d.scheduler === 'fsrs' ? 'FSRS' : 'SM-2'}`,
+    deck: study.mode === 'mix' ? d.deck : { id: d.id, name: d.name },
+    left,
+    answered,
+    right: d.stats?.right,
+    progress: answered + left ? answered / (answered + left) : 1,
+  };
+}
+
 function renderStudy() {
   const body = $('#fcBody');
   const d = study.data;
-  if (!d) return body.replaceChildren(el('p', { class: 'muted' }, 'Loading…'));
-  const c = d.counts;
+  if (!d) return body.replaceChildren(el('div', { class: 'fc-loading' }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Shuffling your cards…'));
+  const vm = viewModel(d);
+  const c = d.counts || {};
   const head = el(
     'div',
     { class: 'fc-study-head' },
     el('button', { class: 'btn small', onclick: stopStudy, title: 'Back to the decks (Esc)' }, '← Decks'),
-    el('b', {}, d.name),
-    el('div', { class: 'fc-nums', 'aria-label': `${c.new} new, ${c.learn} learning, ${c.review} due` }, num(c.new, 'n', 'New'), num(c.learn, 'l', 'Learning'), num(c.review, 'r', 'Due')),
-    el('span', { class: 'hint' }, d.scheduler === 'fsrs' ? 'FSRS' : 'SM-2'),
+    el('div', { class: 'fc-study-title' }, el('b', {}, vm.title), el('span', { class: 'hint' }, vm.sub)),
+    vm.practice
+      ? el('div', { class: 'fc-pills' }, el('span', { class: 'fc-pill r' }, el('b', {}, String(vm.left)), ' left'), vm.answered ? el('span', { class: 'fc-pill n' }, el('b', {}, `${Math.round(((vm.right || 0) / vm.answered) * 100)}%`), ' right') : null)
+      : el('div', { class: 'fc-pills', 'aria-label': `${c.new} new, ${c.learn} learning, ${c.review} due` }, pill(c.new || 0, 'new', 'n'), pill(c.learn || 0, 'learning', 'l'), pill(c.review || 0, 'due', 'r')),
     d.canUndo ? el('button', { class: 'btn small', onclick: undo, title: 'Undo the last answer (U)' }, '↶ Undo') : null,
   );
-  if (!d.card) {
-    const later = d.laterAt ? new Date(d.laterAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    body.replaceChildren(head, el('div', { class: 'fc-done glass' }, el('h3', { class: 'display' }, 'Congratulations!'), el('p', {}, later ? `You have finished this deck for now. A card in its learning steps comes back at ${later}.` : 'You have finished this deck for today.'), el('div', { class: 'row' }, el('button', { class: 'btn', onclick: stopStudy }, 'Back to the decks'), later ? el('button', { class: 'btn', onclick: () => load(() => api.flashcards.next(study.id)) }, 'Check again') : null)));
-    return;
-  }
+  const progress = el('div', { class: 'fc-progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(vm.progress * 100)), 'aria-label': 'Session progress' }, el('i', { style: { width: `${vm.progress * 100}%` } }));
+  if (!d.card) return body.replaceChildren(head, progress, doneCard(d, vm));
   const card = d.card;
-  const front = el('div', { class: 'fc-side fc-front', html: renderMarkdown(card.front) });
-  const parts = [front];
-  if (study.shown && card.back) parts.push(el('hr', { class: 'fc-hr' }), el('div', { class: 'fc-side fc-back', html: renderMarkdown(card.back) }));
-  const tags = [card.leech ? '🩹 leech' : '', card.status === 'new' ? 'new' : card.status === 'learn' ? 'learning' : '', ...card.tags].filter(Boolean);
+  const tags = [card.leech ? '🩹 leech' : '', ...card.tags].filter(Boolean);
+  const status = { new: 'New', learn: 'Learning', due: 'Review', later: 'Review' }[card.status] || '';
+  const sides = [el('div', { class: 'fc-side fc-front', html: renderMarkdown(card.front) })];
+  if (study.shown && card.back) sides.push(el('div', { class: 'fc-divider' }, el('span', {}, 'Answer')), el('div', { class: 'fc-side fc-back', html: renderMarkdown(card.back) }));
   const actions = study.shown
-    ? el('div', { class: 'fc-grades' }, ...GRADES.map(([g, label, tone], i) => el('button', { class: `btn fc-grade ${tone}`, onclick: () => grade(g), title: `${label} (${i + 1})` }, el('small', {}, card.preview[g]), el('span', {}, label))))
-    : el('div', { class: 'fc-grades' }, el('button', { class: 'btn primary fc-show', onclick: show, title: 'Show the answer (Space)' }, 'Show answer'));
+    ? el('div', { class: 'fc-grades' }, ...GRADES.map(([g, label, tone], i) => el('button', { class: `fc-grade ${tone}`, onclick: () => grade(g), title: `${label} (${i + 1})` }, el('kbd', {}, String(i + 1)), el('span', {}, label), el('small', {}, card.preview[g]))))
+    : el('div', { class: 'fc-grades' }, el('button', { class: 'btn primary fc-show', onclick: show, title: 'Show the answer (Space)' }, 'Show answer', el('kbd', {}, 'Space')));
   body.replaceChildren(
     head,
-    el('div', { class: 'fc-card glass', 'aria-live': 'polite' }, tags.length ? el('div', { class: 'fc-tags' }, ...tags.map((t) => el('span', { class: 'chip' }, t))) : null, ...parts),
+    progress,
+    el(
+      'article',
+      { class: `fc-card glass${study.shown ? ' revealed' : ''}`, 'aria-live': 'polite' },
+      el(
+        'header',
+        { class: 'fc-card-top' },
+        study.mode === 'mix' && vm.deck ? el('span', { class: 'fc-from' }, vm.deck.name) : el('span'),
+        el('span', { class: 'fc-card-meta' }, ...tags.map((t) => el('span', { class: 'chip' }, t)), status ? el('span', { class: `fc-status ${card.status}` }, status) : null),
+      ),
+      el('div', { class: 'fc-sides' }, ...sides),
+      el('footer', { class: 'fc-card-tools' }, el('button', { class: 'icon-btn', title: 'Edit this card (E)', 'aria-label': 'Edit this card', onclick: () => editDialog(vm.deck.id, card) }, '✎'), el('button', { class: 'icon-btn', title: 'Suspend: keep it, but stop showing it', 'aria-label': 'Suspend this card', onclick: () => suspend(vm.deck.id, card) }, '⏸')),
+    ),
     actions,
-    el('div', { class: 'row fc-card-tools' }, el('button', { class: 'btn small', onclick: () => editDialog(study.id, card) }, '✎ Edit (E)'), el('button', { class: 'btn small', onclick: () => suspend(card) }, 'Suspend')),
+    el('p', { class: 'hint fc-keys' }, el('kbd', {}, 'Space'), ' answer · ', el('kbd', {}, '1'), '–', el('kbd', {}, '4'), ' grade · ', el('kbd', {}, 'U'), ' undo · ', el('kbd', {}, 'E'), ' edit · ', el('kbd', {}, 'Esc'), ' back'),
   );
   if (!study.shown) setTimeout(() => body.querySelector('.fc-show')?.focus(), 0);
+}
+
+function doneCard(d, vm) {
+  const later = d.laterAt ? new Date(d.laterAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const stats = vm.answered ? el('div', { class: 'fc-done-stats' }, el('div', {}, el('b', {}, String(vm.answered)), el('small', {}, 'answered')), vm.right != null ? el('div', {}, el('b', {}, `${Math.round((vm.right / vm.answered) * 100)}%`), el('small', {}, 'right')) : null) : null;
+  const text = vm.practice ? 'You went through every card. Your schedules are unchanged.' : later ? `Done for now. A card in its learning steps comes back at ${later}.` : study.mode === 'mix' ? 'Every deck you mixed is done for today.' : 'You have finished this deck for today.';
+  return el(
+    'div',
+    { class: 'fc-done glass' },
+    el('div', { class: 'fc-done-icon', 'aria-hidden': 'true' }, '✦'),
+    el('h3', { class: 'display' }, vm.answered ? 'Well done' : 'All caught up'),
+    stats,
+    el('p', {}, text),
+    el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: stopStudy }, 'Back to the decks'), later ? el('button', { class: 'btn', onclick: reload }, 'Check again') : null, !vm.practice ? el('button', { class: 'btn', onclick: () => startMix('all') }, '🎲 Shuffle everything') : null),
+  );
 }
 
 function show() {
@@ -136,13 +288,25 @@ function show() {
   $('#fcBody .fc-back audio')?.play?.().catch(() => {});
 }
 
-const grade = (g) => study?.shown && study.data?.card && load(() => api.flashcards.answer(study.id, study.data.card.id, g));
-const undo = () => study && load(() => api.flashcards.undo(study.id));
+function grade(g) {
+  if (!study?.shown || !study.data?.card || study.busy) return;
+  const { id, mode } = study;
+  const cardId = study.data.card.id;
+  study.answered++;
+  load(() => (mode === 'mix' ? api.flashcards.mixAnswer(id, g, cardId) : api.flashcards.answer(id, cardId, g)));
+}
 
-async function suspend(card) {
-  await api.flashcards.edit(study.id, card.id, { suspended: true }).catch(toastError);
+function undo() {
+  if (!study || study.busy || !study.data?.canUndo) return;
+  const { id, mode } = study;
+  study.answered = Math.max(0, study.answered - 1);
+  load(() => (mode === 'mix' ? api.flashcards.mixUndo(id) : api.flashcards.undo(id)));
+}
+
+async function suspend(deckId, card) {
+  await api.flashcards.edit(deckId, card.id, { suspended: true }).catch(toastError);
   toast('Card suspended: it stays in the deck but is not shown until you unsuspend it in Browse.');
-  load(() => api.flashcards.next(study.id));
+  reload();
 }
 
 function onKey(e) {
@@ -153,7 +317,7 @@ function onKey(e) {
   else if (study.shown && ['1', '2', '3', '4'].includes(k)) grade(GRADES[Number(k) - 1][0]);
   else if (k === ' ' && study.shown) grade('good');
   else if (k === 'u') undo();
-  else if (k === 'e' && study.data?.card) editDialog(study.id, study.data.card);
+  else if (k === 'e' && study.data?.card) editDialog(viewModel(study.data).deck.id, study.data.card);
   else if (k === 'escape') stopStudy();
   else return;
   e.preventDefault();
@@ -241,7 +405,7 @@ function editDialog(id, card) {
           el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), el('button', { class: 'btn primary', onclick: async () => (await api.flashcards.edit(id, card.id, f.value()).catch(toastError), close(true)) }, 'Save')),
         ),
       );
-    }).then((changed) => changed && (study ? load(() => api.flashcards.next(study.id)) : refresh()));
+    }).then((changed) => changed && (study ? reload() : refresh()));
   }, toastError);
 }
 

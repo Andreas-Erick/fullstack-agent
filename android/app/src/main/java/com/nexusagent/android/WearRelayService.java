@@ -119,7 +119,11 @@ public class WearRelayService extends WearableListenerService {
         } catch (Exception e) {
             Log.w("SirenRelay", path + " failed", e); // no message contents: just the path and the error
             JSONObject out = put(new JSONObject(), "id", in.optString("id"));
-            put(out, "error", e.getMessage() == null ? "No connection to the computer" : e.getMessage());
+            // The computer didn't answer at all (off, asleep, Siren closed, another network): the watch says
+            // so in its own words. Otherwise the computer's own message, which is meant for people.
+            boolean unreachable = e instanceof java.io.IOException;
+            put(out, "reason", unreachable ? "unreachable" : "error");
+            if (!unreachable && e.getMessage() != null) put(out, "error", e.getMessage());
             reply(node, replyPath(path), out, "offline");
         }
     }
@@ -332,7 +336,13 @@ public class WearRelayService extends WearableListenerService {
                 String line;
                 while ((line = r.readLine()) != null) s.append(line);
             }
-            JSONObject j = s.length() > 0 ? new JSONObject(s.toString()) : new JSONObject();
+            JSONObject j;
+            try {
+                j = s.length() > 0 ? new JSONObject(s.toString()) : new JSONObject();
+            } catch (org.json.JSONException e) {
+                // Not our server: a tunnel's error page while the computer is off (Cloudflare, Tailscale Serve).
+                throw new java.io.IOException("The computer behind the address isn't answering (" + code + ")");
+            }
             if (!ok) throw new Exception(j.optString("error", "The computer answered " + code));
             return j;
         } finally {

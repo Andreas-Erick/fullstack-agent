@@ -18,6 +18,8 @@
 html, body { margin: 0; height: 100%; }
 /* Nothing may widen the page: a phone would then slide sideways under the finger. */
 html, body { overflow-x: clip; }
+/* A long address, link or id breaks where it must instead of running out of its box. */
+body { overflow-wrap: break-word; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -94,6 +96,25 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.9s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Can't reach the computer (app.js renderOffline): a full screen over the app, and a card in a screen. */
+.offline-screen { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(6px); animation: rise 0.25s ease-out; }
+.offline-card { width: min(420px, 100%); display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 26px 22px; border-radius: calc(var(--radius) + 4px); border: 1px solid var(--line); background: var(--surface); }
+.offline-card h2 { margin: 4px 0 0; font-size: 20px; }
+.offline-card p { margin: 0; line-height: 1.45; }
+.offline-orb { position: relative; width: 72px; height: 72px; display: grid; place-items: center; color: var(--warn); }
+.offline-orb svg { width: 32px; height: 32px; position: relative; }
+.offline-orb span { position: absolute; inset: 0; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 8%, transparent); animation: offline-pulse 2.4s ease-out infinite; }
+@keyframes offline-pulse { 0% { transform: scale(0.85); } 60% { transform: scale(1.08); } 100% { transform: scale(0.85); } }
+.offline-tips { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; width: 100%; text-align: left; font-size: 14px; }
+.offline-tips li { position: relative; padding: 9px 12px 9px 32px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 5%, transparent); border: 1px solid var(--line); }
+.offline-tips li::before { content: "✓"; position: absolute; left: 12px; color: var(--accent); }
+.offline-status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.offline-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.panel-offline { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.panel-offline h3 { margin: 0; }
+.panel-offline > svg { width: 30px; height: 30px; color: var(--warn); }
+@media (prefers-reduced-motion: reduce) { .offline-orb span, .offline-screen { animation: none; } }
+
 .face-wrap { position: relative; height: 22vh; height: 22dvh; min-height: 120px; flex: none; }
 /* Landscape, or the keyboard is open on a small phone: the conversation gets the room. */
 @media (max-height: 520px) { .face-wrap { display: none; } }
@@ -121,6 +142,7 @@ iframe#face { border: 0; background: transparent; color-scheme: normal; }
 .bubble code { font-size: 0.9em; }
 .bubble a { color: var(--accent); }
 .bubble table { border-collapse: collapse; display: block; overflow-x: auto; }
+.bubble :is(th, td) { overflow-wrap: normal; word-break: normal; } /* whole words; the table scrolls instead */
 .bubble td, .bubble th { border: 1px solid var(--line); padding: 4px 8px; }
 .meta { font-size: 11px; color: var(--muted); margin-top: 3px; }
 .tools { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
@@ -650,16 +672,47 @@ body.wide .view-only-note { grid-area: comp; }
 .fc-num.r { color: var(--ok); }
 .fc-num.zero { opacity: 0.35; }
 .fc-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-.fc-head b { flex: 1; min-width: 0; }
-.fc-card { text-align: center; font-size: 18px; line-height: 1.5; min-height: 160px; justify-content: center; overflow-wrap: anywhere; }
+.fc-head b { flex: 1; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-today { gap: 12px; }
+.fc-today-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fc-big { display: flex; flex-direction: column; }
+.fc-big b { font-size: 34px; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+.fc-big small { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 4px; }
+.fc-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.fc-pill { padding: 3px 9px; border-radius: 999px; font-size: 12px; color: var(--muted); border: 1px solid var(--line); white-space: nowrap; }
+.fc-pill b { font-variant-numeric: tabular-nums; }
+.fc-pill.n b { color: var(--accent2); }
+.fc-pill.l b { color: var(--warn); }
+.fc-pill.r b { color: var(--ok); }
+.fc-pill.zero { opacity: 0.55; }
+.fc-today-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Two equal buttons on one line, whatever the HUD does to primary buttons (uppercase, wide letters). */
+body .fc-today-actions .btn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; letter-spacing: normal; text-transform: none; padding: 12px 8px; }
+.fc-today-actions .btn:disabled { opacity: 0.45; }
+.fc-deck { position: relative; }
+.fc-deck.due::before { content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.fc-legend { text-align: center; font-size: 12px; margin: 4px 0 0; }
+.fc-progress { height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 12%, transparent); overflow: hidden; margin-bottom: 12px; }
+.fc-progress i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+.fc-card { text-align: center; line-height: 1.5; min-height: min(44vh, 360px); overflow-wrap: anywhere; }
+.fc-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 22px; }
+.fc-from { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); padding: 3px 9px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+.fc-sides { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 10px 0; }
+.fc-side { font-size: 20px; }
+.revealed .fc-side:first-child { font-size: 16px; color: var(--muted); }
 .fc-card img { max-width: 100%; max-height: 40vh; border-radius: 8px; }
 .fc-card audio { width: 100%; }
-.fc-hr { border: none; border-top: 1px solid var(--line); width: 100%; margin: 6px 0; }
+.fc-divider { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: var(--muted); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; }
+.fc-divider::before, .fc-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .fc-tags { display: flex; gap: 6px; justify-content: center; }
 .fc-grades { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
-.fc-grades .fc-show { grid-column: 1 / -1; padding: 14px; font-size: 16px; }
-.fc-grade { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; }
-.fc-grade small { font-size: 11px; color: var(--muted); }
+.fc-grades .fc-show { grid-column: 1 / -1; padding: 15px; font-size: 16px; }
+.fc-grade { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 4px; font-weight: 600; }
+.fc-grade small { font-size: 11px; color: var(--muted); font-weight: 400; }
+.fc-done { align-items: center; text-align: center; gap: 8px; padding: 26px 18px; }
+.fc-done h3 { margin: 0; }
+.fc-done p { margin: 0 0 6px; color: var(--muted); }
+.fc-done-icon { font-size: 30px; color: var(--accent); }
 .fc-grade.again { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
 .fc-grade.hard { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .fc-grade.good { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 55%, transparent); }

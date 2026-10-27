@@ -46,6 +46,17 @@ const OPTION_KEYS = {
 const SCHED_KEYS = ['type', 'step', 'dueAt', 'due', 'ivl', 'ease', 'reps', 'lapses', 'last', 's', 'd', 'leech', 'suspended'];
 
 const randomId = () => Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 4);
+/** An id from a card's text (and cloze number), the same on every read: "h" + 9 base-36 digits. */
+function textId(c, k = 1) {
+  let h1 = 5381;
+  let h2 = 52711;
+  for (const ch of `${c.front}\u0000${c.back}\u0000${c.cloze || 0}\u0000${k}`) {
+    const x = ch.charCodeAt(0);
+    h1 = ((h1 * 33) ^ x) >>> 0;
+    h2 = ((h2 * 31) ^ x) >>> 0;
+  }
+  return `h${(h1 % 46656).toString(36).padStart(3, '0')}${h2.toString(36).padStart(6, '0').slice(-6)}`;
+}
 const clip = (s, n = MAX_SIDE) => String(s ?? '').replace(/\r\n?/g, '\n').trim().slice(0, n);
 const keyOf = (s) => clip(s, 400).toLowerCase().replace(/\s+/g, ' ').normalize('NFC');
 const clozeNumbers = (text) => [...new Set([...String(text).matchAll(CLOZE)].map((m) => Number(m[1])))].sort((a, b) => a - b);
@@ -134,11 +145,14 @@ function parseDeck(text, name = 'Deck') {
     }
     cards.push(cardFrom(meta, front, back));
   }
-  for (const c of cards) if (!c.id) (c.id = randomId()), (changed = true);
-  // Two cards can't share an id (a block copied by hand): the second gets a new one.
+  // A card typed by hand has no id until the deck is next written: derive one from its text, so every
+  // read of the unchanged note gives the same ids (a study session reloads the deck between showing a
+  // card and answering it; a random id would no longer be found).
+  for (const c of cards) if (!c.id) (c.id = textId(c)), (changed = true);
+  // Two cards can't share an id (a block copied by hand): the second gets one derived from the first.
   const seen = new Set();
   for (const c of cards) {
-    if (seen.has(c.id)) (c.id = randomId()), (changed = true);
+    for (let k = 2; seen.has(c.id); k++) (c.id = textId(c, k)), (changed = true);
     seen.add(c.id);
   }
   const title = (before.find((l) => /^#\s+/.test(l)) || '').replace(/^#\s+/, '').trim();

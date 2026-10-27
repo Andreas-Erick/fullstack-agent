@@ -28,9 +28,9 @@ function upgradeBudget(ctx, toolName) {
   return true;
 }
 
-/** Anthropic effort for the turn: at least "high" for engineering work, unless set higher. */
+/** Anthropic effort for the turn: the turn's pace (ctx.effort, pace.js), at least "high" once it becomes engineering work. */
 function turnEffort(configured, ctx) {
-  const e = configured || 'medium';
+  const e = (ctx?.effort && ctx.effort !== 'default' ? ctx.effort : configured) || 'medium';
   return ctx?.budget?.engineering && ['low', 'medium'].includes(e) ? 'high' : e;
 }
 

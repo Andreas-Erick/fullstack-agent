@@ -72,6 +72,23 @@ module.exports = [
     },
   },
   {
+    name: 'flashcards_mixed',
+    group: 'learning',
+    description:
+      'Mixed learning (interleaving): quiz across several decks at once, so each card comes without the context of the one before. action start (mode due: today’s due cards of every deck, scheduled as usual; mode all: every card shuffled, practice that changes no schedule; decks: optional ids or names, default all), then answer with the session id and a grade for the shown card, or next / undo. Show only the front, let the user answer, reveal the back, then grade. Use it for "mixed review", "quiz me on everything", "shuffle all my cards".',
+    parameters: obj({ action: { type: 'string', enum: ['start', 'next', 'answer', 'undo'], description: 'start | next | answer | undo' }, mode: { type: 'string', enum: ['due', 'all'], description: 'For start: due (default) or all' }, decks: arr('For start: deck ids or names (default all)'), session: str('The session id from start'), grade: GRADE }, ['action']),
+    run: async (a) => {
+      const fc = require('../flashcards');
+      if (a.action === 'start') return fc.mixStart({ mode: a.mode, decks: a.decks?.length ? await Promise.all(a.decks.map((d) => deckId(fc, d))) : null });
+      if (!a.session) throw new Error('Give the session id from start.');
+      if (a.action === 'answer') {
+        if (!a.grade) throw new Error('Give a grade for the shown card.');
+        return fc.mixAnswer(a.session, a.grade);
+      }
+      return a.action === 'undo' ? fc.mixUndo(a.session) : fc.mixNext(a.session);
+    },
+  },
+  {
     name: 'flashcards_browse',
     group: 'learning',
     description: 'The cards in a deck (optionally matching a search), with each card’s state, due date, interval, ease and lapses; leeches (often forgotten cards) are marked.',

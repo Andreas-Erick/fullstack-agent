@@ -20,7 +20,10 @@ const FOLDER = 'Flashcards';
 const LANGUAGES = 'Languages';
 const MEDIA_INLINE_MAX = 8 * 1024 * 1024; // per card side, as data URLs
 const daysFile = () => path.join(store.dataDir(), 'flashcards-days.json');
-const undo = new Map(); // deckId -> { cardId, before, counted }
+const undo = new Map(); // deckId -> { cardId, at, after, before, counted }
+const DOUBLE_TAP_MS = 800; // faster than anyone can show an answer and grade it
+// What every answer changes about a card (as written in the note and read back): its type and counters.
+const schedMark = (s = {}) => `${s.type}|${s.reps || 0}|${s.lapses || 0}`;
 
 const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|#^[\]]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
 const relOf = (id) => {
@@ -167,6 +170,12 @@ async function withMedia(md, root) {
 }
 
 // ------------------------------------------------------------------ studying
+/** A card as the study screens show it: both sides rendered (media inlined), what each button would do. */
+async function shown(deck, c, now, root) {
+  const side = core.render(c);
+  return { id: c.id, front: await withMedia(side.front, root), back: await withMedia(side.back, root), tags: c.tags, cloze: c.cloze, status: anki.status(c.sched, now, deck.options), preview: anki.preview(c.sched, now, deck.options, c.id), lapses: c.sched.lapses, leech: Boolean(c.sched.leech) };
+}
+
 /** The next card of a deck (rendered, with what each button would do), or why there is none. */
 async function next(id) {
   const deck = await load(id);
@@ -174,12 +183,153 @@ async function next(id) {
   const done = (await days()).decks[id];
   const q = core.queue(deck, now, done);
   const root = await requireVault();
-  let card = null;
-  if (q.next) {
-    const side = core.render(q.next);
-    card = { id: q.next.id, front: await withMedia(side.front, root), back: await withMedia(side.back, root), tags: q.next.tags, cloze: q.next.cloze, status: anki.status(q.next.sched, now, deck.options), preview: anki.preview(q.next.sched, now, deck.options, q.next.id), lapses: q.next.sched.lapses, leech: Boolean(q.next.sched.leech) };
-  }
+  const card = q.next ? await shown(deck, q.next, now, root) : null;
   return { id, name: deck.name, kind: deck.kind, card, counts: q.counts, laterAt: q.laterAt, scheduler: q.options.scheduler, canUndo: undo.has(id), studiedToday: done?.reviews || 0 };
+}
+
+// ------------------------------------------------------------------ mixed learning
+// Studying several decks at once, interleaved (mixcore.js). Two modes:
+//  - due: every card due today in the chosen decks, scheduled as usual (each deck's own queue, options
+//    and daily limits), the next deck picked at random but never the same twice when another has cards;
+//  - all: every card of the chosen decks, shuffled and spread across decks: practice that never
+//    changes a schedule ("again" brings the card back a few cards later).
+// A session lives here (in memory, a few hours) so the window and the phone run the same thing.
+const mix = require('./mixcore');
+const sessions = new Map(); // id -> session
+const SESSION_TTL = 6 * 3600e3;
+const PRACTICE_PREVIEW = { again: 'again soon', hard: 'got it', good: 'got it', easy: 'got it' };
+
+async function mixStart({ mode = 'due', decks: chosen = null } = {}) {
+  await requireVault();
+  const all = (await decks()).decks.map((d) => d.id);
+  const ids = Array.isArray(chosen) && chosen.length ? all.filter((id) => chosen.includes(id)) : all;
+  if (!ids.length) throw new Error('No decks to study.');
+  const now = Date.now();
+  for (const [k, s] of sessions) if (now - s.used > SESSION_TTL) sessions.delete(k);
+  if (sessions.size >= 20) sessions.delete(sessions.keys().next().value);
+  const s = { id: require('crypto').randomUUID(), mode: mode === 'all' ? 'all' : 'due', decks: ids, used: now, stats: { answered: 0, right: 0 }, last: '', current: null, history: [] };
+  if (s.mode === 'all') {
+    const cards = [];
+    for (const id of ids) {
+      const deck = await load(id).catch(() => null);
+      for (const c of deck?.cards || []) if (!c.sched.suspended) cards.push({ deck: id, id: c.id });
+    }
+    s.order = mix.interleave(cards);
+    s.pos = 0;
+    s.total = cards.length;
+  }
+  sessions.set(s.id, s);
+  return mixView(s);
+}
+
+function session(id) {
+  const s = sessions.get(String(id || ''));
+  if (!s) throw Object.assign(new Error('That study session has ended. Start a new one.'), { status: 404 });
+  s.used = Date.now();
+  return s;
+}
+
+/** The session's current card (picking the next one when there is none). */
+async function mixView(s) {
+  const now = Date.now();
+  const root = await requireVault();
+  const base = { session: s.id, mode: s.mode, decks: s.decks.length, stats: s.stats, canUndo: s.history.length > 0 };
+  if (s.mode === 'all') {
+    while (s.pos < s.order.length) {
+      const ref = s.order[s.pos];
+      const deck = await load(ref.deck).catch(() => null);
+      const c = deck?.cards.find((x) => x.id === ref.id);
+      if (c) {
+        s.current = { deck: ref.deck, card: c.id };
+        const card = { ...(await shown(deck, c, now, root)), preview: PRACTICE_PREVIEW };
+        return { ...base, deck: { id: deck.id, name: deck.name }, card, counts: { left: s.order.length - s.pos, total: s.total } };
+      }
+      s.pos++; // deleted meanwhile
+    }
+    s.current = null;
+    return { ...base, deck: null, card: null, counts: { left: 0, total: s.total } };
+  }
+  // Due: each deck's own queue; summed counts; the next deck by mixcore.pickDeck.
+  const done = (await days()).decks;
+  const queues = [];
+  const counts = { new: 0, learn: 0, review: 0 };
+  let laterAt = 0;
+  for (const id of s.decks) {
+    const deck = await load(id).catch(() => null);
+    if (!deck) continue;
+    const q = core.queue(deck, now, done[id]);
+    for (const k of Object.keys(counts)) counts[k] += q.counts[k] || 0;
+    if (q.laterAt && (!laterAt || q.laterAt < laterAt)) laterAt = q.laterAt;
+    if (q.next) queues.push({ deck, q });
+  }
+  // The card on the screen stays while its deck still offers it (a refresh, the phone reopening the
+  // screen); a new one is picked only after an answer, an undo, or when it is no longer due.
+  const keep = s.current && queues.find((x) => x.deck.id === s.current.deck && x.q.next.id === s.current.card);
+  const pick = keep ? keep.deck.id : s.force && queues.some((x) => x.deck.id === s.force) ? s.force : mix.pickDeck(queues.map(({ deck, q }) => ({ id: deck.id, weight: q.counts.new + q.counts.learn + q.counts.review || 1 })), s.last);
+  s.force = '';
+  const hit = queues.find((x) => x.deck.id === pick);
+  if (!hit) {
+    s.current = null;
+    return { ...base, deck: null, card: null, counts, laterAt: laterAt || null };
+  }
+  s.current = { deck: hit.deck.id, card: hit.q.next.id };
+  return { ...base, deck: { id: hit.deck.id, name: hit.deck.name, scheduler: hit.q.options.scheduler }, card: await shown(hit.deck, hit.q.next, now, root), counts, laterAt: laterAt || null };
+}
+
+// One operation at a time per session: answers sent quickly one after another (a double tap, a slow
+// phone resending) run in order, each against the card the session shows by then.
+function serial(s, fn) {
+  const run = (s.chain || Promise.resolve()).then(fn, fn);
+  s.chain = run.catch(() => {});
+  return run;
+}
+
+async function mixNext(id) {
+  const s = session(id);
+  return serial(s, () => mixView(s));
+}
+
+/**
+ * Answers the session's current card (again | hard | good | easy) and returns the next one. With
+ * `cardId` (the card the user saw), an answer meant for a card that is no longer shown is ignored.
+ */
+async function mixAnswer(id, grade, cardId) {
+  const s = session(id);
+  if (!anki.GRADES.includes(grade)) throw new Error(`Grade must be one of: ${anki.GRADES.join(', ')}`);
+  return serial(s, () => answerIn(s, grade, cardId));
+}
+
+async function answerIn(s, grade, cardId) {
+  if (!s.current || (cardId && s.current.card !== String(cardId))) return mixView(s);
+  const { deck, card } = s.current;
+  // Due mode undoes through the deck's own Undo, which keeps one answer per deck: only the latest.
+  s.history = [...(s.mode === 'due' ? [] : s.history.slice(-49)), { deck, card, pos: s.pos, order: s.order, stats: { ...s.stats }, last: s.last }];
+  if (s.mode === 'due') await answer(deck, card, grade);
+  else {
+    if (grade === 'again') s.order = mix.requeue(s.order, s.pos, s.order[s.pos]);
+    s.pos++;
+  }
+  s.stats = { answered: s.stats.answered + 1, right: s.stats.right + (grade === 'again' ? 0 : 1) };
+  s.last = deck;
+  s.current = null; // answered: the next card is picked fresh
+  return mixView(s);
+}
+
+/** Takes back the session's last answer (in due mode, the deck's Undo) and shows that card again. */
+async function mixUndo(id) {
+  const s = session(id);
+  return serial(s, () => undoIn(s));
+}
+
+async function undoIn(s) {
+  const h = s.history.pop();
+  if (!h) throw new Error('Nothing to undo.');
+  if (s.mode === 'due') {
+    await undoLast(h.deck);
+    s.force = h.deck;
+  } else Object.assign(s, { pos: h.pos, order: h.order });
+  Object.assign(s, { stats: h.stats, last: h.last, current: null });
+  return mixView(s);
 }
 
 /** Answers a card (again | hard | good | easy) and returns the next one. */
@@ -187,7 +337,14 @@ async function answer(id, cardId, grade) {
   if (!anki.GRADES.includes(grade)) throw new Error(`Grade must be one of: ${anki.GRADES.join(', ')}`);
   const now = Date.now();
   const r = await change(id, async (deck) => {
+    // A double tap or a resent request: the same card again within a moment, its schedule still exactly
+    // what the first answer made it. Graded once. (Inside the note lock, so two at once can't both pass.)
+    const prev = undo.get(id);
+    const c = deck.cards.find((x) => x.id === String(cardId));
+    if (prev?.cardId === String(cardId) && now - prev.at < DOUBLE_TAP_MS && c && schedMark(c.sched) === prev.after) return { repeat: true };
     const g = core.grade(deck, String(cardId), grade, now);
+    // Recorded inside the lock, so a second request waiting for it sees this answer.
+    undo.set(id, { cardId: String(cardId), at: now, after: schedMark(g.card.sched), before: g.before, counted: { isNew: g.wasNew, isReview: g.wasReview } });
     if (deck.kind === 'vocab') {
       const i = deck.raw.cards.findIndex((c) => hashId(srs.keyOf(c.front)) === cardId);
       deck.raw.cards[i] = srs.withSched(deck.raw.cards[i], g.card.sched, anki.dayOf(now));
@@ -195,7 +352,7 @@ async function answer(id, cardId, grade) {
     }
     return { deck: g.deck, g };
   });
-  undo.set(id, { cardId, before: r.g.before, counted: { isNew: r.g.wasNew, isReview: r.g.wasReview } });
+  if (r.repeat) return next(id);
   await count(id, { isNew: r.g.wasNew, isReview: r.g.wasReview });
   log.info('flashcard answered', { deck: id, grade, type: r.g.card.sched.type, ivl: r.g.card.sched.ivl });
   return next(id);
@@ -352,4 +509,4 @@ async function evidence() {
   return list.map((d) => ({ id: d.id, name: d.name, kind: d.kind, total: d.total, mature: d.mature, young: d.young, unseen: d.unseen }));
 }
 
-module.exports = { decks, browse, card, next, answer, undoLast, createDeck, addCards, editCard, setOptions, deleteDeck, importFile, importable, dueToday, evidence, FOLDER };
+module.exports = { decks, browse, card, next, answer, undoLast, mixStart, mixNext, mixAnswer, mixUndo, createDeck, addCards, editCard, setOptions, deleteDeck, importFile, importable, dueToday, evidence, FOLDER };

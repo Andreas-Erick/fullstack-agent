@@ -8,13 +8,19 @@ const { ROOT, stub, load, quietLog } = require('./helpers');
 
 const gates = [];
 let answer = true;
+let remember; // the "Always allow…" choice the user picks in the dialog
+let offered = []; // the choices the last dialog offered
+let live = { claudeCode: {} }; // the settings approve() reads on every call
 stub({
-  './store': { getSettings: async () => ({}) },
+  './store': {
+    getSettings: async () => live,
+    setSettings: async (patch) => (live = { ...live, claudeCode: { ...live.claudeCode, ...patch.claudeCode } }),
+  },
   './bridge': {},
   './github': {},
   './logger': quietLog,
   './approvals': {
-    gate: async (turn, kind, title) => (gates.push({ kind, title }), answer ? { allow: true } : { allow: false, reason: 'no' }),
+    gate: async (turn, kind, title, detail, extra) => (gates.push({ kind, title }), (offered = (extra?.remember || []).map((c) => c.level)), answer ? { allow: true, ...(remember ? { remember } : {}) } : { allow: false, reason: 'no' }),
     markTainted: (turn, source) => turn && ((turn.tainted = true), turn.taintSources.push(source)),
   },
 });
@@ -71,13 +77,61 @@ test('connectors off: nothing changes', () => {
   assert.ok(!s.allowed.some((a) => a.startsWith('mcp__claude_ai')));
 });
 
-test('connectors on: tool search and skills, always-allowed connectors skip the prompt', () => {
+test('connectors on: tool search and skills; no connector is pre-allowed, levels never restart the session', () => {
   const s = spec({ connectors: true, connectorsAllowed: ['claude_ai_AccuWeather'] });
   assert.strictEqual(s.connectors, true);
   assert.ok(s.builtins.includes('ToolSearch') && s.builtins.includes('Skill'));
-  assert.ok(s.allowed.includes('mcp__claude_ai_AccuWeather'));
-  assert.ok(!s.allowed.includes('mcp__claude_ai_Todoist'));
+  assert.ok(!s.allowed.some((a) => a.startsWith('mcp__claude_ai')), 'every call reaches approve(), so taking a level back applies at once');
+  assert.strictEqual(s.key, spec({ connectors: true, connectorsReadOnly: ['claude_ai_Todoist'] }).key, 'changing a level keeps the warm session');
   assert.notStrictEqual(s.key, spec({}).key, 'turning connectors on restarts the session');
+});
+
+test('"allow everything" is read live: on at once, and off at once', async () => {
+  gates.length = 0;
+  answer = false;
+  const sess = session(true);
+  live = { claudeCode: { connectorsAllowed: ['claude_ai_Todoist'] } };
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__delete-object', input: {} })).behavior, 'allow');
+  assert.strictEqual(gates.length, 0);
+  live = { claudeCode: {} };
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__delete-object', input: {} })).behavior, 'deny', 'revoked: asks (declined here)');
+  assert.strictEqual(gates.length, 1);
+  answer = true;
+});
+
+test('"Always allow…" in the dialog sets that service\'s level; it never grants more than offered', async () => {
+  live = { claudeCode: {} };
+  gates.length = 0;
+  answer = true;
+  remember = 'read';
+  const t = 'mcp__claude_ai_Google_Calendar__list_events';
+  assert.strictEqual((await session(true).approve({ tool_name: t, input: {} })).behavior, 'allow');
+  assert.deepStrictEqual(offered, ['read', 'write'], 'a reading tool offers reading and all-but-deleting');
+  assert.deepStrictEqual(live.claudeCode.connectorsReadOnly, ['claude_ai_Google_Calendar']);
+  assert.strictEqual((await session(true).approve({ tool_name: t, input: {} })).behavior, 'allow');
+  assert.strictEqual(gates.length, 1, 'the next turn does not ask');
+  // A delete offers nothing to remember; a forged "all" is ignored.
+  remember = 'all';
+  await session(true).approve({ tool_name: 'mcp__claude_ai_Google_Calendar__delete_event', input: {} });
+  assert.deepStrictEqual(offered, []);
+  assert.deepStrictEqual(live.claudeCode.connectorsAllowed || [], []);
+  assert.strictEqual(connectors.levelOf(live.claudeCode, 'claude_ai_Google_Calendar'), 'read');
+  remember = undefined;
+  live = { claudeCode: {} };
+});
+
+test('levels: one list per server, matched by name', () => {
+  const cc = { connectorsReadOnly: ['claude_ai_Plaud'], connectorsAllowed: ['claude.ai Todoist'] };
+  assert.strictEqual(connectors.levelOf(cc, 'claude_ai_Todoist'), 'all');
+  assert.strictEqual(connectors.levelOf(cc, 'claude_ai_Canva'), 'ask');
+  const p = connectors.levelPatch(cc, 'claude_ai_Plaud', 'write');
+  assert.deepStrictEqual(p, { connectorsAllowed: ['claude_ai_Todoist'], connectorsWrite: ['claude_ai_Plaud'], connectorsReadOnly: [] });
+  assert.deepStrictEqual(connectors.levelPatch(cc, 'claude_ai_Todoist', 'ask').connectorsAllowed, []);
+  const list = connectors.parseMcpList(`${MCP_LIST}\nclaude.ai Google Calendar: https://calendarmcp.googleapis.com/mcp/v1 - ✔ Connected\nplugin:productivity:google calendar:  (HTTP) - - Not configured`);
+  assert.deepStrictEqual(connectors.findServers(list, 'google calendar').map((c) => c.key), ['claude_ai_Google_Calendar', 'plugin_productivity_google_calendar'], 'the connected connector first');
+  assert.deepStrictEqual(connectors.findServers(list, 'Calendar').map((c) => c.key)[0], 'claude_ai_Google_Calendar');
+  assert.deepStrictEqual(connectors.findServers(list, 'gmail').map((c) => c.key), ['plugin_productivity_gmail']);
+  assert.deepStrictEqual(connectors.findServers(list, ''), []);
 });
 
 function session(on) {
@@ -135,15 +189,15 @@ test('"allow reading": reading tools run without asking, writing tools still ask
   gates.length = 0;
   answer = false;
   const sess = session(true);
-  sess.spec.readOnly = ['claude_ai_Google_Calendar'];
+  live = { claudeCode: { connectorsReadOnly: ['claude.ai Google Calendar'] } };
   assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Google_Calendar__list_events', input: {} })).behavior, 'allow');
   assert.strictEqual(gates.length, 0, 'no question for a read');
   assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Google_Calendar__delete_event', input: { id: 'x' } })).behavior, 'deny');
   assert.strictEqual(gates.length, 1, 'a write asks (and was declined here)');
   assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__find-tasks', input: {} })).behavior, 'deny', 'only the services set to allow reading');
+  assert.strictEqual((await session(false).approve({ tool_name: 'mcp__claude_ai_Google_Calendar__list_events', input: {} })).behavior, 'deny', 'nothing while connectors are off');
   answer = true;
-  assert.deepStrictEqual(spec({ connectors: true, connectorsReadOnly: ['claude.ai Google Calendar'] }).readOnly, ['claude_ai_Google_Calendar']);
-  assert.deepStrictEqual(spec({ connectors: false, connectorsReadOnly: ['claude_ai_Google_Calendar'] }).readOnly, [], 'nothing while connectors are off');
+  live = { claudeCode: {} };
 });
 
 test('"allow all but deleting": writes run, deleting still asks', async () => {
@@ -152,27 +206,29 @@ test('"allow all but deleting": writes run, deleting still asks', async () => {
   gates.length = 0;
   answer = false;
   const sess = session(true);
-  sess.spec.write = ['claude_ai_Todoist'];
+  live = { claudeCode: { connectorsWrite: ['claude.ai Todoist'] } };
   assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__add-tasks', input: {} })).behavior, 'allow');
   assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__complete-tasks', input: {} })).behavior, 'allow');
   assert.strictEqual(gates.length, 0);
   assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__delete-object', input: { id: '1' } })).behavior, 'deny', 'asked and declined');
   assert.strictEqual(gates.length, 1);
   answer = true;
-  assert.deepStrictEqual(spec({ connectors: true, connectorsWrite: ['claude.ai Todoist'] }).write, ['claude_ai_Todoist']);
+  live = { claudeCode: {} };
 });
 
 test('extensions reach the session with connectors off, through the permission levels', async () => {
   const s = claudecode.sessionSpec({ settings: { ...settings({ connectorsReadOnly: ['rea', 'claude_ai_Todoist'] }), extensions: { rea: true } }, configKey: 'k', activeTools: [], cwd: '/app', vault: '', repos: '', model: 'default' });
   assert.ok(s.extensions.rea, 'the rea server is in the session');
   assert.ok(s.builtins.includes('ToolSearch'), 'tool search for its many tools');
-  assert.deepStrictEqual(s.readOnly, ['rea'], 'levels for the extension only, not for connectors that are off');
   gates.length = 0;
   answer = true;
+  live = { claudeCode: { connectorsReadOnly: ['rea', 'claude_ai_Todoist'] } };
   const sess = session(false);
   sess.spec.extensions = s.extensions;
-  sess.spec.readOnly = s.readOnly;
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__rea__list_findings', input: {} })).behavior, 'allow', 'the extension\'s level applies');
+  assert.strictEqual(gates.length, 0);
   assert.strictEqual((await sess.approve({ tool_name: 'mcp__rea__analyze_javascript_application', input: { path: '/x' } })).behavior, 'allow');
   assert.strictEqual(gates.length, 1, 'not a reading verb: it asked');
-  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__find-tasks', input: {} })).behavior, 'deny', 'connectors stay off');
+  assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__find-tasks', input: {} })).behavior, 'deny', 'connectors stay off, whatever their level');
+  live = { claudeCode: {} };
 });

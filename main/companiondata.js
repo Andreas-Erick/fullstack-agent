@@ -175,4 +175,22 @@ const flashcardNext = async (deck) => studyView(await require('./flashcards').ne
 const flashcardAnswer = async (deck, card, grade) => studyView(await require('./flashcards').answer(deckId(deck), String(card || '').slice(0, 60), String(grade || '')));
 const flashcardUndo = async (deck) => studyView(await require('./flashcards').undoLast(deckId(deck)));
 
-module.exports = { today, habits, logHabit, learn, tree, memories, stream, notes, note, world, skills, routines, arch, flashcards, flashcardNext, flashcardAnswer, flashcardUndo };
+// Mixed learning (flashcards.js mixStart…): the same trimmed card, plus which deck it is from.
+const mixView = (r) => ({
+  session: clip(r.session, 60),
+  mode: r.mode,
+  decks: r.decks,
+  stats: r.stats,
+  counts: r.counts,
+  laterAt: r.laterAt || null,
+  canUndo: Boolean(r.canUndo),
+  deck: r.deck ? { id: r.deck.id, name: clip(r.deck.name, 80) } : null,
+  card: studyView({ card: r.card }).card,
+});
+const mixDecks = (list) => (Array.isArray(list) ? list.slice(0, 200).map(deckId) : null);
+const mixStart = async (mode, decks) => mixView(await require('./flashcards').mixStart({ mode: mode === 'all' ? 'all' : 'due', decks: mixDecks(decks) }));
+const mixAnswer = async (session, grade, card) => mixView(await require('./flashcards').mixAnswer(String(session || '').slice(0, 60), String(grade || ''), String(card || '').slice(0, 60)));
+const mixUndo = async (session) => mixView(await require('./flashcards').mixUndo(String(session || '').slice(0, 60)));
+const mixNext = async (session) => mixView(await require('./flashcards').mixNext(String(session || '').slice(0, 60)));
+
+module.exports = { today, habits, logHabit, learn, tree, memories, stream, notes, note, world, skills, routines, arch, flashcards, flashcardNext, flashcardAnswer, flashcardUndo, mixStart, mixNext, mixAnswer, mixUndo };

@@ -61,7 +61,13 @@ public class TodayActivity extends Activity {
 
     private void render(Link.Result r) {
         if (r.body == null) {
-            show(text(r.problem != null && r.problem.equals("unpaired") ? getString(R.string.unpaired) : r.problem != null && r.problem.equals("no_relay") ? getString(R.string.no_relay) : r.error != null ? r.error : getString(R.string.no_phone), 14, look.text));
+            String p = r.problem == null ? "" : r.problem;
+            String why = p.equals("unpaired") ? getString(R.string.unpaired)
+                : p.equals("no_relay") ? getString(R.string.no_relay)
+                : p.equals("unreachable") ? getString(R.string.computer_offline)
+                : p.equals("offline") ? (r.error != null && !r.error.isEmpty() ? r.error : getString(R.string.computer_offline))
+                : getString(R.string.no_phone);
+            show(text(why, 14, look.text));
             return;
         }
         col.removeAllViews();

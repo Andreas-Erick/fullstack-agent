@@ -187,6 +187,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        cancelTimers();
         if (web != null) web.destroy();
         super.onDestroy();
     }
@@ -208,6 +209,7 @@ public class MainActivity extends Activity {
     /** prefill: a pairing link shared to the app; it is only filled in, the user still taps Connect. */
     private void showSetup(String error, String prefill) {
         destroyWeb();
+        cancelTimers();
         LinearLayout box = hudPanel();
 
         TextView title = text(getString(R.string.setup_title), 18, getColor(R.color.text));
@@ -287,19 +289,65 @@ public class MainActivity extends Activity {
         box.addView(row, lp);
     }
 
+    // Timers of the web view's load and of the error screen's automatic retry (cancelled on every switch).
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private static final int LOAD_TIMEOUT_MS = 15000;
+    private static final int RETRY_EVERY_S = 15;
+
+    private void cancelTimers() {
+        ui.removeCallbacksAndMessages(null);
+    }
+
+    /** What went wrong, in plain words (instead of net::ERR_…). */
+    private String plainError(int code, String description) {
+        switch (code) {
+            case WebViewClient.ERROR_HOST_LOOKUP:
+                return getString(R.string.error_not_found);
+            case WebViewClient.ERROR_CONNECT:
+            case WebViewClient.ERROR_TIMEOUT:
+                return getString(R.string.error_unreachable);
+            default:
+                return description;
+        }
+    }
+
     private void showError(String detail) {
         destroyWeb();
+        cancelTimers();
         LinearLayout box = hudPanel();
         TextView title = text(getString(R.string.error_title), 17, getColor(R.color.text));
         Hud.title(title);
         title.setTextColor(Color.rgb(255, 77, 109));
         title.setShadowLayer(dp(10), 0, 0, Color.argb(200, 255, 77, 109));
         box.addView(title);
-        String why = origin.endsWith(".ts.net") ? getString(R.string.error_tailscale) : origin.startsWith("http://") ? getString(R.string.error_lan) : "";
-        TextView d = text(origin + "\n" + detail + (why.isEmpty() ? "" : "\n\n" + why), 13, getColor(R.color.muted));
+        TextView lead = text(detail, 15, getColor(R.color.text));
+        lead.setGravity(Gravity.CENTER_HORIZONTAL);
+        lead.setPadding(0, dp(12), 0, 0);
+        box.addView(lead);
+        String why = origin.endsWith(".ts.net") ? getString(R.string.error_tailscale) : origin.startsWith("http://") ? getString(R.string.error_lan) : getString(R.string.error_checks);
+        TextView d = text(why + "\n\n" + origin, 13, getColor(R.color.muted));
         Hud.readout(d);
-        d.setPadding(0, dp(10), 0, dp(18));
+        d.setPadding(0, dp(10), 0, dp(12));
         box.addView(d);
+        // It tries again by itself, so leaving the phone on this screen reconnects once the computer is back.
+        TextView countdown = text("", 12, getColor(R.color.muted));
+        countdown.setGravity(Gravity.CENTER_HORIZONTAL);
+        countdown.setPadding(0, 0, 0, dp(12));
+        box.addView(countdown);
+        final int[] left = {RETRY_EVERY_S};
+        Runnable tick = new Runnable() {
+            @Override
+            public void run() {
+                if (left[0] <= 0) {
+                    showWeb();
+                    return;
+                }
+                countdown.setText(getString(R.string.error_auto, left[0]));
+                left[0]--;
+                ui.postDelayed(this, 1000);
+            }
+        };
+        tick.run();
         Button retry = new Button(this);
         retry.setText(R.string.error_retry);
         Hud.button(retry, true);
@@ -307,7 +355,10 @@ public class MainActivity extends Activity {
         Button change = new Button(this);
         change.setText(R.string.error_change);
         Hud.button(change, false);
-        change.setOnClickListener(v -> showSetup(null, null));
+        change.setOnClickListener(v -> {
+            cancelTimers();
+            showSetup(null, null);
+        });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         box.addView(retry, lp);
         LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -341,6 +392,7 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------ web view
     private void showWeb() {
         destroyWeb();
+        cancelTimers();
         root.removeAllViews();
         root.setBackgroundColor(getColor(R.color.bg));
         loaded = false;
@@ -377,6 +429,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 loaded = origin.equals(Prefs.originOf(url));
+                if (loaded) cancelTimers();
                 if (loaded && pendingJs != null) {
                     view.evaluateJavascript(pendingJs, null);
                     pendingJs = null;
@@ -385,7 +438,14 @@ public class MainActivity extends Activity {
 
             @Override
             public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError error) {
-                if (req.isForMainFrame()) showError(String.valueOf(error.getDescription()));
+                if (req.isForMainFrame()) showError(plainError(error.getErrorCode(), String.valueOf(error.getDescription())));
+            }
+
+            // A tunnel (Cloudflare, Tailscale Serve) answering for a computer that is off: its error page,
+            // not the app. Our own server never fails the page itself with a 5xx.
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest req, android.webkit.WebResourceResponse res) {
+                if (req.isForMainFrame() && res.getStatusCode() >= 500) showError(getString(R.string.error_gateway));
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -408,6 +468,10 @@ public class MainActivity extends Activity {
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         web.loadUrl(origin + "/" + (pendingPair == null ? "" : pendingPair));
         pendingPair = null;
+        // An address that doesn't answer can keep the page loading for a minute (a black screen): give up sooner.
+        ui.postDelayed(() -> {
+            if (web != null && !loaded) showError(getString(R.string.error_unreachable));
+        }, LOAD_TIMEOUT_MS);
     }
 
     /** Our desktop's address, and Cloudflare Access's sign-in pages (only if the address is https). */

@@ -34,7 +34,8 @@ const label = (id) => PROVIDERS[id]?.name || id;
 
 // The user's order, with providers added in later versions appended so they can be enabled.
 function order(settings) {
-  const saved = (settings.routing?.order || []).filter((id) => PROVIDERS[id]);
+  // Own keys only: "__proto__" or "constructor" in a saved order are not providers.
+  const saved = (Array.isArray(settings.routing?.order) ? settings.routing.order : []).filter((id) => typeof id === 'string' && Object.hasOwn(PROVIDERS, id));
   return [...new Set([...saved, ...IDS])];
 }
 
