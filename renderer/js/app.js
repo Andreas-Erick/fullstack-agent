@@ -8,6 +8,7 @@ import { initChat, newChat, sendVoice, currentConversationId } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
 import { initUsage } from './usage.js';
+import { initUpdates } from './updates.js';
 import { initSysmon } from './sysmon.js';
 import { initHandoff, handoffNote } from './handoff.js';
 import { initHud, bootScreen } from './hud.js';
@@ -86,6 +87,7 @@ async function boot() {
   initApprovals();
   initRemote();
   initUsage();
+  initUpdates();
   initSysmon();
   $('#pillAgentWin').addEventListener('click', () => api.agentWindow.open().catch((err) => toast(err.message, 'error')));
   const showAgentWin = () => $('#pillAgentWin').classList.toggle('hidden', state.settings?.agentWindow?.enabled === false);
@@ -96,6 +98,15 @@ async function boot() {
 
   // Navigation
   $$('.rail-btn').forEach((b) => (b.onclick = () => switchView(b.dataset.view)));
+  // Arrow keys move along the rail (Tab enters and leaves it; Enter or Space opens the view).
+  $('#rail').addEventListener('keydown', (e) => {
+    const btns = $$('.rail-btn').filter((b) => b.offsetParent);
+    const i = btns.indexOf(document.activeElement);
+    const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: btns.length - 1 }[e.key];
+    if (i < 0 || to === undefined) return;
+    e.preventDefault();
+    btns[(to + btns.length) % btns.length].focus();
+  });
   on('view', ({ name }) => {
     if (name === 'memory') refreshMemory();
     if (name === 'calendar') refreshCalendar();
@@ -440,7 +451,7 @@ async function refreshStatus() {
 const pillTargets = { pillLlm: 'brain', pillVoice: 'voice', pillCal: 'calendar', pillKb: 'obsidian' };
 for (const [id, section] of Object.entries(pillTargets)) document.getElementById(id).addEventListener('click', () => switchView('settings', section));
 
-boot().catch((err) => {
+boot().then(() => api.app.ready(performance.now()).catch(() => {}), (err) => {
   console.error(err);
   reportUiError('startup', err);
   const bar = el('div', { style: { position: 'fixed', bottom: '0', left: '0', right: '0', padding: '12px', background: 'var(--glass)', color: 'rgb(var(--err))', zIndex: '99', display: 'flex', gap: '12px', alignItems: 'center' } }, `Startup error: ${err.message}`);

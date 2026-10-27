@@ -8,6 +8,9 @@ The code map is in `CLAUDE.md` (Inner World) and the art kit in `renderer/js/wor
 Ordered by impact for the effort, as discussed on 2026-10-26.
 
 ## 1. Celebrate level-ups
+Built (2.1.0): the glow and sparks, the panel line and the toast (`world:event` `levelup`). Still
+open: scaffolding, dust and fireworks as one-off sprite animations.
+
 When real progress raises a place's level, play it: scaffolding goes up, a puff of dust, the new
 building, fireworks, a "The Library grew!" banner. Needs the previous levels per place (the main
 process already keeps `levels` in `innerworld.json`; push a `world:event` `levelup` when `view()`
@@ -41,6 +44,8 @@ river, the forge hammering while the assistant writes code, the Lookout's ravens
 setting, follows the app's mute and stops when the view is hidden.
 
 ## 7. Timelapse
+Built (2.1.0): ⏳ Timelapse in the World view, from the daily snapshots that `track()` keeps from now on.
+
 Replay the last weeks of growth: buildings rising level by level, the seasons turning. Needs a daily
 snapshot of the levels (start storing them in `innerworld.json` now so there is history to replay).
 

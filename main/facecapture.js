@@ -96,13 +96,13 @@ async function record(r) {
   }
 }
 
-/** The pack for the current face and theme: from the cache, or recorded now (~25 s). */
+/** The pack for the current face and theme: from the cache, or recorded now (~25 s); `at` = when it was recorded. */
 async function frames(settings) {
   const r = recipe(settings);
   const key = keyOf(r);
   const file = path.join(cacheDir(), `${key}.bin`);
   const cached = await fsp.readFile(file).catch(() => null);
-  if (cached) return { key, data: cached };
+  if (cached) return { key, data: cached, at: (await fsp.stat(file).catch(() => null))?.mtimeMs || null };
   if (running?.key === key) return running.promise;
   if (running) await running.promise.catch(() => {});
   const promise = (async () => {
@@ -115,7 +115,7 @@ async function frames(settings) {
     await fsp.mkdir(cacheDir(), { recursive: true });
     await fsp.writeFile(file, data);
     log.info('face frames recorded', { face: r.face.startsWith('custom:') ? 'custom' : r.face, ms: Date.now() - started, bytes: data.length });
-    return { key, data };
+    return { key, data, at: Date.now() };
   })();
   running = { key, promise };
   try {

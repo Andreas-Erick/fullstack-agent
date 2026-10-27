@@ -16,6 +16,7 @@ export const KINDS = {
   process: { label: 'Process / window', tone: 'warn', what: 'Starts, hosts or opens another process or window.' },
   fs: { label: 'Files', tone: 'ok', what: 'Reads and writes files on disk.' },
   user: { label: 'Person', tone: 'text', what: 'You, using it.' },
+  link: { label: 'Links', tone: 'c2', what: 'A note links to another note ([[wikilink]]; the vault map).' },
   test: { label: 'Tests', tone: 'muted', what: 'A test exercises the module (off by default: there are many).' },
 };
 export const LEVEL = { container: 'Container', component: 'Component', file: 'Code' };
@@ -85,9 +86,15 @@ export function createArchScene() {
   let glideV = null; // pan inertia after a drag: { vx, vy } px per frame
   let intro = 0; // when the map materialized (with motion), 0 when done
   const paths = new Map();
+  // A history replay (renderer/js/replay.js): which files exist at the replayed moment, how warm each
+  // one is after its last change (1 → 0), its line count then; null when not replaying.
+  let replay = null; // { present: Set<path>, heat: Map<path, 0..1>, lines: Map<path, n>, tone }
+  let presentIds = null; // node ids with a present file inside (containers, components) or present (files)
 
   function load(next) {
     map = next;
+    replay = null;
+    presentIds = null;
     byId = new Map(map.nodes.map((n) => [n.id, n]));
     kids = new Map();
     const added = new Set(map.changes?.added || []);
@@ -107,6 +114,23 @@ export function createArchScene() {
     colors = { ...DEFAULT_COLORS, ...c };
     colors.muted = colors.text;
   }
+
+  /** The replayed moment (see above), or null to show the map as it is. */
+  function setReplay(r) {
+    replay = r || null;
+    presentIds = null;
+    if (!replay || !map) return;
+    presentIds = new Set();
+    for (const n of map.nodes) {
+      if (n.level !== 'file' || !replay.present.has(n.path)) continue;
+      presentIds.add(n.id);
+      for (const a of ancestors(n)) presentIds.add(a.id);
+    }
+  }
+  const shown = (n) => !replay || presentIds.has(n.id);
+  // What a box is called on its card and in its summary: the map may name its own (a vault's folders and notes).
+  const noun = (level) => map?.nouns?.[level] || (level === 'file' ? 'file' : level);
+  const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
   function setSize(w, h) {
     size.w = w;
     size.h = h;
@@ -161,22 +185,27 @@ export function createArchScene() {
     return n.level === 'file' ? r.w * 0.052 >= 9 : isOpen(n) ? (n.head || 40) * view.k * 0.36 >= 9 : Math.min((r.w * 0.86) / (Math.max(6, n.name.length) * 0.62), r.h * 0.2) >= 10;
   }
 
+  // In a replay, only what exists at that moment is counted, with the line counts of that moment.
+  const linesOf = (n) => (replay?.lines?.has(n.path) ? replay.lines.get(n.path) : n.lines || 0);
   function counts(n) {
     const all = [];
-    const walk = (id) => (kids.get(id) || []).forEach((c) => (all.push(c), walk(c.id)));
+    const walk = (id) => (kids.get(id) || []).forEach((c) => (shown(c) && all.push(c), walk(c.id)));
     walk(n.id);
     const comps = all.filter((c) => c.level === 'component').length;
     const files = all.filter((c) => c.level === 'file' && c.kind === 'file').length;
-    const lines = all.reduce((s, c) => s + (c.lines || 0), 0) + (n.lines || 0);
+    const lines = all.reduce((s, c) => s + (c.level === 'file' ? linesOf(c) : 0), 0) + (n.level === 'file' ? linesOf(n) : 0);
     return { comps, files, lines };
   }
 
   function metaOf(n) {
-    if (n.level === 'file') return `${n.lines ? `${n.lines.toLocaleString()} lines · ` : ''}${n.symbols.length} symbol${n.symbols.length === 1 ? '' : 's'}`;
+    if (n.level === 'file') {
+      const l = linesOf(n);
+      return `${l ? `${l.toLocaleString()} lines · ` : ''}${n.symbols.length} symbol${n.symbols.length === 1 ? '' : 's'}`;
+    }
     const c = counts(n);
-    if (n.level === 'component') return `${c.files} file${c.files === 1 ? '' : 's'} · ${c.lines.toLocaleString()} lines`;
+    if (n.level === 'component') return `${plural(c.files, noun('file'))} · ${c.lines.toLocaleString()} lines`;
     if (!kids.has(n.id)) return n.tech || '';
-    return `${c.comps} component${c.comps === 1 ? '' : 's'} · ${c.files} files${n.tech ? ` · ${n.tech}` : ''}`;
+    return `${plural(c.comps, noun('component'))} · ${plural(c.files, noun('file'))}${n.tech ? ` · ${n.tech}` : ''}`;
   }
 
   // What a part connects to, seen at its own level: other components in the same container, other
@@ -371,6 +400,11 @@ export function createArchScene() {
   function box(n, alpha) {
     const r = rect(n);
     if (!onScreen(r) || r.w < 2) return;
+    // Replaying: a file that doesn't exist yet isn't there; a box with nothing in it yet is a faint outline.
+    if (replay && !shown(n)) {
+      if (n.level !== 'file') ghost(n, r, alpha);
+      return;
+    }
     const t = openness(n);
     ctx.globalAlpha = alpha;
     if (n.level === 'file') fileCard(n, r, t);
@@ -381,6 +415,7 @@ export function createArchScene() {
         for (const c of kids.get(n.id) || []) box(c, alpha * t);
       }
     }
+    if (n.level === 'file' && replay?.heat?.get(n.path) > 0.01) warm(n, r, replay.heat.get(n.path), replay.tone || 'c1');
     if (n.isNew) {
       if (anim) {
         const p = 0.5 + 0.5 * Math.sin(performance.now() / 260);
@@ -396,6 +431,41 @@ export function createArchScene() {
       badge(r, 'NEW', 'ok');
     } else if (n.auto && r.w > 90) badge(r, 'UNDESCRIBED', 'warn');
     ctx.globalAlpha = 1;
+  }
+
+  // A box whose files haven't appeared yet in the replay: a dashed outline and its name, no more.
+  function ghost(n, r, alpha) {
+    ctx.globalAlpha = alpha * 0.22;
+    ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = rgba(n.tone || 'c1', 0.7);
+    ctx.lineWidth = 1;
+    cardPath(n, r);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const fs = Math.min((r.w * 0.8) / (Math.max(6, n.name.length) * 0.62), r.h * 0.18, 40);
+    if (fs >= 6) {
+      font(fs, colors.display, 700);
+      ctx.fillStyle = rgba('text', 0.8);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(fit(n.name, r.w * 0.9), r.x + r.w / 2, r.y + r.h / 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // A file just changed in the replay: it glows in the commit's color and cools down.
+  function warm(n, r, heat, tone) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, heat);
+    ctx.beginPath();
+    ctx.roundRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4, radiusFor(r) + 2);
+    ctx.strokeStyle = rgba(tone, 0.95);
+    ctx.lineWidth = 2 + heat * 2;
+    if (fx !== 'off') (ctx.shadowColor = rgba(tone, 0.9)), (ctx.shadowBlur = 10 + 24 * heat);
+    ctx.stroke();
+    ctx.fillStyle = rgba(tone, 0.18 * heat);
+    ctx.fill();
+    ctx.restore();
   }
 
   function badge(r, text, tone) {
@@ -506,7 +576,7 @@ export function createArchScene() {
       if (kind === 'kind') {
         font(kindFs, colors.mono, 700);
         ctx.fillStyle = rgba(tone, 0.85);
-        ctx.fillText(KIND_LABEL[n.kind].toUpperCase().split('').join(' '), cx, y + h / 2);
+        ctx.fillText((n.kindLabel || KIND_LABEL[n.kind]).toUpperCase().split('').join(' '), cx, y + h / 2);
       }
       if (kind === 'name') {
         font(nameFs, colors.display, 700);
@@ -704,6 +774,7 @@ export function createArchScene() {
       const a = byId.get(e.from);
       const b = byId.get(e.to);
       if (!a || !b) continue;
+      if (replay && !(shown(a) && shown(b))) continue; // neither end exists yet
       const ra = visibleRep(a);
       const rb = visibleRep(b);
       if (ra === rb || within(ra, rb) || within(rb, ra)) continue;
@@ -977,6 +1048,8 @@ export function createArchScene() {
     load,
     setColors,
     setSize,
+    setReplay,
+    noun,
     setFx: (level) => (fx = level),
     setAnimated: (on) => (anim = Boolean(on)),
     setPanel: (w) => (panelW = Math.max(0, w || 0)),

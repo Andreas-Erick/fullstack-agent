@@ -37,6 +37,9 @@ const KEYWORDS = new Set(['if', 'for', 'while', 'switch', 'catch', 'function', '
 const isModule = (rel) => rel.startsWith('renderer/js/') || rel === 'renderer/remote/app.js';
 const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
+// main/tools.js and its groups (main/tools/<group>.js) define the agent's tools.
+const isToolFile = (rel) => rel === 'main/tools.js' || rel.startsWith('main/tools/');
+
 // ------------------------------------------------------------ symbols
 /** Functions, classes, exports, IPC handlers and tools in one file, with line numbers. */
 function outline(text, rel = '') {
@@ -49,7 +52,7 @@ function outline(text, rel = '') {
     [/^(export\s+)?(const|let)\s+([A-Z][A-Z0-9_]*)\s*=/gm, (m) => add(m[1] ? 'export const' : 'const', m[3], m.index)],
     [/^ {2}(?:async\s+|static\s+)?(\w+)\s*\(([^)]*)\)\s*\{\s*$/gm, (m) => !KEYWORDS.has(m[1]) && add('method', m[1], m.index, `(${m[2].trim()})`)],
     [/\bhandle\('([\w-]+:[\w-]+)'/g, (m) => add('ipc', m[1], m.index)],
-    [/^\s{4}name: '(\w+)',\s*$/gm, (m) => rel.endsWith('tools.js') && add('tool', m[1], m.index)],
+    [/^\s{4}name: '(\w+)',\s*$/gm, (m) => isToolFile(rel) && add('tool', m[1], m.index)],
   ];
   for (const [re, fn] of rx) for (const m of text.matchAll(re)) fn(m);
   return items.sort((a, b) => a.line - b.line);
@@ -148,9 +151,10 @@ function ipc(root) {
   return { handlers: [...handlers].sort(), exposed: [...exposed].sort(), notExposed: [...handlers].filter((h) => !exposed.has(h)).sort(), noHandler: [...exposed].filter((c) => !handlers.has(c)).sort() };
 }
 
-/** Agent tools (main/tools.js) and which have a label in the chat (renderer/js/chat.js). */
+/** Agent tools (main/tools.js and the groups in main/tools/) and which have a label in the chat
+ *  (renderer/js/chat.js). */
 function toolsInfo(root) {
-  const text = read(root, 'main/tools.js');
+  const text = jsFiles(root).filter(isToolFile).map((f) => read(root, f)).join('\n');
   const tools = [...text.matchAll(/^\s{4}name: '(\w+)',\s*\n\s{4}group: '(\w+)'/gm)].map((m) => ({ name: m[1], group: m[2] }));
   const chat = read(root, 'renderer/js/chat.js');
   const block = /const TOOL_LABELS = \{([\s\S]*?)\n\};/.exec(chat);

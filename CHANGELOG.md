@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.1.0 — 2026-10-27
+
+Updates you hear about, a village that celebrates, history replays, a vault that knows its links, and a Siren you can use from the keyboard.
+
+- Siren tells you about new versions. *(Once a day she asks GitHub whether a newer release is out; an "Update" pill appears in the title bar with what's new and the download for this computer, which opens in your browser. Nothing is downloaded or installed on its own. "Skip this version" hides it, Settings → Memory & history turns the check off or checks now, and the setup wizard asks too. In the Android app, More offers a newer phone app when there is one; the computer asks GitHub for it, the phone never does.)*
+- The village celebrates. *(When real progress gives a building a level, it lights up and sparks for a few seconds, the side panel says "The Library grew", and outside the World view a toast does.)*
+- ⏳ Timelapse in the Inner World. *(The village keeps one snapshot a day from now on; Timelapse replays them: buildings rising level by level, the seasons turning with the dates. Play, pause, scrub and speed like the other replays. It appears once there are a few days to show.)*
+- Your phone's connection, visible. *(Settings → Remote access and the Remote pill's tooltip show which device is connected now and when each was last seen; the pill's light turns green while one is connected; a toast tells you when a phone connects or has been gone a few minutes, which is how you notice the background connection gave up. A watch's row says which face it has and from when.)*
+- Links between your notes. *(Under every note the Vault view lists the notes that link to it and the ones it links to, as buttons. The Growth replay draws lines between linked notes. She can ask for a note's links too, to find related notes or before renaming one.)*
+- Use Siren from the keyboard and with a screen reader. *(A visible focus ring everywhere, the arrow keys move along the rail, Space plays and pauses the timelapse, Esc goes back one step in the village. Screen readers hear each finished reply once, in full, instead of every streamed word. Every shortcut per view is in docs/KEYBOARD.md, and she can tell you: "Which keyboard shortcuts do you have?")*
+- Sturdier releases. *(Every release now starts the real app once before it is published and fails on any error during startup, and opens every screen of the phone and tablet app in a browser at both sizes; the first run of that check caught a startup bug before it reached you.)*
+- Under the hood. *(Her tools are now one file per area instead of one 1,900-line file, and the chat's message rendering is tested on its own: easier for her, and for you, to change safely.)*
+
+Also new since 2.0.3: two history replays, Siren's own code and your vault.
+
+- Watch Siren's history on the Architecture map. *(▶ Replay in the Arch view, or Evolution → Watch the history: every commit of her code is played on the map, oldest first. Files appear and grow as they were written, the ones a commit touched glow in its color, her own self-changes are marked, releases and reverts too. Play, pause, scrub, and choose the speed; the bar says which change it was and when.)*
+- Watch your vault grow. *(Vault → 🌱 Growth: every note the vault ever had, laid out by folder, and its version history played over it: notes appear in their folders as they were written, glow when they change, and vanish when they were deleted. Drag, zoom into a folder, scrub through the months.)*
+
 ## 2.0.3 — 2026-10-27
 
 The architecture map on your tablet, a quieter phone app, the watch listens on her own screen, and smoother motion on the desktop.

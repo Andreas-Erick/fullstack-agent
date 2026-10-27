@@ -38,6 +38,7 @@
       <div class="status-pills">
         <button class="pill screen-pill hidden" id="pillScreen" title="You are sharing your screen with the assistant. Click to stop."><i></i><span>Sharing</span> ✕</button>
         <button class="pill remote-pill hidden" id="pillRemote" title="Remote access is on. Click to turn it off."><i></i><span>Remote</span> ✕</button>
+        <button class="pill update-pill hidden" id="pillUpdate" title="A new version of Siren is available"><i></i><span>Update</span></button>
         <button class="pill practice-pill hidden" id="pillPractice" title="Language practice is on: speech recognition and the voice use this language. Click to end it."><i></i><span>Practice</span> ✕</button>
         <div class="tb-group tb-tools">
           <div class="zoom-ctl" id="zoomCtl" title="Zoom (Ctrl + / Ctrl − / Ctrl 0, or Ctrl + mouse wheel)">
@@ -62,7 +63,7 @@
     <div class="sys-panel hidden" id="sysPanel"></div>
 
     <div class="shell">
-      <nav class="rail" id="rail">
+      <nav class="rail" id="rail" aria-label="Views">
         <button class="rail-btn active" data-view="chat" title="Chat (Ctrl+1)">
           <svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z" /></svg><span>Chat</span>
         </button>
@@ -139,7 +140,9 @@
                 </div>
               </div>
             </div>
-            <div class="messages" id="messages">
+            <!-- Screen readers hear each finished reply here (js/chat.js announce()), not every streamed word. -->
+            <div class="sr-only" id="chatLive" aria-live="polite" aria-atomic="true"></div>
+            <div class="messages" id="messages" role="region" aria-label="Conversation">
               <div class="empty-state" id="emptyState">
                 <div class="empty-orb"></div>
                 <h1 class="display" id="welcomeTitle">NEXUS ONLINE</h1>
@@ -262,6 +265,7 @@
             <div class="actions">
               <input class="input search" id="kbSearch" placeholder="Search notes…" />
               <button class="btn primary" id="kbNew">＋ New note</button>
+              <button class="btn" id="kbGrowth" title="Watch the vault grow: every note appearing in its folder, from the first day to today">🌱 Growth</button>
               <button class="btn" id="kbObsidian" title="Open the vault in the Obsidian app">◆ Open in Obsidian</button>
               <button class="btn" id="kbFolder">📁 Folder</button>
             </div>
@@ -325,6 +329,7 @@
             <div class="actions">
               <button class="btn" id="worldAsk">💬 Ask about the day</button>
               <button class="btn" id="worldChronicle" title="The village's days as a note in your vault">📜 Chronicle</button>
+              <button class="btn" id="worldLapse" title="Replay how the village grew, day by day (Esc to leave)" aria-pressed="false">⏳ Timelapse</button>
               <button class="btn" id="worldSettings" title="Inner World settings" aria-label="Inner World settings">⚙</button>
               <button class="btn primary hidden" id="worldWrite">✍ Write today</button>
             </div>
@@ -337,6 +342,7 @@
               <button class="btn small" id="worldFit" title="Show the whole island (0)">⤢ Whole island</button>
               <span class="world-follow hidden" id="worldFollow">👁 Following <b id="worldFollowName"></b> <button class="icon-btn" id="worldFollowStop" title="Stop following (Esc)">✕</button></span>
             </div>
+            <div class="replay-slot" id="worldTimeline"></div>
             <canvas class="world-mini hidden" id="worldMini" title="The whole island: click or drag to go there"></canvas>
             <aside class="world-panel glass" id="worldPanel"></aside>
           </div>
@@ -351,12 +357,14 @@
               <input class="input search arch-search" id="archSearch" placeholder="Find a part…" list="archFind" spellcheck="false" />
               <datalist id="archFind"></datalist>
               <button class="btn" id="archFit" title="Show everything (0)">⤢ Fit</button>
+              <button class="btn" id="archReplay" title="Watch the code's history: files appear and grow commit by commit, self-changes marked (R)">▶ Replay</button>
               <button class="btn" id="archLearn" title="How to read this map, and the design principles behind it (L)">🎓 Learn</button>
               <button class="btn primary" id="archRebuild" title="Scan the code again and redraw the map">⟳ Rebuild</button>
             </div>
           </div>
           <div class="arch-body">
             <canvas class="arch-canvas" id="archCanvas" aria-label="Architecture map: scroll to zoom into a part, drag to move, click for details"></canvas>
+            <div class="replay-slot" id="archTimeline"></div>
             <div class="arch-legend glass" id="archLegend"></div>
             <canvas class="arch-mini glass" id="archMini" width="200" height="140" title="Overview: click to jump"></canvas>
             <div class="arch-status" id="archStatus"></div>
@@ -399,6 +407,7 @@
           <div class="view-head">
             <h2 class="display">Evolution</h2>
             <div class="actions">
+              <button class="btn" id="evoReplay" title="Watch every change on the architecture map, commit by commit">▶ Watch the history</button>
               <button class="btn" id="evoReload">⟳ Reload window</button>
               <button class="btn" id="evoRestart">⏻ Restart app</button>
             </div>

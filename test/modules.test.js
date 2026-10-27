@@ -19,7 +19,10 @@ stub({ electron: anything });
 
 // main.js starts the app and mcp-server.js speaks MCP on stdin as soon as it loads: not loadable here.
 const SKIP = new Set(['main.js', 'mcp-server.js']);
-const modules = fs.readdirSync(path.join(ROOT, 'main')).filter((f) => f.endsWith('.js') && !SKIP.has(f));
+const modules = [
+  ...fs.readdirSync(path.join(ROOT, 'main')).filter((f) => f.endsWith('.js') && !SKIP.has(f)),
+  ...fs.readdirSync(path.join(ROOT, 'main/tools')).map((f) => `tools/${f}`),
+];
 
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 

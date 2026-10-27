@@ -3,7 +3,10 @@ const { app, BrowserWindow, ipcMain, protocol, shell, dialog, globalShortcut, se
 const path = require('path');
 const fsp = require('fs').promises;
 
-// The data folder first (and the move from the app's former name), before anything reads it.
+// The data folder first (and the move from the app's former name), before anything reads it. The launch
+// check (--smoke, smoke.js) gets a throwaway one.
+const smoke = require('./smoke');
+smoke.prepare();
 require('./datadir').setup();
 // macOS/Linux: the login shell's PATH, so claude, gh, npx, tailscale… are found when started from the Dock.
 require('./shellpath').setup();
@@ -43,8 +46,8 @@ const helperApps = require('./helperapps');
 const ROOT = path.join(__dirname, '..');
 
 // Last-resort safety net: an unexpected error in the main process is logged, never fatal.
-process.on('uncaughtException', (err) => log.error('uncaught exception', err?.stack || String(err)));
-process.on('unhandledRejection', (err) => log.error('unhandled rejection', err?.stack || String(err)));
+process.on('uncaughtException', (err) => (log.error('uncaught exception', err?.stack || String(err)), smoke.noteError(err)));
+process.on('unhandledRejection', (err) => (log.error('unhandled rejection', err?.stack || String(err)), smoke.noteError(err)));
 const isDev = process.argv.includes('--dev');
 // Laptops with integrated + dedicated graphics: run WebGPU (local Whisper) on the dedicated GPU.
 app.commandLine.appendSwitch('force_high_performance_gpu');
@@ -144,7 +147,8 @@ function createWindow() {
       autoplayPolicy: 'no-user-gesture-required', // the spoken greeting plays on launch
     },
   });
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => !smoke.active && win.show());
+  smoke.watch(app, win);
   win.loadURL('app://bundle/renderer/index.html');
   if (isDev) win.webContents.openDevTools({ mode: 'detach' });
 
@@ -368,6 +372,23 @@ function registerIpc() {
     return s;
   });
   handle('settings:reset', () => store.resetSettings());
+  // New versions (updates.js): the state, a check now, skipping one, and opening a GitHub download.
+  handle('updates:status', () => require('./updates').status());
+  handle('updates:check', () => require('./updates').check({ manual: true }));
+  handle('updates:skip', async (version) => {
+    await store.setSettings({ updates: { skipped: String(version || '').slice(0, 20) } });
+    return require('./updates').status();
+  });
+  handle('updates:open', (url) => {
+    if (!/^https:\/\/github\.com\//.test(String(url || ''))) throw new Error('Only GitHub release links open from here.');
+    return shell.openExternal(String(url));
+  });
+  // The window finished booting (renderer/js/app.js): how long it took, and the launch check's signal.
+  handle('app:ready', (ms) => {
+    log.info('window ready', { ms: Math.round(Number(ms) || 0) });
+    smoke.ready(ms);
+    return true;
+  });
   handle('app:info', () => ({
     version: app.getVersion(),
     platform: process.platform,
@@ -491,6 +512,7 @@ function registerIpc() {
   handle('obsidian:list', (folder) => obsidian.listNotes(folder));
   handle('obsidian:read', (p) => obsidian.readNote(p));
   handle('obsidian:search', (q) => obsidian.search(q, 30));
+  handle('obsidian:links', async (rel) => require('./linkindex').forNote(await obsidian.vaultPath(), String(rel || '')));
 
   // Documents
   handle('docs:pick', async () => {
@@ -654,6 +676,9 @@ function registerIpc() {
   // The Architecture view: the cached map of the app's own code, or a fresh scan (Rebuild).
   handle('arch:get', () => archmap.get(ROOT));
   handle('arch:build', () => archmap.build(ROOT));
+  // History replays (main/replay.js): the app's own commits for the Architecture view, the vault's for Growth.
+  handle('arch:history', () => require('./replay').appHistory(ROOT));
+  handle('obsidian:growth', async () => require('./replay').vaultHistory(await obsidian.vaultPath()));
   handle('routines:list', () => routines.list());
   handle('routines:save', (r) => routines.save(r && typeof r === 'object' ? r : {}));
   handle('routines:remove', (id) => routines.remove(String(id)));
@@ -927,12 +952,14 @@ app.whenReady().then(async () => {
   log.setDebug(s.logging?.debug);
   if (s.code.enabled && s.code.allowSelfModify) selfchange.ensureRepo().catch((e) => log.warn('change history unavailable', e));
   obsidian.vaultPath().catch(() => {});
-  companion.apply(s).catch((e) => log.warn('remote server start failed', e));
+  // The launch check starts no servers and no helper programs.
+  if (!smoke.active) companion.apply(s).catch((e) => log.warn('remote server start failed', e));
   helperApps.init({ notify: (ev) => send('helperApps:event', ev) });
-  helperApps.ensureAll(s, 'launch');
+  if (!smoke.active) helperApps.ensureAll(s, 'launch');
   journal.start();
   startRoutines();
   require('./innerworld').start({ notify: (ev) => toWindow('world:event', ev) });
+  if (!smoke.active) require('./updates').start({ notify: (st) => toWindow('updates:state', st) });
   store.sweepStaleTemp().catch(() => {});
   claudecode.sweepStaleTemp().catch(() => {});
 

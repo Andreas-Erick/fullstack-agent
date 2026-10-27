@@ -26,7 +26,7 @@ const GOALS = [
 ];
 
 // Icons for the tour (main/guide.js FEATURES ids).
-const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '🎓', languages: '🗣', coaching: '🌱', skilltree: '🌳', innerworld: '🏡', routines: '⏰', schedule: '📅', connectors: '🔌', documents: '📄', folders: '📁', 'agent-window': '🌐', architecture: '🏛', performance: '⚡', system: '📊', usage: '⏳', skills: '✨', diagrams: '📐', extensions: '🧩', 'web-code': '💻', remote: '📱', safety: '🛡' };
+const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '🎓', languages: '🗣', coaching: '🌱', skilltree: '🌳', innerworld: '🏡', routines: '⏰', schedule: '📅', connectors: '🔌', documents: '📄', folders: '📁', 'agent-window': '🌐', architecture: '🏛', performance: '⚡', system: '📊', usage: '⏳', skills: '✨', diagrams: '📐', extensions: '🧩', 'web-code': '💻', remote: '📱', watch: '⌚', keyboard: '⌨', updates: '⬆', safety: '🛡' };
 
 let step = 0;
 const draft = {};
@@ -134,6 +134,8 @@ async function render() {
         s.safety.permissionMode,
         (v) => saveSettings({ safety: { permissionMode: v } }),
       ),
+      // The one request the app makes on its own (main/updates.js; PRIVACY.md "Update check").
+      checkbox(s.updates?.check !== false, 'Tell me about new versions: once a day, ask GitHub whether a newer Siren is out (nothing is downloaded until you click Download; change it in Settings → Memory & history)', (v) => saveSettings({ updates: { check: v } })),
       checkbox(draft.accepted, 'I have read this and agree to the privacy policy and disclaimers', (v) => {
         draft.accepted = v;
         next()?.toggleAttribute('disabled', !v);

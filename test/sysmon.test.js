@@ -47,7 +47,8 @@ test('speed test math: megabits per second', () => {
 });
 
 test('the numbers never reach the assistant or paired devices', () => {
-  for (const f of ['main/tools.js', 'main/prompt.js', 'main/companion.js', 'main/llm.js']) {
+  const toolFiles = fs.readdirSync(path.join(ROOT, 'main/tools')).map((f) => `main/tools/${f}`);
+  for (const f of ['main/tools.js', ...toolFiles, 'main/prompt.js', 'main/companion.js', 'main/llm.js']) {
     assert.ok(!/sysmon|netspeed/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')), `${f} must not read the system monitor`);
   }
 });

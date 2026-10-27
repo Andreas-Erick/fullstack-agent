@@ -305,9 +305,25 @@ function describe(s) {
 }
 
 // --------------------------------------------------------------- More
+// In the Android app: a newer APK than this one is out (the computer checks GitHub, /api/info `update`).
+function appUpdate() {
+  const { el } = ctx;
+  const u = ctx.state.info?.update;
+  const mine = window.NexusAndroid?.appVersion?.();
+  const v = (s) => String(s || '').split('.').map(Number);
+  const newer = (a, b) => {
+    const [x, y] = [v(a), v(b)];
+    for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    return false;
+  };
+  if (!u?.android || !mine || !/^\d+\.\d+\.\d+$/.test(mine) || !newer(u.version, mine)) return null;
+  return el('section', { class: 'card app-update' }, el('h3', {}, `Siren ${u.version} for Android`), el('p', { class: 'muted' }, `You have ${mine}. Download the new app and install it over this one (your pairing stays).${u.wear ? ' The watch app is on the same release page.' : ''}`), el('a', { class: 'btn', href: u.android, target: '_blank', rel: 'noopener' }, '⬇ Download'), u.page ? el('a', { class: 'btn ghost', href: u.page, target: '_blank', rel: 'noopener' }, 'Release page') : null);
+}
+
 async function more() {
   const { el, icon } = ctx;
-  return el('div', { class: 'more-grid' }, ...MORE.filter(([v]) => v !== 'sched' || ctx.state.calendar).map(([v, ico, title, desc]) => el('button', { class: 'more-tile', type: 'button', onclick: () => ctx.showView(v) }, icon(ico), el('b', {}, title), el('small', {}, desc))));
+  const update = appUpdate();
+  return [...(update ? [update] : []), el('div', { class: 'more-grid' }, ...MORE.filter(([v]) => v !== 'sched' || ctx.state.calendar).map(([v, ico, title, desc]) => el('button', { class: 'more-tile', type: 'button', onclick: () => ctx.showView(v) }, icon(ico), el('b', {}, title), el('small', {}, desc))))];
 }
 
 // --------------------------------------------------------------- Inner World

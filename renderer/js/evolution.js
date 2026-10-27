@@ -1,11 +1,14 @@
 // Evolution view: the history of changes the agent made to its own code, with diff, revert and restore.
 import { $, api, el, timeAgo, toast, toastError, toastActions, confirmDialog, promptDialog, escapeHtml, on } from './util.js';
+import { switchView } from './nav.js';
 
 let selected = null;
 
 export function initEvolution() {
   $('#evoReload').onclick = () => api.self.reload();
   $('#evoRestart').onclick = () => api.self.restart();
+  // The history as a film: the Architecture view replays every commit on the map (renderer/js/replay.js).
+  $('#evoReplay').onclick = () => switchView('arch', 'replay');
 
   // Changes recorded at the end of a turn (main process) or by the agent's self_change_commit tool.
   api.on('self:event', (ev) => {

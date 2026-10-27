@@ -47,6 +47,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 ::-webkit-scrollbar-track { background: transparent; }
 kbd { font-family: var(--font-mono); font-size: 0.8em; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-strong); background: rgba(var(--c1), 0.07); color: rgb(var(--c1-soft)); }
 .hidden { display: none !important; }
+/* Read by screen readers, not shown (the chat's #chatLive). */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* Keyboard focus is always visible (mouse clicks don't show it: :focus-visible). */
+:is(button, a, select, summary, [tabindex]:not([tabindex="-1"]), input[type="range"], input[type="checkbox"], input[type="radio"]):focus-visible { outline: 2px solid rgba(var(--c1), 0.85); outline-offset: 2px; }
+.rail-btn:focus-visible { color: var(--text); background: rgba(var(--c1), 0.08); }
+.input:focus-visible, .composer textarea:focus-visible { outline: none; }
+.composer:focus-within { box-shadow: 0 0 0 2px rgba(var(--c1), 0.35); }
 .muted { color: var(--muted); }
 .display { font-family: var(--font-display); letter-spacing: var(--display-spacing); text-transform: var(--display-transform); }
 
@@ -115,12 +122,12 @@ select.input.persona-select { width: auto; max-width: 180px; height: 26px; paddi
 .titlebar[data-fold]:not([data-fold='0']) .tb-systems > :not(:first-child)::before { margin: 0 6px 0 -4px; }
 .titlebar:is([data-fold='2'], [data-fold='3'], [data-fold='4'], [data-fold='5']) .brand-state { display: none; }
 .titlebar:is([data-fold='2'], [data-fold='3'], [data-fold='4'], [data-fold='5']) .sys-pill .sys-m:nth-child(3) { display: none; }
-.titlebar:is([data-fold='2'], [data-fold='3'], [data-fold='4'], [data-fold='5']) :is(.screen-pill, .remote-pill, .practice-pill) span { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
+.titlebar:is([data-fold='2'], [data-fold='3'], [data-fold='4'], [data-fold='5']) :is(.screen-pill, .remote-pill, .practice-pill, .update-pill) span { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
 .titlebar:is([data-fold='3'], [data-fold='4'], [data-fold='5']) :is(.brand-name, .sys-pill) { display: none; }
 .titlebar:is([data-fold='3'], [data-fold='4'], [data-fold='5']) .usage-pill > span { display: none; }
 .titlebar:is([data-fold='4'], [data-fold='5']) :is(.persona-select, .zoom-ctl) { display: none; }
 .titlebar:is([data-fold='4'], [data-fold='5']) .tb-tools > .aw-pill::before { display: none; }
-.titlebar[data-fold='5'] :is(.screen-pill, .remote-pill, .practice-pill) span { display: none; }
+.titlebar[data-fold='5'] :is(.screen-pill, .remote-pill, .practice-pill, .update-pill) span { display: none; }
 /* The middle: the free space between the sides; the HUD clock shows there when it fits (hud.css). */
 .tb-center { flex: 1 1 0; min-width: 0; display: flex; justify-content: center; pointer-events: none; container-type: inline-size; }
 
@@ -538,9 +545,14 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .screen-pill { cursor: pointer; font: inherit; font-size: 11px; color: rgb(var(--err)); border-color: rgba(var(--err), 0.55); background: rgba(var(--err), 0.08); }
 .screen-pill i { background: rgb(var(--err)); box-shadow: 0 0 8px rgb(var(--err)); animation: blink 1.2s infinite; }
 .screen-pill span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A new version is out (js/updates.js). */
+.update-pill { cursor: pointer; font: inherit; font-size: 11px; color: rgb(var(--ok)); border-color: rgba(var(--ok), 0.55); background: rgba(var(--ok), 0.08); }
+.update-pill i { background: rgb(var(--ok)); box-shadow: 0 0 8px rgb(var(--ok)); }
 .remote-pill { cursor: pointer; font: inherit; font-size: 11px; color: rgb(var(--warn)); border-color: rgba(var(--warn), 0.55); background: rgba(var(--warn), 0.08); }
 .remote-pill i { background: rgb(var(--warn)); box-shadow: 0 0 8px rgb(var(--warn)); }
 .remote-pill.online i { animation: blink 1.6s infinite; }
+/* A paired device is connected right now: the light turns to the "ok" colour. */
+.remote-pill.linked i { background: rgb(var(--ok)); box-shadow: 0 0 8px rgb(var(--ok)); }
 .practice-pill { cursor: pointer; font: inherit; font-size: 11px; color: rgb(var(--c3)); border-color: rgba(var(--c3), 0.55); background: rgba(var(--c3), 0.08); }
 .practice-pill i { background: rgb(var(--c3)); box-shadow: 0 0 8px rgb(var(--c3)); }
 .aw-pill { cursor: pointer; font: inherit; font-size: 12px; padding: 2px 8px; }
@@ -694,6 +706,12 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .world-sec > b, .world-grow > b { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
 .world-grow { padding: 8px 10px; border-radius: 10px; background: rgba(var(--c1), 0.06); border: 1px solid rgba(var(--c1), 0.18); font-size: 13px; }
 .world-news { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: rgb(var(--ok)); }
+/* A place just gained a level (main/innerworld.js levelup). */
+.world-levelup { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; font-size: 13px; color: rgb(var(--ok)); background: rgba(var(--ok), 0.08); border: 1px solid rgba(var(--ok), 0.35); }
+/* The timelapse bar sits over the canvas, clear of the side panel and the minimap. */
+#worldTimeline { left: 30px; right: calc(min(380px, 40%) + 220px); bottom: 54px; }
+@media (max-width: 900px) { #worldTimeline { right: 30px; bottom: calc(45% + 60px); } }
+#worldLapse.active { border-color: rgba(var(--c1), 0.7); color: rgb(var(--c1)); }
 .world-scene { --who: var(--c1); padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(var(--text-rgb), 0.03); display: flex; flex-direction: column; gap: 4px; cursor: pointer; transition: border-color 0.15s; }
 .world-scene:hover { border-color: rgba(var(--c1), 0.5); }
 .world-scene.live { border-color: rgba(var(--c3), 0.5); cursor: default; }
@@ -989,6 +1007,32 @@ body.doc-popup .toasts { right: 14px; bottom: 30px; }
 .arch-syms .d { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 110px; }
 .arch-syms .l { text-align: right; color: var(--muted); }
 .arch-actions { display: flex; gap: 8px; margin-top: 4px; }
+/* History replays (renderer/js/replay.js): the control bar over the Architecture map and in the vault's Growth window. */
+.replay-slot { position: absolute; left: 14px; right: 14px; bottom: 34px; display: flex; justify-content: center; pointer-events: none; container-type: inline-size; }
+.replay-slot:empty { display: none; }
+.replay-bar { pointer-events: auto; display: flex; align-items: center; gap: 10px; width: min(960px, 100%); padding: 8px 12px; border-radius: 12px; }
+.replay-play { width: 38px; height: 32px; padding: 0; flex: none; font-size: 13px; }
+.replay-slider { flex: 1 1 220px; min-width: 120px; accent-color: rgb(var(--c1)); }
+.replay-speed { width: auto; flex: none; padding: 4px 8px; font-size: 12px; }
+.replay-text { flex: 2 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 12px; }
+.replay-when { font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.replay-what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.replay-kind { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(var(--c1), 0.5); color: rgb(var(--c1)); margin-right: 4px; }
+.replay-kind.kind-self { border-color: rgba(var(--c3), 0.6); color: rgb(var(--c3)); }
+.replay-kind.kind-release { border-color: rgba(var(--ok), 0.6); color: rgb(var(--ok)); }
+.replay-kind.kind-revert { border-color: rgba(var(--warn), 0.6); color: rgb(var(--warn)); }
+.replay-kind.kind-baseline { border-color: rgba(var(--c2), 0.6); color: rgb(var(--c2-soft)); }
+.replay-count { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.replay-close { flex: none; padding: 4px 10px; }
+@container (max-width: 700px) { .replay-count { display: none; } }
+/* The vault's Growth window: the map in a modal, the bar under it. */
+.growth-card { width: min(1100px, 94vw); height: min(760px, 88vh); max-height: 88vh; gap: 10px; }
+.growth-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.growth-head p { margin: 0; }
+.growth-body { position: relative; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: radial-gradient(ellipse at 50% 40%, rgba(var(--c1), 0.05), transparent 70%); }
+.growth-body .replay-slot { bottom: 12px; }
+.growth-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.growth-hint { font-size: 12px; color: var(--muted); }
 .arch-actions.wrap { flex-wrap: wrap; }
 .arch-c4 { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.45; }
 .arch-kindrow { display: grid; grid-template-columns: 16px 110px 1fr; gap: 8px; align-items: center; font-size: 12.5px; }
@@ -1104,3 +1148,12 @@ body.agent .aw-frame::before { border-color: rgba(var(--c1), 0.85); box-shadow: 
 .ts-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .ts-body .hint { margin: 0; line-height: 1.5; }
 .ts-body .row { margin-top: 4px; }
+
+/* The Vault view: backlinks and links under a note (js/knowledge.js). */
+.kb-links { margin-top: 22px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; }
+.kb-links-group b { display: block; margin-bottom: 6px; font-family: var(--font-display); font-size: 11px; letter-spacing: 0.08em; color: var(--muted); }
+.kb-links-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.kb-link { cursor: pointer; font: inherit; }
+
+/* What is new in an update (js/updates.js). */
+.update-notes { max-height: 50vh; overflow: auto; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(var(--well), 0.4); font-size: 13px; }

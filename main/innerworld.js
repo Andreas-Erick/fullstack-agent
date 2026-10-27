@@ -25,9 +25,28 @@ let timer = null;
 
 async function state() {
   const s = await store.readJson(file(), {});
-  return { days: Array.isArray(s.days) ? s.days : [], levels: Array.isArray(s.levels) ? s.levels : [], dayCount: Number(s.dayCount) || 0, rehearsals: Array.isArray(s.rehearsals) ? s.rehearsals : [] };
+  return {
+    days: Array.isArray(s.days) ? s.days : [],
+    levels: Array.isArray(s.levels) ? s.levels : [],
+    dayCount: Number(s.dayCount) || 0,
+    rehearsals: Array.isArray(s.rehearsals) ? s.rehearsals : [],
+    // The levels the view last showed ({ id: level }: level-ups are celebrated against them) and a
+    // snapshot per day for the timelapse.
+    seen: s.seen && typeof s.seen === 'object' ? s.seen : null,
+    history: Array.isArray(s.history) ? s.history : [],
+  };
 }
-const saveState = (s) => store.writeJsonAtomic(file(), s);
+// Read-modify-write of the state, one at a time (the view, the day and rehearsals all save it).
+let saving = Promise.resolve();
+function updateState(change) {
+  const run = saving.then(async () => {
+    const st = await state();
+    if ((await change(st)) !== false) await store.writeJsonAtomic(file(), st);
+    return st;
+  });
+  saving = run.catch(() => {});
+  return run;
+}
 
 // ------------------------------------------------------------------ evidence and residents
 // The assistant's work: every tool it uses is counted by place (worldcore.workFor) per day, in
@@ -175,11 +194,12 @@ function simulate({ force = false } = {}) {
     }
     const day = { date, weekday: weekday(date), at: Date.now(), ...parsed, news };
 
-    const fresh = await state(); // a rehearsal may have been recorded meanwhile
-    fresh.days = [...fresh.days.filter((d) => d.date !== date), day].slice(-KEEP_DAYS);
-    fresh.levels = places.map((p) => ({ id: p.id, level: p.level }));
-    if (!existing) fresh.dayCount += 1;
-    await saveState(fresh);
+    // Saved on the latest state: a rehearsal may have been recorded meanwhile.
+    await updateState((fresh) => {
+      fresh.days = [...fresh.days.filter((d) => d.date !== date), day].slice(-KEEP_DAYS);
+      fresh.levels = places.map((p) => ({ id: p.id, level: p.level }));
+      if (!existing) fresh.dayCount += 1;
+    });
     await writeChronicle(day).catch((err) => log.warn('inner world chronicle failed', { error: err }));
     await remember(residents, day).catch((err) => log.warn('inner world memories failed', { error: err }));
     log.info('inner world day', { date, ms: Date.now() - started, scenes: day.scenes.length, residents: residents.length, news: news.length });
@@ -231,6 +251,24 @@ const nowMinutes = () => {
   return d.getHours() * 60 + d.getMinutes();
 };
 
+// The levels as the view sees them now: today's snapshot for the timelapse, and any place that rose
+// since the last look, told to the window once (world:event levelup).
+async function track(places, date) {
+  let levelups = [];
+  const st = await updateState((s) => {
+    levelups = core.levelUps(s.seen, places);
+    const seen = Object.fromEntries(places.map((p) => [p.id, p.level]));
+    const history = core.snapshot(s.history, date, places);
+    if (history === s.history && JSON.stringify(seen) === JSON.stringify(s.seen)) return false;
+    Object.assign(s, { seen, history });
+  });
+  if (levelups.length) {
+    log.info('inner world level up', { places: levelups.map((l) => `${l.id}:${l.from}->${l.to}`) });
+    notify({ type: 'levelup', places: levelups });
+  }
+  return { levelups, history: st.history };
+}
+
 /** Everything the Inner World view draws. */
 async function view() {
   const settings = await store.getSettings();
@@ -241,7 +279,10 @@ async function view() {
   const residents = await residentsNow(settings);
   const date = today();
   const day = [...st.days].reverse().find((d) => d.date === date) || null;
+  const { levelups, history } = settings.innerWorld?.enabled ? await track(places, date) : { levelups: [], history: st.history };
   return {
+    levelups,
+    timelapse: core.timelapse(history, Object.fromEntries(places.map((p) => [p.id, p.name]))),
     details,
     enabled: Boolean(settings.innerWorld?.enabled),
     vault,
@@ -297,9 +338,9 @@ function progress(ev) {
 }
 
 async function recordRehearsal(entry) {
-  const st = await state();
-  st.rehearsals = [...st.rehearsals, entry].slice(-50);
-  await saveState(st);
+  await updateState((st) => {
+    st.rehearsals = [...st.rehearsals, entry].slice(-50);
+  });
   notify({ type: 'rehearsal', title: entry.title });
 }
 

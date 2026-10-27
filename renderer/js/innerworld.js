@@ -17,6 +17,7 @@ import { seasonOf } from './world/season.js';
 import { loadSprites, spritesReady } from './world/sprites.js';
 import { palette, W, HZ } from './world/art.js';
 import { buildIsland, release as releaseIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf, bounds as sceneBounds } from './world/scene.js';
+import { createReplay, replayBar } from './replay.js';
 
 const ACTIONS = {
   library: ['Study session', () => ask('/study-session')],
@@ -54,6 +55,10 @@ let rebuildTimer = 0;
 let flight = null; // a camera animation
 let live = null; // { place, label, tool, at, done }
 const stage = []; // live lines from a rehearsal running now
+const CELEBRATE_MS = 8000;
+let celebration = null; // { list: [{ id, name, from, to, stage }], at } after places gained a level
+let lapse = null; // { replay, bar, last } while the timelapse is open
+let lastStep = 0;
 
 export function initInnerWorld() {
   canvas = $('#worldCanvas');
@@ -81,6 +86,7 @@ export function initInnerWorld() {
   $('#worldFit').onclick = () => (interior ? leave() : flyTo(home));
   $('#worldLeave').onclick = () => leave();
   $('#worldFollowStop').onclick = () => stopFollowing();
+  $('#worldLapse').onclick = () => (lapse ? endLapse() : startLapse());
   on('world-changed', refresh);
   on('settings', () => {
     P = null;
@@ -108,6 +114,7 @@ export function initInnerWorld() {
       if (currentView === 'world') (renderPanel(), draw());
       return;
     }
+    if (ev.type === 'levelup') return celebrate(ev.places);
     if (ev.type === 'rehearsal') stage.length = 0;
     if (ev.type === 'failed') toast(`Inner World: ${ev.message}`, 'error');
     if (ev.type === 'day' && currentView !== 'world') toast('🏡 A new day in the Inner World');
@@ -126,6 +133,7 @@ export async function refresh() {
     toastError(err);
     return;
   }
+  if (data.levelups?.length) celebrate(data.levelups);
   clockLabel();
   renderHead();
   renderNow();
@@ -133,6 +141,63 @@ export async function refresh() {
   resize();
   loop();
 }
+
+// ------------------------------------------------------------ level-ups and the timelapse
+// A place gained a level since the village was last looked at: it glows and sparks for a while, the
+// panel says so, and outside the view a toast does.
+function celebrate(list) {
+  if (!list?.length) return;
+  celebration = { list, at: Date.now() };
+  const names = list.map((l) => (l.from === 0 ? `${l.name} was built` : `${l.name} grew to ${l.stage}`));
+  toast(`✨ ${names.join(' · ')}!`);
+  if (currentView === 'world') (renderPanel(), loop());
+}
+
+const celebrating = () => Boolean(celebration && Date.now() - celebration.at < CELEBRATE_MS);
+
+// What glows this frame: { placeId: strength 0..1 }.
+function glowing() {
+  if (lapse) return Object.fromEntries(lapse.replay.state.heat);
+  if (!celebrating()) return null;
+  const k = Math.min(1, (CELEBRATE_MS - (Date.now() - celebration.at)) / 2000);
+  return Object.fromEntries(celebration.list.map((l) => [l.id, k]));
+}
+
+// The village's growth replayed day by day from the daily snapshots (main/innerworld.js track()).
+function startLapse() {
+  const steps = data?.timelapse || [];
+  if (steps.length < 2) return toast('The timelapse needs a few days of history first: the village keeps one snapshot a day.');
+  if (interior) leave({ fly: false });
+  const replay = createReplay(steps);
+  replay.seek(0);
+  const bar = replayBar(replay, {
+    noun: 'building',
+    count: (s) => `${s.present.size} of ${data.places.length} places · ${[...s.lines.values()].reduce((a, b) => a + b, 0)} levels`,
+    onChange: () => (lapse?.bar.update(), (sceneCache = null), loop()),
+    onClose: endLapse,
+  });
+  lapse = { replay, bar };
+  $('#worldTimeline').replaceChildren(bar);
+  $('#worldLapse').classList.add('active');
+  $('#worldLapse').setAttribute('aria-pressed', 'true');
+  replay.play();
+  bar.update();
+  flyTo(home);
+  loop();
+}
+
+function endLapse() {
+  if (!lapse) return;
+  lapse = null;
+  $('#worldTimeline').replaceChildren();
+  $('#worldLapse').classList.remove('active');
+  $('#worldLapse').setAttribute('aria-pressed', 'false');
+  P = null;
+  sceneCache = null;
+  draw();
+}
+
+const lapseLevel = (id) => (lapse.replay.state.present.has(id) ? lapse.replay.state.lines.get(id) || 0 : 0);
 
 const animated = () => fxLevel() === 'hud' && !document.body.classList.contains('fx-still');
 const lite = () => document.body.classList.contains('perf-lite');
@@ -148,7 +213,7 @@ const minutes = (t) => {
 };
 const placeById = (id) => data?.places.find((p) => p.id === id);
 // The season: the real date on the user's half of the world, unless they chose one.
-const season = () => seasonOf(new Date(), { choice: state.settings?.innerWorld?.season || 'auto', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+const season = () => seasonOf(lapse?.replay.current ? new Date(lapse.replay.current.at) : new Date(), { choice: state.settings?.innerWorld?.season || 'auto', timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
 const activeResident = () => data?.residents.find((r) => r.active) || data?.residents.find((r) => !r.npc);
 // Live work shows only in "live" time, while it lasts.
 const liveNow = () => (scrub === null && live && (!live.done || Date.now() - live.done < LIVE_LINGER_MS) ? live : null);
@@ -197,6 +262,7 @@ function renderHead() {
   $('#worldWrite').disabled = Boolean(data?.simulating);
   $('#worldAsk').classList.toggle('hidden', !d);
   $('#worldChronicle').classList.toggle('hidden', !ready);
+  $('#worldLapse').classList.toggle('hidden', !ready || (data.timelapse?.length || 0) < 2);
   $('#worldClockBox').classList.toggle('hidden', !d);
 }
 
@@ -242,8 +308,9 @@ function sceneData() {
   P ||= palette(season());
   const rendered = (state.settings?.innerWorld?.art || 'rendered') === 'rendered' && spritesReady();
   const c = sceneCache;
-  if (c && c.data === data && c.interior === interior && c.P === P && c.rendered === rendered) return c.value;
-  const places = data.places.map((p) => ({ id: p.id, x: p.x, y: p.y, name: p.name, level: p.level }));
+  const lapseAt = lapse ? lapse.replay.state.index : null;
+  if (c && c.data === data && c.interior === interior && c.P === P && c.rendered === rendered && c.lapseAt === lapseAt) return c.value;
+  const places = data.places.map((p) => ({ id: p.id, x: p.x, y: p.y, name: p.name, level: lapse ? lapseLevel(p.id) : p.level }));
   const key = places.map((p) => `${p.id}:${p.x}:${p.y}`).join('|');
   if (key !== mapKey) ((map = buildMap(places)), (mapKey = key), (routes = new Map()));
   const details = { ...data.details, residents: data.residents.map((r) => r.name), lastRehearsal: data.rehearsals?.[0]?.title || '' };
@@ -255,7 +322,7 @@ function sceneData() {
   const designs = Object.fromEntries(places.map((p) => [p.id, [...(seed + p.id)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % 2]));
   const value = { map, P, places, details, interior, rendered, homes, designs };
   value.key = JSON.stringify([places.map((p) => p.level), details, interior, P.key, rendered, homes, designs]);
-  sceneCache = { data, interior, P, rendered, value };
+  sceneCache = { data, interior, P, rendered, lapseAt, value };
   return value;
 }
 
@@ -499,7 +566,8 @@ function setupCamera() {
       '+': () => zoomAt(center, 1.2), '=': () => zoomAt(center, 1.2),
       '-': () => zoomAt(center, 1 / 1.2),
       0: () => (interior ? leave() : flyTo(home)),
-      Escape: () => (follow ? stopFollowing() : interior ? leave() : selected ? select(null) : null),
+      Escape: () => (lapse ? endLapse() : follow ? stopFollowing() : interior ? leave() : selected ? select(null) : null),
+      ' ': () => lapse && document.activeElement?.tagName !== 'BUTTON' && (lapse.replay.state.playing ? lapse.replay.pause() : lapse.replay.play(), lapse.bar.update(), loop()),
     };
     const fn = keys[e.key];
     if (!fn) return;
@@ -749,6 +817,9 @@ function positions(m) {
 
 // ------------------------------------------------------------ drawing
 let lastDrawAt = 0;
+// The timelapse playing (or a building still warm from it) and a fresh level-up need frames even
+// without the village's own animation.
+const busyGlowing = () => Boolean((lapse && (lapse.replay.state.playing || lapse.replay.state.heat.size)) || celebrating());
 function loop(once = false) {
   cancelAnimationFrame(frameId);
   if (currentView !== 'world' || document.hidden) return;
@@ -763,7 +834,10 @@ function loop(once = false) {
       frameId = requestAnimationFrame(step);
       return;
     }
+    const dt = Math.min(100, now - (lastStep || now));
+    lastStep = now;
     lastDrawAt = now;
+    if (lapse && lapse.replay.tick(dt)) lapse.bar.update();
     if (flight) {
       const k = Math.min(1, (now - flight.start) / 650);
       const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
@@ -776,9 +850,10 @@ function loop(once = false) {
       }
     }
     draw();
-    if (flight || glide || follow || animated()) frameId = requestAnimationFrame(step);
+    if (flight || glide || follow || animated() || busyGlowing()) frameId = requestAnimationFrame(step);
+    else lastStep = 0;
   };
-  if (once || animated() || flight || glide || follow) step();
+  if (once || animated() || flight || glide || follow || busyGlowing()) step();
   else draw();
 }
 
@@ -807,6 +882,7 @@ function draw() {
     residents: people,
     live: l?.place || (stage.length ? 'stage' : null),
     busy: data.details?.work?.today,
+    celebrate: glowing(),
   };
   hits = drawFrame(ctx, f);
   drawLabels(ctx, f, island, { hover: hover?.type === 'place' ? hover.id : null, selected: selected?.type === 'place' ? selected.id : null });
@@ -899,6 +975,9 @@ function lineStyle(who) {
 function todayPanel() {
   const out = [];
   const d = data.day;
+  if (celebrating()) {
+    out.push(el('div', { class: 'world-levelup', role: 'status' }, ...celebration.list.map((l) => el('div', {}, `✨ ${l.from === 0 ? `${l.name} was built` : `${l.name} grew: it is ${l.stage} now`}`))));
+  }
   if (!d) {
     out.push(
       el('h3', { class: 'display' }, 'A new day'),
