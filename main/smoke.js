@@ -101,15 +101,21 @@ const STEADY = `(async () => {
   for (const [w, h] of [[1920, 1080], [1280, 800], [1023, 700], [900, 600], [1366, 768]]) {
     window.resizeTo(w, h);
     await wait(1500);
-    const first = state();
-    let changes = 0;
-    let last = first;
+    // Jitter is flip-flopping: going back to a state it had, or the fold level changing more than once.
+    // One late change (a pill appearing when its data arrives) is fine.
+    const seen = [state()];
+    let folds = 0;
     for (let i = 0; i < 40; i++) {
       await wait(50);
       const s = state();
-      if (s !== last) (changes++, (last = s));
+      if (s === seen[seen.length - 1]) continue;
+      if (s.split(' ')[0] !== seen[seen.length - 1].split(' ')[0]) folds++;
+      if (seen.includes(s) || folds > 1) {
+        found.push(innerWidth + 'x' + innerHeight + ': the title bar flips between layouts (' + [...seen, s].join(' → ') + ')');
+        break;
+      }
+      seen.push(s);
     }
-    if (changes) found.push(innerWidth + 'x' + innerHeight + ': the title bar changed ' + changes + ' times after settling (' + first + ' → ' + last + ')');
     if (over() > 1) found.push(innerWidth + 'x' + innerHeight + ': the title bar content is cut off by ' + Math.round(over()) + ' px');
   }
   // The cause seen before, on purpose: something transformed past the bar's edge (like the HUD scan
@@ -177,7 +183,7 @@ async function scanText() {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const found = new Set();
   const views = await wc.executeJavaScript(`[...document.querySelectorAll('.rail-btn')].map((b) => b.dataset.view)`);
-  for (const [w, h] of [[1600, 1000], [900, 600]]) {
+  for (const [w, h] of [[1600, 1000], [1100, 700], [900, 600]]) {
     await wc.executeJavaScript(`window.resizeTo(${w}, ${h})`);
     await wait(500);
     for (const v of views) {
