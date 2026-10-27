@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { ROOT } = require('./helpers');
+const { ROOT, tmpDir } = require('./helpers');
 const core = require('../main/worldcore');
 
 const DIR = path.join(ROOT, 'renderer/assets/world');
@@ -54,6 +54,29 @@ test('homes, mills with their frames, crops and fences are there', () => {
   assert.ok(S['prop-fence-x'] && S['prop-fence-y']);
   // Accent roofs carry a mask for the theme tint.
   assert.ok(S['library-1'].variants.roofmask && S['home-2'].variants.roofmask);
+});
+
+// Regression: on the phone a picture can fail to load; has() said yes from the manifest alone, the mill
+// code then drew sprite() = null ("Cannot read properties of null (reading 'k')").
+test('a sprite whose picture failed to load is neither had nor drawn', async () => {
+  const saved = { fetch: globalThis.fetch, Image: globalThis.Image };
+  globalThis.fetch = async () => ({ ok: true, json: async () => manifest });
+  globalThis.Image = class {
+    set src(url) {
+      setTimeout(() => (/\/watermill\.[a-z]+\.webp$/.test(url) ? this.onerror() : this.onload()));
+    }
+  };
+  try {
+    const copy = path.join(tmpDir('nexus-sprites-'), 'sprites.mjs');
+    fs.copyFileSync(path.join(ROOT, 'renderer/js/world/sprites.js'), copy);
+    const sprites = await import(require('url').pathToFileURL(copy).href);
+    assert.strictEqual(await sprites.loadSprites(), true);
+    assert.strictEqual(sprites.has('watermill'), false);
+    assert.strictEqual(sprites.sprite('watermill'), null);
+    assert.strictEqual(sprites.has('windmill'), true);
+  } finally {
+    Object.assign(globalThis, saved);
+  }
 });
 
 test('the kits’ licences ship with the art', () => {

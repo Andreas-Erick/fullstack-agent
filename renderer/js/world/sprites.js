@@ -50,7 +50,8 @@ export function sprite(name, season = 'summer') {
   return { img, glow: images.get(s.variants.glow) || null, mask: images.get(s.variants.roofmask) || null, w: s.w, h: s.h, ax: s.ax, ay: s.ay, k: 1 / (manifest.scale || 1), points: s.points || {} };
 }
 
-export const has = (name) => Boolean(manifest?.sprites?.[name]);
+// Listed and its picture loaded (a picture can fail, e.g. over a phone's flaky connection).
+export const has = (name) => Boolean(sprite(name));
 
 // Tinted roof masks, made once per mask and colour.
 const tints = new Map();
