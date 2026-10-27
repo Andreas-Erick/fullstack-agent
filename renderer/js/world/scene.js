@@ -123,6 +123,7 @@ export function buildIsland(data, scale, region = bounds()) {
       draw: () => {
         const at = W(m.gx, m.gy, m.h * HZ);
         const sp = sprite(name, P.season);
+        if (!sp) return;
         shadowAt(c, at.x + 6, at.y + 4, 44, 17, 0.15);
         drawSprite(c, sp, at.x, at.y);
         if (sp.glow) lights.push({ kind: 'sprite', img: sp.glow, x: at.x - sp.ax * sp.k, y: at.y - sp.ay * sp.k, w: sp.w * sp.k, h: sp.h * sp.k });
