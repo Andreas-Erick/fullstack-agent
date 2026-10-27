@@ -243,6 +243,11 @@ const DEFAULTS = {
     showClaudeUsage: true, // title-bar meter: how much of the Claude plan is left (main/claudeusage.js)
     showSystemStats: true, // title-bar system monitor: CPU, RAM, GPU, disk (main/sysmon.js; never sent to the AI)
   },
+  // New versions (main/updates.js): one request a day to GitHub's releases API. User-only (never SETTABLE).
+  updates: {
+    check: true,
+    skipped: '', // a version the user chose to skip: no pill for it
+  },
   perf: {
     mode: 'auto', // auto | balanced | full (renderer/js/perfcore.js, main/perfcore.js); user-only
     detected: '', // what the hardware check found: '' (not yet) | low | high

@@ -4,6 +4,7 @@ import { bargeIn, bargeInOver } from './bargein.js';
 import { practiceLanguage, quoteFilter } from './practice.js';
 import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
+import * as chatcore from './chatcore.js';
 import { speaker } from './voice.js';
 import { handoffSlot } from './handoff.js';
 
@@ -229,17 +230,18 @@ function avatarNode(role) {
 }
 
 function toolChip(t) {
-  const chip = el(
+  const c = chatcore.toolChip(t, TOOL_LABELS);
+  return el(
     'details',
-    { class: `tool-chip ${t.ok === undefined ? '' : t.ok ? 'ok' : 'fail'}` },
-    el('summary', {}, el('span', { class: 'st' }), el('span', {}, prettyTool(t.name)), el('span', { class: 'muted' }, briefInput(t.input))),
-    el('pre', {}, `input: ${JSON.stringify(t.input, null, 1)}\n\n${t.preview ? `result: ${t.preview}` : 'running…'}`),
+    { class: `tool-chip ${c.state === 'running' ? '' : c.state}` },
+    el('summary', {}, el('span', { class: 'st' }), el('span', {}, c.label), el('span', { class: 'muted' }, c.brief)),
+    el('pre', {}, c.detail),
   );
-  return chip;
 }
 
 const TOOL_LABELS = {
   create_pdf: '📄 Created a PDF',
+  vault_links: '🔗 Looked at a note’s links',
   quick_note: '📝 Jotted a note',
   skill_list: '⚡ Listed skills',
   skill_run: '⚡ Ran a skill',
@@ -380,48 +382,18 @@ const TOOL_LABELS = {
   read_document: '📄 Read document',
   list_recent_documents: '📄 Recent documents',
 };
-// Connector tools (mcp__<server>__<tool>, see main/connectors.js): "🔌 Todoist · find tasks".
-function connectorLabel(n) {
-  const m = /^mcp__(.+?)__(.+)$/.exec(n);
-  if (!m || m[1] === 'nexus') return '';
-  const service = m[1].replace(/^claude_ai_/, '').replace(/^plugin_[^_]+_/, '').replace(/_/g, ' ');
-  return `🔌 ${service} · ${m[2].replace(/[-_]+/g, ' ')}`;
-}
-const prettyTool = (n) => TOOL_LABELS[n] || connectorLabel(n) || `🔧 ${n}`;
-
-const FILLERS = {
-  web: ['Let me look that up.', 'Searching the web.', 'One moment, checking online.'],
-  calendar: ['Checking your calendar.', 'Let me look at your schedule.'],
-  vault: ['Let me check my notes.', 'Looking through the vault.'],
-  code: ['Let me look at my code.', 'Checking how I work.'],
-  doc: ['Opening that now.', 'Reading the document.'],
-  other: ['One moment.', 'On it.', 'Give me a second.'],
-};
-function fillerFor(name) {
-  const g = /web|Web/.test(name) ? 'web' : /calendar/.test(name) ? 'calendar' : /vault|daily|priorit|job|profile/.test(name) ? 'vault' : /code|Read|Grep|Glob|Edit|Write|self/.test(name) ? 'code' : /document/.test(name) ? 'doc' : 'other';
-  const list = FILLERS[g];
-  return list[Math.floor(Math.random() * list.length)];
-}
-function briefInput(input) {
-  if (!input) return '';
-  const v = input.title || input.query || input.path || input.file_path || input.url || input.pattern || input.command || input.summary || input.setting || input.section || input.service || input.id || input.start_date || input.folder || '';
-  if (!v) return '';
-  let s = String(v);
-  if (/^([a-z]:)?[\\/]/i.test(s)) s = s.split(/[\\/]/).filter(Boolean).slice(-2).join('/'); // long absolute paths → last segments
-  return `· ${s.slice(0, 60)}`;
-}
-
+// What a message shows is worked out in chatcore.js (pure, tested); here it becomes nodes.
 function messageNode(m) {
+  const d = chatcore.describeMessage(m, TOOL_LABELS);
   const wrap = el('div', { class: `msg ${m.role}`, 'data-id': m.id });
   const body = el('div', { class: 'msg-body' });
   if (m.toolCalls?.length) body.append(el('div', { class: 'tools' }, m.toolCalls.map(toolChip)));
   const bubble = el('div', { class: 'bubble' });
-  if (m.role === 'assistant') {
-    bubble.innerHTML = renderMarkdown(m.content || '');
+  if (d.markdown) {
+    bubble.innerHTML = renderMarkdown(d.text);
     bubble.dataset.stamp = stamp(m);
-  } else bubble.textContent = m.display || m.content;
-  const tags = [m.skill && `⚡ skill /${m.skill}`, m.screen && '🖥 screen shared'].filter(Boolean);
-  if (tags.length) body.append(el('div', { class: 'msg-tag' }, tags.map((t) => el('span', {}, t))));
+  } else bubble.textContent = d.text;
+  if (d.tags.length) body.append(el('div', { class: 'msg-tag' }, d.tags.map((t) => el('span', {}, t))));
   body.append(bubble);
   body.append(metaNode(m));
   wrap.append(avatarNode(m.role), body);
@@ -430,11 +402,7 @@ function messageNode(m) {
 
 // The telemetry line the HUD shows on a reply (hud.css): "NEXUS · 14:32:05 · OPUS 5.5".
 const agentName = () => state.settings?.agent?.name || 'Siren';
-function stamp(m) {
-  const time = new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const model = String(m.model || '').replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-/g, ' ');
-  return [agentName(), time, model].filter(Boolean).join(' · ');
-}
+const stamp = (m) => chatcore.stampText(m, agentName(), new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 
 function metaNode(m) {
   const meta = el('div', { class: 'msg-meta' }, el('span', {}, new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
@@ -565,7 +533,7 @@ function handleEvent(ev) {
       setFlag('toolsRunning', state.toolsRunning + 1);
       const chip = toolChip({ name: ev.name, input: ev.input });
       active.tools.set(ev.id, { chip, input: ev.input });
-      if (ttsActive() && state.settings.voice.filler && !active.muted && !active.text.trim()) speaker.filler(fillerFor(ev.name));
+      if (ttsActive() && state.settings.voice.filler && !active.muted && !active.text.trim()) speaker.filler(chatcore.fillerFor(ev.name));
       active.toolsEl.append(chip);
       scrollToBottom();
       break;
@@ -624,6 +592,7 @@ function handleEvent(ev) {
       const m = ev.message;
       active.bubble.classList.remove('streaming');
       active.bubble.innerHTML = renderMarkdown(m.content || '');
+      announce(`${agentName()}: ${active.bubble.textContent}`);
       active.bubble.dataset.stamp = stamp(m);
       active.body.append(metaNode(m));
       if (ttsActive() && !active.muted) speaker.flush();
@@ -639,6 +608,7 @@ function handleEvent(ev) {
         active.bubble.classList.add('error-bubble');
         active.bubble.innerHTML = renderMarkdown(`${active.text ? `${active.text}\n\n---\n` : ''}**Error:** ${ev.message}`);
         toastError(new Error(ev.message));
+        announce(`Error: ${ev.message}`);
         raiseAlert(ev.message);
         logEvent('error', 'reply failed', ev.message);
       } else active.bubble.innerHTML = renderMarkdown(active.text || '*(stopped)*');
@@ -646,6 +616,16 @@ function handleEvent(ev) {
       refreshList();
       break;
   }
+}
+
+// The finished reply for screen readers (#chatLive is aria-live; the message list itself is not, or
+// every streamed word and every loaded conversation would be read out).
+function announce(text) {
+  const live = $('#chatLive');
+  if (!live) return;
+  const t = String(text || '').replace(/s+/g, ' ').trim();
+  live.textContent = '';
+  setTimeout(() => (live.textContent = t.length > 1500 ? `${t.slice(0, 1500)}… (continued in the conversation)` : t), 50);
 }
 
 function finish() {

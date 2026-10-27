@@ -95,6 +95,32 @@ test('the real map draws at every level without throwing, and boxes can be picke
   assert.ok(!scene.moving, 'motion settles');
 });
 
+test('a history replay shows only the files of that moment and their counts, and clears on load', () => {
+  const scene = A.createArchScene();
+  scene.setSize(1000, 700);
+  scene.setAnimated(false);
+  scene.load(map);
+  const main = map.nodes.find((n) => n.id === 'c:main');
+  const full = scene.counts(main);
+  scene.setReplay({ present: new Set(['main/llm.js', 'main/router.js']), heat: new Map([['main/llm.js', 0.8]]), lines: new Map([['main/llm.js', 12]]), tone: 'c3' });
+  const now = scene.counts(main);
+  assert.strictEqual(now.files, 2);
+  assert.ok(now.lines < full.lines && now.comps < full.comps, 'empty components and absent files are not counted');
+  assert.ok(scene.metaOf(map.nodes.find((n) => n.path === 'main/llm.js')).startsWith('12 lines'));
+  scene.fitAll(false);
+  scene.render(fakeContext(), 1);
+  scene.flyTo(main, false);
+  scene.render(fakeContext(), 2);
+  const file = map.nodes.find((n) => n.path === 'main/llm.js');
+  scene.flyTo(file, false, 60);
+  scene.render(fakeContext(), 3);
+  scene.setReplay(null);
+  assert.strictEqual(scene.counts(main).files, full.files);
+  // A map with its own nouns (the vault) names its parts that way.
+  scene.load({ ...map, nouns: { container: 'folder', component: 'folder', file: 'note' } });
+  assert.match(scene.metaOf(main), /folders? · \d+ notes/);
+});
+
 test('a rebuild keeps the selection if its part survives; hidden kinds are left out of the lines', () => {
   const scene = A.createArchScene();
   scene.setSize(800, 600);

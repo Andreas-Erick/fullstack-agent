@@ -123,11 +123,43 @@ test('where a resident is at a time of day', () => {
   assert.strictEqual(core.whereAt([], 600), null);
 });
 
+test('level-ups: only places that rose since the last look, nothing the first time', () => {
+  const before = core.places({ topics: 1, understood: 3 });
+  const after = core.places({ topics: 1, understood: 11, habits: 1 });
+  const seen = Object.fromEntries(before.map((p) => [p.id, p.level]));
+  assert.deepStrictEqual(core.levelUps(null, after), []);
+  const ups = core.levelUps(seen, after);
+  assert.ok(ups.length && ups.every((u) => u.to > u.from && after.find((p) => p.id === u.id).level === u.to));
+  assert.ok(ups.some((u) => u.id === 'library' && u.from === 1 && u.to === 2 && u.stage));
+  assert.deepStrictEqual(core.levelUps(Object.fromEntries(after.map((p) => [p.id, p.level])), before), [], 'falling is not celebrated');
+});
+
+test('one snapshot a day, unchanged history kept as is, replayed as growth steps', () => {
+  const a = core.places({ topics: 1, understood: 3 });
+  const b = core.places({ topics: 1, understood: 11 });
+  let h = core.snapshot([], '2026-10-01', a);
+  assert.strictEqual(h.length, 1);
+  assert.strictEqual(core.snapshot(h, '2026-10-01', a), h, 'same day, same levels: no write');
+  h = core.snapshot(h, '2026-10-01', b);
+  assert.strictEqual(h.length, 1, 'a day keeps its last state');
+  h = core.snapshot(core.snapshot(h, '2026-10-02', b), '2026-10-05', core.places({ topics: 3, understood: 40, habits: 2, streak: 8 }));
+  assert.deepStrictEqual(h.map((x) => x.date), ['2026-10-01', '2026-10-02', '2026-10-05']);
+  assert.strictEqual(core.snapshot(h, '2026-10-06', b, 2).length, 2, 'capped');
+  const steps = core.timelapse(h, { library: 'The Library' });
+  assert.strictEqual(steps[0].kind, 'baseline');
+  assert.strictEqual(steps.length, 2, 'the quiet day without changes is skipped');
+  assert.match(steps[1].subject, /^The Library.* grew$/);
+  const lib = steps[1].files.find((f) => f.path === 'library');
+  assert.strictEqual(lib.added, 1);
+  assert.ok(steps.every((s) => Number.isFinite(s.at)));
+});
+
 // ------------------------------------------------------------- a whole day through innerworld.js
 const dir = tmpDir('nexus-world-');
 const notes = new Map();
 let settings = { agent: { name: 'Nexus' }, llm: { provider: 'anthropic' }, memory: { stream: true }, innerWorld: { enabled: true, townsfolk: true }, personas: { active: 'p1', list: [{ id: 'p1', name: 'Ada', personality: 'A patient tutor.' }] } };
 let narratorCalls = 0;
+let understood = 12;
 const dayJson = {
   weather: 'Clear',
   summary: 'Ada found a new shelf in the Library.',
@@ -154,7 +186,7 @@ stub({
     },
   },
   './persona': { extractJson: (t) => JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)) },
-  './learning': { topics: async () => [{ topic: 'Linear algebra', understood: 12 }], deckSummaries: async () => [] },
+  './learning': { topics: async () => [{ topic: 'Linear algebra', understood }], deckSummaries: async () => [] },
   './habits': { status: async () => ({ habits: [] }) },
   './skilltree': { view: async () => ({ skills: [] }) },
   './memory': { list: async () => [{ id: 'm1' }] },
@@ -200,6 +232,22 @@ test('tools are counted by place and reach the view', async () => {
   assert.strictEqual(v.details.work.today.workshop, before + 2);
   assert.strictEqual(v.details.work.today.lookout, 1);
   assert.ok(Array.isArray(v.details.topics) && v.details.topics[0].name === 'Linear algebra');
+});
+
+test('the view keeps a daily snapshot and announces a place that rose, once', async () => {
+  const events = [];
+  world.start({ notify: (ev) => events.push(ev) });
+  await world.view();
+  understood = 40;
+  const v = await world.view();
+  assert.ok(v.levelups.some((l) => l.id === 'library' && l.to === 3), 'the Library rose');
+  assert.ok(events.some((e) => e.type === 'levelup' && e.places.some((p) => p.id === 'library')));
+  assert.strictEqual((await world.view()).levelups.length, 0, 'celebrated once');
+  const st = JSON.parse(fs.readFileSync(require('path').join(dir, 'innerworld.json'), 'utf8'));
+  assert.strictEqual(st.history.length, 1);
+  assert.strictEqual(st.history[0].levels.library, 3);
+  assert.ok(st.days.length >= 1, 'the days written before are kept');
+  assert.ok(Array.isArray(v.timelapse) && v.timelapse[0].kind === 'baseline');
 });
 
 test('asleep: nothing is written', async () => {

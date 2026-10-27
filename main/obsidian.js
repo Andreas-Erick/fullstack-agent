@@ -384,6 +384,7 @@ async function afterChange(root, rel, message, { deleted = false } = {}) {
   const listChanged = deleted || !known || !known.has(rel);
   if (FOLDERS[top] && rel !== `${top}/${top}.md` && listChanged) await refreshFolderIndex(root, top).catch(() => {});
   require('./vaultgit').commitSoon(root, message);
+  require('./linkindex').touched(rel);
   onChange(rel);
 }
 

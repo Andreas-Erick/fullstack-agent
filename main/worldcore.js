@@ -89,6 +89,56 @@ function news(before, after) {
   return out;
 }
 
+/**
+ * Places that rose since the view last looked (seen: { id: level }, null the first time, when nothing
+ * is celebrated): [{ id, name, from, to, stage }]. Celebrated once in the window (world:event levelup).
+ */
+function levelUps(seen, after) {
+  if (!seen || typeof seen !== 'object') return [];
+  return after.filter((p) => Number.isFinite(seen[p.id]) && p.level > seen[p.id]).map((p) => ({ id: p.id, name: p.name, from: seen[p.id], to: p.level, stage: p.stage }));
+}
+
+const levelMap = (places) => Object.fromEntries(places.map((p) => [p.id, p.level]));
+
+/**
+ * The daily snapshot of the levels the timelapse replays: history [{ date, levels }], oldest first,
+ * with today's entry set to the current levels (a day keeps its last state). Returns the same array
+ * when nothing changed, so the caller saves only when it must.
+ */
+function snapshot(history, date, places, keep = 365) {
+  const list = Array.isArray(history) ? history.filter((h) => h && typeof h.date === 'string' && h.levels && typeof h.levels === 'object') : [];
+  const levels = levelMap(places);
+  const last = list[list.length - 1];
+  if (last?.date === date && JSON.stringify(last.levels) === JSON.stringify(levels)) return history;
+  const out = list.filter((h) => h.date !== date);
+  out.push({ date, levels });
+  out.sort((a, b) => a.date.localeCompare(b.date));
+  return out.slice(-keep);
+}
+
+/**
+ * The snapshots as a "history" for the replay player (renderer/js/replay.js): one step per day on
+ * which a level changed (plus the first day), each place a "file" whose size is its level.
+ */
+function timelapse(history, names = {}) {
+  const out = [];
+  let prev = {};
+  for (const [i, h] of (history || []).entries()) {
+    const files = [];
+    for (const [id, level] of Object.entries(h.levels)) {
+      const was = prev[id] || 0;
+      if (level === was) continue;
+      files.push({ path: id, status: level === 0 ? 'D' : was === 0 ? 'A' : 'M', added: Math.max(0, level - was), removed: Math.max(0, was - level) });
+    }
+    if (files.length || i === 0) {
+      const grew = files.filter((f) => f.added).map((f) => names[f.path] || f.path);
+      out.push({ sha: h.date, at: Date.parse(`${h.date}T12:00:00`), author: '', kind: i === 0 ? 'baseline' : 'growth', subject: i === 0 ? 'The village as it was' : grew.length ? `${grew.join(', ')} grew` : 'A quieter village', files });
+    }
+    prev = h.levels;
+  }
+  return out;
+}
+
 const HEX = /^#[0-9a-f]{6}$/i;
 
 /** The residents: the user's personas (active first) plus the townsfolk, at most MAX_RESIDENTS, unique names. */
@@ -221,4 +271,4 @@ function chronicle(day) {
   return `${out.join('\n')}\n`;
 }
 
-module.exports = { PLACES, PLACE_IDS, TOWNSFOLK, MAX_RESIDENTS, places, news, residents, workFor, workLines, dayPrompt, parseDay, whereAt, minutes, chronicle };
+module.exports = { PLACES, PLACE_IDS, TOWNSFOLK, MAX_RESIDENTS, places, news, levelUps, snapshot, timelapse, residents, workFor, workLines, dayPrompt, parseDay, whereAt, minutes, chronicle };

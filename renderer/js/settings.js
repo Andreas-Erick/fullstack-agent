@@ -15,6 +15,7 @@ import { switchPersona, createPersona, removePersona } from './personas.js';
 import { LANGUAGE_NAMES } from './practice.js';
 import { detect } from './perf.js';
 import { profile } from './perfcore.js';
+import { checkNow as checkUpdatesNow } from './updates.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -159,6 +160,7 @@ export function initSettings() {
   api.on('extensions:progress', (p) => extensionProgress && (extensionProgress.textContent = `${p.step}${p.line ? `: ${p.line}` : ''}`));
   api.on('remote:event', (ev) => {
     if (ev.type === 'tunnel') return refreshRemoteStatus?.();
+    if (ev.type === 'connected' || ev.type === 'disconnected') return refreshRemoteStatus?.();
     if (ev.type !== 'paired' && ev.type !== 'moved') return;
     toast(ev.type === 'moved' ? `${ev.name} now uses the secure address` : `Paired: ${ev.name}`);
     refreshRemote?.();
@@ -1123,6 +1125,11 @@ async function dataCard() {
       danger('Clear memory', 'Clear memory vault', 'Delete every memory? This cannot be undone.', async () => (await api.memory.clear(), emit('memory-changed'))),
       danger('Reset settings', 'Reset settings', 'Restore all settings to defaults (memories and history are kept)?', async () => (await api.settings.reset(), await loadSettings())),
     ),
+    toggle('updates.check', 'Check for new versions once a day (one request to GitHub; nothing is downloaded until you click Download)'),
+    (() => {
+      const out = el('span', { class: 'muted' });
+      return el('div', { class: 'row', style: { flexWrap: 'wrap' } }, el('button', { class: 'btn', onclick: () => checkUpdatesNow(out) }, 'Check for updates now'), out);
+    })(),
     el(
       'div',
       { class: 'hint' },
@@ -1214,6 +1221,13 @@ function safetyCard() {
 // Remote access (companion server, docs/ROADMAP-mobile.md): pair a phone or another computer.
 let refreshRemote = null;
 let refreshRemoteStatus = null;
+
+// The watch behind a phone: which face it has (recorded when) and when it last asked.
+const shortTime = (ms) => {
+  const d = new Date(ms);
+  return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+};
+const watchFaceLine = (d) => `⌚ Watch: ${d.faceAt ? `face from ${shortTime(d.faceAt)}` : 'face not sent yet'}${d.faceSentAt ? ` · last asked ${shortTime(d.faceSentAt)}` : ''}`;
 
 const TUNNEL_STATE = (t) => {
   if (!t || t.mode === 'off') return '';
@@ -1392,10 +1406,11 @@ function remoteCard() {
     for (const d of st.devices) {
       const seen = d.connected ? 'connected now' : d.lastSeen ? `last seen ${new Date(d.lastSeen).toLocaleString()}` : 'never used';
       const from = d.lastVia ? ` · via ${d.lastVia}${d.lastIp && d.lastVia !== 'this computer' ? ` (${d.lastIp})` : ''}` : '';
+      const watch = d.watch ? watchFaceLine(d) : '';
       // The item is a three-column grid (light, text, actions): both buttons share the third column.
       devices.append(el('div', { class: `health-item ${d.connected ? 'ok' : 'off'}` },
         el('span', { class: 'ic' }, d.connected ? '●' : '○'),
-        el('div', { style: { flex: 1 } }, el('b', {}, d.name, d.readOnly ? ' · view only' : ''), el('div', { class: 'd' }, `Paired ${new Date(d.createdAt).toLocaleDateString()} · ${seen}${from}`)),
+        el('div', { style: { flex: 1 } }, el('b', {}, d.name, d.readOnly ? ' · view only' : ''), el('div', { class: 'd' }, `Paired ${new Date(d.createdAt).toLocaleDateString()} · ${seen}${from}`), watch ? el('div', { class: 'd' }, watch) : null),
         el('div', { class: 'row device-actions' },
           el('button', {
             class: 'btn small',

@@ -11,6 +11,7 @@ import { switchView, currentView } from './nav.js';
 import { send } from './chat.js';
 import { fxLevel } from './hud.js';
 import { createArchScene, KINDS, LEVEL, KIND_LABEL } from './archdraw.js';
+import { createReplay, replayBar } from './replay.js';
 
 const scene = createArchScene();
 let panelMode = null; // 'node' | 'learn' | null
@@ -20,6 +21,9 @@ let frame = 0;
 let lastCrumbs = '';
 let loading = false;
 let lastDrawAt = 0;
+let replay = null; // the history replay while it runs (renderer/js/replay.js)
+let replayBarEl = null;
+let lastTick = 0;
 
 try {
   const saved = JSON.parse(localStorage.getItem('arch.hidden') || 'null');
@@ -37,14 +41,61 @@ export function initArchMap() {
   $('#archRebuild').onclick = rebuild;
   $('#archFit').onclick = () => fitAll();
   $('#archLearn').onclick = () => (panelMode === 'learn' ? closePanel() : showLearn());
+  $('#archReplay').onclick = () => (replay ? stopReplay() : startReplay());
   $('#archSearch').addEventListener('change', (e) => find(e.target.value));
   new ResizeObserver(resize).observe(canvas);
   setupInput();
   setupMini();
   on('theme', () => (readColors(), draw()));
   on('settings', () => draw());
+  // Evolution's "Watch the history" opens this view straight into the replay.
+  on('view', ({ name, section }) => name === 'arch' && section === 'replay' && !replay && startReplay());
   window.addEventListener('keydown', onKey);
 }
+
+// ------------------------------------------------------------ the history replay
+// Every commit of the app's own repository, oldest first, played on the map: files appear and grow,
+// the ones a commit touched glow in its color (self-changes in the third accent), the bar says which
+// commit it was. The map keeps its layout: files that no longer exist are not shown.
+async function startReplay() {
+  if (!scene.map) await refresh();
+  if (!scene.map || replay) return;
+  let h;
+  try {
+    h = await api.arch.history();
+  } catch (err) {
+    return toastError(err);
+  }
+  const r = createReplay(h.commits || [], { keep: (p) => scene.byId.has(`f:${p}`) });
+  if (!r.commits.length) return toast(h.reason || 'No history to replay yet.');
+  replay = r;
+  replayBarEl = replayBar(replay, { onChange: syncReplay, onClose: stopReplay, noun: 'file' });
+  $('#archTimeline').replaceChildren(replayBarEl);
+  $('#archReplay').textContent = '■ Stop replay';
+  replay.seek(-1);
+  replay.play();
+  lastTick = performance.now();
+  syncReplay();
+}
+
+function stopReplay() {
+  if (!replay) return;
+  replay = null;
+  replayBarEl = null;
+  scene.setReplay(null);
+  $('#archTimeline').replaceChildren();
+  $('#archReplay').textContent = '▶ Replay';
+  draw();
+}
+
+function syncReplay() {
+  if (!replay) return;
+  scene.setReplay(replay.overlay());
+  replayBarEl?.update();
+  draw();
+}
+
+const replayAlive = () => replay && (replay.state.playing || replay.state.heat.size > 0);
 
 export async function refresh() {
   readColors();
@@ -92,14 +143,16 @@ function load(next) {
   status();
   if (panelMode === 'node' && scene.selected) showNode(scene.selected);
   else if (panelMode === 'learn') showLearn();
+  if (replay) scene.setReplay(replay.overlay()); // a rebuild during the replay keeps the moment
   draw();
 }
 
 // ------------------------------------------------------------ colors (theme tokens)
-function readColors() {
+/** The theme's colors and fonts as the map renderer wants them (the vault's Growth window uses them too). */
+export function themeColors() {
   const css = getComputedStyle(document.documentElement);
   const v = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
-  scene.setColors({
+  return {
     c1: v('--c1', '0, 229, 255'),
     c2: v('--c2', '180, 90, 255'),
     c3: v('--c3', '255, 60, 172'),
@@ -112,9 +165,12 @@ function readColors() {
     display: v('--font-display', 'sans-serif'),
     body: v('--font-body', 'sans-serif'),
     mono: v('--font-mono', 'monospace'),
-  });
+  };
 }
-const animated = () => fxLevel() === 'hud' && !document.body.classList.contains('fx-still');
+function readColors() {
+  scene.setColors(themeColors());
+}
+export const animated = () => fxLevel() === 'hud' && !document.body.classList.contains('fx-still');
 const still = () => document.body.classList.contains('fx-still');
 const rgba = (tone, a) => scene.rgba(tone, a);
 
@@ -141,13 +197,21 @@ function render(now) {
   scene.setFx(fxLevel());
   scene.setAnimated(animated());
   scene.setPanel(panelMode ? Math.min(380, scene.size.w * 0.42) + 16 : 0);
+  if (replay) {
+    const dt = Math.min(100, now - lastTick);
+    lastTick = now;
+    if (replay.tick(dt)) {
+      scene.setReplay(replay.overlay());
+      replayBarEl?.update();
+    }
+  }
   const { moving } = scene.render(ctx, now);
   lastDrawAt = now;
   crumbs();
   mini();
   // Smooth while something moves; with HUD effects the map stays alive (packets flowing) at ~30 fps,
   // on the display's own beat (frames skipped, not delayed).
-  if (moving) frame = requestAnimationFrame(render);
+  if (moving || replayAlive()) frame = requestAnimationFrame(render);
   else if (animated() && currentView === 'arch' && !document.hidden) frame = requestAnimationFrame(idle);
 }
 
@@ -261,6 +325,9 @@ function onKey(e) {
   else if (e.key === '+' || e.key === '=') zoomAt(scene.availW() / 2, scene.size.h / 2, 1.4);
   else if (e.key === '-') zoomAt(scene.availW() / 2, scene.size.h / 2, 1 / 1.4);
   else if (e.key.toLowerCase() === 'l') panelMode === 'learn' ? closePanel() : showLearn();
+  else if (e.key.toLowerCase() === 'r') replay ? stopReplay() : startReplay();
+  else if (e.key === ' ' && replay && document.activeElement?.tagName !== 'BUTTON') (replay.state.playing ? replay.pause() : replay.play(), (lastTick = performance.now()), syncReplay());
+  else if (e.key === 'Escape' && replay) stopReplay();
   else if (e.key === 'Escape') {
     // Up one level from where you are.
     const path = scene.focusPath();

@@ -329,6 +329,20 @@ export function frame(ctx, f) {
     if (e.kind === 'flame') glow(ctx, e.x, e.y, 18, P.lamp, 0.5);
     if (e.kind === 'spot' && f.live === 'stage') glow(ctx, e.x, e.y - 20, 70, P.lamp, 0.6);
   }
+  // A place that just gained a level (or is rising in the timelapse): a pulsing light and sparks.
+  for (const [id, k] of Object.entries(f.celebrate || {})) {
+    const b = island.hits[id];
+    if (!b || k <= 0) continue;
+    const pulse = f.anim ? 0.75 + 0.25 * Math.sin(f.t / 180) : 1;
+    glow(ctx, b.center.x, b.center.y - 30, 110 * pulse, P.c1, 0.7 * k);
+    glow(ctx, b.center.x, b.center.y - 30, 50, P.lamp, 0.8 * k);
+    if (!f.anim) continue;
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + f.t / 900;
+      const r = 40 + 30 * ((f.t / 700 + i * 0.37) % 1);
+      glow(ctx, b.center.x + Math.cos(a) * r, b.center.y - 40 - Math.abs(Math.sin(a)) * r * 0.8, 7, i % 2 ? P.c2 : P.lamp, 0.9 * k);
+    }
+  }
   ctx.restore();
 
   if (f.anim && night > 0.3) fireflies(ctx, f, night);

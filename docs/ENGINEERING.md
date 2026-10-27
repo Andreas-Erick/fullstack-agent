@@ -50,7 +50,7 @@ way, add it here (or as a lesson in the vault Job "Changing my own code").
 
 `scripts/verify.js` checks most of these automatically; the rest is on you.
 
-- **New tool:** `TOOLS` in `main/tools.js` (clear description: when to use it, what it returns), a
+- **New tool:** its group file in `main/tools/` (listed in `TOOLS` in `main/tools.js`) (clear description: when to use it, what it returns), a
   label in `TOOL_LABELS` (`renderer/js/chat.js`), the right `group` (and `activeTools()` if new),
   `requireApproval` for anything consequential. Tools that change things are never in a group the
   setup conversation or a remote device can reach without approval.
@@ -95,6 +95,14 @@ Read `code_diff` top to bottom and ask:
   Prefer testing a pure module directly; for modules that need Electron or other modules, use
   `test/helpers.js` (`stub()`, `load()`, `fileStore()`), as in `test/handoff.test.js`.
 - A bug fix comes with a test that fails without the fix.
+- Two slower checks drive the real thing, in Electron (no browser to install): `npm run smoke` starts
+  the app on a throwaway data folder and fails on any console error or crash before and just after
+  boot (`main/smoke.js`), and `npm run test:browser` loads the phone client against the real companion
+  server at phone and tablet sizes and opens every screen (`test/remoteclient.browser.test.js`). Run
+  both after an Electron upgrade or a change to the window's boot or the phone client; `release.yml`
+  runs them before publishing.
+- Renderer views: keep what a view shows in a pure `*core.js` next to it (`chatcore.js`, `remotecore.js`,
+  `archdraw.js`) and test that; the view module only turns it into nodes.
 - Never weaken or delete a test to make a change pass; fix the cause. If a test is genuinely wrong,
   say so and why.
 

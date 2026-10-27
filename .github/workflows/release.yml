@@ -56,6 +56,14 @@ jobs:
       - name: Tests
         run: npm test
 
+      # A real start of this Electron (smoke.js): the window boots without errors on a throwaway data folder.
+      - name: Launch check
+        run: npm run smoke
+
+      # The phone and tablet client in Chromium (test/remoteclient.browser.test.js): every screen, no errors.
+      - name: Phone client in a browser
+        run: npm run test:browser -- browser
+
       - name: Build and publish installers
         run: npx electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
         env:
@@ -95,6 +103,14 @@ jobs:
 
       - name: Tests
         run: npm test
+
+      # A real start of this Electron (smoke.js): the window boots without errors on a throwaway data folder.
+      - name: Launch check
+        run: npm run smoke
+
+      # The phone and tablet client in Chromium (test/remoteclient.browser.test.js): every screen, no errors.
+      - name: Phone client in a browser
+        run: npm run test:browser -- browser
 
       - name: Build and publish (Apple silicon and Intel)
         env:

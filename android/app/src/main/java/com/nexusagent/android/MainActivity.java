@@ -491,6 +491,18 @@ public class MainActivity extends Activity {
             ConnectionService.stop(MainActivity.this);
         }
 
+        /** This app's version ("2.0.4"): the More screen offers a newer APK when the computer knows one. */
+        @JavascriptInterface
+        public String appVersion() {
+            if (!trusted()) return "";
+            try {
+                String v = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                return v == null ? "" : v;
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
         @JavascriptInterface
         public boolean backgroundEnabled() {
             return trusted() && Prefs.background(MainActivity.this);

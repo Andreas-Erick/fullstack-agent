@@ -18,6 +18,7 @@ export function initKnowledge() {
   });
   $('#kbNew').onclick = newNote;
   $('#kbObsidian').onclick = () => api.obsidian.openInObsidian(selected || null).catch(toastError);
+  $('#kbGrowth').onclick = () => import('./growth.js').then((m) => m.openGrowth()).catch(toastError);
   $('#kbFolder').onclick = () => api.obsidian.openFolder().catch(toastError);
   // The agent wrote to its vault: refresh if the user is looking at it.
   on('vault-changed', (p) => {
@@ -109,11 +110,23 @@ async function openNote(ref) {
       ),
       el('div', { html: renderMarkdown(body, { wikilinks: true }) }),
     );
+    backlinks(box, n.path);
     box.scrollTop = 0;
     document.querySelectorAll('.kb-item').forEach((i) => i.classList.toggle('active', i.dataset.path === n.path));
   } catch (err) {
     toastError(err);
   }
+}
+
+// Under the note: which notes link to it, and which it links to (main/linkindex.js), as buttons.
+async function backlinks(box, rel) {
+  const r = await api.obsidian.links(rel).catch(() => null);
+  if (!r || selected !== rel || (!r.backlinks.length && !r.links.length)) return;
+  const list = (title, paths) =>
+    paths.length
+      ? el('div', { class: 'kb-links-group' }, el('b', {}, `${title} (${paths.length})`), el('div', { class: 'kb-links-list' }, ...paths.slice(0, 60).map((p) => el('button', { class: 'chip kb-link', title: p, onclick: () => openNote(p) }, p.split('/').pop().replace(/\.md$/i, '')))))
+      : null;
+  box.append(el('section', { class: 'kb-links', 'aria-label': 'Links' }, list('Linked from', r.backlinks), list('Links to', r.links)));
 }
 
 function editNote(n) {

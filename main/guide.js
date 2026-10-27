@@ -23,7 +23,7 @@ const FEATURES = [
   {
     id: 'memory',
     title: 'Memory and your vault',
-    what: 'I remember what matters about you, and keep notes, a daily journal, your priorities and your profile in an Obsidian vault of plain Markdown files you own. Besides facts, I keep a memory stream of small observations (how things went, what helped) and now and then reflect on it to draw a few insights; the most relevant ones come back to me with each message. When the app closes I note where we left off.',
+    what: 'I remember what matters about you, and keep notes, a daily journal, your priorities and your profile in an Obsidian vault of plain Markdown files you own. Besides facts, I keep a memory stream of small observations (how things went, what helped) and now and then reflect on it to draw a few insights; the most relevant ones come back to me with each message. When the app closes I note where we left off. The vault keeps a version history, and 🌱 Growth in the Vault view plays it: every note appearing in its folder, from the first day to today, with lines between the notes that link to each other. Under every note the Vault view lists which notes link to it and which it links to.',
     say: ['"Remember that I prefer mornings for deep work"', '"What have you learned about how I work?"', '"What are my priorities?"', '"What did we talk about last Tuesday?"'],
     where: 'Memory (Ctrl+3) and Knowledge (Ctrl+5); the vault in Obsidian.',
     status: (s, f) => (f.vault ? `vault at ${f.vault}` : 'no vault yet: choose one in Settings → Vault'),
@@ -63,7 +63,7 @@ const FEATURES = [
   {
     id: 'innerworld',
     title: 'The Inner World and rehearsals',
-    what: 'A small fantasy village where your personas (and two villagers) live a fictional day: every morning a narrator writes their plans, meetings and conversations, and each of them remembers it. It mirrors you: the Library grows with what you understand, the Café with your vocabulary, the Training Grounds fly a banner per habit (raised when kept today), the Garden blooms for each habit kept, and at night your skill tree shines as constellations. Whatever I am doing right now you can watch: at the forge when I write code, up the Lookout when I search the web. On its Stage I can rehearse a conversation you are preparing for, with characters who have their own hidden goals, and debrief it.',
+    what: 'A small fantasy village where your personas (and two villagers) live a fictional day: every morning a narrator writes their plans, meetings and conversations, and each of them remembers it. It mirrors you: the Library grows with what you understand, the Café with your vocabulary, the Training Grounds fly a banner per habit (raised when kept today), the Garden blooms for each habit kept, and at night your skill tree shines as constellations. Whatever I am doing right now you can watch: at the forge when I write code, up the Lookout when I search the web. When a building gains a level it lights up and sparks for a moment, and ⏳ Timelapse replays how the village grew, day by day, with the seasons turning. On its Stage I can rehearse a conversation you are preparing for, with characters who have their own hidden goals, and debrief it.',
     say: ['"What did you do today in the Inner World?"', '"Help me rehearse asking for a raise"', '"Rehearse my thesis defense with a skeptical examiner"'],
     where: 'World view (rail; ⚙ there or Settings → Inner World for season, art and villagers); Inner World/ in the vault (Chronicle, residents’ memories, Rehearsals).',
     status: (s, f) => (!f.vault ? 'needs the vault' : s.innerWorld?.enabled ? 'awake' : 'asleep: wake it in the World view (rehearsals work anyway)'),
@@ -119,9 +119,9 @@ const FEATURES = [
   {
     id: 'architecture',
     title: 'How I am built (and how to design software like it)',
-    what: 'The Arch view is a living map of my own code, drawn in the C4 style: zoom from the big picture (you, my processes, the outside services I use) into each part, then its components, its files and the functions inside them. Lines show how the parts talk: calls, IPC through the preload bridge, events, HTTP, processes and files. Click any part for what it does, what it talks to and the design idea behind it; 🎓 Learn explains the map and the principles you can reuse in your own projects. After I change my own code, Rebuild redraws it and marks the new parts.',
+    what: 'The Arch view is a living map of my own code, drawn in the C4 style: zoom from the big picture (you, my processes, the outside services I use) into each part, then its components, its files and the functions inside them. Lines show how the parts talk: calls, IPC through the preload bridge, events, HTTP, processes and files. Click any part for what it does, what it talks to and the design idea behind it; 🎓 Learn explains the map and the principles you can reuse in your own projects. After I change my own code, Rebuild redraws it and marks the new parts. ▶ Replay plays my whole history on the map: files appear and grow commit by commit, the ones a commit touched glow, and my own self-changes are marked (Evolution → Watch the history opens it too). The map is on your phone and tablet as well.',
     say: ['"Explain how your Claude Code bridge works"', '"Quiz me on your architecture"', '"Help me design the architecture of my project"'],
-    where: 'Arch view (rail) → 🎓 Learn, ⟳ Rebuild.',
+    where: 'Arch view (rail) → 🎓 Learn, ▶ Replay, ⟳ Rebuild.',
     status: () => 'always on',
   },
   {
@@ -183,7 +183,7 @@ const FEATURES = [
   {
     id: 'remote',
     title: 'Your phone, tablet and Galaxy Watch',
-    what: 'Pair a phone or tablet (the Android app, or any browser, Safari on an iPhone or iPad included) to talk to me away from the desk: chat, voice, the same face, approvals, and your day: Today, habits to check off, learning, memories, notes, the skill tree, the Inner World and the map of my own architecture (More → Architecture: pinch to zoom from containers to files, tap a part and ask me to explain it). On a tablet or in Samsung DeX the chat and those screens sit side by side. Your custom face and formulas show there as on the desktop, and the face has a full-screen mode. When you switch my persona or change my look here, paired devices and the watch follow at once. A device can be made view only, and the Android app can lock with your fingerprint, face or screen lock. On a Galaxy Watch (4 or newer), tap me and ask (I listen on my own screen); I answer on your wrist in my voice and with my face, through the phone app. Over Wi-Fi or a secure address (Tailscale or Cloudflare).',
+    what: 'Pair a phone or tablet (the Android app, or any browser, Safari on an iPhone or iPad included) to talk to me away from the desk: chat, voice, the same face, approvals, and your day: Today, habits to check off, learning, memories, notes, the skill tree, the Inner World and the map of my own architecture (More → Architecture: pinch to zoom from containers to files, tap a part and ask me to explain it). On a tablet or in Samsung DeX the chat and those screens sit side by side. Your custom face and formulas show there as on the desktop, and the face has a full-screen mode. When you switch my persona or change my look here, paired devices and the watch follow at once. Settings → Remote access shows which device is connected now and when each was last seen (and which face the watch has); the Remote pill’s tooltip says the same, and a toast tells you when a device connects or has been gone a few minutes. A device can be made view only, and the Android app can lock with your fingerprint, face or screen lock. On a Galaxy Watch (4 or newer), tap me and ask (I listen on my own screen); I answer on your wrist in my voice and with my face, through the phone app. Over Wi-Fi or a secure address (Tailscale or Cloudflare).',
     say: ['"How do I use you from my phone?"'],
     where: 'Settings → Remote access.',
     status: (s) => (s.remote?.enabled ? 'on' : 'off'),
@@ -195,6 +195,22 @@ const FEATURES = [
     say: ['"How do I put you on my watch?"', '"Install yourself on my watch."'],
     where: 'Settings → Remote access → Install Siren on a Galaxy Watch, and the note "Install on your Galaxy Watch" in the vault.',
     status: (s) => (s.remote?.enabled ? 'phone link on' : 'turn on remote access first'),
+  },
+  {
+    id: 'updates',
+    title: 'New versions',
+    what: 'Once a day I ask GitHub whether a newer Siren is out. When one is, an “Update” pill appears in the title bar: click it for what’s new and the download for this computer (it opens in your browser; install it over this one and everything stays). On the Android app, More shows the newer phone app too, and the watch app is on the same release page. Nothing is downloaded or installed on its own, and you can turn the check off.',
+    say: ['"Is there a new version of you?"'],
+    where: 'The Update pill in the title bar; Settings → Memory & history → Check for updates now.',
+    status: (s) => (s.updates?.check === false ? 'off' : 'on'),
+  },
+  {
+    id: 'keyboard',
+    title: 'Keyboard and screen readers',
+    what: 'Everything works from the keyboard: Ctrl+1 to Ctrl+8 open the views, Tab moves through the window with a visible focus ring, the arrow keys move along the rail, and each view has its own keys (the calendar’s arrows, the village’s WASD and zoom, Space to play a replay, Esc to go back a step). Screen readers hear each finished reply once, in full, instead of every streamed word, and the drawn views (the village, the architecture map, the skill tree) list their content in their side panels.',
+    say: ['"Which keyboard shortcuts do you have?"', '"Can I use you with a screen reader?"'],
+    where: 'docs/KEYBOARD.md lists every key per view.',
+    status: () => 'always on',
   },
   {
     id: 'safety',

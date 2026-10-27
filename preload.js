@@ -38,7 +38,7 @@ const channels = {
   stt: ['transcribe'],
   calendar: ['status', 'events', 'entries', 'add', 'update', 'remove'],
   github: ['status'],
-  obsidian: ['status', 'list', 'read', 'search', 'write', 'delete', 'openFolder', 'openInObsidian', 'defaultPath', 'vaults', 'register', 'history', 'showVersion', 'restoreVersion', 'priorities'],
+  obsidian: ['status', 'list', 'read', 'search', 'write', 'delete', 'openFolder', 'openInObsidian', 'defaultPath', 'vaults', 'register', 'history', 'showVersion', 'restoreVersion', 'priorities', 'growth', 'links'],
   docs: ['pick', 'load', 'popup', 'closePopup', 'windowState', 'recent', 'clearRecent', 'roots', 'showInFolder', 'openExternal'],
   code: ['root'],
   self: ['status', 'ensure', 'log', 'show', 'check', 'verification', 'commit', 'revert', 'restore', 'discard', 'reload', 'restart'],
@@ -50,14 +50,15 @@ const channels = {
   world: ['view', 'simulate', 'resident'],
   extensions: ['status', 'check', 'install', 'start', 'stop', 'openGlobe'],
   agentWindow: ['state', 'go', 'back', 'forward', 'reload', 'stop', 'home', 'open'],
-  arch: ['get', 'build'],
+  arch: ['get', 'build', 'history'],
   routines: ['list', 'save', 'remove', 'run', 'setEnabled'],
   web: ['search'],
   dialog: ['pickFolder', 'pickImage'],
   shell: ['openExternal'],
   mic: ['request'],
   system: ['watch', 'bluetooth', 'network', 'speedtest', 'usage', 'free'],
-  app: ['info'],
+  app: ['info', 'ready'],
+  updates: ['status', 'check', 'skip', 'open'],
 };
 
 const api = { on };

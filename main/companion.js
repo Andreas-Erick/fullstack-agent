@@ -116,6 +116,46 @@ const rateTimes = new Map(); // `${bucket}:${deviceId}` -> [timestamps]
 const devicesFile = () => path.join(store.dataDir(), 'remote-devices.json');
 const hash = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
+// Which devices are connected (an open event stream), told to the window when it changes: at once when a
+// device comes online, only after DROP_MS without any stream when it goes (phones reconnect after
+// sleep, a network switch or the app's background service restarting, and that is not news).
+const DROP_MS = 2 * 60 * 1000;
+function presenceTracker({ dropMs = DROP_MS, onChange }) {
+  const state = new Map(); // deviceId -> { open, online, timer }
+  const of = (id) => state.get(id) || (state.set(id, { open: 0, online: false, timer: null }), state.get(id));
+  return {
+    opened(id, name) {
+      const s = of(id);
+      s.open++;
+      if (s.timer) clearTimeout(s.timer), (s.timer = null);
+      if (!s.online) (s.online = true), onChange({ type: 'connected', deviceId: id, name });
+    },
+    closed(id, name) {
+      const s = of(id);
+      s.open = Math.max(0, s.open - 1);
+      if (s.open || s.timer || !s.online) return;
+      s.timer = setTimeout(() => {
+        s.timer = null;
+        if (s.open) return;
+        s.online = false;
+        onChange({ type: 'disconnected', deviceId: id, name });
+      }, dropMs);
+      s.timer.unref?.();
+    },
+    online: (id) => Boolean(state.get(id)?.online),
+    forget(id) {
+      clearTimeout(state.get(id)?.timer);
+      state.delete(id);
+    },
+    // Stopped or every device removed: forget quietly (the window refreshes its own view).
+    reset() {
+      for (const s of state.values()) clearTimeout(s.timer);
+      state.clear();
+    },
+  };
+}
+const presence = presenceTracker({ onChange: (ev) => hooks?.notify(ev) });
+
 async function readDevices() {
   const list = await store.readJson(devicesFile(), []);
   return Array.isArray(list) ? list : [];
@@ -174,11 +214,13 @@ const WARM_MS = 2 * 60 * 1000;
 let warmTimer = null;
 let warming = false;
 
-async function markWatch(id) {
+// A watch behind this device asked for the face: remember that, and when the face it got was recorded
+// (Settings → Remote access shows "watch face from 09:12").
+async function noteWatchFace(id, at) {
   const list = await readDevices();
   const d = list.find((x) => x.id === id);
-  if (!d || d.watch) return;
-  d.watch = true;
+  if (!d) return;
+  Object.assign(d, { watch: true, faceAt: at || d.faceAt || null, faceSentAt: Date.now() });
   await writeDevices(list).catch(() => {});
 }
 
@@ -208,6 +250,7 @@ async function stop() {
   facelinks.revoke();
   for (const st of streams) st.res.end();
   streams.clear();
+  presence.reset();
   if (!server) return;
   const s = server;
   server = null;
@@ -233,7 +276,10 @@ function urls() {
 }
 
 async function status() {
-  const devices = (await readDevices()).map(({ id, name, createdAt, lastSeen, lastVia, lastIp, readOnly }) => ({ id, name, createdAt, lastSeen, lastVia, lastIp, readOnly: readOnly === true, connected: [...streams].some((s) => s.deviceId === id) }));
+  const devices = (await readDevices()).map(({ id, name, createdAt, lastSeen, lastVia, lastIp, readOnly, watch, faceAt, faceSentAt }) => ({
+    id, name, createdAt, lastSeen, lastVia, lastIp, readOnly: readOnly === true, connected: [...streams].some((s) => s.deviceId === id),
+    ...(watch ? { watch: true, faceAt: faceAt || null, faceSentAt: faceSentAt || null } : {}),
+  }));
   return { enabled: current.enabled, listening: Boolean(server), lan: current.lan, port: current.port, urls: urls(), error: lastError, tunnel: tunnel.status(), access: Boolean(access.team && access.aud), devices, pairing: pairing && pairing.expiresAt > Date.now() ? { code: pairing.code, expiresAt: pairing.expiresAt } : null };
 }
 
@@ -258,6 +304,7 @@ async function revoke(id) {
   const device = list.find((d) => d.id === id);
   await writeDevices(list.filter((d) => d.id !== id));
   for (const st of streams) if (st.deviceId === id) (st.res.end(), streams.delete(st));
+  presence.forget(id);
   facelinks.revoke(id);
   if (device) log.info('remote device revoked', { device: device.name });
   return Boolean(device);
@@ -283,6 +330,7 @@ async function revokeAll() {
   await writeDevices([]);
   for (const st of streams) st.res.end();
   streams.clear();
+  presence.reset();
   pairing = null;
   facelinks.revoke();
   log.info('remote devices all revoked', { count: n });
@@ -537,7 +585,7 @@ async function info() {
   const sleepAfterMin = Math.max(0, Math.min(240, Number(s.ui?.sleepAfterMin) || 0));
   const t = tunnel.status();
   const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
-  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered' };
+  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', update: await require('./updates').forDevices().catch(() => null) };
 }
 
 async function speak(req, res) {
@@ -607,8 +655,8 @@ async function route(req, res) {
   // The face as recorded loops, for the watch (facecapture.js); unchanged → 304.
   if (req.method === 'GET' && p === '/api/face/frames') {
     if (!underLimit('frames', device.id, 6)) return fail(res, 429, 'Too many requests; wait a minute');
-    markWatch(device.id).catch(() => {});
-    const { key, data } = await facecapture.frames(await store.getSettings());
+    const { key, data, at } = await facecapture.frames(await store.getSettings());
+    noteWatchFace(device.id, at).catch(() => {});
     if (req.headers['if-none-match'] === `"${key}"`) {
       res.writeHead(304, { ETag: `"${key}"`, 'Cache-Control': 'no-cache' });
       return res.end();
@@ -794,10 +842,11 @@ function openStream(req, res, device) {
   if (!device.readOnly) for (const a of openApprovals.values()) res.write(sse('approval:request', approvalForDevice(a)));
   const st = { res, deviceId: device.id, readOnly: device.readOnly === true };
   streams.add(st);
+  presence.opened(device.id, device.name);
   const ping = setInterval(() => res.write(': ping\n\n'), 25000);
   req.on('close', () => {
     clearInterval(ping);
-    streams.delete(st);
+    if (streams.delete(st)) presence.closed(device.id, device.name);
   });
 }
 
@@ -823,4 +872,4 @@ async function chat(req, res, device) {
   return json(res, 200, { requestId, conversationId: r.conversationId });
 }
 
-module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged };
+module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged, presenceTracker };
