@@ -108,6 +108,9 @@ function killTree(child) {
 // <userData>/connectors.json so the agent knows what the user has without waiting for a check.
 const connectorsFile = () => path.join(store.dataDir(), 'connectors.json');
 let connectorsCheck = null;
+// Bumped when reading the list changes: v2 reads the state by its words (before, a check made without a
+// terminal found no connected server), so an older cache is checked again at once.
+const CONNECTORS_CACHE_V = 2;
 
 function listConnectors() {
   connectorsCheck ||= (async () => {
@@ -116,7 +119,7 @@ function listConnectors() {
     const r = await collect(cli, ['mcp', 'list'], { timeout: 90000 });
     if (r.code && !r.out.trim()) throw new Error((r.err || '').trim().slice(0, 300) || `claude mcp list failed (code ${r.code})`);
     const list = connectors.parseMcpList(r.out);
-    await store.writeJsonAtomic(connectorsFile(), { at: Date.now(), list }).catch((err) => log.warn('connectors cache not written', { error: err }));
+    await store.writeJsonAtomic(connectorsFile(), { at: Date.now(), v: CONNECTORS_CACHE_V, list }).catch((err) => log.warn('connectors cache not written', { error: err }));
     return list;
   })().finally(() => (connectorsCheck = null));
   return connectorsCheck;
@@ -125,7 +128,7 @@ function listConnectors() {
 /** The last check ({ at, list }) or null; starts a fresh check in the background when it is older than maxAgeMs. */
 async function cachedConnectors({ maxAgeMs = 24 * 3600000 } = {}) {
   const c = await store.readJson(connectorsFile(), null);
-  if (!c || Date.now() - (c.at || 0) > maxAgeMs) listConnectors().catch((err) => log.warn('connectors check failed', { error: err }));
+  if (!c || c.v !== CONNECTORS_CACHE_V || Date.now() - (c.at || 0) > maxAgeMs) listConnectors().catch((err) => log.warn('connectors check failed', { error: err }));
   return c && Array.isArray(c.list) ? c : null;
 }
 

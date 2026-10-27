@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.2 — 2026-10-28
+
+- Fixed: your Claude connectors show as connected again. *(Started from the Start menu, the app read none of them as connected: Claude Code marks a working connector with a different symbol when it runs without a terminal. The state is now read from its words, and an older check is redone at once.)* Connected services come first in the list, and every permission choice can be changed (they were greyed out for services that didn't show as connected).
+- Fixed: short notes in Settings (under “Match thinking to the message”, the cloud speech note, the model download progress) show as small hints instead of large text.
+- The macOS build is back: the release check gives its slower build machine the time it needs (2.3.1 shipped for Windows and Android only).
+
 ## 2.3.1 — 2026-10-27
 
 The first release of everything below. (2.3.0 was tagged but never published: its new launch check found two layout problems on the build machine's smaller screen, fixed here.)

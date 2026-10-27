@@ -478,11 +478,16 @@ const CONNECTOR_STATUS = { connected: ['ok', 'connected'], 'needs-auth': ['warn'
 function connectorsSection() {
   const list = el('div', { class: 'connector-list' });
   const out = result();
+  // What works first: connected, then needs sign-in, failing, not set up; claude.ai connectors before plugins.
+  const RANK = { connected: 0, 'needs-auth': 1, failed: 2, 'not-configured': 3 };
   const draw = (items) => {
     list.innerHTML = '';
-    for (const c of items) {
+    const sorted = [...items].sort((a, b) => (RANK[a.status] ?? 4) - (RANK[b.status] ?? 4) || (a.source === 'connector' ? 0 : 1) - (b.source === 'connector' ? 0 : 1) || a.name.localeCompare(b.name));
+    for (const c of sorted) {
       const [cls, label] = CONNECTOR_STATUS[c.status] || ['muted', c.status];
-      const box = permissionLevel(c.key, { disabled: c.status !== 'connected' && levelOf(c.key) === 'ask' });
+      // Always changeable: a level set before a service is connected applies once it is (a greyed-out
+      // list looked broken).
+      const box = permissionLevel(c.key);
       list.append(
         el(
           'div',
@@ -912,7 +917,7 @@ function sttCard() {
       el('button', { class: 'btn small', style: { alignSelf: 'center' }, onclick: () => api.shell.openExternal('https://console.groq.com/keys') }, 'Get a free key ↗'),
     );
   const groqModel = () => select('stt.groqModel', 'Groq model', [['whisper-large-v3-turbo', 'Whisper Large v3 Turbo: fastest, ~$0.04 per audio hour'], ['whisper-large-v3', 'Whisper Large v3: a little more accurate, ~$0.11 per audio hour']], { hint: 'Both are free within Groq’s daily free allowance.' });
-  const cloudNote = el('div', { class: 'hint', style: { fontSize: '12.5px' } }, 'With the cloud, what you say is sent to Groq to be written down (not your conversations or files). Local Whisper keeps your voice on this computer.');
+  const cloudNote = el('div', { class: 'hint' }, 'With the cloud, what you say is sent to Groq to be written down (not your conversations or files). Local Whisper keeps your voice on this computer.');
   if (engine === 'local') {
     children.push(
       select('stt.localModel', 'Whisper model', WHISPER_MODELS, { hint: 'Downloaded once from Hugging Face, then cached. Runs on GPU (WebGPU) when available.' }),
