@@ -55,6 +55,18 @@ test('reads claude mcp list', () => {
   );
 });
 
+test('the state is read from its words, whatever symbol the CLI prints (regression: none connected without a terminal)', () => {
+  // Started from the Start menu (no terminal), the CLI prints √ and × instead of ✔ and ✘.
+  const plain = MCP_LIST.replace(/✔/g, '√').replace(/✘/g, '×');
+  const want = connectors.parseMcpList(MCP_LIST).map((c) => [c.key, c.status]);
+  assert.deepStrictEqual(connectors.parseMcpList(plain).map((c) => [c.key, c.status]), want);
+  assert.deepStrictEqual(connectors.parseMcpList(MCP_LIST.replace(/ - [✔✘!-] /g, ' - ')).map((c) => [c.key, c.status]), want, 'no symbol at all');
+  assert.strictEqual(want.filter(([, s]) => s === 'connected').length, 3);
+  const failed = connectors.parseMcpList(plain).find((c) => c.status === 'failed');
+  assert.match(failed.detail, /^Failed to connect/);
+  assert.deepStrictEqual(connectors.parseMcpList('Checking MCP server health…\n\nsomething: odd - ? Unknown state'), [], 'unknown states are left out');
+});
+
 test('server keys match Claude Code tool names', () => {
   assert.strictEqual(connectors.serverKey('claude.ai Have I Been Pwned'), 'claude_ai_Have_I_Been_Pwned');
   assert.strictEqual(connectors.serverKey('claude.ai Three.js 3D Viewer'), 'claude_ai_Three_js_3D_Viewer');

@@ -29,7 +29,15 @@ function describeTool(toolName) {
   return { service: service || server, action };
 }
 
-const STATUS = { '✔': 'connected', '✘': 'failed', '!': 'needs-auth', '-': 'not-configured' };
+// The state by its words, not its symbol: the CLI prints "✔ Connected" / "✘ Failed" in a terminal but
+// "√ Connected" / "× Failed" when it runs without one (as from this app started from the Start menu),
+// and reading the symbols lost every connected and failing server there.
+const STATUS_WORDS = [
+  [/^Connected\b/i, 'connected'],
+  [/^Failed\b/i, 'failed'],
+  [/^Needs authentication\b/i, 'needs-auth'],
+  [/^Not configured\b/i, 'not-configured'],
+];
 
 /**
  * `claude mcp list` output → [{ name, key, source, status, detail }]. Lines look like
@@ -39,16 +47,19 @@ const STATUS = { '✔': 'connected', '✘': 'failed', '!': 'needs-auth', '-': 'n
 function parseMcpList(text) {
   const out = [];
   for (const line of String(text || '').split(/\r?\n/)) {
-    const m = /^(.+?): (.*) - ([✔✘!-]) (.+)$/.exec(line.trim());
+    // "name: target - <symbol> <state …>": the symbol is any short non-letter mark (or none).
+    const m = /^(.+?): (.*?) - (?:[^\sA-Za-z]{1,3} )?([A-Za-z].*)$/.exec(line.trim());
     if (!m) continue;
+    const status = STATUS_WORDS.find(([re]) => re.test(m[3]))?.[1];
+    if (!status) continue;
     const name = m[1].trim();
     if (serverKey(name) === OWN_SERVER) continue;
     out.push({
       name,
       key: serverKey(name),
       source: name.startsWith('claude.ai ') ? 'connector' : name.startsWith('plugin:') ? 'plugin' : 'local',
-      status: STATUS[m[3]],
-      detail: m[3] === '✘' ? m[4].slice(0, 200) : m[4].trim(),
+      status,
+      detail: m[3].trim().slice(0, 200),
     });
   }
   return out;

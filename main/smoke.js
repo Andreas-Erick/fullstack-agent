@@ -10,6 +10,8 @@ const path = require('path');
 
 const active = process.argv.includes('--smoke');
 const TIMEOUT_MS = Number(process.env.NEXUS_SMOKE_TIMEOUT_MS) || 90000;
+const CHECKS_MS = 8 * 60000; // the tour, layout and text checks after boot (a slow CI machine takes a few minutes)
+let booted = false;
 const SETTLE_MS = 4000; // after app:ready: late errors (lazy imports, first timers) still count
 
 const problems = [];
@@ -27,7 +29,8 @@ function prepare() {
   // The clock starts now, not when the window opens: a main module that fails to load (Electron then
   // shows its error box and waits) still ends the check.
   app = require('electron').app;
-  setTimeout(() => finish(false, `no app:ready within ${TIMEOUT_MS / 1000} s`), TIMEOUT_MS).unref?.();
+  // Only until the app is up: the checks after that have their own limit (CHECKS_MS, in ready()).
+  setTimeout(() => booted || finish(false, `no app:ready within ${TIMEOUT_MS / 1000} s`), TIMEOUT_MS).unref?.();
 }
 
 // A conversation with what people paste and models write that is hard to lay out: a long link, a long
@@ -206,8 +209,10 @@ async function scanText() {
 let win = null;
 /** The renderer booted (ipc app:ready, with its boot time in ms). */
 function ready(ms) {
-  if (!active || readyAt) return;
+  if (!active || booted) return;
+  booted = true;
   readyAt = Math.round(Number(ms) || 0);
+  setTimeout(() => finish(false, `the checks after boot did not finish within ${CHECKS_MS / 60000} min${problems.length ? `; so far: ${problems.slice(0, 5).join(" | ")}` : ""}`), CHECKS_MS).unref?.();
   const done = () => setTimeout(() => (problems.length ? finish(false, `${problems.length} problem${problems.length > 1 ? 's' : ''} after boot`) : finish(true)), SETTLE_MS);
   if (!win || win.isDestroyed()) return done();
   (SHOTS ? shootTour() : win.webContents.executeJavaScript(TOUR, true))
