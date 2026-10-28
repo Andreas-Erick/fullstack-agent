@@ -129,15 +129,36 @@ function impact(files) {
   return { restart, reload };
 }
 
-async function commit(summary, { source = 'agent' } = {}) {
-  const dirty = await dirtyFiles();
+/**
+ * The source file(s) a tool call writes, relative to the code root: the app's own code tools and
+ * Claude Code's editing tools name the file; a shell command may change anything ('*'); other tools
+ * change no code (null). The end-of-turn record commits only what the agent itself touched, so edits
+ * made in the repo by someone else while a turn ran are never swept into its commit.
+ */
+function touchedBy(tool, input = {}, rootDir) {
+  const name = String(tool || '').replace(/^mcp__nexus__/, '');
+  if (/^(Bash|PowerShell)$/.test(name)) return '*';
+  if (!rootDir) return null;
+  const file = /^(code_edit_file|code_write_file)$/.test(name) ? input?.path : /^(Edit|Write|MultiEdit)$/.test(name) ? input?.file_path : name === 'NotebookEdit' ? input?.notebook_path : null;
+  if (!file || typeof file !== 'string') return null;
+  const abs = path.resolve(rootDir, file);
+  const rel = path.relative(rootDir, abs);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return rel.split(path.sep).join('/');
+}
+
+// `only`: commit just these files (repo-relative); without it, everything that is dirty.
+async function commit(summary, { source = 'agent', only = null } = {}) {
+  let dirty = await dirtyFiles();
+  if (only) dirty = dirty.filter((d) => only.includes(d.file));
   if (!dirty.length) return { ok: true, nothing: true };
   const chk = await check();
   if (!chk.ok) return { ok: false, check: chk, files: dirty.map((d) => d.file) };
   const tests = await runTests();
   if (!tests.ok) return { ok: false, check: { ok: false, output: `Tests fail:\n${tests.failures || tests.summary}` }, files: dirty.map((d) => d.file) };
   const subject = `${PREFIX} ${String(summary || 'Update').replace(/\s+/g, ' ').trim().slice(0, 100)}`;
-  await git(['add', '-A']);
+  if (only) await git(['add', '-A', '--', ...dirty.map((d) => d.file)]);
+  else await git(['add', '-A']);
   await git(['commit', '-q', '-m', subject, '-m', `Source: ${source}\nFiles:\n${dirty.map((d) => `  ${d.state} ${d.file}`).join('\n')}`]);
   const sha = (await git(['rev-parse', 'HEAD'])).trim();
   const files = dirty.map((d) => d.file);
@@ -254,4 +275,4 @@ async function discard() {
   return status();
 }
 
-module.exports = { root, status, ensureRepo, dirtyFiles, fingerprint, check, runTests, diff, commit, log, show, revert, restore, discard, impact, lastVerification, verifyAfterLoad };
+module.exports = { root, status, ensureRepo, dirtyFiles, fingerprint, check, runTests, diff, commit, touchedBy, log, show, revert, restore, discard, impact, lastVerification, verifyAfterLoad };

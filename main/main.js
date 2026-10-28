@@ -875,10 +875,18 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
   // Timing for the log: when the first words of the reply arrived, and when it finished.
   const startedAt = Date.now();
   let firstTextMs = null;
+  // The source files the agent's tools write this turn (selfchange.touchedBy): the end-of-turn record
+  // commits those and nothing else.
+  const touched = new Set();
+  let codeRoot = null;
   const emit = (ev) => {
     if (firstTextMs === null && ev.type === 'text') firstTextMs = Date.now() - startedAt;
     // The Inner World sends the active persona to where the work happens (counts only).
-    if (ev.type === 'tool_start' && !conv.setup) require('./innerworld').noteTool(ev.name);
+    if (ev.type === 'tool_start' && !conv.setup) {
+      require('./innerworld').noteTool(ev.name);
+      const t = selfchange.touchedBy(ev.name, ev.input, codeRoot);
+      if (t) touched.add(t);
+    }
     (conv.setup ? toWindow : send)('chat:event', { requestId, conversationId: conv.id, ...ev });
   };
   emit({ type: 'start', userMessage: userMsg, title: conv.title });
@@ -889,6 +897,7 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
   log.withContext(tags, async () => {
     const trackChanges = settings.code.enabled && settings.code.allowSelfModify;
     const before = trackChanges ? await selfchange.fingerprint() : null;
+    codeRoot = trackChanges ? await selfchange.root().catch(() => null) : null;
     try {
       const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images });
       const assistantMsg = {
@@ -918,19 +927,28 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       onFinish?.({ ok: false, error: aborted ? 'Stopped' : err?.message || String(err), conversationId: conv.id });
     } finally {
       activeRequests.delete(requestId);
-      if (trackChanges) recordSelfChanges(before, text).catch((e) => log.warn('self-change tracking', e.message));
+      if (trackChanges) recordSelfChanges(before, text, [...touched]).catch((e) => log.warn('self-change tracking', e.message));
     }
   });
   return { conversationId: conv.id };
 }
 
-// After a turn: if the agent changed its own source, syntax-check and record it in the history.
-async function recordSelfChanges(before, userText) {
+// After a turn: if the agent changed its own source, syntax-check and record it in the history. Only
+// what its tools wrote (`touched`, see selfchange.touchedBy): the repo may be edited by someone else
+// while a turn runs (the developer, another session), and that is never the agent's change to record.
+// A shell command in the turn ('*') could have changed anything, so then everything dirty counts.
+async function recordSelfChanges(before, userText, touched = []) {
   const after = await selfchange.fingerprint();
   if (after === null || after === before) return;
   const dirty = await selfchange.dirtyFiles();
   if (!dirty.length) return;
-  const r = await selfchange.commit(`Requested: "${String(userText).replace(/\s+/g, ' ').slice(0, 80)}"`, { source: 'auto (end of turn)' });
+  const all = touched.includes('*');
+  const only = all ? null : touched;
+  if (!all && !dirty.some((d) => only.includes(d.file))) {
+    log.info('self-change tracking: the repo changed during the turn, but not by the agent', { dirty: dirty.length, touched: touched.length });
+    return;
+  }
+  const r = await selfchange.commit(`Requested: "${String(userText).replace(/\s+/g, ' ').slice(0, 80)}"`, { source: 'auto (end of turn)', only });
   if (r.ok && !r.nothing) send('self:event', { type: 'committed', change: r });
   else if (!r.ok) send('self:event', { type: 'check_failed', files: r.files, output: r.check.output });
 }

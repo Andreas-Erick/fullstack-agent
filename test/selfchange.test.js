@@ -15,6 +15,17 @@ stub({
 const selfchange = load('main/selfchange.js');
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+test('which source files a tool call writes: the agent’s code tools and Claude Code’s editors, a shell could be anything, the rest nothing', () => {
+  const root = 'C:\\app';
+  assert.strictEqual(selfchange.touchedBy('code_edit_file', { path: 'main/x.js' }, root), 'main/x.js');
+  assert.strictEqual(selfchange.touchedBy('mcp__nexus__code_write_file', { path: 'renderer/js/new.js' }, root), 'renderer/js/new.js');
+  assert.strictEqual(selfchange.touchedBy('Edit', { file_path: 'C:\\app\\renderer\\a.js' }, root), 'renderer/a.js');
+  assert.strictEqual(selfchange.touchedBy('Write', { file_path: 'C:\\elsewhere\\a.js' }, root), null, 'outside the code root: not a self-change');
+  assert.strictEqual(selfchange.touchedBy('Bash', { command: 'npm test' }, root), '*');
+  assert.strictEqual(selfchange.touchedBy('memory_write', { title: 'x' }, root), null);
+  assert.strictEqual(selfchange.touchedBy('Edit', { file_path: 'C:\\app\\a.js' }, null), null, 'no root known: nothing');
+});
+
 const verifyFile = `${dir}/selfchange-verify.json`;
 const pending = (extra) => fs.writeFileSync(verifyFile, JSON.stringify({ sha: 'abc1234def', short: 'abc1234', subject: 'Add a widget', files: ['renderer/js/widget.js', 'main/widget.js'], restart: true, reload: false, at: Date.now() - 60000, state: 'pending', ...extra }));
 const line = (level, text) => `${new Date().toISOString()} ${level.padEnd(5)} ${text}`;
