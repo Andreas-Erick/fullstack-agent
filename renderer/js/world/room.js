@@ -16,7 +16,16 @@ const DOOR = 110;
 const rgba = (c, a = 1) => `rgba(${c[0] | 0}, ${c[1] | 0}, ${c[2] | 0}, ${a})`;
 const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const hash = (s) => [...String(s)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
+// A well-scattered 32-bit hash of a string (a plain polynomial hash of "star1", "star2"… differs by one
+// between neighbours, which lined the stars up in rows).
+const hash = (s) => {
+  let h = [...String(s)].reduce((a, ch) => (Math.imul(a, 31) + ch.charCodeAt(0)) >>> 0, 7);
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b) >>> 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+};
 const short = (s, n = 14) => (String(s || '').length > n ? `${String(s).slice(0, n - 1)}…` : String(s || ''));
 
 // ------------------------------------------------------------------ layout
@@ -316,7 +325,7 @@ function floor(c, f) {
     for (let i = 0; i < 70; i++) {
       const s = hash(`g${i}`);
       const x = x0 + (s % 1000) * ((x1 - x0) / 1000);
-      const y = y0 + ((s >> 10) % 1000) * ((y1 - y0) / 1000);
+      const y = y0 + ((s >>> 10) % 1000) * ((y1 - y0) / 1000);
       c.beginPath();
       c.ellipse(x, y, 14 + (s % 9), 6 + (s % 5), 0, 0, Math.PI * 2);
       c.fill();
@@ -350,7 +359,7 @@ function walls(c, f) {
     c.fillRect(0, WALL_TOP - 36, RW, 10);
     c.fillStyle = rgba(f.night ? [18, 22, 48] : [150, 200, 236]);
     c.fillRect(0, 0, RW, WALL_TOP - 36);
-    if (f.night) stars(c, 0, 0, RW, WALL_TOP - 36, 24);
+    if (f.night) stars(c, 0, 0, RW, WALL_TOP - 36, 40, f);
     else clouds(c, f);
   } else {
     c.fillStyle = rgba(f.floor === 'stone' ? P.stoneShade : P.plasterShade);
@@ -390,7 +399,7 @@ function window(c, f, x, y, w, h) {
   c.fillRect(x - 4, y - 4, w + 8, h + 8);
   c.fillStyle = rgba(f.night ? [16, 20, 46] : [150, 200, 236]);
   c.fillRect(x, y, w, h);
-  if (f.night) stars(c, x, y, w, h, 5);
+  if (f.night) stars(c, x, y, w, h, 6, f);
   else {
     c.fillStyle = rgba([255, 255, 255], 0.5);
     c.beginPath();
@@ -405,11 +414,26 @@ function window(c, f, x, y, w, h) {
   c.stroke();
 }
 
-function stars(c, x, y, w, h, n) {
-  c.fillStyle = rgba([255, 250, 220], 0.9);
+// A night sky: stars of a few sizes (twinkling a little), and a moon in a wide band.
+function stars(c, x, y, w, h, n, f) {
   for (let i = 0; i < n; i++) {
-    const s = hash(`s${x}${i}`);
-    c.fillRect(x + (s % 997) * (w / 997), y + ((s >> 9) % 991) * (h / 991), 2, 2);
+    const s = hash(`s${x}${w}${i}`);
+    const r = 1 + (s % 3) * 0.7;
+    const tw = f?.anim ? 0.7 + 0.3 * Math.sin(f.t * 1.5 + i) : 0.85;
+    c.fillStyle = rgba([255, 250, 220], tw);
+    c.beginPath();
+    c.arc(x + 6 + (s % 997) * ((w - 12) / 997), y + 4 + ((s >>> 9) % 991) * ((h - 8) / 991), r, 0, Math.PI * 2);
+    c.fill();
+  }
+  if (w > 400) {
+    c.fillStyle = rgba([250, 240, 200], 0.95);
+    c.beginPath();
+    c.arc(x + w * 0.78, y + h * 0.5, 14, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = rgba([18, 22, 48]);
+    c.beginPath();
+    c.arc(x + w * 0.78 + 7, y + h * 0.5 - 4, 12, 0, Math.PI * 2);
+    c.fill();
   }
 }
 
@@ -583,7 +607,7 @@ function station(c, f, s) {
       if (s.kind === 'chart') {
         for (const star of s.stars || []) {
           const sx = x + 10 + (star.seed % 100) * ((w - 20) / 100);
-          const sy = y + 8 + ((star.seed >> 7) % 100) * ((h - 26) / 100);
+          const sy = y + 8 + ((star.seed >>> 7) % 100) * ((h - 26) / 100);
           c.fillStyle = rgba(star.lit ? P.warn : star.warm ? P.c1 : [120, 130, 170], star.lit ? 1 : 0.7);
           c.beginPath();
           c.arc(sx, sy, star.lit ? 4 : 2.5, 0, Math.PI * 2);
@@ -845,7 +869,7 @@ function station(c, f, s) {
         const sd = hash(`pin${i}`);
         c.fillStyle = rgba(acc[i % acc.length]);
         c.beginPath();
-        c.arc(x + 24 + (sd % 100) * ((w - 48) / 100), y + 18 + ((sd >> 7) % 100) * ((h - 58) / 100), 4, 0, Math.PI * 2);
+        c.arc(x + 24 + (sd % 100) * ((w - 48) / 100), y + 18 + ((sd >>> 7) % 100) * ((h - 58) / 100), 4, 0, Math.PI * 2);
         c.fill();
       }
       label(c, f, s, s.label, y + h + 12);
@@ -904,7 +928,7 @@ function station(c, f, s) {
       for (let i = 0; i < 6; i++) {
         const sd = hash(`fl${s.seed}${i}`);
         const fx = x + 16 + (sd % 100) * ((w - 32) / 100);
-        const fy = y + 14 + ((sd >> 7) % 100) * ((h - 28) / 100);
+        const fy = y + 14 + ((sd >>> 7) % 100) * ((h - 28) / 100);
         c.fillStyle = rgba(P.leaf);
         c.beginPath();
         c.arc(fx, fy, 6, 0, Math.PI * 2);
