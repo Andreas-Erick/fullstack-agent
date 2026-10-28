@@ -1,6 +1,8 @@
 # Changelog
 
-## 2.5.0 — 2026-10-28
+## 2.5.1 — 2026-10-28
+
+The first release of everything below. (2.5.0 was tagged but never published: its new phone-client check measured the full-screen face against the requested window size, which the build machine's smaller screen clamps; it now measures the viewport.)
 
 - A scene behind the face. *(Generate the look & feel from the persona and the AI also draws the place the persona lives in: a big top with booths and string lights for a ringmaster, a moonlit cove for a sea nymph. It sits behind the face in the Face view and in the chat's face panel, its three layers drift slowly for depth, it dims when the face sleeps, and it is saved with the persona. Settings → Persona studio → "Scene behind the face" draws it again or removes it. Paired phones and tablets show it behind the face too, with the same drift and dimming, and the watch gets it baked into the face loops it plays.)*
 - The assistant starts asleep. *(Until the launch greeting or the first thing you do: focusing or typing in the message box, pressing the mic, any turn. Off in Settings → Interface if you prefer her awake at once. The phone app starts asleep the same way, and the watch shows the sleeping face until you tap it.)*
