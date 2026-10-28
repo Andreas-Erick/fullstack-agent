@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.4.0 — 2026-10-28
 
 - A redesigned phone and tablet app. *(Cards with depth, a floating tab bar with the current tab lit, the screen's name as a clear title, tinted tiles in More, empty screens with an icon and one thing to do, a bigger face and starter tiles in an empty chat. Today opens with three numbers at a glance (events left, habits done, cards to study) that take you where they live; Habits shows the day as a ring with your best streak.)*
 - Fixed on the phone: the card being studied could stay invisible (its fade-in stalled when the app was in the background or busy), “Mixed review” was cut to “MIXED REV…”, a deck's name in Today's “Cards to study” broke over two lines, the title still said “More” after opening Schedule, and Active priorities listed only empty headings for a fresh note.
