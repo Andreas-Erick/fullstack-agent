@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.6.0 — 2026-10-28
 
 - Long replies are not read aloud in full. *(A result such as a report or a list of papers is spoken up to 1,500 characters, about a minute and a half, then she says the rest is on the screen. Settings → Voice → "Read aloud at most"; 0 reads everything.)*
 - No more surprise system voice. *(When the offline voice is too slow or fails mid-reply, the rest of the reply stays on screen instead of switching to the Windows voice; the system voice fills in only if you chose it as the fallback in Settings → Voice.)*
