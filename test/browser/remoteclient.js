@@ -110,6 +110,11 @@ async function run() {
   const fc = require('../../main/flashcards');
   const deck = (await fc.createDeck('Browser deck')).id;
   await fc.addCards(deck, [{ front: 'What is $2+2$?', back: '**4**' }, { front: 'Capital of Italy', back: 'Rome' }, { front: 'The {{c1::heart}} pumps blood.' }]);
+  // Habits, one done today: the Habits screen's day ring and rows, and Today's habit card.
+  const habits = require('../../main/habits');
+  await habits.add({ name: 'Meditate', target: 7, note: '10 minutes after coffee' });
+  await habits.add({ name: 'Run', target: 3 });
+  await habits.log(['Meditate']);
   companion.init({
     startTurn: async () => ({ conversationId: null }),
     abortTurn() {},

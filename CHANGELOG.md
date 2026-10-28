@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- A redesigned phone and tablet app. *(Cards with depth, a floating tab bar with the current tab lit, the screen's name as a clear title, tinted tiles in More, empty screens with an icon and one thing to do, a bigger face and starter tiles in an empty chat. Today opens with three numbers at a glance (events left, habits done, cards to study) that take you where they live; Habits shows the day as a ring with your best streak.)*
+- Fixed on the phone: the card being studied could stay invisible (its fade-in stalled when the app was in the background or busy), “Mixed review” was cut to “MIXED REV…”, a deck's name in Today's “Cards to study” broke over two lines, the title still said “More” after opening Schedule, and Active priorities listed only empty headings for a fresh note.
+- Custom faces made for high refresh rates get fresh values on every frame. *(The app used to send a custom face the state and voice ~30 times a second; now it sends them once per display frame (60, 120, 144 Hz…), so voice-reactive faces move smoothly on fast screens. On the Balanced profile it stays at about 30.)*
+
 ## 2.3.2 — 2026-10-28
 
 - Fixed: your Claude connectors show as connected again. *(Started from the Start menu, the app read none of them as connected: Claude Code marks a working connector with a different symbol when it runs without a terminal. The state is now read from its words, and an older check is redone at once.)* Connected services come first in the list, and every permission choice can be changed (they were greyed out for services that didn't show as connected).

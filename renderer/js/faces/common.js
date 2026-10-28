@@ -66,6 +66,23 @@ export function samples64() {
   return out;
 }
 
+// Feeds a custom face (a sandboxed iframe, faces/core.js) the agent state once per display frame, so a
+// face made for 90, 120 or 144 Hz gets fresh voice samples on every frame it draws; ~30×/s when lite
+// (Balanced). `message()` builds what is posted. Returns stop().
+export function pumpFrame(frame, message) {
+  let raf = 0;
+  let last = 0;
+  const tick = (now) => {
+    raf = requestAnimationFrame(tick);
+    if (!frame.contentWindow || !frame.offsetParent) return; // hidden: skip (the chat-only layout hides the face)
+    if (env.lite() && now - last < LITE_FRAME_MS) return;
+    last = now;
+    frame.contentWindow.postMessage(message(), '*');
+  };
+  raf = requestAnimationFrame(tick);
+  return () => cancelAnimationFrame(raf);
+}
+
 // Base class: canvas sizing, rAF loop (paused when hidden), theme regeneration, teardown.
 export class BaseFace {
   constructor(canvas, { compact = false } = {}) {

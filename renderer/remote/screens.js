@@ -58,7 +58,8 @@ function enter(box) {
 
 // --------------------------------------------------------------- helpers
 const card = (title, ...children) => ctx.el('section', { class: 'card' }, title ? ctx.el('h3', {}, title) : null, ...children);
-const empty = (text, action) => ctx.el('div', { class: 'panel-empty' }, ctx.el('p', {}, text), action || null);
+// An empty screen: an icon in a soft ring, what is missing, and the one thing to do about it.
+const empty = (text, action, ico) => ctx.el('div', { class: 'panel-empty' }, ico ? ctx.el('div', { class: 'empty-orb', 'aria-hidden': 'true' }, ctx.icon(ico)) : null, ctx.el('p', {}, text), action || null);
 const chip = (text, cls = '') => ctx.el('span', { class: `chip ${cls}` }, text);
 const ask = (label, message) => ctx.el('button', { class: 'btn ghost small', type: 'button', onclick: () => (ctx.showView('chat'), ctx.send(message)) }, label);
 const pct = (node, v) => (node.style.setProperty('--p', `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`), node);
@@ -70,19 +71,52 @@ async function today() {
   const d = await api('/api/data/today');
   const now = new Date();
   const hello = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
-  const out = [el('div', { class: 'today-head' }, el('small', {}, now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })), el('h2', {}, hello))];
+  const upcoming = d.events.filter((e) => e.allDay || new Date(e.end) > now);
+  const active = d.habits.filter((h) => !h.paused);
+  const doneHabits = active.filter((h) => h.doneToday).length;
+  const due = (d.cards || []).filter((x) => x.dueNow);
+  const dueCards = due.reduce((n, x) => n + x.dueNow, 0);
+  // At a glance: three tiles, each opening where that number lives.
+  const glance = (ico, value, label, view, cls) => el('button', { class: `glance ${cls}`, type: 'button', onclick: () => ctx.showView(view) }, ctx.icon(ico), el('b', {}, value), el('small', {}, label));
+  const out = [
+    el('div', { class: 'today-head' }, el('small', {}, now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })), el('h2', {}, hello)),
+    el('div', { class: 'glance-row' },
+      glance('calendar', String(upcoming.length), upcoming.length === 1 ? 'event left' : 'events left', ctx.state.calendar ? 'sched' : 'today', 't1'),
+      glance('check', active.length ? `${doneHabits}/${active.length}` : '–', 'habits done', 'habits', 't2'),
+      glance('cards', String(dueCards), dueCards === 1 ? 'card to study' : 'cards to study', 'cards', 't3'),
+    ),
+  ];
   if (d.handoff) {
     out.push(card('Where we left off', el('p', {}, el('b', {}, d.handoff.topic)), d.handoff.summary ? el('p', { class: 'muted' }, d.handoff.summary) : null, ...(d.handoff.nextSteps || []).map((s) => el('div', { class: 'li' }, '→ ', s)), el('div', { class: 'row' }, ask('Continue', 'Let’s continue where we left off.'))));
   }
-  const upcoming = d.events.filter((e) => e.allDay || new Date(e.end) > now);
   out.push(card('Schedule', ...(upcoming.length ? upcoming.map((e) => el('div', { class: 'today-ev' }, el('b', {}, e.allDay ? 'all day' : timeOf(e.start)), el('span', {}, e.title, e.location ? el('small', {}, ` · ${e.location}`) : null))) : [el('p', { class: 'muted' }, d.events.length ? 'Nothing more today.' : 'Nothing scheduled today.')])));
-  const active = d.habits.filter((h) => !h.paused);
-  if (active.length) out.push(card(`Habits · ${active.filter((h) => h.doneToday).length} of ${active.length} done`, habitRows(active, () => render('today', document.querySelector('#panel')))));
-  const due = (d.cards || []).filter((x) => x.dueNow);
-  if (due.length) out.push(card('Cards to study', ...due.map((x) => el('div', { class: 'today-ev' }, el('b', {}, x.name), el('span', {}, `${x.dueNow} to study`), el('button', { class: 'btn ghost small', type: 'button', onclick: () => openDeck(x.id) }, 'Study')))));
+  if (active.length) out.push(card(`Habits · ${doneHabits} of ${active.length} done`, habitRows(active, () => render('today', document.querySelector('#panel')))));
+  if (due.length) out.push(card('Cards to study', ...due.map((x) => el('button', { class: 'study-row', type: 'button', onclick: () => openDeck(x.id) }, el('span', { class: 'what' }, el('b', {}, x.name), el('small', {}, `${x.dueNow} to study`)), el('span', { class: 'go' }, 'Study ›')))));
   if (d.shaky.length) out.push(card('Still shaky', ...d.shaky.map((s) => el('div', { class: 'li' }, el('b', {}, `${s.topic}: `), s.text)), el('div', { class: 'row' }, ask('Go over them', 'Help me go over what is still shaky in what I am learning.'))));
-  if (d.priorities) out.push(card('Active priorities', el('div', { class: 'md' }, ...htmlOf(markdown(d.priorities)))));
+  const priorities = filledSections(d.priorities || '');
+  if (priorities) out.push(card('Active priorities', el('div', { class: 'md' }, ...htmlOf(markdown(priorities)))));
+  else if (d.priorities) out.push(card('Active priorities', el('p', { class: 'muted' }, 'Nothing set yet.'), el('div', { class: 'row' }, ask('Set my priorities', 'Help me set my active priorities.'))));
   return out;
+}
+
+// A note's headings that have something under them (a fresh Active Priorities note is only its
+// headings), without the note's own title: the card already names it.
+function filledSections(md) {
+  const lines = String(md).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').split(/\r?\n/);
+  const level = (l) => /^(#{1,6})\s/.exec(l)?.[1].length || 0;
+  const keep = lines.map((l, i) => {
+    const lv = level(l);
+    if (!lv) return l.trim() !== '' && !/^<!--.*-->$/.test(l.trim());
+    for (let j = i + 1; j < lines.length; j++) {
+      const lj = level(lines[j]);
+      if (lj && lj <= lv) return false;
+      if (!lj && lines[j].trim() && !/^<!--.*-->$/.test(lines[j].trim())) return true;
+    }
+    return false;
+  });
+  const out = lines.filter((l, i) => keep[i] || (!l.trim() && i > 0 && keep[i - 1]));
+  if (out.length && level(out[0]) === 1) out.shift();
+  return out.join('\n').trim();
 }
 
 // Sanitized HTML (app.js markdown → DOMPurify) as nodes.
@@ -120,13 +154,18 @@ function habitRows(list, after) {
 async function habits() {
   const { el, api } = ctx;
   const { habits: list } = await api('/api/data/habits');
-  if (!list.length) return empty('No habits yet.', ask('Start one', 'Help me start a new habit.'));
-  const box = el('div', {});
+  if (!list.length) return empty('No habits yet. Pick one small thing to do most days, and check it off here.', ask('Start one', 'Help me start a new habit.'), 'check');
+  const box = el('div', { class: 'stack' });
   const draw = (l) => {
     const active = l.filter((h) => !h.paused);
     const paused = l.filter((h) => h.paused);
+    const done = active.filter((h) => h.doneToday).length;
+    const best = Math.max(0, ...active.map((h) => h.streak || 0));
+    // The day's ring: conic-gradient through --p (set by pct, the CSP allows no style attributes).
+    const ring = pct(el('div', { class: 'day-ring', role: 'img', 'aria-label': `${done} of ${active.length} done today` }, el('b', {}, `${done}/${active.length}`)), active.length ? done / active.length : 0);
     box.replaceChildren(
-      card(`Today · ${active.filter((h) => h.doneToday).length} of ${active.length}`, habitRows(active, draw)),
+      el('section', { class: 'card habit-sum' }, ring, el('div', { class: 'what' }, el('b', {}, done === active.length && active.length ? 'All done today' : `${active.length - done} to go today`), el('small', {}, best ? `Best streak right now: 🔥 ${best}` : 'Check one off to start a streak.'))),
+      card('Today', habitRows(active, draw)),
       card('This week', ...active.map((h) => el('div', { class: 'bar-row' }, el('span', {}, h.name), pct(el('div', { class: 'bar' }, el('i')), h.rate28), el('small', {}, `${Math.round(h.rate28 * 100)}% of 4 weeks`)))),
       paused.length ? card('Paused', ...paused.map((h) => el('div', { class: 'li muted' }, h.name))) : '',
       el('div', { class: 'row center' }, ask('Weekly review', 'Let’s do a weekly review of my habits.'), ask('Add a habit', 'I want to add a habit.')),
@@ -162,7 +201,7 @@ async function learn() {
       return det;
     }));
   }
-  if (!out.length) return empty('Nothing tracked yet. Learn something with her and she keeps track of what you understood.', ask('Let’s study', 'Let’s study.'));
+  if (!out.length) return empty('Nothing tracked yet. Learn something with her and she keeps track of what you understood.', ask('Let’s study', 'Let’s study.'), 'learn');
   return out;
 }
 
@@ -172,11 +211,11 @@ const section = (title, items) => (items?.length ? ctx.el('div', { class: 'sec' 
 async function memory() {
   const { el, api } = ctx;
   const search = el('input', { class: 'input search', type: 'search', placeholder: 'Search memories', 'aria-label': 'Search memories' });
-  const list = el('div', {});
+  const list = el('div', { class: 'mem-list' });
   const stream = el('div', {});
   const load = async () => {
     const { memories } = await api(`/api/data/memories${search.value.trim() ? `?q=${encodeURIComponent(search.value.trim())}` : ''}`);
-    list.replaceChildren(...(memories.length ? memories.map((m) => el('details', { class: 'mem' }, el('summary', {}, el('b', {}, m.title), chip(m.category || 'note')), el('p', {}, m.content), el('small', { class: 'muted' }, new Date(m.updated).toLocaleDateString()))) : [el('p', { class: 'muted' }, search.value ? 'No match.' : 'No memories yet.')]));
+    list.replaceChildren(...(memories.length ? memories.map((m) => el('details', { class: 'mem' }, el('summary', {}, el('b', {}, m.title), chip(m.category || 'note')), el('p', {}, m.content), el('small', { class: 'muted' }, new Date(m.updated).toLocaleDateString()))) : [search.value ? el('p', { class: 'muted center' }, 'No match.') : empty('No memories yet. Tell her about yourself, and what matters is kept here.', null, 'brain')]));
   };
   let t;
   search.addEventListener('input', () => (clearTimeout(t), (t = setTimeout(load, 300))));
@@ -185,7 +224,7 @@ async function memory() {
     if (s.off || !s.records.length) return;
     stream.replaceChildren(card('Memory stream', el('p', { class: 'muted' }, 'Small observations she noted, and the insights she drew from them.'), ...s.records.slice(0, 30).map((r) => el('div', { class: `stream ${r.kind === 'reflection' ? 'insight' : ''}` }, el('small', {}, `${new Date(r.at).toLocaleDateString()} · ★${r.importance}${r.kind === 'reflection' ? ' · insight' : ''}`), el('div', {}, r.text)))));
   }).catch(() => {});
-  return [search, card('', list), stream];
+  return [search, list, stream];
 }
 
 // --------------------------------------------------------------- Notes
@@ -226,7 +265,7 @@ async function openNote(path) {
 async function tree() {
   const { el, api } = ctx;
   const { skills: list, layout, thresholds } = await api('/api/data/tree');
-  if (!list.length) return empty('Your skill tree is empty.', ask('Plant it', 'Help me set up my skill tree.'));
+  if (!list.length) return empty('Your skill tree is empty. Plant the skills you want to grow and watch them light up as you practise.', ask('Plant it', 'Help me set up my skill tree.'), 'tree');
   const sky = layout?.pos ? constellation(list, layout, thresholds) : null;
   const areas = new Map();
   for (const s of list) areas.set(s.area || 'Other', [...(areas.get(s.area || 'Other') || []), s]);
@@ -338,8 +377,8 @@ async function cards() {
     return studyScreen();
   }
   const d = await api('/api/data/flashcards');
-  if (!d.vault) return empty('Flashcards live in the vault on your computer; set one up there first.');
-  if (!d.decks.length) return empty('No decks yet. Ask her to make some, or to import a CSV or an Anki deck from your workspace folder.', ask('Make flashcards', 'Make me flashcards about what I am learning.'));
+  if (!d.vault) return empty('Flashcards live in the vault on your computer; set one up there first.', null, 'cards');
+  if (!d.decks.length) return empty('No decks yet. Ask her to make some, or to import a CSV or an Anki deck from your workspace folder.', ask('Make flashcards', 'Make me flashcards about what I am learning.'), 'cards');
   const sum = (k) => d.decks.reduce((n, x) => n + (x[k] || 0), 0);
   const due = sum('dueNow');
   const today = el(
@@ -459,7 +498,7 @@ function appUpdate() {
 async function more() {
   const { el, icon } = ctx;
   const update = appUpdate();
-  return [...(update ? [update] : []), el('div', { class: 'more-grid' }, ...MORE.filter(([v]) => v !== 'sched' || ctx.state.calendar).map(([v, ico, title, desc]) => el('button', { class: 'more-tile', type: 'button', onclick: () => ctx.showView(v) }, icon(ico), el('b', {}, title), el('small', {}, desc))))];
+  return [...(update ? [update] : []), el('div', { class: 'more-grid' }, ...MORE.filter(([v]) => v !== 'sched' || ctx.state.calendar).map(([v, ico, title, desc], i) => el('button', { class: `more-tile t${(i % 4) + 1}`, type: 'button', onclick: () => ctx.showView(v) }, el('span', { class: 'tile-ico' }, icon(ico)), el('b', {}, title), el('small', {}, desc))))];
 }
 
 // --------------------------------------------------------------- Inner World
@@ -475,8 +514,8 @@ function stopWorld() {
 async function world() {
   const { el, api } = ctx;
   const d = await api('/api/data/world');
-  if (!d.vault) return empty('The Inner World needs the vault on the computer.');
-  if (!d.enabled) return empty('The village is asleep. Wake it on the computer (World view) and your personas start living there.');
+  if (!d.vault) return empty('The Inner World needs the vault on the computer.', null, 'world');
+  if (!d.enabled) return empty('The village is asleep. Wake it on the computer (World view) and your personas start living there.', null, 'world');
   const [{ buildMap }, { palette, W, HZ }, scene, { loadSprites, spritesReady }, { seasonOf }] = await Promise.all([import('/js/world/map.js'), import('/js/world/art.js'), import('/js/world/scene.js'), import('/js/world/sprites.js'), import('/js/world/season.js')]);
   if (ctx.state.info?.art !== 'drawn') await loadSprites().catch(() => false);
   const canvas = el('canvas', { class: 'world-canvas', 'aria-label': 'The village' });
