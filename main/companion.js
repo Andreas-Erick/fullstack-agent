@@ -589,7 +589,7 @@ async function info() {
   const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
   // The scene behind the face: only its key here; the device fetches /api/scene when the key changes.
   const scene = s.appearance?.scene?.svg ? { key: sceneKey(s.appearance.scene.svg), caption: String(s.appearance.scene.caption || '').slice(0, 80) } : null;
-  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, scene, sleepOnLaunch: s.ui?.sleepOnLaunch !== false, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, update: await require('./updates').forDevices().catch(() => null) };
+  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, scene, sleepOnLaunch: s.ui?.sleepOnLaunch !== false, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, update: await Promise.resolve().then(() => require('./updates').forDevices()).catch(() => null) };
 }
 
 async function speak(req, res) {

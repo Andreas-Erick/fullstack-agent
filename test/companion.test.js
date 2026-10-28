@@ -28,6 +28,10 @@ fs.writeFileSync(path.join(facesDir, 'Aurora', '.private'), 'secret');
 fs.writeFileSync(path.join(facesDir, 'Aurora', 'run.exe'), 'MZ');
 fs.writeFileSync(path.join(dir, 'outside.html'), 'outside');
 stub({
+  // Never the real Electron: its package downloads the binary on require when it is missing (a CI runner
+  // without it reached for the network from /api/info through updates.js).
+  electron: { app: { getPath: () => dir, getVersion: () => '0.0.0' }, net: {} },
+  './updates': { forDevices: async () => null },
   './store': fileStore(dir, {
     getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: { scene }, voice: {}, calendar: { enabled: true }, remote: { shareData: share }, ui: { face: uiFace } }),
     listConversations: async () => Object.values(convs).map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, ...(c.setup ? { setup: true } : {}) })),
