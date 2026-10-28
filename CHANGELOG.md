@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.5.2 — 2026-10-28
 
 - Fixed: the phone app learned about a new version only at the computer's daily check (the phone never asks GitHub itself), so an APK published after that check stayed hidden for up to a day. Now a phone asking refreshes an answer older than three hours in the background, the computer re-checks at start when it is itself newer than the last answer (you just installed a new version), and a check that finds something tells paired phones at once (the More screen refreshes). Meanwhile, Settings → "Check for updates now" still works.
 
