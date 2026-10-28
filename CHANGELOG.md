@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.6.5 — 2026-10-29
 
 - Siren's new face and her new cove are the defaults of a fresh install: the redesigned sea nymph on her rock, and the moonlit cove with the wreck and a lighthouse behind her, wide and tall. Existing installs keep what they have; an unedited copy of her shipped face is refreshed on the next start.
 - The scene behind the face and the "Make Your Own Face" prompt ask for a place and a character that feel made by a hand and lived in: surface imperfections, asymmetry, signs of use, environmental storytelling, natural randomness, lighting imperfections, visible craftsmanship, mundane details and evidence of cause and effect, used subtly where they fit.
