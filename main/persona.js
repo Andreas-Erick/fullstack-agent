@@ -89,8 +89,9 @@ async function generate({ masterPrompt, aesthetic, palette, voices, image, optio
  */
 async function generateScene({ masterPrompt, aesthetic, theme }) {
   const settings = await store.getSettings();
+  const userName = await require('./obsidian').userName().catch(() => ''); // hidden in the scene as an easter egg
   const draw = async (orientation) => {
-    const text = await llm.complete(settings, scenecore.buildPrompt({ name: settings.agent.name, masterPrompt, aesthetic, colors: theme?.colors || {}, orientation }), { maxTokens: 20000, timeoutMs: 480000 });
+    const text = await llm.complete(settings, scenecore.buildPrompt({ name: settings.agent.name, masterPrompt, aesthetic, colors: theme?.colors || {}, orientation, userName }), { maxTokens: 20000, timeoutMs: 480000 });
     const scene = scenecore.cleanScene(text, { orientation });
     log.info('scene drawn', { orientation, bytes: scene.bytes, elements: scene.elements, layers: scene.layers });
     return scene;

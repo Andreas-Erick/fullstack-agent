@@ -481,6 +481,23 @@ async function readPriorities() {
   return readOptional('Active Priorities.md');
 }
 
+/**
+ * The user's first name as the Profile gives it, or ''. The profile is free text ("Who I Am"), so this
+ * looks for the usual ways a name is written: "Name: Andreas", "**Name:** Andreas", "I'm Andreas",
+ * "My name is Andreas", "called Andreas". Pure; used for the easter egg in the scene behind the face.
+ */
+function nameFrom(profile) {
+  const text = String(profile || '').replace(/\*\*/g, '');
+  const who = (/## Who I Am\s*([\s\S]*?)(?=\n## |$)/.exec(text) || [, text])[1];
+  const name = /(?:^|\n)\s*-?\s*(?:full )?name\s*[:：]\s*([^\n(,;]+)/i.exec(who)?.[1] || /\b(?:my name is|I am|I'm|called|name's)\s+([A-ZÀ-Þ][\p{L}'-]{1,30})/iu.exec(who)?.[1] || '';
+  const first = name.trim().split(/\s+/)[0] || '';
+  return /^[\p{L}][\p{L}'-]{1,30}$/u.test(first) ? first : '';
+}
+
+async function userName() {
+  return nameFrom(await readOptional('Profile.md').catch(() => ''));
+}
+
 async function writePriorities(content) {
   return writeNote('Active Priorities.md', content, 'overwrite');
 }
@@ -670,6 +687,8 @@ module.exports = {
   resolveNote,
   logSession,
   readPriorities,
+  nameFrom,
+  userName,
   writePriorities,
   updateProfile,
   listJobs,

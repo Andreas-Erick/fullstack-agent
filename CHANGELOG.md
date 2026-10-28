@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The scene behind the face and the "Make Your Own Face" prompt ask for a place and a character that feel made by a hand and lived in: surface imperfections, asymmetry, signs of use, environmental storytelling, natural randomness, lighting imperfections, visible craftsmanship, mundane details and evidence of cause and effect, used subtly where they fit. The scene also hides your name somewhere as an easter egg (carved into a bench, on a crate, on a boat's stern…), when the assistant knows it.
+
+## Unreleased
+
 - Fixed: a persona that had received another persona's tall scene drawing through the switch bug of 2.6.0–2.6.3 kept it in its saved look (the Ringmaster's chat face panel still showed the Siren's cove after the fix). On start, such a copied drawing is dropped from the persona it doesn't belong to; its wide drawing is cropped there until "↻ Draw the scene again" makes its own tall one.
 
 ## 2.6.4 — 2026-10-28
