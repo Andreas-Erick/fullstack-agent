@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: at start the face was awake for a split second before falling asleep (the sleeping state was set after the faces had drawn, and a custom face assumed "idle" until its first update). Asleep from the very first frame now, on the computer and the phone.
+
 ## 2.6.0 — 2026-10-28
 
 - Long replies are not read aloud in full. *(A result such as a report or a list of papers is spoken up to 1,500 characters, about a minute and a half, then she says the rest is on the screen. Settings → Voice → "Read aloud at most"; 0 reads everything.)*

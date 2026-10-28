@@ -4,7 +4,7 @@ import { api, emit } from './util.js';
 
 export const state = {
   settings: null,
-  agentState: 'idle',
+  agentState: 'sleeping', // asleep from the first frame (app.js init decides from ui.sleepOnLaunch)
   micLevel: 0, // 0..1 while listening
   analyser: null, // AnalyserNode for TTS output while speaking
   caption: '',
@@ -17,7 +17,7 @@ export const state = {
   playing: false,
   toolsRunning: 0, // tool calls in progress
   happyUntil: 0, // brief "done" glow after a reply
-  sleeping: false, // dozed off after ui.sleepAfterMin without activity
+  sleeping: true, // asleep at launch (ui.sleepOnLaunch), or dozed off after ui.sleepAfterMin without activity
   alert: null, // { message, until } — faces turn red while set
   demo: null, // { state, level } — scripted demo drives the faces
   approvalPending: null, // the approval request currently waiting for an answer
