@@ -1,0 +1,2062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Siren AI Presence</title>
+<script src="core.js"></script>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  /* Subtle debug/preview dock shown only when opened directly in a browser without core.js */
+  #sandbox-bar {
+    position: fixed;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    gap: 5px;
+    flex-wrap: wrap;
+    justify-content: center;
+    background: rgba(6, 12, 20, 0.82);
+    border: 1px solid rgba(45, 212, 191, 0.35);
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 11px;
+    z-index: 20;
+    backdrop-filter: blur(6px);
+  }
+  #sandbox-bar button {
+    background: rgba(255, 255, 255, 0.06);
+    color: #cbd5e1;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    padding: 3px 9px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  #sandbox-bar button:hover, #sandbox-bar button.active {
+    background: rgba(45, 212, 191, 0.25);
+    color: #ffffff;
+    border-color: #2dd4bf;
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="sandbox-bar" aria-label="State preview controls"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ============================================================================
+  // 1. AV INITIALIZATION & FALLBACK CONTRACT
+  // ============================================================================
+  const hasNativeAV = typeof window.AV === 'object' && window.AV !== null && typeof window.AV.init === 'function';
+
+  // Fallback object when opened directly in a browser without core.js
+  const fallbackAV = {
+    state: 'idle',
+    level: 0,
+    samples: new Float32Array(64),
+    env: { name: 'PARTHENOPE', alert: null },
+    _simSpeaking: false,
+    init() {},
+    colors() {
+      if (this.state === 'alert') return ['#ef4444', '#f97316'];
+      if (this.state === 'sleeping') return ['#14b8a6', '#38bdf8'];
+      if (this.state === 'happy') return ['#34d399', '#38bdf8'];
+      return ['#2dd4bf', '#38bdf8'];
+    }
+  };
+
+  const AVRef = hasNativeAV ? window.AV : fallbackAV;
+  try {
+    if (typeof AVRef.init === 'function') AVRef.init();
+  } catch (e) {
+    // Continue safely in sandbox
+  }
+
+  // Optional interactive preview bar ONLY when running outside host app (no core.js)
+  if (!hasNativeAV) {
+    const bar = document.getElementById('sandbox-bar');
+    const states = ['sleeping', 'idle', 'listening', 'thinking', 'working', 'speaking', 'happy', 'alert'];
+    bar.style.display = 'flex';
+    states.forEach((st) => {
+      const btn = document.createElement('button');
+      btn.textContent = st;
+      if (st === fallbackAV.state) btn.classList.add('active');
+      btn.addEventListener('click', () => {
+        fallbackAV.state = st;
+        fallbackAV.env.alert = st === 'alert' ? 'HULL BREACH ON THE OUTER REEF' : null;
+        bar.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+      bar.appendChild(btn);
+    });
+    // Hide controls neatly if viewport is tiny (e.g. 160x160 widget test)
+    const checkBarFit = () => {
+      bar.style.display = (window.innerWidth < 340 || window.innerHeight < 240) ? 'none' : 'flex';
+    };
+    window.addEventListener('resize', checkBarFit);
+    checkBarFit();
+  }
+
+  // ============================================================================
+  // 2. CANVAS & TIMING SETUP
+  // ============================================================================
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let prefersReducedMotion = reducedMotionQuery.matches;
+  reducedMotionQuery.addEventListener?.('change', (e) => { prefersReducedMotion = e.matches; });
+
+  let viewW = window.innerWidth;
+  let viewH = window.innerHeight;
+  let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  function resize() {
+    viewW = window.innerWidth;
+    viewH = window.innerHeight;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.floor(viewW * dpr));
+    canvas.height = Math.max(1, Math.floor(viewH * dpr));
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ============================================================================
+  // 3. COLOR & MATH UTILITIES
+  // ============================================================================
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const smoothstep = (t) => t * t * (3 - 2 * t);
+
+  function hexToRgb(hex) {
+    if (!hex || typeof hex !== 'string') return { r: 45, g: 212, b: 191 };
+    let h = hex.replace('#', '').trim();
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const num = parseInt(h, 16);
+    if (Number.isNaN(num)) return { r: 45, g: 212, b: 191 };
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+  }
+
+  function rgbCss(c, alpha = 1) {
+    return `rgba(${Math.round(c.r)},${Math.round(c.g)},${Math.round(c.b)},${clamp(alpha, 0, 1).toFixed(3)})`;
+  }
+
+  function mixRgb(a, b, t) {
+    return {
+      r: lerp(a.r, b.r, t),
+      g: lerp(a.g, b.g, t),
+      b: lerp(a.b, b.b, t)
+    };
+  }
+
+  function darkenRgb(c, factor) {
+    return { r: c.r * factor, g: c.g * factor, b: c.b * factor };
+  }
+
+  function lightenRgb(c, t) {
+    return mixRgb(c, { r: 255, g: 255, b: 255 }, t);
+  }
+
+  // 2-bone 2D Inverse Kinematics solver for natural shoulder -> elbow -> hand positioning
+  function solveIK(sx, sy, tx, ty, L1, L2, bendDir) {
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const rawDist = Math.hypot(dx, dy) || 0.0001;
+    const maxReach = (L1 + L2) * 0.992;
+    const minReach = Math.abs(L1 - L2) * 1.05;
+    const d = clamp(rawDist, minReach, maxReach);
+
+    const cosAngle = clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1);
+    const angle = Math.acos(cosAngle);
+    const baseAngle = Math.atan2(dy, dx);
+    const elbowAngle = baseAngle + bendDir * angle;
+
+    const ex = sx + Math.cos(elbowAngle) * L1;
+    const ey = sy + Math.sin(elbowAngle) * L1;
+
+    // Clamp hand if target exceeded arm reach
+    const hx = rawDist > maxReach ? sx + (dx / rawDist) * maxReach : tx;
+    const hy = rawDist > maxReach ? sy + (dy / rawDist) * maxReach : ty;
+    return { ex, ey, hx, hy };
+  }
+
+  // ============================================================================
+  // 4. CHARACTER STATE, POSE & PARTICLE POOLS
+  // ============================================================================
+  let currentMainRgb = { r: 45, g: 212, b: 191 };
+  let currentAccentRgb = { r: 56, g: 189, b: 248 };
+
+  // State machine tracking & waking transition
+  let lastRawState = null;
+  let wakingTimer = 0; // > 0 when transitioning out of 'sleeping' (1.05s stretch/yawn)
+  const WAKING_DURATION = 1.05;
+
+  // Smooth state weights so every transition eases over ~0.5s
+  const weights = {
+    sleeping: 1,
+    waking: 0,
+    idle: 0,
+    listening: 0,
+    thinking: 0,
+    working: 0,
+    speaking: 0,
+    happy: 0,
+    alert: 0
+  };
+
+  // Blinking & autonomous gaze controller
+  let blinkTimer = 2.4;
+  let blinkAmount = 0; // 0 = open, 1 = closed
+  let gazeTargetX = 0;
+  let gazeTargetY = 0;
+  let gazeX = 0;
+  let gazeY = 0;
+  let nextGazeTime = 1.8;
+
+  // Smoothed audio level & waveform cache
+  let smoothLevel = 0;
+  const smoothSamples = new Float32Array(64);
+
+  // Reusable particle pools (capped for 60fps performance)
+  // Will-o'-the-wisp / soul motes rising from the shipwreck & lyre
+  const wisps = Array.from({ length: 18 }, (_, i) => ({
+    x: (Math.random() - 0.5) * 440,
+    y: 120 + Math.random() * 140,
+    vx: (Math.random() - 0.5) * 14,
+    vy: -12 - Math.random() * 18,
+    size: 2.2 + Math.random() * 3.8,
+    phase: i * 1.7 + Math.random() * 6,
+    alpha: 0.2 + Math.random() * 0.6
+  }));
+
+  // Floating "Z" glyphs / eerie runes for sleeping and working states
+  const sleepRunes = Array.from({ length: 4 }, (_, i) => ({
+    progress: i / 4,
+    offset: (i % 2 === 0 ? 1 : -1) * (8 + i * 4)
+  }));
+
+  // Hair strands along the siren's crown (pre-allocated)
+  const hairStrands = [
+    { ox: -28, oy: -18, len: 135, width: 13, side: -1.1, phase: 0.0 },
+    { ox: -18, oy: -28, len: 155, width: 15, side: -0.7, phase: 0.8 },
+    { ox: -6,  oy: -32, len: 165, width: 16, side: -0.3, phase: 1.6 },
+    { ox: 8,   oy: -32, len: 160, width: 15, side: 0.35, phase: 2.3 },
+    { ox: 20,  oy: -26, len: 145, width: 14, side: 0.75, phase: 3.1 },
+    { ox: 29,  oy: -16, len: 125, width: 12, side: 1.15, phase: 4.0 },
+    // Finer eerie tendrils that float higher
+    { ox: -24, oy: -24, len: 120, width: 6,  side: -1.45, phase: 1.2, tendril: true },
+    { ox: 24,  oy: -24, len: 118, width: 6,  side: 1.45,  phase: 2.9, tendril: true }
+  ];
+
+  // Pose rig values that are interpolated smoothly each frame
+  const pose = {
+    torsoLeanX: 0,
+    torsoLiftY: 0,
+    torsoTilt: 0,
+    headTilt: 0,
+    headNod: 0,
+    headTurnX: 0,
+    shoulderRiseL: 0,
+    shoulderRiseR: 0,
+    handLX: -82,
+    handLY: 30,
+    handRX: 78,
+    handRY: 48,
+    handLGesture: 0, // 0 = relaxed, 1 = open/spread, 2 = cup/chin, 3 = point/pluck
+    handRGesture: 0,
+    tailSway: 0,
+    tailCurl: 0,
+    flukeFlare: 0,
+    frillFlare: 0,
+    mouthOpen: 0,
+    mouthSmile: 0,
+    mouthWidth: 1,
+    browArch: 0,
+    browFurrow: 0,
+    eyeOpen: 1,
+    lanternSwing: 0,
+    crabAlert: 0,
+    lyreGlow: 0
+  };
+
+  // ============================================================================
+  // 5. POSE & ANIMATION UPDATE
+  // ============================================================================
+  let prevTime = performance.now();
+  let simClock = 0;
+
+  function updateSimulation(now) {
+    const rawDt = Math.min(0.05, Math.max(0.001, (now - prevTime) / 1000));
+    prevTime = now;
+
+    // Respect prefers-reduced-motion by slowing the internal animation clock down significantly
+    const motionScale = prefersReducedMotion ? 0.22 : 1.0;
+    const dt = rawDt * motionScale;
+    simClock += dt;
+
+    // Read current AV state & fallback values safely
+    const rawState = (AVRef && typeof AVRef.state === 'string') ? AVRef.state : 'idle';
+    let rawLevel = (AVRef && typeof AVRef.level === 'number' && !Number.isNaN(AVRef.level))
+      ? clamp(AVRef.level, 0, 1)
+      : 0;
+
+    // When testing 'speaking' or 'listening' in standalone browser preview without microphone, synthesize gentle voice modulation
+    if (!hasNativeAV) {
+      if (rawState === 'speaking') {
+        rawLevel = 0.25 + 0.35 * Math.pow(Math.sin(simClock * 6.5) * 0.5 + 0.5, 1.6)
+                        + 0.25 * Math.sin(simClock * 11.3 + 1.2) * (Math.sin(simClock * 2.1) > -0.2 ? 1 : 0.1);
+        rawLevel = clamp(rawLevel, 0.05, 0.95);
+        for (let i = 0; i < 64; i++) {
+          fallbackAV.samples[i] = Math.sin(simClock * 18 + i * 0.35) * rawLevel * 0.7
+                                + Math.cos(simClock * 29 - i * 0.22) * rawLevel * 0.3;
+        }
+      } else if (rawState === 'listening') {
+        rawLevel = 0.12 + 0.18 * Math.max(0, Math.sin(simClock * 4.3));
+      } else {
+        rawLevel = 0;
+      }
+    }
+
+    // Smooth audio level & samples
+    const levelLerp = 1 - Math.exp(-rawDt * 18);
+    smoothLevel = lerp(smoothLevel, rawLevel, levelLerp);
+
+    const srcSamples = (AVRef && AVRef.samples && AVRef.samples.length >= 64) ? AVRef.samples : fallbackAV.samples;
+    for (let i = 0; i < 64; i++) {
+      const s = (srcSamples && typeof srcSamples[i] === 'number') ? clamp(srcSamples[i], -1, 1) : 0;
+      smoothSamples[i] = lerp(smoothSamples[i], s, levelLerp);
+    }
+
+    // Smooth theme colors from AV.colors()
+    let targetColors = ['#2dd4bf', '#38bdf8'];
+    try {
+      if (AVRef && typeof AVRef.colors === 'function') {
+        const c = AVRef.colors();
+        if (Array.isArray(c) && c.length >= 2) targetColors = c;
+      }
+    } catch (e) {}
+
+    const targetMain = hexToRgb(targetColors[0]);
+    const targetAccent = hexToRgb(targetColors[1]);
+    const colorEase = 1 - Math.exp(-rawDt * 5.5);
+    currentMainRgb = mixRgb(currentMainRgb, targetMain, colorEase);
+    currentAccentRgb = mixRgb(currentAccentRgb, targetAccent, colorEase);
+
+    // Handle waking transition when leaving 'sleeping' for any other state
+    if (lastRawState === null) {
+      lastRawState = rawState;
+      // Snap weights on first frame
+      Object.keys(weights).forEach(k => { weights[k] = (k === rawState) ? 1 : 0; });
+    } else if (lastRawState === 'sleeping' && rawState !== 'sleeping') {
+      wakingTimer = WAKING_DURATION;
+    }
+    lastRawState = rawState;
+
+    if (wakingTimer > 0) {
+      wakingTimer = Math.max(0, wakingTimer - rawDt);
+    }
+
+    const activeState = (wakingTimer > 0 && rawState !== 'sleeping') ? 'waking' : rawState;
+
+    // Ease state weights over ~0.5 seconds (exponential smoothing rate ~6.5)
+    const stateEase = 1 - Math.exp(-rawDt * 6.5);
+    for (const k of Object.keys(weights)) {
+      const target = (k === activeState) ? 1 : 0;
+      weights[k] = lerp(weights[k], target, stateEase);
+    }
+
+    // Blinking and autonomous gaze logic
+    blinkTimer -= rawDt;
+    if (blinkTimer <= 0) {
+      blinkTimer = 2.6 + Math.random() * 3.8;
+    }
+    const blinkWindow = 0.16;
+    if (blinkTimer < blinkWindow) {
+      const t = blinkTimer / blinkWindow;
+      blinkAmount = Math.sin(t * Math.PI);
+    } else {
+      blinkAmount = 0;
+    }
+
+    nextGazeTime -= rawDt;
+    if (nextGazeTime <= 0) {
+      nextGazeTime = 1.8 + Math.random() * 2.8;
+      if (rawState === 'idle') {
+        // Glance around the dark waters or down at the shipwreck helm
+        const r = Math.random();
+        if (r < 0.3) {
+          gazeTargetX = (Math.random() - 0.5) * 1.4;
+          gazeTargetY = -0.3 + Math.random() * 0.6;
+        } else if (r < 0.55) {
+          // Glance at the bone lyre or skull crab
+          gazeTargetX = -0.7;
+          gazeTargetY = 0.45;
+        } else {
+          gazeTargetX = 0;
+          gazeTargetY = 0;
+        }
+      } else if (rawState === 'thinking') {
+        gazeTargetX = -0.45 + Math.sin(simClock * 0.7) * 0.25;
+        gazeTargetY = -0.85;
+      } else if (rawState === 'working') {
+        // Scanning between the floating whirlpool runes and the lyre
+        gazeTargetX = Math.sin(simClock * 3.2) * 0.7;
+        gazeTargetY = 0.35 + Math.cos(simClock * 2.4) * 0.2;
+      } else {
+        gazeTargetX = 0;
+        gazeTargetY = 0;
+      }
+    }
+    const gazeEase = 1 - Math.exp(-rawDt * 5);
+    gazeX = lerp(gazeX, gazeTargetX, gazeEase);
+    gazeY = lerp(gazeY, gazeTargetY, gazeEase);
+
+    // Compute target pose by blending active state behaviors
+    const breath = Math.sin(simClock * 1.9);
+    const slowDrift = Math.sin(simClock * 0.95);
+    const microVar1 = Math.sin(simClock * 2.7 + 0.5);
+    const microVar2 = Math.cos(simClock * 4.1 + 1.9);
+    const microVar3 = Math.sin(simClock * 6.3 + 3.1);
+
+    // Base target values (Idle baseline: sitting poised on the sea-crag, breathing, glancing)
+    let tTorsoLeanX = slowDrift * 4;
+    let tTorsoLiftY = breath * 3.5;
+    let tTorsoTilt = slowDrift * 0.035;
+    let tHeadTilt = slowDrift * 0.06 + gazeX * 0.05;
+    let tHeadNod = breath * 2.5 + gazeY * 5;
+    let tHeadTurnX = gazeX * 7;
+    let tShoulderL = breath * -2;
+    let tShoulderR = breath * -2;
+
+    // Default idle hands: left hand resting near the bone lyre on the rock, right hand poised on knee/rock edge
+    let tHandLX = -84 + slowDrift * 3;
+    let tHandLY = 26 + breath * 2;
+    let tHandRX = 64 - slowDrift * 3;
+    let tHandRY = 56 + breath * 2;
+    let tHandLGest = 0;
+    let tHandRGest = 0;
+
+    let tTailSway = Math.sin(simClock * 1.35) * 18;
+    let tTailCurl = Math.cos(simClock * 1.35 - 0.6) * 14;
+    let tFlukeFlare = 0.15 + breath * 0.08;
+    let tFrillFlare = 0.15 + breath * 0.06;
+
+    let tMouthOpen = 0.04;
+    let tMouthSmile = 0.15; // Enigmatic archaic siren half-smile
+    let tMouthWidth = 1.0;
+    let tBrowArch = 0.08;
+    let tBrowFurrow = 0;
+    let tEyeOpen = 1 - blinkAmount * 0.96;
+
+    let tLanternSwing = Math.sin(simClock * 1.2) * 0.09;
+    let tCrabAlert = 0;
+    let tLyreGlow = 0.2 + 0.1 * Math.sin(simClock * 2.0);
+
+    // 1. SLEEPING: curled/slumped against the bone lyre & rock, slow dim breathing, eyes shut
+    if (weights.sleeping > 0.001) {
+      const w = weights.sleeping;
+      const sleepBreath = Math.sin(simClock * 0.9);
+      tTorsoLeanX = lerp(tTorsoLeanX, -14, w);
+      tTorsoLiftY = lerp(tTorsoLiftY, 15 + sleepBreath * 3, w);
+      tTorsoTilt = lerp(tTorsoTilt, -0.14, w);
+      tHeadTilt = lerp(tHeadTilt, -0.28 + sleepBreath * 0.03, w);
+      tHeadNod = lerp(tHeadNod, 14 + sleepBreath * 3, w);
+      tHeadTurnX = lerp(tHeadTurnX, -6, w);
+      tHandLX = lerp(tHandLX, -66, w);
+      tHandLY = lerp(tHandLY, 52, w);
+      tHandRX = lerp(tHandRX, 24, w);
+      tHandRY = lerp(tHandRY, 64, w);
+      tTailSway = lerp(tTailSway, Math.sin(simClock * 0.55) * 6, w);
+      tTailCurl = lerp(tTailCurl, -10, w);
+      tEyeOpen = lerp(tEyeOpen, 0, w);
+      tMouthOpen = lerp(tMouthOpen, 0.06 + Math.max(0, sleepBreath) * 0.06, w);
+      tMouthSmile = lerp(tMouthSmile, 0.0, w);
+      tLyreGlow = lerp(tLyreGlow, 0.05, w);
+    }
+
+    // 2. WAKING: stretching arms high, arching back, yawning, tail uncurling (~1 second)
+    if (weights.waking > 0.001) {
+      const w = weights.waking;
+      const p = 1 - clamp(wakingTimer / WAKING_DURATION, 0, 1); // 0 -> 1
+      const stretchArc = Math.sin(p * Math.PI);
+      tTorsoLeanX = lerp(tTorsoLeanX, 0, w);
+      tTorsoLiftY = lerp(tTorsoLiftY, -14 * stretchArc, w);
+      tTorsoTilt = lerp(tTorsoTilt, 0.08 * stretchArc, w);
+      tHeadTilt = lerp(tHeadTilt, 0.16 * stretchArc, w);
+      tHeadNod = lerp(tHeadNod, -12 * stretchArc, w);
+      tShoulderL = lerp(tShoulderL, -10 * stretchArc, w);
+      tShoulderR = lerp(tShoulderR, -10 * stretchArc, w);
+      tHandLX = lerp(tHandLX, -92, w);
+      tHandLY = lerp(tHandLY, -78 * stretchArc + 20 * (1 - stretchArc), w);
+      tHandRX = lerp(tHandRX, 92, w);
+      tHandRY = lerp(tHandRY, -78 * stretchArc + 35 * (1 - stretchArc), w);
+      tHandLGest = lerp(tHandLGest, 1, w);
+      tHandRGest = lerp(tHandRGest, 1, w);
+      tMouthOpen = lerp(tMouthOpen, 0.65 * Math.sin(clamp(p * 1.3, 0, 1) * Math.PI), w);
+      tEyeOpen = lerp(tEyeOpen, p > 0.45 ? 1.05 : 0.15, w);
+      tFrillFlare = lerp(tFrillFlare, 0.75 * stretchArc, w);
+      tFlukeFlare = lerp(tFlukeFlare, 0.8 * stretchArc, w);
+    }
+
+    // 3. LISTENING: leaning forward intently, head tilted, right hand cupped near ear/gill-fin, fin frills flared
+    if (weights.listening > 0.001) {
+      const w = weights.listening;
+      const listenPulse = smoothLevel * 12;
+      tTorsoLeanX = lerp(tTorsoLeanX, 10, w);
+      tTorsoLiftY = lerp(tTorsoLiftY, -6 - listenPulse * 0.3, w);
+      tTorsoTilt = lerp(tTorsoTilt, 0.08, w);
+      tHeadTilt = lerp(tHeadTilt, 0.22, w);
+      tHeadNod = lerp(tHeadNod, -4, w);
+      tHeadTurnX = lerp(tHeadTurnX, 5, w);
+      // Right hand cupped gracefully to ear/fin
+      tHandRX = lerp(tHandRX, 54, w);
+      tHandRY = lerp(tHandRY, -52 - listenPulse * 0.4, w);
+      tHandRGest = lerp(tHandRGest, 2, w);
+      // Left hand steadying on the bone lyre
+      tHandLX = lerp(tHandLX, -80, w);
+      tHandLY = lerp(tHandLY, 18, w);
+      tFrillFlare = lerp(tFrillFlare, 0.85 + smoothLevel * 0.3, w);
+      tBrowArch = lerp(tBrowArch, 0.45, w);
+      tMouthOpen = lerp(tMouthOpen, 0.12 + smoothLevel * 0.15, w);
+      tLyreGlow = lerp(tLyreGlow, 0.55 + smoothLevel * 0.45, w);
+    }
+
+    // 4. THINKING: hand to chin, eyes looking upward, left fingers tapping the bone lyre frame
+    if (weights.thinking > 0.001) {
+      const w = weights.thinking;
+      const tap = Math.abs(Math.sin(simClock * 6.5)) * 6;
+      tTorsoLeanX = lerp(tTorsoLeanX, -6, w);
+      tTorsoTilt = lerp(tTorsoTilt, -0.05, w);
+      tHeadTilt = lerp(tHeadTilt, -0.15, w);
+      tHeadNod = lerp(tHeadNod, -8, w);
+      tHeadTurnX = lerp(tHeadTurnX, -6, w);
+      // Right hand thoughtfully at chin
+      tHandRX = lerp(tHandRX, 20, w);
+      tHandRY = lerp(tHandRY, -26 + Math.sin(simClock * 3.2) * 2.5, w);
+      tHandRGest = lerp(tHandRGest, 3, w);
+      // Left hand tapping fingers on top of the lyre
+      tHandLX = lerp(tHandLX, -88, w);
+      tHandLY = lerp(tHandLY, 10 - tap, w);
+      tHandLGest = lerp(tHandLGest, 1, w);
+      tBrowArch = lerp(tBrowArch, 0.55, w);
+      tBrowFurrow = lerp(tBrowFurrow, 0.35, w);
+      tMouthSmile = lerp(tMouthSmile, -0.05, w);
+      tMouthWidth = lerp(tMouthWidth, 0.82, w);
+      tTailSway = lerp(tTailSway, Math.sin(simClock * 2.2) * 24, w);
+      tLyreGlow = lerp(tLyreGlow, 0.65, w);
+    }
+
+    // 5. WORKING: busy hands — left hand plucking the bone lyre, right hand weaving glowing abyssal currents/runes
+    if (weights.working > 0.001) {
+      const w = weights.working;
+      const weaveA = simClock * 5.2;
+      tTorsoLeanX = lerp(tTorsoLeanX, Math.sin(simClock * 2.4) * 8, w);
+      tTorsoLiftY = lerp(tTorsoLiftY, -5 + Math.cos(simClock * 4.8) * 3, w);
+      tHeadNod = lerp(tHeadNod, 6 + Math.sin(simClock * 3.6) * 4, w);
+      tHeadTurnX = lerp(tHeadTurnX, Math.sin(simClock * 2.6) * 9, w);
+      // Left hand actively strumming across the bone lyre strings
+      tHandLX = lerp(tHandLX, -92 + Math.sin(weaveA * 1.3) * 14, w);
+      tHandLY = lerp(tHandLY, 18 + Math.cos(weaveA * 0.9) * 12, w);
+      tHandLGest = lerp(tHandLGest, 3, w);
+      // Right hand tracing a spinning vortex above the water
+      tHandRX = lerp(tHandRX, 48 + Math.cos(weaveA) * 26, w);
+      tHandRY = lerp(tHandRY, 8 + Math.sin(weaveA) * 18, w);
+      tHandRGest = lerp(tHandRGest, 1, w);
+      tTailSway = lerp(tTailSway, Math.sin(simClock * 3.1) * 30, w);
+      tFlukeFlare = lerp(tFlukeFlare, 0.7, w);
+      tFrillFlare = lerp(tFrillFlare, 0.65, w);
+      tLyreGlow = lerp(tLyreGlow, 0.95, w);
+      tLanternSwing = lerp(tLanternSwing, Math.sin(simClock * 3.2) * 0.22, w);
+    }
+
+    // 6. SPEAKING: hypnotic siren song! Mouth follows AV.level closely; hands gesture naturally with voice & non-repeating variations
+    if (weights.speaking > 0.001) {
+      const w = weights.speaking;
+      const v = smoothLevel;
+      // Non-repeating organic gesture combinations driven by multiple incommensurate frequencies + voice level
+      const gX1 = Math.sin(simClock * 2.3) * 16 + Math.cos(simClock * 3.7 + 1.1) * 12;
+      const gY1 = Math.cos(simClock * 1.9) * 14 + Math.sin(simClock * 4.3 + 2.0) * 10;
+      const gX2 = Math.cos(simClock * 2.7 + 0.7) * 18 + Math.sin(simClock * 4.1) * 12;
+      const gY2 = Math.sin(simClock * 2.1 + 1.4) * 15 + Math.cos(simClock * 3.3) * 10;
+
+      tTorsoLeanX = lerp(tTorsoLeanX, 6 + microVar1 * 5, w);
+      tTorsoLiftY = lerp(tTorsoLiftY, -4 - v * 12, w);
+      tTorsoTilt = lerp(tTorsoTilt, microVar2 * 0.06, w);
+      tHeadTilt = lerp(tHeadTilt, microVar1 * 0.14 + (v > 0.45 ? 0.08 : 0), w);
+      tHeadNod = lerp(tHeadNod, -v * 10 + microVar2 * 4, w);
+      tHeadTurnX = lerp(tHeadTurnX, microVar1 * 8, w);
+
+      // Left hand either strums the lyre or rises with open palm on louder passages
+      const loudLift = clamp((v - 0.25) * 1.5, 0, 1);
+      tHandLX = lerp(tHandLX, -74 + gX1 * (0.5 + v * 0.8), w);
+      tHandLY = lerp(tHandLY, 12 - loudLift * 48 + gY1 * (0.5 + v * 0.7), w);
+
+      // Right hand gestures expressively with the voice (open palm, pointing/beckoning on crescendos)
+      tHandRX = lerp(tHandRX, 64 + gX2 * (0.6 + v * 0.9) + loudLift * 18, w);
+      tHandRY = lerp(tHandRY, 10 - v * 58 + gY2 * (0.6 + v * 0.8), w);
+
+      // Switch hand finger pose dynamically between open palm (1) and beckoning/pointing finger (3)
+      tHandLGest = lerp(tHandLGest, v > 0.4 ? 1 : 3, w);
+      tHandRGest = lerp(tHandRGest, (microVar3 > 0.25 && v > 0.35) ? 3 : 1, w);
+
+      // Mouth tracks AV.level with subtle harmonic flutter for singing/speaking
+      const flutter = 0.88 + 0.12 * Math.sin(simClock * 24);
+      tMouthOpen = lerp(tMouthOpen, clamp(0.08 + v * 0.95 * flutter, 0.05, 1.0), w);
+      tMouthWidth = lerp(tMouthWidth, 0.92 + Math.sin(simClock * 7.5) * 0.12 + v * 0.15, w);
+      tMouthSmile = lerp(tMouthSmile, 0.22, w);
+      tBrowArch = lerp(tBrowArch, 0.25 + v * 0.45, w);
+      tFrillFlare = lerp(tFrillFlare, 0.35 + v * 0.65, w);
+      tFlukeFlare = lerp(tFlukeFlare, 0.3 + v * 0.6, w);
+      tTailSway = lerp(tTailSway, Math.sin(simClock * 2.1) * (20 + v * 18), w);
+      tLyreGlow = lerp(tLyreGlow, 0.45 + v * 0.55, w);
+    }
+
+    // 7. HAPPY: warm luminous smile, nod, joyful bounce, hands clasped or raised in appreciation
+    if (weights.happy > 0.001) {
+      const w = weights.happy;
+      const bounce = Math.abs(Math.sin(simClock * 5.2));
+      const nod = Math.sin(simClock * 6.5);
+      tTorsoLiftY = lerp(tTorsoLiftY, -10 * bounce, w);
+      tHeadNod = lerp(tHeadNod, nod * 7 - 3, w);
+      tHeadTilt = lerp(tHeadTilt, 0.14 * Math.sin(simClock * 2.6), w);
+      tHandLX = lerp(tHandLX, -34 - Math.sin(simClock * 4) * 6, w);
+      tHandLY = lerp(tHandLY, -8 - bounce * 10, w);
+      tHandRX = lerp(tHandRX, 34 + Math.sin(simClock * 4) * 6, w);
+      tHandRY = lerp(tHandRY, -8 - bounce * 10, w);
+      tHandLGest = lerp(tHandLGest, 1, w);
+      tHandRGest = lerp(tHandRGest, 1, w);
+      tMouthSmile = lerp(tMouthSmile, 0.88, w);
+      tMouthOpen = lerp(tMouthOpen, 0.24, w);
+      tBrowArch = lerp(tBrowArch, 0.5, w);
+      tFrillFlare = lerp(tFrillFlare, 0.75, w);
+      tFlukeFlare = lerp(tFlukeFlare, 0.85, w);
+      tTailSway = lerp(tTailSway, Math.sin(simClock * 3.8) * 32, w);
+      tLyreGlow = lerp(tLyreGlow, 0.85, w);
+    }
+
+    // 8. ALERT: sitting bolt upright, wide glowing eyes, flared predatory frills, sharp claws, lantern swinging
+    // (Note: pulse kept at <= 2.2 Hz so it never flashes faster than 3 times per second)
+    if (weights.alert > 0.001) {
+      const w = weights.alert;
+      const alertPulse = Math.sin(simClock * Math.PI * 3.6); // ~1.8 Hz (< 3 Hz limit)
+      tTorsoLeanX = lerp(tTorsoLeanX, 0, w);
+      tTorsoLiftY = lerp(tTorsoLiftY, -16, w);
+      tTorsoTilt = lerp(tTorsoTilt, 0, w);
+      tHeadTilt = lerp(tHeadTilt, 0, w);
+      tHeadNod = lerp(tHeadNod, -6, w);
+      tHeadTurnX = lerp(tHeadTurnX, 0, w);
+      tShoulderL = lerp(tShoulderL, -8, w);
+      tShoulderR = lerp(tShoulderR, -8, w);
+      tHandLX = lerp(tHandLX, -86, w);
+      tHandLY = lerp(tHandLY, -18 + alertPulse * 4, w);
+      tHandRX = lerp(tHandRX, 86, w);
+      tHandRY = lerp(tHandRY, -18 - alertPulse * 4, w);
+      tHandLGest = lerp(tHandLGest, 1, w);
+      tHandRGest = lerp(tHandRGest, 1, w);
+      tEyeOpen = lerp(tEyeOpen, 1.28, w);
+      tBrowArch = lerp(tBrowArch, 0.65, w);
+      tBrowFurrow = lerp(tBrowFurrow, 0.85, w);
+      tMouthOpen = lerp(tMouthOpen, 0.32, w);
+      tMouthSmile = lerp(tMouthSmile, -0.35, w);
+      tFrillFlare = lerp(tFrillFlare, 1.0, w);
+      tFlukeFlare = lerp(tFlukeFlare, 1.0, w);
+      tTailSway = lerp(tTailSway, Math.sin(simClock * 4.5) * 28, w);
+      tLanternSwing = lerp(tLanternSwing, Math.sin(simClock * 3.8) * 0.34, w);
+      tCrabAlert = lerp(tCrabAlert, 1.0, w);
+      tLyreGlow = lerp(tLyreGlow, 1.0, w);
+    }
+
+    // Apply smooth damping to all pose parameters
+    const poseEase = 1 - Math.exp(-rawDt * 10);
+    pose.torsoLeanX = lerp(pose.torsoLeanX, tTorsoLeanX, poseEase);
+    pose.torsoLiftY = lerp(pose.torsoLiftY, tTorsoLiftY, poseEase);
+    pose.torsoTilt = lerp(pose.torsoTilt, tTorsoTilt, poseEase);
+    pose.headTilt = lerp(pose.headTilt, tHeadTilt, poseEase);
+    pose.headNod = lerp(pose.headNod, tHeadNod, poseEase);
+    pose.headTurnX = lerp(pose.headTurnX, tHeadTurnX, poseEase);
+    pose.shoulderRiseL = lerp(pose.shoulderRiseL, tShoulderL, poseEase);
+    pose.shoulderRiseR = lerp(pose.shoulderRiseR, tShoulderR, poseEase);
+    pose.handLX = lerp(pose.handLX, tHandLX, poseEase);
+    pose.handLY = lerp(pose.handLY, tHandLY, poseEase);
+    pose.handRX = lerp(pose.handRX, tHandRX, poseEase);
+    pose.handRY = lerp(pose.handRY, tHandRY, poseEase);
+    pose.handLGesture = lerp(pose.handLGesture, tHandLGest, poseEase);
+    pose.handRGesture = lerp(pose.handRGesture, tHandRGest, poseEase);
+    pose.tailSway = lerp(pose.tailSway, tTailSway, poseEase);
+    pose.tailCurl = lerp(pose.tailCurl, tTailCurl, poseEase);
+    pose.flukeFlare = lerp(pose.flukeFlare, tFlukeFlare, poseEase);
+    pose.frillFlare = lerp(pose.frillFlare, tFrillFlare, poseEase);
+    pose.mouthOpen = lerp(pose.mouthOpen, tMouthOpen, 1 - Math.exp(-rawDt * 18));
+    pose.mouthSmile = lerp(pose.mouthSmile, tMouthSmile, poseEase);
+    pose.mouthWidth = lerp(pose.mouthWidth, tMouthWidth, poseEase);
+    pose.browArch = lerp(pose.browArch, tBrowArch, poseEase);
+    pose.browFurrow = lerp(pose.browFurrow, tBrowFurrow, poseEase);
+    pose.eyeOpen = lerp(pose.eyeOpen, tEyeOpen, 1 - Math.exp(-rawDt * 22));
+    pose.lanternSwing = lerp(pose.lanternSwing, tLanternSwing, poseEase);
+    pose.crabAlert = lerp(pose.crabAlert, tCrabAlert, poseEase);
+    pose.lyreGlow = lerp(pose.lyreGlow, tLyreGlow, poseEase);
+
+    // Update abyssal wisps
+    const speedBoost = 1 + weights.working * 1.4 + weights.speaking * smoothLevel * 1.6 + weights.alert * 1.2;
+    for (let i = 0; i < wisps.length; i++) {
+      const p = wisps[i];
+      p.y += p.vy * dt * speedBoost;
+      p.x += Math.sin(simClock * 1.8 + p.phase) * 14 * dt;
+      if (p.y < -230) {
+        p.y = 185 + Math.random() * 45;
+        p.x = (Math.random() - 0.5) * 420;
+      }
+    }
+
+    // Update sleeping floating "z" / slumber bubbles
+    for (let i = 0; i < sleepRunes.length; i++) {
+      sleepRunes[i].progress = (sleepRunes[i].progress + dt * 0.28) % 1;
+    }
+  }
+
+  // ============================================================================
+  // 6. SCENE RENDERING (560x560 Virtual Coordinate Space, Centered & Never Clipped)
+  // ============================================================================
+  const SCENE_SIZE = 560; // Safe bounding box from -280 to +280 in both axes
+
+  function render() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const scale = Math.min(viewW / SCENE_SIZE, viewH / SCENE_SIZE);
+    const cx = viewW * 0.5;
+    const cy = viewH * 0.5;
+
+    ctx.save();
+    ctx.setTransform(scale * dpr, 0, 0, scale * dpr, cx * dpr, cy * dpr);
+
+    // Dim overall luminosity slightly when sleeping
+    const sleepDim = 1 - weights.sleeping * 0.35;
+    const mainCol = darkenRgb(currentMainRgb, sleepDim);
+    const accentCol = darkenRgb(currentAccentRgb, sleepDim);
+
+    // 1. Eerie Bioluminescent Aura & Sound Ripples around the sea-rock base
+    drawWaterAuraAndRipples(mainCol, accentCol);
+
+    // 2. Shipwreck Remnants Behind the Rock (broken bowsprit, drowned lantern, shattered ship wheel)
+    drawShipwreckBack(mainCol, accentCol);
+
+    // 3. The Siren's Resting Place: Jagged Barnacle-Encrusted Sea Crag
+    drawSeaRock(mainCol, accentCol);
+
+    // 4. Serpentine Iridescent Siren Tail & Translucent Abyssal Fin Flukes
+    drawSirenTail(mainCol, accentCol);
+
+    // 5. The Siren's Body, Draped Sea-Silk, Neck, Head, Hair, Arms, Hands & Bone Lyre
+    drawSirenCharacter(mainCol, accentCol);
+
+    // 6. Foreground Props & Companions (Shipwreck Skull-Crab Companion, Foreground Waves & Waveform)
+    drawForegroundCompanionsAndWaves(mainCol, accentCol);
+
+    // 7. State Overlays (Sleeping "Z"s, Working Vortex Runes, Subtle Name / Alert Banner)
+    drawStateOverlays(mainCol, accentCol);
+
+    ctx.restore();
+  }
+
+  // ----------------------------------------------------------------------------
+  // AURA, MIST & AUDIO RIPPLES
+  // ----------------------------------------------------------------------------
+  function drawWaterAuraAndRipples(mainCol, accentCol) {
+    // Soft bioluminescent halo behind the siren and her rock (not scenery, just character presence glow)
+    const auraRadius = 215 + smoothLevel * 35;
+    const grad = ctx.createRadialGradient(0, 20, 15, 0, 30, auraRadius);
+    grad.addColorStop(0, rgbCss(mainCol, 0.22 + smoothLevel * 0.14 + weights.alert * 0.12));
+    grad.addColorStop(0.55, rgbCss(accentCol, 0.08 + smoothLevel * 0.06));
+    grad.addColorStop(1, rgbCss(accentCol, 0));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 25, auraRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rising ghostly wisps (dread / drowned souls motes)
+    for (let i = 0; i < wisps.length; i++) {
+      const p = wisps[i];
+      const fade = clamp(1 - Math.abs(p.y - 10) / 220, 0, 1);
+      const col = (i % 2 === 0) ? mainCol : accentCol;
+      ctx.fillStyle = rgbCss(col, p.alpha * fade * (0.45 + smoothLevel * 0.4));
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Concentric water rings at the base of the rock (y = 188)
+    const ringCount = 3;
+    for (let i = 0; i < ringCount; i++) {
+      const phase = ((simClock * (0.42 + smoothLevel * 0.5) + i / ringCount) % 1);
+      const rx = 145 + phase * (95 + smoothLevel * 35);
+      const ry = 18 + phase * (14 + smoothLevel * 8);
+      const alpha = (1 - phase) * (0.28 + smoothLevel * 0.35 + weights.listening * 0.2);
+      ctx.strokeStyle = rgbCss(i % 2 === 0 ? mainCol : accentCol, alpha);
+      ctx.lineWidth = 1.6 + (1 - phase) * 1.4;
+      ctx.beginPath();
+      ctx.ellipse(0, 192, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // ----------------------------------------------------------------------------
+  // SHIPWRECK SUGGESTION (BROKEN TIMBERS, HANGING DROWNED LANTERN, SHATTERED HELM)
+  // ----------------------------------------------------------------------------
+  function drawShipwreckBack(mainCol, accentCol) {
+    // Left side: Splintered ship bowsprit/spar jutting out of the reef with a swinging drowned lantern
+    ctx.save();
+    ctx.translate(-115, 78);
+    ctx.rotate(-0.42);
+
+    // Timber beam
+    const woodDark = { r: 22, g: 28, b: 38 };
+    const woodMid = mixRgb(woodDark, mainCol, 0.16);
+    ctx.fillStyle = rgbCss(woodDark, 0.96);
+    ctx.strokeStyle = rgbCss(mainCol, 0.35);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-18, 95);
+    ctx.lineTo(-10, -88);
+    ctx.lineTo(-3, -72);
+    ctx.lineTo(4, -95); // jagged splintered tip
+    ctx.lineTo(12, -68);
+    ctx.lineTo(18, 95);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Wood grain & iron bindings
+    ctx.strokeStyle = rgbCss(woodMid, 0.6);
+    ctx.beginPath();
+    ctx.moveTo(-3, 70);
+    ctx.lineTo(-2, -65);
+    ctx.moveTo(6, 55);
+    ctx.lineTo(5, -50);
+    ctx.stroke();
+
+    // Tattered ship rigging shroud trailing down
+    ctx.strokeStyle = rgbCss(accentCol, 0.28);
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(2, -74);
+    ctx.quadraticCurveTo(38, -20 + Math.sin(simClock * 1.7) * 6, 65, 45);
+    ctx.stroke();
+    ctx.restore();
+
+    // Drowned ship's lantern hanging from the splintered spar tip (world coords approx -150, 2)
+    const sparTipX = -152;
+    const sparTipY = 2;
+    ctx.save();
+    ctx.translate(sparTipX, sparTipY);
+    ctx.rotate(pose.lanternSwing);
+
+    // Rusty chain
+    ctx.strokeStyle = rgbCss(mainCol, 0.55);
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, 28);
+    ctx.stroke();
+
+    // Lantern glow (eerie ghostly flame inside)
+    const lanternPulse = 0.75 + 0.25 * Math.sin(simClock * 3.1);
+    const lGrad = ctx.createRadialGradient(0, 44, 2, 0, 44, 38 + smoothLevel * 18);
+    lGrad.addColorStop(0, rgbCss(lightenRgb(mainCol, 0.6), 0.9 * lanternPulse));
+    lGrad.addColorStop(0.4, rgbCss(mainCol, 0.4 * lanternPulse));
+    lGrad.addColorStop(1, rgbCss(mainCol, 0));
+    ctx.fillStyle = lGrad;
+    ctx.beginPath();
+    ctx.arc(0, 44, 38 + smoothLevel * 18, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Lantern cage
+    ctx.fillStyle = 'rgba(12, 18, 28, 0.9)';
+    ctx.strokeStyle = rgbCss(mainCol, 0.7);
+    ctx.lineWidth = 1.6;
+    // Cap
+    ctx.beginPath();
+    ctx.moveTo(-11, 32);
+    ctx.lineTo(0, 25);
+    ctx.lineTo(11, 32);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Glass body
+    ctx.fillStyle = rgbCss(mainCol, 0.22);
+    ctx.beginPath();
+    ctx.moveTo(-9, 32);
+    ctx.lineTo(9, 32);
+    ctx.lineTo(7, 54);
+    ctx.lineTo(-7, 54);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // Ghostly wisp flame inside lantern
+    ctx.fillStyle = rgbCss(lightenRgb(accentCol, 0.55), 0.95);
+    ctx.beginPath();
+    ctx.moveTo(0, 36);
+    ctx.quadraticCurveTo(5, 44, 0, 50);
+    ctx.quadraticCurveTo(-5, 44, 0, 36);
+    ctx.fill();
+    ctx.restore();
+
+    // Right side: Shattered wooden ship's wheel (helm) wedged into the reef rocks
+    ctx.save();
+    ctx.translate(118, 128);
+    // Slightly turns when working or thinking
+    const helmTurn = weights.working * simClock * 0.9 + weights.thinking * Math.sin(simClock * 1.5) * 0.25 + 0.25;
+    ctx.rotate(helmTurn);
+
+    const helmRadius = 52;
+    ctx.strokeStyle = rgbCss(mixRgb({ r: 30, g: 38, b: 50 }, mainCol, 0.35), 0.92);
+    ctx.fillStyle = 'rgba(14, 21, 32, 0.92)';
+    ctx.lineWidth = 7;
+
+    // Broken outer rim (missing a chunk where the ship was dashed on the rocks)
+    ctx.beginPath();
+    ctx.arc(0, 0, helmRadius, -2.55, 1.85);
+    ctx.stroke();
+
+    // Thin inner rim highlight
+    ctx.strokeStyle = rgbCss(mainCol, 0.45);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(0, 0, helmRadius - 3, -2.5, 1.8);
+    ctx.stroke();
+
+    // Spokes & handles (some broken)
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2;
+      const isBroken = (i === 5 || i === 6);
+      const len = isBroken ? helmRadius * 0.55 : helmRadius + 13;
+      ctx.strokeStyle = rgbCss(mixRgb({ r: 25, g: 34, b: 46 }, mainCol, 0.4), 0.9);
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(ang) * len, Math.sin(ang) * len);
+      ctx.stroke();
+
+      if (!isBroken) {
+        ctx.fillStyle = rgbCss(mainCol, 0.55);
+        ctx.beginPath();
+        ctx.arc(Math.cos(ang) * (helmRadius + 13), Math.sin(ang) * (helmRadius + 13), 3.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Brass hub
+    ctx.fillStyle = 'rgba(15, 23, 36, 0.96)';
+    ctx.strokeStyle = rgbCss(accentCol, 0.65);
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // Trailing kelp ribbons hanging from the shattered wheel
+    ctx.save();
+    ctx.strokeStyle = rgbCss(mainCol, 0.35);
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    for (let k = 0; k < 3; k++) {
+      const kx = 98 + k * 20;
+      const ky = 112 + k * 8;
+      const sway = Math.sin(simClock * 1.8 + k) * 9;
+      ctx.beginPath();
+      ctx.moveTo(kx, ky);
+      ctx.quadraticCurveTo(kx + sway, ky + 32, kx + sway * 0.6, ky + 64);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ----------------------------------------------------------------------------
+  // RESTING PLACE: THE SIREN'S BASALT SEA-ROCK & BARNACLES
+  // ----------------------------------------------------------------------------
+  function drawSeaRock(mainCol, accentCol) {
+    ctx.save();
+
+    // Main jagged sea-crag silhouette
+    const rockGrad = ctx.createLinearGradient(0, 48, 0, 200);
+    rockGrad.addColorStop(0, rgbCss(mixRgb({ r: 22, g: 30, b: 44 }, mainCol, 0.22), 0.98));
+    rockGrad.addColorStop(0.5, 'rgba(13, 19, 30, 0.99)');
+    rockGrad.addColorStop(1, 'rgba(7, 11, 18, 0.99)');
+
+    ctx.fillStyle = rockGrad;
+    ctx.strokeStyle = rgbCss(mainCol, 0.45);
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.moveTo(-168, 192);
+    ctx.lineTo(-148, 142);
+    ctx.lineTo(-116, 118);
+    ctx.lineTo(-92, 68);   // Left ledge where the bone lyre rests
+    ctx.lineTo(-48, 60);
+    ctx.lineTo(0, 56);     // Central seat of the siren
+    ctx.lineTo(54, 62);
+    ctx.lineTo(94, 88);
+    ctx.lineTo(132, 134);
+    ctx.lineTo(164, 192);
+    ctx.quadraticCurveTo(0, 206, -168, 192);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Faceted rock planes & wet bioluminescent rim highlights
+    ctx.fillStyle = rgbCss(mainCol, 0.08 + smoothLevel * 0.06);
+    ctx.beginPath();
+    ctx.moveTo(-92, 68);
+    ctx.lineTo(-48, 60);
+    ctx.lineTo(-32, 115);
+    ctx.lineTo(-102, 135);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = rgbCss(accentCol, 0.07);
+    ctx.beginPath();
+    ctx.moveTo(0, 56);
+    ctx.lineTo(54, 62);
+    ctx.lineTo(78, 132);
+    ctx.lineTo(12, 145);
+    ctx.closePath();
+    ctx.fill();
+
+    // Sharp rock fissures glowing faintly with the siren's song
+    ctx.strokeStyle = rgbCss(mainCol, 0.25 + smoothLevel * 0.35 + weights.alert * 0.3);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-64, 64);
+    ctx.lineTo(-46, 118);
+    ctx.lineTo(-68, 165);
+    ctx.moveTo(28, 60);
+    ctx.lineTo(44, 112);
+    ctx.lineTo(25, 172);
+    ctx.moveTo(-116, 118);
+    ctx.lineTo(-82, 152);
+    ctx.stroke();
+
+    // Glowing barnacle clusters clinging to the tide-line
+    const barnacles = [
+      [-124, 156, 5], [-114, 162, 4], [-105, 154, 3.5],
+      [-28, 168, 5.5], [-16, 174, 4], [-6, 169, 4.5],
+      [88, 158, 5], [99, 164, 4.2], [108, 156, 3.5]
+    ];
+    for (let i = 0; i < barnacles.length; i++) {
+      const [bx, by, br] = barnacles[i];
+      ctx.fillStyle = 'rgba(18, 26, 38, 0.95)';
+      ctx.strokeStyle = rgbCss(accentCol, 0.55);
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(bx, by, br, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = rgbCss(mainCol, 0.7);
+      ctx.beginPath();
+      ctx.arc(bx, by, br * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // ----------------------------------------------------------------------------
+  // SIREN TAIL & TRANSLUCENT FLUKE FINS
+  // ----------------------------------------------------------------------------
+  function drawSirenTail(mainCol, accentCol) {
+    ctx.save();
+
+    const hipX = pose.torsoLeanX * 0.35;
+    const hipY = 58 + pose.torsoLiftY * 0.3;
+    const midX = 32 + pose.tailSway * 0.55;
+    const midY = 128;
+    const tipX = -18 + pose.tailSway + pose.tailCurl;
+    const tipY = 178;
+
+    // Translucent lateral hip-fins
+    ctx.fillStyle = rgbCss(accentCol, 0.22 + pose.flukeFlare * 0.15);
+    ctx.strokeStyle = rgbCss(mainCol, 0.55);
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(hipX - 28, hipY + 4);
+    ctx.quadraticCurveTo(hipX - 72 - pose.flukeFlare * 14, hipY + 32, hipX - 30, hipY + 62);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(hipX + 28, hipY + 4);
+    ctx.quadraticCurveTo(hipX + 68 + pose.flukeFlare * 14, hipY + 28, hipX + 36, hipY + 58);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Main serpentine tail body
+    const tailGrad = ctx.createLinearGradient(hipX, hipY, tipX, tipY);
+    tailGrad.addColorStop(0, rgbCss(mixRgb({ r: 16, g: 28, b: 40 }, mainCol, 0.42), 0.98));
+    tailGrad.addColorStop(0.55, rgbCss(mixRgb({ r: 12, g: 22, b: 34 }, accentCol, 0.52), 0.98));
+    tailGrad.addColorStop(1, rgbCss(mainCol, 0.88));
+
+    ctx.fillStyle = tailGrad;
+    ctx.strokeStyle = rgbCss(lightenRgb(mainCol, 0.3), 0.75);
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.moveTo(hipX - 29, hipY);
+    ctx.bezierCurveTo(
+      hipX - 34, hipY + 46,
+      midX - 26, midY - 12,
+      tipX - 8, tipY
+    );
+    ctx.lineTo(tipX + 8, tipY);
+    ctx.bezierCurveTo(
+      midX + 26, midY - 4,
+      hipX + 36, hipY + 42,
+      hipX + 29, hipY
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Shimmering scale chevrons down the tail
+    ctx.strokeStyle = rgbCss(lightenRgb(accentCol, 0.35), 0.38 + smoothLevel * 0.25);
+    ctx.lineWidth = 1.2;
+    for (let i = 1; i <= 6; i++) {
+      const t = i / 7;
+      const sx = (1 - t) * (1 - t) * hipX + 2 * (1 - t) * t * midX + t * t * tipX;
+      const sy = (1 - t) * (1 - t) * hipY + 2 * (1 - t) * t * midY + t * t * tipY;
+      const w = lerp(22, 8, t);
+      ctx.beginPath();
+      ctx.arc(sx - w * 0.35, sy, w * 0.5, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.arc(sx + w * 0.35, sy, w * 0.5, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+    }
+
+    // Translucent bioluminescent tail fluke fan at the tip
+    const flare = 28 + pose.flukeFlare * 24;
+    const flukeGrad = ctx.createRadialGradient(tipX, tipY, 4, tipX, tipY + 18, 65);
+    flukeGrad.addColorStop(0, rgbCss(mainCol, 0.75));
+    flukeGrad.addColorStop(0.6, rgbCss(accentCol, 0.35));
+    flukeGrad.addColorStop(1, rgbCss(accentCol, 0.04));
+
+    ctx.fillStyle = flukeGrad;
+    ctx.strokeStyle = rgbCss(lightenRgb(mainCol, 0.35), 0.7);
+    ctx.lineWidth = 1.5;
+
+    // Left fluke lobe
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.bezierCurveTo(tipX - flare * 1.4, tipY - 12, tipX - flare * 1.8, tipY + 28, tipX - flare * 0.7, tipY + 34);
+    ctx.quadraticCurveTo(tipX - 8, tipY + 18, tipX, tipY + 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Right fluke lobe
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.bezierCurveTo(tipX + flare * 1.4, tipY - 8, tipX + flare * 1.7, tipY + 28, tipX + flare * 0.65, tipY + 34);
+    ctx.quadraticCurveTo(tipX + 8, tipY + 18, tipX, tipY + 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Fin rays inside fluke
+    ctx.strokeStyle = rgbCss(lightenRgb(mainCol, 0.5), 0.4);
+    ctx.lineWidth = 1;
+    for (let r = -3; r <= 3; r++) {
+      if (r === 0) continue;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY + 2);
+      ctx.quadraticCurveTo(tipX + r * 14, tipY + 10, tipX + r * (12 + pose.flukeFlare * 6), tipY + 26);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  // ----------------------------------------------------------------------------
+  // THE SIREN: TORSO, BONE LYRE PROP, HEAD, FACE, HAIR, ARMS & HANDS
+  // ----------------------------------------------------------------------------
+  function drawSirenCharacter(mainCol, accentCol) {
+    // Pale abyssal pearl skin tone tinted subtly by the active theme color
+    const skinBase = mixRgb({ r: 196, g: 214, b: 224 }, mainCol, 0.22);
+    const skinShadow = mixRgb({ r: 34, g: 52, b: 70 }, mainCol, 0.28);
+    const skinRim = lightenRgb(mainCol, 0.45);
+
+    const hipX = pose.torsoLeanX * 0.35;
+    const hipY = 58 + pose.torsoLiftY * 0.3;
+    const chestX = pose.torsoLeanX;
+    const chestY = -8 + pose.torsoLiftY;
+    const neckX = chestX + Math.sin(pose.torsoTilt) * 14;
+    const neckY = chestY - 30;
+    const headX = neckX + pose.headTurnX * 0.4;
+    const headY = neckY - 34 + pose.headNod * 0.65;
+
+    const shoulderLX = chestX - 38;
+    const shoulderLY = chestY - 16 + pose.shoulderRiseL;
+    const shoulderRX = chestX + 38;
+    const shoulderRY = chestY - 16 + pose.shoulderRiseR;
+
+    // 1. Flowing underwater hair back-layer (billowing behind shoulders & head)
+    drawFloatingHair(headX, headY, mainCol, accentCol, true);
+
+    // 2. The Siren's Companion Prop on the Rock: Ancient Siren Bone & Driftwood Lyre
+    drawBoneLyre(mainCol, accentCol);
+
+    // 3. Torso, Collarbones, Abyssal Gill-Slits & Sea-Silk Drapery
+    ctx.save();
+    const torsoGrad = ctx.createLinearGradient(chestX - 36, chestY - 25, chestX + 36, hipY);
+    torsoGrad.addColorStop(0, rgbCss(skinBase, 0.98));
+    torsoGrad.addColorStop(0.7, rgbCss(mixRgb(skinBase, skinShadow, 0.45), 0.98));
+    torsoGrad.addColorStop(1, rgbCss(skinShadow, 0.98));
+
+    ctx.fillStyle = torsoGrad;
+    ctx.strokeStyle = rgbCss(skinRim, 0.65);
+    ctx.lineWidth = 1.8;
+
+    ctx.beginPath();
+    ctx.moveTo(shoulderLX, shoulderLY);
+    ctx.quadraticCurveTo(chestX, chestY - 24, shoulderRX, shoulderRY);
+    ctx.bezierCurveTo(
+      shoulderRX + 4, chestY + 12,
+      hipX + 24, hipY - 24,
+      hipX + 28, hipY
+    );
+    ctx.quadraticCurveTo(hipX, hipY + 10, hipX - 28, hipY);
+    ctx.bezierCurveTo(
+      hipX - 24, hipY - 24,
+      shoulderLX - 4, chestY + 12,
+      shoulderLX, shoulderLY
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Clavicles (collarbones)
+    ctx.strokeStyle = rgbCss(skinShadow, 0.65);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo( shoulderLX + 6, shoulderLY + 4 );
+    ctx.quadraticCurveTo(chestX - 14, chestY - 12, chestX - 3, chestY - 14);
+    ctx.moveTo( shoulderRX - 6, shoulderRY + 4 );
+    ctx.quadraticCurveTo(chestX + 14, chestY - 12, chestX + 3, chestY - 14);
+    ctx.stroke();
+
+    // Bioluminescent rib-side gill slits (pulsing with breath and voice)
+    const gillAlpha = 0.4 + 0.45 * smoothLevel + 0.25 * Math.sin(simClock * 2.5);
+    ctx.strokeStyle = rgbCss(mainCol, gillAlpha);
+    ctx.lineWidth = 1.6;
+    for (let g = 0; g < 3; g++) {
+      const gy = chestY + 10 + g * 8;
+      ctx.beginPath();
+      ctx.moveTo(chestX - 21, gy);
+      ctx.quadraticCurveTo(chestX - 14, gy + 3, chestX - 9, gy + 1);
+      ctx.moveTo(chestX + 21, gy);
+      ctx.quadraticCurveTo(chestX + 14, gy + 3, chestX + 9, gy + 1);
+      ctx.stroke();
+    }
+
+    // Draped Sea-Kelp & Salvaged Ship-Chain Sash across torso
+    ctx.fillStyle = rgbCss(mixRgb({ r: 14, g: 24, b: 36 }, accentCol, 0.35), 0.9);
+    ctx.strokeStyle = rgbCss(mainCol, 0.6);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(shoulderLX + 8, shoulderLY + 2);
+    ctx.quadraticCurveTo(chestX, chestY + 14, hipX + 27, hipY - 8);
+    ctx.lineTo(hipX + 28, hipY + 3);
+    ctx.quadraticCurveTo(chestX - 6, chestY + 26, chestX - 26, chestY + 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Salvaged gold/teal talisman medallion at the sternum (glows with voice)
+    ctx.fillStyle = rgbCss(lightenRgb(mainCol, 0.4), 0.85 + smoothLevel * 0.15);
+    ctx.strokeStyle = rgbCss(accentCol, 0.9);
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(chestX, chestY - 2, 5.5 + smoothLevel * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // 4. Neck & Head with Translucent Ear-Frills, Expressive Eyes, Fangs & Singing Mouth
+    drawHeadAndFace(neckX, neckY, headX, headY, skinBase, skinShadow, skinRim, mainCol, accentCol);
+
+    // 5. Left and Right Arms & Expressive Webbed/Clawed Hands (Solved via 2-bone IK)
+    drawArmAndHand(
+      shoulderLX, shoulderLY,
+      pose.handLX, pose.handLY,
+      50, 48, -1, // Left elbow bends outward left
+      pose.handLGesture,
+      true,
+      skinBase, skinShadow, skinRim, mainCol, accentCol
+    );
+
+    drawArmAndHand(
+      shoulderRX, shoulderRY,
+      pose.handRX, pose.handRY,
+      50, 48, 1, // Right elbow bends outward right
+      pose.handRGesture,
+      false,
+      skinBase, skinShadow, skinRim, mainCol, accentCol
+    );
+  }
+
+  // ----------------------------------------------------------------------------
+  // ANCIENT BONE & DRIFTWOOD LYRE (MOUNTED ON LEFT LEDGE OF THE ROCK)
+  // ----------------------------------------------------------------------------
+  function drawBoneLyre(mainCol, accentCol) {
+    ctx.save();
+    // Positioned on the left ledge of the rock (-92, 66) so the Siren's left hand can rest on or pluck it
+    const lx = -95;
+    const ly = 64;
+    ctx.translate(lx, ly);
+    ctx.rotate(-0.12 + Math.sin(simClock * 1.4) * 0.02);
+
+    // Soundbox made from a weathered sea-turtle shell / ship-timber
+    const boneCol = mixRgb({ r: 185, g: 198, b: 206 }, mainCol, 0.25);
+    const boneDark = mixRgb({ r: 38, g: 52, b: 68 }, mainCol, 0.2);
+
+    ctx.fillStyle = rgbCss(boneDark, 0.96);
+    ctx.strokeStyle = rgbCss(mainCol, 0.65);
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.ellipse(0, -6, 22, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Soundhole glowing with the Siren's song
+    ctx.fillStyle = rgbCss(mainCol, 0.35 + pose.lyreGlow * 0.55);
+    ctx.beginPath();
+    ctx.arc(0, -6, 7.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Curved siren-bone / horn arms of the lyre
+    ctx.fillStyle = rgbCss(boneCol, 0.92);
+    ctx.strokeStyle = rgbCss(mainCol, 0.7);
+    ctx.lineWidth = 1.6;
+
+    // Left horn
+    ctx.beginPath();
+    ctx.moveTo(-16, -12);
+    ctx.bezierCurveTo(-34, -38, -28, -68, -14, -78);
+    ctx.bezierCurveTo(-22, -62, -22, -36, -9, -14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Right horn
+    ctx.beginPath();
+    ctx.moveTo(16, -12);
+    ctx.bezierCurveTo(34, -38, 28, -68, 14, -78);
+    ctx.bezierCurveTo(22, -62, 22, -36, 9, -14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Crossbar (yoke)
+    ctx.strokeStyle = rgbCss(boneCol, 0.95);
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-22, -68);
+    ctx.lineTo(22, -68);
+    ctx.stroke();
+
+    // 5 Luminous Strings that vibrate with AV.samples & working/speaking state
+    const stringSpread = [-10, -5, 0, 5, 10];
+    for (let s = 0; s < stringSpread.length; s++) {
+      const sx = stringSpread[s];
+      const sampleVal = smoothSamples[(s * 12) % 64] || 0;
+      const vib = (sampleVal * 7 * (0.4 + smoothLevel))
+                + (weights.working * Math.sin(simClock * 24 + s * 1.7) * 3.5);
+
+      ctx.strokeStyle = rgbCss(lightenRgb(mainCol, 0.45), 0.5 + pose.lyreGlow * 0.5);
+      ctx.lineWidth = 1.2 + Math.abs(vib) * 0.15;
+      ctx.beginPath();
+      ctx.moveTo(sx * 0.75, -8);
+      ctx.quadraticCurveTo(sx + vib, -38, sx, -68);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  // ----------------------------------------------------------------------------
+  // HEAD, FIN-EARS, GREEK ARCHAIC / EERIE FACIAL FEATURES & FLOATING HAIR
+  // ----------------------------------------------------------------------------
+  function drawHeadAndFace(neckX, neckY, headX, headY, skinBase, skinShadow, skinRim, mainCol, accentCol) {
+    ctx.save();
+
+    // Neck cylinder
+    ctx.fillStyle = rgbCss(mixRgb(skinBase, skinShadow, 0.35), 0.98);
+    ctx.strokeStyle = rgbCss(skinRim, 0.5);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(neckX - 12, neckY + 12);
+    ctx.lineTo(headX - 11, headY + 18);
+    ctx.lineTo(headX + 11, headY + 18);
+    ctx.lineTo(neckX + 12, neckY + 12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Transform into Head local space
+    ctx.translate(headX, headY);
+    ctx.rotate(pose.headTilt);
+
+    // 1. Translucent Webbed Siren Ear-Frills (flare out when listening, singing or alert)
+    const frillSpan = 28 + pose.frillFlare * 16;
+    const frillLift = -8 - pose.frillFlare * 10;
+    for (const dir of [-1, 1]) {
+      ctx.save();
+      ctx.scale(dir, 1);
+      const fGrad = ctx.createLinearGradient(24, 0, 24 + frillSpan, frillLift);
+      fGrad.addColorStop(0, rgbCss(mainCol, 0.72));
+      fGrad.addColorStop(0.7, rgbCss(accentCol, 0.38));
+      fGrad.addColorStop(1, rgbCss(accentCol, 0.08));
+
+      ctx.fillStyle = fGrad;
+      ctx.strokeStyle = rgbCss(lightenRgb(mainCol, 0.4), 0.75);
+      ctx.lineWidth = 1.3;
+
+      ctx.beginPath();
+      ctx.moveTo(24, -10);
+      ctx.quadraticCurveTo(28 + frillSpan * 0.9, frillLift - 16, 26 + frillSpan, frillLift);
+      ctx.quadraticCurveTo(24 + frillSpan * 0.85, frillLift + 12, 22 + frillSpan * 0.75, 8);
+      ctx.quadraticCurveTo(22 + frillSpan * 0.5, 18, 22, 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Fin spines
+      ctx.strokeStyle = rgbCss(lightenRgb(mainCol, 0.5), 0.55);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(24, -5);
+      ctx.lineTo(24 + frillSpan * 0.9, frillLift - 2);
+      ctx.moveTo(23, 2);
+      ctx.lineTo(21 + frillSpan * 0.75, 4);
+      ctx.moveTo(22, 8);
+      ctx.lineTo(20 + frillSpan * 0.52, 13);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 2. Sculpted Greek-Mythology Face Contour (high cheekbones, tapered eerie chin)
+    const headGrad = ctx.createRadialGradient(pose.headTurnX * 0.3, -6, 6, 0, 0, 38);
+    headGrad.addColorStop(0, rgbCss(lightenRgb(skinBase, 0.15), 0.99));
+    headGrad.addColorStop(0.65, rgbCss(skinBase, 0.99));
+    headGrad.addColorStop(1, rgbCss(skinShadow, 0.99));
+
+    ctx.fillStyle = headGrad;
+    ctx.strokeStyle = rgbCss(skinRim, 0.75);
+    ctx.lineWidth = 1.8;
+
+    ctx.beginPath();
+    ctx.moveTo(0, -32);
+    ctx.bezierCurveTo(24, -32, 30, -14, 27, 4);
+    ctx.bezierCurveTo(25, 17, 13, 29, 0, 33);
+    ctx.bezierCurveTo(-13, 29, -25, 17, -27, 4);
+    ctx.bezierCurveTo(-30, -14, -24, -32, 0, -32);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Subtle iridescent cheek scales & eerie under-eye luminescence
+    const fx = pose.headTurnX * 0.45;
+    const fy = pose.headNod * 0.2;
+    ctx.fillStyle = rgbCss(mainCol, 0.25 + smoothLevel * 0.25);
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(fx + dir * 16, fy + 6, 1.6, 0, Math.PI * 2);
+      ctx.arc(fx + dir * 20, fy + 9, 1.3, 0, Math.PI * 2);
+      ctx.arc(fx + dir * 14, fy + 11, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 3. Ancient Greek Siren Crown / Diadem of Salvaged Gold & Sea-Bone
+    ctx.fillStyle = 'rgba(14, 24, 36, 0.92)';
+    ctx.strokeStyle = rgbCss(lightenRgb(mainCol, 0.4), 0.85);
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-24, -18);
+    ctx.quadraticCurveTo(-12, -26, -6, -38);
+    ctx.lineTo(0, -45); // central spire
+    ctx.lineTo(6, -38);
+    ctx.quadraticCurveTo(12, -26, 24, -18);
+    ctx.quadraticCurveTo(0, -25, -24, -18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Glowing gem in the diadem forehead
+    ctx.fillStyle = rgbCss(lightenRgb(accentCol, 0.45), 0.9);
+    ctx.beginPath();
+    ctx.arc(0, -28, 3.2 + smoothLevel * 1.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 4. Eyes (Hypnotic Luminous Sclera & Slit Abyssal Pupils)
+    const eyeOpen = clamp(pose.eyeOpen, 0, 1.35);
+    for (const dir of [-1, 1]) {
+      const ex = fx + dir * 11.5;
+      const ey = fy - 4;
+
+      if (eyeOpen <= 0.08) {
+        // Closed sleeping / blinking eyelid with long lashes
+        ctx.strokeStyle = rgbCss(skinShadow, 0.95);
+        ctx.lineWidth = 2.0;
+        ctx.beginPath();
+        ctx.moveTo(ex - 6.5, ey);
+        ctx.quadraticCurveTo(ex, ey + 3.5, ex + 6.5, ey - 0.5);
+        ctx.stroke();
+
+        // Shimmering lash line
+        ctx.strokeStyle = rgbCss(mainCol, 0.55);
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.moveTo(ex - 6, ey + 1);
+        ctx.quadraticCurveTo(ex, ey + 4.5, ex + 7, ey + 0.5);
+        ctx.stroke();
+      } else {
+        const eh = 4.6 * eyeOpen;
+
+        // Dark abyssal sclera with outer hypnotic glow
+        ctx.fillStyle = 'rgba(8, 15, 24, 0.96)';
+        ctx.strokeStyle = rgbCss(mainCol, 0.85);
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(ex - 7, ey);
+        ctx.quadraticCurveTo(ex, ey - eh * 1.25, ex + 7, ey - 0.5);
+        ctx.quadraticCurveTo(ex, ey + eh * 1.15, ex - 7, ey);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Luminous iris (shifts with gazeX / gazeY)
+        const gx = clamp(gazeX * 2.5, -3.2, 3.2);
+        const gy = clamp(gazeY * 2.0, -2.2, 2.2);
+        const irisRad = clamp(3.6 * Math.min(1.1, eyeOpen), 1.8, 4.4);
+
+        ctx.fillStyle = rgbCss(lightenRgb(mainCol, 0.35), 0.98);
+        ctx.beginPath();
+        ctx.arc(ex + gx, ey + gy, irisRad, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Vertical cat/abyssal slit pupil (narrows eerily in alert or loud song)
+        const slitW = (weights.alert > 0.3 || smoothLevel > 0.5) ? 0.9 : 1.4;
+        ctx.fillStyle = '#040810';
+        ctx.beginPath();
+        ctx.ellipse(ex + gx, ey + gy, slitW, irisRad * 0.85, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eye catchlight
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.beginPath();
+        ctx.arc(ex + gx - 1.2, ey + gy - 1.2, 1.0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Expressive Brows
+      const browY = ey - 6.5 - pose.browArch * 3.5 + pose.browFurrow * (dir === -1 ? 1.5 : 1.5);
+      const innerDrop = pose.browFurrow * 3.5;
+      ctx.strokeStyle = rgbCss(darkenRgb(mainCol, 0.55), 0.92);
+      ctx.lineWidth = 2.0;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(ex - dir * 6.5, browY + innerDrop);
+      ctx.quadraticCurveTo(ex, browY - 2.5, ex + dir * 7.5, browY + 1.5);
+      ctx.stroke();
+    }
+
+    // 5. Classical Grecian Bridge of Nose
+    ctx.strokeStyle = rgbCss(skinShadow, 0.72);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(fx - 1, fy - 5);
+    ctx.lineTo(fx + (pose.headTurnX >= 0 ? 1.8 : -1.8), fy + 7.5);
+    ctx.lineTo(fx - 0.5, fy + 9);
+    ctx.stroke();
+
+    // 6. Mouth (Hypnotic Siren Song — opens with AV.level, reveals tiny pearlescent fangs when singing or alert)
+    const mx = fx;
+    const my = fy + 17.5;
+    const mw = 8.5 * pose.mouthWidth;
+    const mOpen = pose.mouthOpen * 10.5;
+    const smile = pose.mouthSmile * 3.8;
+
+    if (mOpen < 0.8) {
+      // Closed / softly parted lips
+      ctx.fillStyle = rgbCss(mixRgb(skinShadow, mainCol, 0.5), 0.85);
+      ctx.beginPath();
+      ctx.moveTo(mx - mw, my - smile * 0.4);
+      ctx.quadraticCurveTo(mx, my - 2.2, mx + mw, my - smile * 0.4);
+      ctx.quadraticCurveTo(mx, my + 2.8 + smile, mx - mw, my - smile * 0.4);
+      ctx.fill();
+
+      ctx.strokeStyle = rgbCss(darkenRgb(mainCol, 0.55), 0.9);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(mx - mw, my - smile * 0.4);
+      ctx.quadraticCurveTo(mx, my + smile * 0.6, mx + mw, my - smile * 0.4);
+      ctx.stroke();
+    } else {
+      // Singing / speaking open mouth with inner bioluminescence and delicate siren fangs
+      ctx.fillStyle = '#060c16';
+      ctx.strokeStyle = rgbCss(mainCol, 0.85);
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(mx - mw, my - smile * 0.3);
+      ctx.quadraticCurveTo(mx, my - mOpen * 0.45, mx + mw, my - smile * 0.3);
+      ctx.quadraticCurveTo(mx, my + mOpen * 0.85 + smile * 0.4, mx - mw, my - smile * 0.3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Inner throat song-glow when singing loudly
+      if (smoothLevel > 0.08 || weights.speaking > 0.2) {
+        ctx.fillStyle = rgbCss(mainCol, 0.35 + smoothLevel * 0.45);
+        ctx.beginPath();
+        ctx.ellipse(mx, my + mOpen * 0.22, mw * 0.55, mOpen * 0.32, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Delicate upper siren fangs (subtle element of dread)
+      if (mOpen > 2.2) {
+        ctx.fillStyle = 'rgba(235, 248, 255, 0.92)';
+        ctx.beginPath();
+        // Left fang
+        ctx.moveTo(mx - mw * 0.48, my - mOpen * 0.18);
+        ctx.lineTo(mx - mw * 0.34, my + mOpen * 0.16);
+        ctx.lineTo(mx - mw * 0.2, my - mOpen * 0.2);
+        // Right fang
+        ctx.moveTo(mx + mw * 0.2, my - mOpen * 0.2);
+        ctx.lineTo(mx + mw * 0.34, my + mOpen * 0.16);
+        ctx.lineTo(mx + mw * 0.48, my - mOpen * 0.18);
+        ctx.fill();
+      }
+    }
+
+    // Forehead side-locks framing the face
+    ctx.fillStyle = rgbCss(mixRgb({ r: 12, g: 24, b: 38 }, mainCol, 0.28), 0.94);
+    ctx.strokeStyle = rgbCss(mainCol, 0.55);
+    ctx.lineWidth = 1.2;
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(dir * 6, -31);
+      ctx.quadraticCurveTo(dir * 26, -24, dir * 28, 4);
+      ctx.quadraticCurveTo(dir * 31, 22, dir * (22 + Math.sin(simClock * 2 + dir) * 4), 38);
+      ctx.quadraticCurveTo(dir * 22, 12, dir * 20, -14);
+      ctx.quadraticCurveTo(dir * 12, -24, dir * 2, -28);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  // ----------------------------------------------------------------------------
+  // ZERO-GRAVITY UNDERWATER HAIR TENDRILS
+  // ----------------------------------------------------------------------------
+  function drawFloatingHair(headX, headY, mainCol, accentCol, isBack) {
+    ctx.save();
+    const hairDark = mixRgb({ r: 10, g: 20, b: 34 }, mainCol, 0.22);
+    const hairMid = mixRgb({ r: 16, g: 34, b: 52 }, accentCol, 0.38);
+
+    const energy = 1 + smoothLevel * 0.9 + weights.working * 0.5 + weights.alert * 0.7;
+
+    for (let i = 0; i < hairStrands.length; i++) {
+      const st = hairStrands[i];
+      if (!isBack && !st.tendril) continue;
+
+      const sx = headX + st.ox;
+      const sy = headY + st.oy;
+
+      const wave1 = Math.sin(simClock * 1.6 * energy + st.phase) * 26;
+      const wave2 = Math.cos(simClock * 2.3 * energy + st.phase * 1.3) * 34;
+
+      // Hair floats outward and slightly upward as if suspended in dark water
+      const lift = (weights.speaking * smoothLevel * 28) + (weights.alert * 32) - (weights.sleeping * 24);
+      const c1x = sx + st.side * 55 + wave1 * 0.6;
+      const c1y = sy - 18 - lift * 0.5 + Math.abs(st.side) * 22;
+      const c2x = sx + st.side * 95 + wave2;
+      const c2y = sy + 35 - lift;
+      const ex = sx + st.side * (115 + (st.tendril ? 20 : 0)) + wave1 * 1.1;
+      const ey = sy + (st.tendril ? -15 : 68) - lift;
+
+      ctx.strokeStyle = st.tendril
+        ? rgbCss(lightenRgb(mainCol, 0.25), 0.65)
+        : rgbCss(hairDark, 0.94);
+      ctx.lineWidth = st.width;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.bezierCurveTo(c1x, c1y, c2x, c2y, ex, ey);
+      ctx.stroke();
+
+      // Bioluminescent strand highlight
+      ctx.strokeStyle = rgbCss(st.tendril ? accentCol : hairMid, 0.55 + smoothLevel * 0.3);
+      ctx.lineWidth = st.width * 0.32;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.bezierCurveTo(c1x, c1y, c2x, c2y, ex, ey);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ----------------------------------------------------------------------------
+  // ARMS, FOREARM FINS & EXPRESSIVE WEBBED/CLAWED HANDS
+  // ----------------------------------------------------------------------------
+  function drawArmAndHand(sx, sy, tx, ty, L1, L2, bendDir, gesture, isLeft, skinBase, skinShadow, skinRim, mainCol, accentCol) {
+    const ik = solveIK(sx, sy, tx, ty, L1, L2, bendDir);
+
+    ctx.save();
+
+    // Translucent forearm fin trailing from elbow to wrist
+    const finMidX = (ik.ex + ik.hx) * 0.5 + bendDir * 18;
+    const finMidY = (ik.ey + ik.hy) * 0.5 + 10;
+    ctx.fillStyle = rgbCss(accentCol, 0.28 + smoothLevel * 0.2);
+    ctx.strokeStyle = rgbCss(mainCol, 0.55);
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(ik.ex, ik.ey);
+    ctx.quadraticCurveTo(finMidX, finMidY, ik.hx, ik.hy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Upper arm
+    ctx.strokeStyle = rgbCss(skinShadow, 0.95);
+    ctx.lineWidth = 13;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ik.ex, ik.ey);
+    ctx.stroke();
+
+    ctx.strokeStyle = rgbCss(skinBase, 0.96);
+    ctx.lineWidth = 10.5;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ik.ex, ik.ey);
+    ctx.stroke();
+
+    // Forearm
+    ctx.strokeStyle = rgbCss(skinShadow, 0.95);
+    ctx.lineWidth = 11;
+    ctx.beginPath();
+    ctx.moveTo(ik.ex, ik.ey);
+    ctx.lineTo(ik.hx, ik.hy);
+    ctx.stroke();
+
+    ctx.strokeStyle = rgbCss(mixRgb(skinBase, mainCol, 0.18), 0.96);
+    ctx.lineWidth = 8.5;
+    ctx.beginPath();
+    ctx.moveTo(ik.ex, ik.ey);
+    ctx.lineTo(ik.hx, ik.hy);
+    ctx.stroke();
+
+    // Expressive Webbed Hand with Delicate Siren Claws
+    const wristAngle = Math.atan2(ik.hy - ik.ey, ik.hx - ik.ex);
+    ctx.translate(ik.hx, ik.hy);
+    ctx.rotate(wristAngle);
+
+    // Palm
+    ctx.fillStyle = rgbCss(skinBase, 0.98);
+    ctx.strokeStyle = rgbCss(skinRim, 0.7);
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.ellipse(4, 0, 7.5, 5.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Fingers & Webbing (varies by gesture: 0=relaxed, 1=open spread, 2=cupped, 3=pointing/plucking)
+    const spreadFactor = gesture < 1
+      ? lerp(0.55, 1.15, gesture)
+      : gesture < 2
+        ? lerp(1.15, 0.4, gesture - 1)
+        : lerp(0.4, 0.85, gesture - 2);
+
+    const fingerAngles = [-0.55, -0.18, 0.18, 0.52].map(a => a * spreadFactor);
+    const isPointing = gesture > 2.3;
+
+    // Translucent webbing between fingers
+    ctx.fillStyle = rgbCss(accentCol, 0.28);
+    ctx.beginPath();
+    ctx.moveTo(6, 0);
+    for (let f = 0; f < 4; f++) {
+      const fa = fingerAngles[f];
+      const flen = (isPointing && f !== 1) ? 8 : 13;
+      ctx.lineTo(6 + Math.cos(fa) * flen * 0.75, Math.sin(fa) * flen * 0.75);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Individual fingers + luminous claw tips
+    for (let f = 0; f < 4; f++) {
+      const fa = fingerAngles[f];
+      const flen = (isPointing && f !== 1) ? 7.5 : (f === 1 || f === 2 ? 14.5 : 12.5);
+      const fxEnd = 6 + Math.cos(fa) * flen;
+      const fyEnd = Math.sin(fa) * flen;
+
+      ctx.strokeStyle = rgbCss(skinBase, 0.96);
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(6, (f - 1.5) * 1.6);
+      ctx.lineTo(fxEnd, fyEnd);
+      ctx.stroke();
+
+      // Sharp bioluminescent siren claw tip
+      ctx.fillStyle = rgbCss(lightenRgb(mainCol, 0.45), 0.9);
+      ctx.beginPath();
+      ctx.arc(fxEnd, fyEnd, 1.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Thumb
+    const thumbDir = isLeft ? -1 : 1;
+    ctx.strokeStyle = rgbCss(skinBase, 0.96);
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(2, thumbDir * 4);
+    ctx.lineTo(8, thumbDir * (9 + spreadFactor * 3));
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // ----------------------------------------------------------------------------
+  // FOREGROUND COMPANION (SKULL HERMIT CRAB) & AUDIO WAVEFORM WAVES
+  // ----------------------------------------------------------------------------
+  function drawForegroundCompanionsAndWaves(mainCol, accentCol) {
+    // 1. Eerie Companion on the Right Ledge of the Rock: A Hermit Crab living inside a Drowned Sailor's Skull
+    // Reacts to states: tucked in when sleeping, scuttles/claws when working/speaking/alert
+    ctx.save();
+    const crabX = 76 + Math.sin(simClock * 1.7) * (weights.sleeping > 0.5 ? 0 : 4);
+    const crabY = 152 - pose.crabAlert * 5;
+    ctx.translate(crabX, crabY);
+    ctx.rotate(0.08 + Math.sin(simClock * 3.5) * 0.04 * (1 - weights.sleeping));
+
+    // Crab legs & pincers emerging from beneath the skull
+    const awakeFactor = 1 - weights.sleeping * 0.85;
+    ctx.strokeStyle = rgbCss(mainCol, 0.85);
+    ctx.lineWidth = 2.0;
+    ctx.lineCap = 'round';
+    for (const dir of [-1, 1]) {
+      for (let l = 0; l < 2; l++) {
+        const step = Math.sin(simClock * 5 + l * 1.5 + dir) * 3 * awakeFactor;
+        ctx.beginPath();
+        ctx.moveTo(dir * (8 + l * 5), 6);
+        ctx.lineTo(dir * (18 + l * 6), 2 + step);
+        ctx.lineTo(dir * (22 + l * 6), 12 + step * 0.5);
+        ctx.stroke();
+      }
+    }
+
+    // Weathered Sailor Skull Shell
+    const skullCol = mixRgb({ r: 175, g: 192, b: 204 }, mainCol, 0.25);
+    ctx.fillStyle = rgbCss(darkenRgb(skullCol, 0.78), 0.96);
+    ctx.strokeStyle = rgbCss(mainCol, 0.65);
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(0, -4, 15, Math.PI * 0.95, Math.PI * 2.05);
+    ctx.lineTo(11, 8);
+    ctx.lineTo(-11, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Skull eye sockets (glowing with tiny crab eyes inside when awake!)
+    ctx.fillStyle = '#050a12';
+    ctx.beginPath();
+    ctx.arc(-5.5, -2, 3.8, 0, Math.PI * 2);
+    ctx.arc(5.5, -2, 3.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Nasal cavity
+    ctx.beginPath();
+    ctx.moveTo(0, 1);
+    ctx.lineTo(-2.2, 5.5);
+    ctx.lineTo(2.2, 5.5);
+    ctx.closePath();
+    ctx.fill();
+
+    if (weights.sleeping < 0.7) {
+      const eyeGlow = weights.alert > 0.3 ? '#ef4444' : rgbCss(lightenRgb(mainCol, 0.5), 0.95);
+      ctx.fillStyle = eyeGlow;
+      ctx.beginPath();
+      ctx.arc(-5.5 + gazeX * 1.2, -2, 1.5 + pose.crabAlert * 0.6, 0, Math.PI * 2);
+      ctx.arc(5.5 + gazeX * 1.2, -2, 1.5 + pose.crabAlert * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 2. Foreground Bioluminescent Waterline & 64-Sample Voice Waveform
+    ctx.save();
+    const baseWaterY = 192;
+    const waveWidth = 370;
+
+    // Back wave crest
+    ctx.strokeStyle = rgbCss(accentCol, 0.42 + smoothLevel * 0.3);
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    for (let i = 0; i < 64; i++) {
+      const t = i / 63;
+      const x = (t - 0.5) * waveWidth;
+      const edgeTaper = Math.sin(t * Math.PI);
+      const sample = smoothSamples[i] || 0;
+      const tide = Math.sin(simClock * 2.2 + i * 0.22) * 3.5;
+      const y = baseWaterY - 4 + (tide + sample * (24 + smoothLevel * 22)) * edgeTaper;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Primary foreground waveform crest
+    ctx.strokeStyle = rgbCss(lightenRgb(mainCol, 0.35), 0.78 + smoothLevel * 0.22);
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    for (let i = 0; i < 64; i++) {
+      const t = i / 63;
+      const x = (t - 0.5) * (waveWidth + 30);
+      const edgeTaper = Math.sin(t * Math.PI);
+      const sample = smoothSamples[63 - i] || 0;
+      const tide = Math.cos(simClock * 1.8 + i * 0.18) * 4;
+      const y = baseWaterY + 5 + (tide + sample * (30 + smoothLevel * 26)) * edgeTaper;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // ----------------------------------------------------------------------------
+  // STATE OVERLAYS (SLEEPING "Z"s, WORKING VORTEX, SUBTLE NAME & ALERT TEXT)
+  // ----------------------------------------------------------------------------
+  function drawStateOverlays(mainCol, accentCol) {
+    // 1. Sleeping: drifting luminous "z" glyphs rising from the siren's head
+    if (weights.sleeping > 0.05) {
+      ctx.save();
+      ctx.font = '600 16px Georgia, serif';
+      ctx.textAlign = 'center';
+      for (let i = 0; i < sleepRunes.length; i++) {
+        const r = sleepRunes[i];
+        const p = r.progress;
+        const alpha = Math.sin(p * Math.PI) * weights.sleeping * 0.75;
+        const zx = -10 + r.offset + Math.sin(p * Math.PI * 2 + i) * 14;
+        const zy = -98 - p * 85;
+        const sz = 0.75 + p * 0.65;
+        ctx.save();
+        ctx.translate(zx, zy);
+        ctx.scale(sz, sz);
+        ctx.fillStyle = rgbCss(lightenRgb(mainCol, 0.4), alpha);
+        ctx.fillText('z', 0, 0);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    // 2. Working / Thinking: Spinning abyssal astrolabe / whirlpool rings around the Siren's hands
+    const busyWeight = Math.max(weights.working, weights.thinking * 0.65);
+    if (busyWeight > 0.04) {
+      ctx.save();
+      const vx = lerp(0, pose.handRX, weights.working);
+      const vy = lerp(-125, pose.handRY, weights.working);
+      ctx.translate(vx, vy);
+
+      ctx.strokeStyle = rgbCss(lightenRgb(mainCol, 0.35), busyWeight * 0.75);
+      ctx.lineWidth = 1.8;
+      for (let ring = 0; ring < 2; ring++) {
+        const rad = 18 + ring * 12;
+        const rot = simClock * (ring === 0 ? 2.6 : -1.9);
+        ctx.save();
+        ctx.rotate(rot);
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        ctx.arc(0, 0, rad, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    // 3. Subtle Assistant Name engraved like an ancient Greek inscription on the base rock
+    const envName = (AVRef && AVRef.env && typeof AVRef.env.name === 'string' && AVRef.env.name.trim())
+      ? AVRef.env.name.trim().toUpperCase()
+      : '';
+    if (envName) {
+      ctx.save();
+      ctx.font = '600 10.5px Georgia, "Times New Roman", serif';
+      ctx.textAlign = 'center';
+      ctx.letterSpacing = '3px';
+      ctx.fillStyle = rgbCss(lightenRgb(mainCol, 0.3), 0.42);
+      ctx.fillText(envName, 0, 218);
+      ctx.restore();
+    }
+
+    // 4. Alert Message Banner (if AV.env.alert is present or in alert state)
+    const alertMsg = (AVRef && AVRef.env && typeof AVRef.env.alert === 'string' && AVRef.env.alert.trim())
+      ? AVRef.env.alert.trim()
+      : null;
+    if (alertMsg && weights.alert > 0.05) {
+      ctx.save();
+      const pulse = 0.75 + 0.25 * Math.sin(simClock * Math.PI * 3.2); // Safe < 3Hz pulse
+      ctx.font = '600 12px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      const textW = Math.min(360, ctx.measureText(alertMsg).width + 28);
+
+      ctx.fillStyle = `rgba(28, 8, 12, ${(0.82 * weights.alert).toFixed(3)})`;
+      ctx.strokeStyle = rgbCss(mainCol, pulse * weights.alert);
+      ctx.lineWidth = 1.5;
+
+      const bx = -textW * 0.5;
+      const by = -238;
+      const bh = 26;
+      ctx.beginPath();
+      ctx.roundRect(bx, by, textW, bh, 13);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = rgbCss(lightenRgb(mainCol, 0.65), weights.alert);
+      ctx.fillText(alertMsg, 0, by + 17);
+      ctx.restore();
+    }
+  }
+
+  // ============================================================================
+  // 7. MAIN ANIMATION LOOP
+  // ============================================================================
+  function frame(now) {
+    updateSimulation(now);
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

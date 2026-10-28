@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Long replies are not read aloud in full. *(A result such as a report or a list of papers is spoken up to 1,500 characters, about a minute and a half, then she says the rest is on the screen. Settings → Voice → "Read aloud at most"; 0 reads everything.)*
+- No more surprise system voice. *(When the offline voice is too slow or fails mid-reply, the rest of the reply stays on screen instead of switching to the Windows voice; the system voice fills in only if you chose it as the fallback in Settings → Voice.)*
+- Fixed: dialogs (a skill's editor, a connector's permission) shimmered at the edges while you typed or the countdown ticked (a blurred card over a blurred overlay re-rendered on every caret blink); the card is a solid surface now.
+- Fixed: in Skills, every card in a row was as tall as the tallest (a skill with twenty trigger phrases left the others mostly empty); cards take their own height, and a long list of trigger phrases shows five with "+N more".
+- Step inside a building. *(Inner World → a place → 🚪 Step inside opens the room from above, over the island: a flat, outlined crew-quarters look with the place's furniture made of your data (a shelf per learning topic with the understood books in colour, a table per vocabulary deck with a cup per due card, a cabinet per batch of memories, a bed per resident, your recently opened documents as paper stacks on the Workshop's drafting table and in the Archive's pigeonholes, a star chart per skill area, a banner per habit, a flower bed per habit…) and the residents who are there now as little figures who walk between the stations and do what their day plan says. While I work with you, my figure stands at the tool's station with a progress bar and says what it is doing. Hover anything for what it holds of you; click a paper stack to open the document, a figure for their day. Esc or ← Step outside leaves. On the phone and tablet too.)*
+- Siren has her own face and place now. *(A new install starts with the Siren custom face, the sea nymph on her rock, and her moonlit cove drawn behind it, wide and tall. The face is shipped in the faces folder like any custom face, so you can edit it or pick another; a later version refreshes it only if you never edited it. Existing installs keep the face and scene they have.)*
+- Fixed on the phone and tablet: the full-screen face button did nothing since 2.5.1 (the face canvas sat over it, so taps never reached it); the phone test now taps it for real.
+- The scene behind the face is drawn twice, wide and tall. *(A wide picture cropped to the chat's narrow face panel or a phone's full-screen face showed only its quiet middle; now a tall drawing of the same place, made at the same time, is shown in tall holders. "↻ Draw the scene again" makes both.)*
+
 ## 2.5.2 — 2026-10-28
 
 - Fixed: the phone app learned about a new version only at the computer's daily check (the phone never asks GitHub itself), so an APK published after that check stayed hidden for up to a day. Now a phone asking refreshes an answer older than three hours in the background, the computer re-checks at start when it is itself newer than the last answer (you just installed a new version), and a check that finds something tells paired phones at once (the More screen refreshes). Meanwhile, Settings → "Check for updates now" still works.

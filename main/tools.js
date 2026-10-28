@@ -15,7 +15,7 @@ const SETTABLE = {
   llm: ['baseUrl', 'model', 'temperature', 'maxTokens', 'historyLimit', 'modelMode', 'autoPace', 'fastModel', 'deepModel', 'maxToolRounds', 'engineeringToolRounds'],
   claudeCode: ['model', 'effort', 'fastModel', 'deepModel', 'cliPath', 'idleMinutes'],
   anthropic: ['model', 'effort', 'fastModel', 'deepModel'],
-  voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'thinkingSound', 'thinkingVolume', 'filler', 'fallback', 'localVoice'],
+  voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'speakLimit', 'thinkingSound', 'thinkingVolume', 'filler', 'fallback', 'localVoice'],
   stt: ['enabled', 'engine', 'localModel', 'language', 'pttKey', 'autoSend', 'micMode', 'micDevice', 'headphones', 'vadSensitivity'],
   calendar: ['daysAhead'],
   routing: ['smart', 'cooldownMin'],

@@ -84,14 +84,21 @@ async function generate({ masterPrompt, aesthetic, palette, voices, image, optio
 
 /**
  * The scene behind the face (scenecore.js): the model draws the place the persona lives in as one
- * SVG in the theme's colors. Returns { svg, caption } ready for appearance.scene.
+ * SVG in the theme's colors, twice at once: wide, and tall for narrow panels (optional: without it the
+ * wide one is cropped). Returns { svg, portrait, caption } ready for appearance.scene.
  */
 async function generateScene({ masterPrompt, aesthetic, theme }) {
   const settings = await store.getSettings();
-  const text = await llm.complete(settings, scenecore.buildPrompt({ name: settings.agent.name, masterPrompt, aesthetic, colors: theme?.colors || {} }), { maxTokens: 20000, timeoutMs: 480000 });
-  const scene = scenecore.cleanScene(text);
-  log.info('scene drawn', { bytes: scene.bytes, elements: scene.elements, layers: scene.layers });
-  return { svg: scene.svg, caption: scene.caption };
+  const draw = async (orientation) => {
+    const text = await llm.complete(settings, scenecore.buildPrompt({ name: settings.agent.name, masterPrompt, aesthetic, colors: theme?.colors || {}, orientation }), { maxTokens: 20000, timeoutMs: 480000 });
+    const scene = scenecore.cleanScene(text, { orientation });
+    log.info('scene drawn', { orientation, bytes: scene.bytes, elements: scene.elements, layers: scene.layers });
+    return scene;
+  };
+  const [wide, tall] = await Promise.allSettled([draw('landscape'), draw('portrait')]);
+  if (wide.status === 'rejected') throw wide.reason;
+  if (tall.status === 'rejected') log.warn('portrait scene failed', { error: tall.reason });
+  return { svg: wide.value.svg, portrait: tall.status === 'fulfilled' ? tall.value.svg : '', caption: wide.value.caption };
 }
 
 // Same choices the renderer's theme engine supports (renderer/js/theme.js).

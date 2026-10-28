@@ -60,6 +60,15 @@ test('the prompt carries the persona, the aesthetic, the palette and the frame',
   assert.ok(!p.includes('bad red'));
 });
 
+test('the tall drawing: its own frame in the prompt and on the root', () => {
+  const p = core.buildPrompt({ name: 'Max', masterPrompt: 'x', aesthetic: 'y', orientation: 'portrait' });
+  assert.ok(p.includes('viewBox="0 0 900 1600"'));
+  assert.ok(p.includes('a tall picture'));
+  assert.ok(core.buildPrompt({ name: 'Max', masterPrompt: 'x', aesthetic: 'y' }).includes('viewBox="0 0 1600 900"'));
+  const r = core.cleanScene(SCENE, { orientation: 'portrait' });
+  assert.ok(r.svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1600" preserveAspectRatio="xMidYMid slice"'));
+});
+
 test('persona.generateScene asks the model with the theme colors and returns the clean scene', async () => {
   const dir = require('./helpers').tmpDir('nexus-scene-');
   const calls = [];
@@ -71,7 +80,10 @@ test('persona.generateScene asks the model with the theme colors and returns the
   const r = await persona.generateScene({ masterPrompt: 'A ringmaster.', aesthetic: 'carnival', theme: { colors: { accent: '#ff0066' } } });
   assert.strictEqual(r.caption, 'a big top at night');
   assert.ok(r.svg.startsWith('<svg'));
-  assert.ok(calls[0].text.includes('accent #ff0066'));
+  assert.ok(r.svg.includes('viewBox="0 0 1600 900"'));
+  assert.ok(r.portrait.includes('viewBox="0 0 900 1600"'), 'the tall drawing, from a second call made at the same time');
+  assert.strictEqual(calls.length, 2);
+  assert.ok(calls.every((c) => c.text.includes('accent #ff0066')));
   assert.ok(calls[0].opts.maxTokens >= 8000);
   require('fs').rmSync(dir, { recursive: true, force: true });
 });

@@ -1117,7 +1117,8 @@ async function applyScene(sc) {
   }
   try {
     const r = await api('/api/scene');
-    holder.innerHTML = window.DOMPurify.sanitize(String(r.svg || ''), SCENE_PURIFY);
+    const one = (text, cls) => window.DOMPurify.sanitize(String(text), SCENE_PURIFY).replace(/^<svg\b/, `<svg class="${cls}"`);
+    holder.innerHTML = r.svg ? one(r.svg, 'landscape') + (r.portrait ? one(r.portrait, 'portrait') : '') : '';
     holder.classList.toggle('on', Boolean(r.svg));
     state.sceneKey = key;
   } catch {

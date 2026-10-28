@@ -29,7 +29,7 @@ const DEFAULTS = {
     theme: brand.THEME, // generated or edited theme object; null = the "Neon Circuit" theme
     personaNotes: '', // tone/style notes derived from the aesthetic, injected into the system prompt
     greeting: '', // welcome line on the empty chat and spoken on launch; empty = a default greeting
-    scene: null, // { svg, caption }: the place the persona lives in, drawn behind the face (main/scenecore.js); null = none
+    scene: brand.SCENE, // { svg, portrait, caption }: the place the persona lives in, drawn behind the face (main/scenecore.js); null = none
     applyVoice: true, // let persona generation pick a matching VoiceStudio voice
   },
   // The user's saved personas (main/personacore.js). The live agent/appearance/ui.face/voice settings
@@ -106,6 +106,7 @@ const DEFAULTS = {
     speed: 1.0,
     format: 'mp3',
     greetOnLaunch: true,
+    speakLimit: 1500, // read aloud at most this many characters of a reply (about a minute and a half), then "the rest is on screen"; 0 = everything
     thinkingSound: 'grandfather', // grandfather | clock | soft | classic | off (starts after a short pause)
     thinkingVolume: 0.5,
     filler: true, // short spoken lines while tools run
@@ -239,7 +240,7 @@ const DEFAULTS = {
   ui: {
     showVisualizerInChat: true,
     captions: true,
-    face: 'siren', // siren | circuit | radial | rain | neural | companion | custom:<folder>
+    face: brand.FACE, // siren | circuit | radial | rain | neural | companion | custom:<folder> (the default: Siren's shipped custom face)
     zoom: 1, // whole-window zoom (Ctrl + / Ctrl − / Ctrl 0, Ctrl + wheel)
     chatLayout: 'split', // chat | split | face — what the chat view shows
     facePanelWidth: 300, // width of the face next to the chat in the split layout (drag the divider)

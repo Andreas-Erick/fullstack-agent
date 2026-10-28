@@ -7,6 +7,14 @@ The code map is in `CLAUDE.md` (Inner World) and the art kit in `renderer/js/wor
 
 Ordered by impact for the effort, as discussed on 2026-10-26.
 
+## 0. Inside the buildings
+Built (2.5.3): "Step inside" opens the room from above over the island (`renderer/js/world/room.js`,
+hosted by `js/roomview.js` on the desktop and the phone's world screen): the furniture is the user's
+data, the residents walk between stations following their plans, the active persona works at the tool's
+station during a turn, documents open from the paper stacks. Still open: the figures could carry
+things between stations, talk to each other in a scene, and the room could show the time of day on
+the windows' light more finely.
+
 ## 1. Celebrate level-ups
 Built (2.1.1): the glow and sparks, the panel line and the toast (`world:event` `levelup`). Still
 open: scaffolding, dust and fireworks as one-off sprite animations.

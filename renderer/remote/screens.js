@@ -516,7 +516,7 @@ async function world() {
   const d = await api('/api/data/world');
   if (!d.vault) return empty('The Inner World needs the vault on the computer.', null, 'world');
   if (!d.enabled) return empty('The village is asleep. Wake it on the computer (World view) and your personas start living there.', null, 'world');
-  const [{ buildMap }, { palette, W, HZ }, scene, { loadSprites, spritesReady }, { seasonOf }] = await Promise.all([import('/js/world/map.js'), import('/js/world/art.js'), import('/js/world/scene.js'), import('/js/world/sprites.js'), import('/js/world/season.js')]);
+  const [{ buildMap }, { palette, W, HZ }, scene, { loadSprites, spritesReady }, { seasonOf }, room] = await Promise.all([import('/js/world/map.js'), import('/js/world/art.js'), import('/js/world/scene.js'), import('/js/world/sprites.js'), import('/js/world/season.js'), import('/js/world/room.js')]);
   if (ctx.state.info?.art !== 'drawn') await loadSprites().catch(() => false);
   const canvas = el('canvas', { class: 'world-canvas', 'aria-label': 'The village' });
   const info = el('div', { class: 'world-info' });
@@ -627,29 +627,85 @@ async function world() {
     worldLoop.raf = requestAnimationFrame(tick);
   };
 
-  // Stepping inside a built place (as on the desktop): its walls are cut away to show the room with what
-  // it holds of you. A double tap or the card's button goes in; the button, zooming out or moving away
-  // goes back out.
+  // Stepping inside a built place (as on the desktop, renderer/js/roomview.js): the room from above
+  // opens over the island (/js/world/room.js), its furniture made of your data, the residents who are
+  // there now walking between the stations. A double tap or the card's button goes in; the button goes
+  // back out. One simulation per place, so the figures stay where they were when you come back.
   const rescale = () => {
     const want = islandScale(cam.z * size.dpr);
     if (Math.abs(want - island.scale) / island.scale > 0.4) paint(want);
   };
   const canEnter = (id) => Boolean(map.sites[id] && places.find((p) => p.id === id)?.level);
+  const roomSims = new Map();
+  let roomRaf = 0;
+  const leaveRoom = () => {
+    cancelAnimationFrame(roomRaf);
+    wrap.querySelector('.world-room')?.remove();
+    wrap.style.removeProperty('height');
+  };
   const enter = (id) => {
     if (!canEnter(id)) return;
-    const s = map.sites[id];
-    const c = W(s.gx, s.gy, s.h * HZ + 12);
+    leaveRoom();
     data.interior = id;
     selected = id;
-    paint(islandScale(home.z * 2.6 * size.dpr));
-    flight = { from: { ...cam }, to: { x: c.x, y: c.y, z: home.z * 2.6 }, start: performance.now() };
+    const place = places.find((p) => p.id === id);
+    const icon = d.places.find((p) => p.id === id)?.icon || '';
+    const sim = roomSims.get(id) || room.createSim();
+    roomSims.set(id, sim);
+    const lay = room.layout(id, place.level, { details: d.details, residents: d.residents, docs: [], rehearsals: [], scenes: d.day?.scenes || [] });
+    const rc = el('canvas', { class: 'world-room-canvas', 'aria-label': 'Inside the building: the residents at work and what the place holds of you' });
+    const tipEl = el('div', { class: 'world-room-tip hidden' });
+    wrap.append(el('div', { class: 'world-room' }, el('div', { class: 'world-room-head' }, el('b', {}, `${icon} ${place.name}`), el('button', { class: 'btn small', type: 'button', onclick: () => leave() }, '← Step outside')), rc, tipEl));
+    // A phone's box takes the room's own shape (its width × the room's proportions, plus the head), set once.
+    if (!document.body.classList.contains('wide')) wrap.style.height = `${Math.round(wrap.clientWidth * (room.RH / room.RW) + 44)}px`;
+    const rs = { w: 0, h: 0, dpr: 1 };
+    const g2 = rc.getContext('2d');
+    let actors = [];
+    let hover = null;
+    let last = 0;
+    let lastRoomDraw = 0;
+    const anim = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const resizeRoom = () => {
+      const r = rc.getBoundingClientRect();
+      if (!r.width || !r.height) return false;
+      rs.dpr = Math.min(window.devicePixelRatio || 1, 2);
+      rs.w = r.width;
+      rs.h = r.height;
+      rc.width = Math.round(r.width * rs.dpr);
+      rc.height = Math.round(r.height * rs.dpr);
+      return true;
+    };
+    const tickRoom = (t) => {
+      if (!rc.isConnected || data.interior !== id) return;
+      roomRaf = requestAnimationFrame(tickRoom);
+      if (t - lastRoomDraw < 1000 / (ctx.state.info?.worldFps || 30) - 4) return;
+      const dt = last ? Math.min(0.1, (t - last) / 1000) : 0;
+      last = t;
+      lastRoomDraw = t;
+      if (!rs.w && !resizeRoom()) return;
+      const now = new Date();
+      const m = now.getHours() * 60 + now.getMinutes();
+      const here = people().filter((p) => p.place === id).map((p) => ({ name: p.name, color: p.color, active: p.kind === 'active', kind: p.kind, activity: p.activity, working: p.working, thinking: p.thinking, asleep: p.asleep }));
+      actors = sim.update(here, lay.stations, anim ? dt : 0, t / 1000);
+      g2.setTransform(rs.dpr, 0, 0, rs.dpr, 0, 0);
+      room.draw(g2, { w: rs.w, h: rs.h, P, t: t / 1000, place: id, level: place.level, name: place.name, stations: lay.stations, actors, floor: lay.floor, open: lay.open, night: m < 6 * 60 || m >= 20 * 60, anim, lite: true, hover });
+    };
+    // A tap says what a thing holds of you, or what a resident is doing.
+    rc.addEventListener('click', (e) => {
+      const r = rc.getBoundingClientRect();
+      const hit = room.pick(rs.w, rs.h, lay.stations, actors, e.clientX - r.left, e.clientY - r.top);
+      hover = hit?.type === 'station' ? hit : null;
+      if (!hit) return tipEl.classList.add('hidden');
+      tipEl.replaceChildren(el('b', {}, hit.type === 'actor' ? hit.actor.name : hit.station.label || hit.station.kind), ' · ', hit.type === 'actor' ? `${hit.actor.activity || 'here'}${hit.actor.working ? ' (right now)' : ''}` : hit.station.info || '');
+      tipEl.classList.remove('hidden');
+    });
+    roomRaf = requestAnimationFrame(tickRoom);
     showPlace(info, d, id, nav);
   };
-  const leave = ({ fly = true } = {}) => {
+  const leave = () => {
     if (!data.interior) return;
+    leaveRoom();
     data.interior = null;
-    paint(islandScale(cam.z * size.dpr));
-    if (fly) flight = { from: { ...cam }, to: { ...home }, start: performance.now() };
     showPlace(info, d, selected, nav);
   };
   const leftBuilding = () => {
@@ -689,7 +745,7 @@ async function world() {
     if (gesture.moved && leftBuilding()) leave({ fly: false });
   });
   const end = (e) => {
-    const wasTap = gesture && !gesture.moved && pts.size === 1;
+    const wasTap = gesture && !gesture.moved && pts.size === 1 && cam; // before the first frame there is no camera to tap through
     pts.delete(e.pointerId);
     if (wasTap) {
       const r = canvas.getBoundingClientRect();
@@ -702,7 +758,7 @@ async function world() {
       else showPlace(info, d, selected, nav);
     }
     gesture = pts.size ? { cam: { ...cam }, pts: new Map([...pts].map(([k, v]) => [k, { ...v }])), moved: true } : null;
-    rescale();
+    if (cam && island) rescale(); // a touch before the first frame has nothing to rescale yet
   };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);

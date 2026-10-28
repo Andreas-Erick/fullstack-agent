@@ -127,6 +127,13 @@ iframe#face { border: 0; background: transparent; color-scheme: normal; }
 .face-scene.on { opacity: 0.92; }
 body.asleep .face-scene.on { opacity: 0.42; }
 .face-scene svg { position: absolute; inset: -5%; width: 110%; height: 110%; }
+/* A tall holder (the full-screen face on a phone) shows the tall drawing when there is one. */
+.face-scene { container-type: size; }
+.face-scene svg.portrait { display: none; }
+@container (aspect-ratio < 0.8) {
+  .face-scene:has(svg.portrait) svg.landscape { display: none; }
+  .face-scene svg.portrait { display: block; }
+}
 .face-scene svg g { transform-box: view-box; }
 .face-scene svg #far { animation: scene-far 110s ease-in-out infinite alternate; }
 .face-scene svg #mid { animation: scene-mid 75s ease-in-out infinite alternate; }
@@ -537,6 +544,15 @@ body:not(.wide):not(.face-full).view-panel .face-wrap, body:not(.wide).view-pane
 .more-tile small { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .world-wrap { position: relative; height: 52vh; height: 52dvh; min-height: 260px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); flex: none; }
 .world-canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+/* Inside a building (screens.js, drawn by /js/world/room.js): the room over the island. */
+.world-room { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); z-index: 2; }
+.world-room-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.world-room-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-room-canvas { flex: 1; min-height: 0; width: 100%; display: block; touch-action: manipulation; }
+/* On a phone the box takes the room's own shape while one is open (screens.js sets its height once, in
+   pixels: a height that followed the content would loop with the island's resize observer). */
+.world-room-tip { position: absolute; left: 10px; right: 10px; bottom: 10px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--bg) 90%, transparent); border: 1px solid var(--card-edge, var(--line)); font-size: 12.5px; line-height: 1.4; pointer-events: none; }
+.world-room-tip b { color: var(--accent); }
 .world-info { display: flex; flex-direction: column; gap: 12px; }
 
 /* The Architecture map (screens.js arch(), drawn by /js/archdraw.js): the canvas, its two buttons, the
@@ -653,7 +669,9 @@ math[display='block'] { display: block; margin: 0.5em 0; overflow-x: auto; overf
 @keyframes flash { from { background: color-mix(in srgb, var(--accent) 25%, transparent); } }
 
 /* Full-screen face (app.js setFaceFull): only the face and its state, over everything. */
-.face-full-btn { position: absolute; right: 10px; bottom: 4px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); display: grid; place-items: center; opacity: 0.7; }
+/* Above the face canvas (#face sits at z-index 1 over the scene), or taps never reach the button. */
+.face-full-btn { position: absolute; right: 10px; bottom: 4px; z-index: 2; width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); display: grid; place-items: center; opacity: 0.7; }
+.face-state { z-index: 2; pointer-events: none; }
 .face-full-btn svg { width: 18px; height: 18px; }
 .face-full-btn:hover, .face-full-btn:focus-visible { opacity: 1; color: var(--accent); }
 body.face-full .face-wrap { position: fixed; inset: 0; z-index: 40; height: auto; min-height: 0; display: block !important; background: var(--bg); }

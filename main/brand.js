@@ -1,5 +1,8 @@
-// The product: its name, the default persona (Siren: her master prompt, theme, face and voice) and
-// what installs from before the rename keep. Pure data, no Electron, so tests and the phone can share it.
+// The product: its name, the default persona (Siren: her master prompt, theme, face, scene and voice)
+// and what installs from before the rename keep. Data only, no Electron (the scene drawings are read
+// from main/scenes once), so tests can load it.
+const fs = require('fs');
+const path = require('path');
 
 const PRODUCT = 'Siren Assistant';
 const AGENT_NAME = 'Siren';
@@ -75,14 +78,21 @@ const THEME = {
 
 const GREETING = 'Siren here. What shall we take on?';
 
+// Her face: the custom face shipped in renderer/faces/bundled/siren (faces.js copies it into the user's
+// faces folder), and the place she lives in, drawn behind the face (main/scenes, wide and tall).
+const FACE = 'custom:siren';
+const sceneFile = (name) => fs.readFileSync(path.join(__dirname, 'scenes', name), 'utf8');
+const SCENE = { svg: sceneFile('siren.svg'), portrait: sceneFile('siren-tall.svg'), caption: "Moonlit siren's cove with shipwreck" };
+
 // What an install from before 2.0 (Nexus Agent) keeps when a setting was never saved: the rename must
 // not change anyone's name, look, face or voice. [section, key, value]
 const LEGACY = [
   ['agent', 'name', 'Nexus'],
   ['appearance', 'theme', null],
+  ['appearance', 'scene', null], // the scene behind the face belongs to a persona; only a fresh install starts with Siren's
   ['ui', 'face', 'circuit'],
   ['voice', 'engine', 'voicestudio'],
   ['llm', 'provider', 'openai'],
 ];
 
-module.exports = { PRODUCT, AGENT_NAME, MASTER_PROMPT, THEME, GREETING, LEGACY };
+module.exports = { PRODUCT, AGENT_NAME, MASTER_PROMPT, THEME, GREETING, FACE, SCENE, LEGACY };
