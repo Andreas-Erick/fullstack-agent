@@ -14,7 +14,7 @@ const LAYERS = ['far', 'mid', 'near'];
 // shows only its quiet middle).
 const FRAMES = { landscape: { w: WIDTH, h: HEIGHT }, portrait: { w: HEIGHT, h: WIDTH } };
 
-function buildPrompt({ name, masterPrompt, aesthetic, colors = {}, orientation = 'landscape' }) {
+function buildPrompt({ name, masterPrompt, aesthetic, colors = {}, orientation = 'landscape', userName = '' }) {
   const palette = Object.entries(colors)
     .filter(([, v]) => /^#[0-9a-f]{6}$/i.test(String(v)))
     .map(([k, v]) => `${k} ${v}`)
@@ -37,6 +37,9 @@ ${String(aesthetic || '(none given — derive it from the persona)').slice(0, 20
 ${palette ? `\nTHE APP'S PALETTE (use these colors and tints and shades of them; let the background colors dominate so the character stands out): ${palette}\n` : ''}
 Pick a concrete place that fits (a circus ringmaster: the fairground at night, the big top, booths, rides, string lights, a crowd; a sea nymph: a moonlit cove with rocks, kelp and a wreck; a librarian: tall shelves, ladders, a reading lamp, stacks of books). Make it rich and lived-in: a full place with many things in it, flat layered vector shapes, soft gradients, lights and glows, a floor with texture (planks, cobbles, sand, sawdust) and shadows under things. First list for yourself 10 to 14 motifs that belong to this place, then draw all of them.
 
+Make it feel made by a hand and lived in, not generated. Where it fits the place, work in some of these (not all, never as a checklist): surface imperfections (a scratch, chipped paint, a crack in a wall, a faded patch, uneven texture); asymmetry (a sign hanging crooked, a stool out of place, a roof line that isn't straight, an off-centre arrangement); signs of use (worn steps, a scuffed table, a frayed banner, a patched tent, a repaired fence); environmental storytelling (something left behind, a note pinned up, a half-burned candle, footprints, evidence of what happened before); natural randomness (dust and leaves that gathered unevenly, irregular folds in cloth, small variation between things of the same kind); lighting imperfections (one lamp brighter than the next, deep shadows, dull reflections, things half in shadow); human craftsmanship (visible brush marks, a pencil line that stayed, rough edges, hand-carved unevenness); mundane details (a bucket, a coil of rope, a mug, a coin, a key: the ordinary things that make a place believable); evidence of cause and effect (a wet patch under a dripping bucket, soot on the wall above a lamp, a path worn where people walk, a shelf bowed under heavy books, a chair pushed back from a table someone just left). Subtle: a few well-placed ones beat many.${userName ? `
+Hide the name "${userName}" somewhere in the scene as an easter egg: small, part of the world and not obvious (carved into a bench or a plank, a label on a crate, the name on a boat's stern, a tag on a mailbox, scratched into a wall, a scribble on a notice). It must be findable by someone looking for it, never a title or a caption. For this one word only, a <text> element is allowed (font-size at most 22, a plain font-family, no other text anywhere).` : ''}
+
 Respond with ONLY one <svg> element, no prose, no code fences, starting with an XML comment that captions the scene in at most six words: <!-- caption: ... -->
 
 Requirements:
@@ -44,7 +47,7 @@ Requirements:
 - Exactly three groups, in this order, holding everything: <g id="far"> (sky, stars or clouds, distant silhouettes: hills, a skyline, more tents, trees), <g id="mid"> (the main scenery: at least ${tall ? 'four' : 'six'} distinct structures or objects, plus small life such as simple silhouettes of people, animals, lanterns, flags, signs), <g id="near"> (foreground framing at the edges and the bottom: a prop or two in each lower corner, something hanging in from the top, the floor). The app moves them at different speeds for depth.
 - The character sits in the centre, so inside a circle of radius ${tall ? 300 : 260} around (${f.w / 2}, ${f.h / 2}) put only what it stands on or in front of, in low contrast: a stage, a doorway, an archway, a path, a glow of light, a plain wall. Everything outside that circle is full: no empty area bigger than a tenth of the picture; the sky has stars, clouds, beams or bunting; the ground has texture.
 - 200 to 450 elements. Use only basic shapes, paths, polygons and linearGradient / radialGradient in <defs>. Repeat small things with varied positions and sizes (lights, stars, pebbles, planks) rather than one big flat fill.
-- No text, no <image>, no <use>, no <style>, no <filter>, no <foreignObject>, no <script>, no animation, no external references of any kind. Under 70 KB.`;
+- No text${userName ? ' (apart from the hidden name)' : ''}, no <image>, no <use>, no <style>, no <filter>, no <foreignObject>, no <script>, no animation, no external references of any kind. Under 70 KB.`;
 }
 
 /** The SVG in a model reply (prose and code fences around it ignored), or null. */

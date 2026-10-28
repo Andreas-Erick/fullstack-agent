@@ -22,6 +22,17 @@ const note = path.join(vault, 'Notes', GUIDE);
 const seenFile = path.join(vault, '.obsidian', 'siren-guides.json');
 const bundled = () => fs.readFileSync(path.join(__dirname, '..', 'main', 'guides', GUIDE), 'utf8').replace(/\{\{name\}\}/g, 'Nexus');
 
+test('the user’s first name from the free-text profile, when it is written one of the usual ways', () => {
+  const n = obsidian.nameFrom;
+  assert.strictEqual(n('# Profile\n\n## Who I Am\n- **Name:** Andreas Erick\n- Lives in Vienna\n\n## Goals\nName: not this'), 'Andreas');
+  assert.strictEqual(n('## Who I Am\nName: Erick (wants to be called Erick).\n\n## Key People\n'), 'Erick');
+  assert.strictEqual(n('## Who I Am\nI\'m Mira, a student of physics.'), 'Mira');
+  assert.strictEqual(n('## Who I Am\nMy name is José and I teach.'), 'José');
+  assert.strictEqual(n('## Who I Am\nA software engineer who likes sailing.'), '', 'no name given: none invented');
+  assert.strictEqual(n('## Who I Am\nName: 42'), '');
+  assert.strictEqual(n(''), '');
+});
+
 test('guides are placed with the agent name and remembered with a hash', async () => {
   fs.mkdirSync(path.join(vault, '.obsidian'), { recursive: true });
   await obsidian.placeGuides(vault, 'Nexus');

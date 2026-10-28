@@ -60,6 +60,16 @@ test('the prompt carries the persona, the aesthetic, the palette and the frame',
   assert.ok(!p.includes('bad red'));
 });
 
+test('the prompt asks for a hand-made, lived-in place, and hides the user’s name only when it knows one', () => {
+  const p = core.buildPrompt({ name: 'Max', masterPrompt: 'x', aesthetic: 'y', userName: 'Andreas' });
+  for (const s of ['surface imperfections', 'asymmetry', 'signs of use', 'environmental storytelling', 'natural randomness', 'lighting imperfections', 'craftsmanship', 'mundane details']) assert.ok(p.toLowerCase().includes(s), s);
+  assert.ok(p.includes('Hide the name "Andreas"'));
+  assert.ok(p.includes('apart from the hidden name'));
+  const q = core.buildPrompt({ name: 'Max', masterPrompt: 'x', aesthetic: 'y' });
+  assert.ok(!q.includes('Hide the name'));
+  assert.ok(q.includes('- No text,'));
+});
+
 test('the tall drawing: its own frame in the prompt and on the root', () => {
   const p = core.buildPrompt({ name: 'Max', masterPrompt: 'x', aesthetic: 'y', orientation: 'portrait' });
   assert.ok(p.includes('viewBox="0 0 900 1600"'));
@@ -75,6 +85,7 @@ test('persona.generateScene asks the model with the theme colors and returns the
   stub({
     electron: { app: { getPath: () => dir }, safeStorage: { isEncryptionAvailable: () => false } },
     './llm': { complete: async (_s, text, opts) => (calls.push({ text, opts }), SCENE) },
+    './obsidian': { userName: async () => 'Tester' },
   });
   const persona = load('main/persona.js');
   const r = await persona.generateScene({ masterPrompt: 'A ringmaster.', aesthetic: 'carnival', theme: { colors: { accent: '#ff0066' } } });
@@ -84,6 +95,7 @@ test('persona.generateScene asks the model with the theme colors and returns the
   assert.ok(r.portrait.includes('viewBox="0 0 900 1600"'), 'the tall drawing, from a second call made at the same time');
   assert.strictEqual(calls.length, 2);
   assert.ok(calls.every((c) => c.text.includes('accent #ff0066')));
+  assert.ok(calls.every((c) => c.text.includes('Hide the name "Tester"')), 'the user’s name from the profile, as the easter egg');
   assert.ok(calls[0].opts.maxTokens >= 8000);
   require('fs').rmSync(dir, { recursive: true, force: true });
 });
