@@ -12,6 +12,7 @@ const core = require('./updatecore');
 const REPO = 'Andreas-Erick/fullstack-agent'; // package.json build.publish
 const API = `https://api.github.com/repos/${REPO}/releases/latest`;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DEVICE_FRESH_MS = 3 * 60 * 60 * 1000; // a phone asking: an answer older than this is refreshed in the background
 const FIRST_CHECK_MS = 60 * 1000; // after launch, so the check never competes with the start
 const TIMEOUT_MS = 15000;
 
@@ -19,6 +20,16 @@ const file = () => path.join(store.dataDir(), 'updates.json');
 let notify = () => {};
 let timer = null;
 let last = null; // { checkedAt, latest, error }
+let checking = null; // the check in flight, so two askers share one request
+
+/**
+ * Whether the saved answer `l` needs a new check for an app running `version` now: a day has passed, or
+ * the app is newer than the newest release the answer knows (a fresh install: the answer is stale).
+ */
+function needsCheck(l, version, now = Date.now()) {
+  if (now - (l.checkedAt || 0) >= DAY_MS - 60000) return true;
+  return Boolean(l.latest?.version && core.newer(version, l.latest.version));
+}
 
 async function saved() {
   if (!last) last = await store.readJson(file(), {});
@@ -42,19 +53,27 @@ async function fetchLatest() {
 async function check({ manual = false } = {}) {
   const s = await store.getSettings();
   if (!manual && s.updates?.check === false) return status();
-  const prev = await saved();
+  if (checking) return checking;
+  checking = (async () => {
+    const prev = await saved();
+    try {
+      const latest = await fetchLatest();
+      last = { checkedAt: Date.now(), latest };
+      log.info('update check', { current: app.getVersion(), latest: latest?.version || null, manual });
+    } catch (err) {
+      last = { ...prev, checkedAt: Date.now(), error: err.message };
+      log.warn('update check failed', { error: err });
+    }
+    await store.writeJsonAtomic(file(), last).catch(() => {});
+    const st = await status();
+    notify(st);
+    return st;
+  })();
   try {
-    const latest = await fetchLatest();
-    last = { checkedAt: Date.now(), latest };
-    log.info('update check', { current: app.getVersion(), latest: latest?.version || null, manual });
-  } catch (err) {
-    last = { ...prev, checkedAt: Date.now(), error: err.message };
-    log.warn('update check failed', { error: err });
+    return await checking;
+  } finally {
+    checking = null;
   }
-  await store.writeJsonAtomic(file(), last).catch(() => {});
-  const st = await status();
-  notify(st);
-  return st;
 }
 
 /** The current state: is a newer version out (and not skipped), when it was last checked. */
@@ -67,6 +86,9 @@ async function status() {
 /** For paired phones (/api/info): the newest Android and watch APKs, nothing else. */
 async function forDevices() {
   const l = await saved();
+  // A phone asks rarely (it connects, or the look changed): an answer older than a few hours is refreshed
+  // in the background; the check's notify tells devices (info.changed), and their next ask gets it.
+  if (Date.now() - (l.checkedAt || 0) >= DEVICE_FRESH_MS && !checking) check().catch(() => {});
   return l.latest?.android ? { version: l.latest.version, android: l.latest.android, wear: l.latest.wear || null, page: l.latest.page } : null;
 }
 
@@ -74,12 +96,11 @@ function start(opts = {}) {
   notify = opts.notify || notify;
   clearInterval(timer);
   const due = async () => {
-    const l = await saved();
-    if (Date.now() - (l.checkedAt || 0) >= DAY_MS - 60000) await check();
+    if (needsCheck(await saved(), app.getVersion())) await check();
   };
   setTimeout(() => due().catch(() => {}), FIRST_CHECK_MS).unref?.();
   timer = setInterval(() => due().catch(() => {}), 60 * 60 * 1000);
   timer.unref?.();
 }
 
-module.exports = { start, check, status, forDevices, REPO };
+module.exports = { start, check, status, forDevices, needsCheck, REPO, DEVICE_FRESH_MS };

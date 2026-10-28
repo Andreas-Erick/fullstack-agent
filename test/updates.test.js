@@ -74,6 +74,44 @@ test('a check asks GitHub once, keeps the answer, and tells phones only about th
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('when a check is due: daily, or the app is already newer than the last answer (a fresh install)', () => {
+  const dir = tmpDir('nexus-updates-due-');
+  stub({ electron: { app: { getVersion: () => '2.5.1' }, net: {} }, './store': fileStore(dir, { getSettings: async () => ({}) }), './logger': quietLog });
+  const updates = load('main/updates.js');
+  const now = Date.now();
+  assert.ok(updates.needsCheck({}, '2.5.1', now), 'never checked');
+  assert.ok(updates.needsCheck({ checkedAt: now - 25 * 3600 * 1000, latest: { version: '2.5.1' } }, '2.5.1', now), 'a day passed');
+  assert.ok(!updates.needsCheck({ checkedAt: now - 3600 * 1000, latest: { version: '2.5.1' } }, '2.5.1', now), 'fresh and current');
+  assert.ok(!updates.needsCheck({ checkedAt: now - 3600 * 1000, latest: { version: '2.6.0' } }, '2.5.1', now), 'fresh and a newer release known');
+  assert.ok(updates.needsCheck({ checkedAt: now - 3600 * 1000, latest: { version: '2.4.0' } }, '2.5.1', now), 'the app is newer than the answer: it is stale');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a phone asking refreshes a stale answer in the background; two askers share one request', async () => {
+  const dir = tmpDir('nexus-updates-dev-');
+  const asked = [];
+  let release1 = null;
+  stub({
+    electron: { app: { getVersion: () => '2.0.3' }, net: { fetch: async (url) => (asked.push(url), new Promise((r) => setTimeout(() => r({ ok: true, status: 200, json: async () => release1 || release }), 30))) } },
+    './store': fileStore(dir, { getSettings: async () => ({ updates: { check: true } }) }),
+    './logger': quietLog,
+  });
+  const updates = load('main/updates.js');
+  const stale = { checkedAt: Date.now() - updates.DEVICE_FRESH_MS - 1000, latest: { version: '2.0.3', android: 'https://github.com/Andreas-Erick/fullstack-agent/releases/download/v2.0.3/Siren-Android-2.0.3.apk', page: release.html_url } };
+  fs.writeFileSync(path.join(dir, 'updates.json'), JSON.stringify(stale));
+  const first = await updates.forDevices();
+  assert.strictEqual(first.version, '2.0.3', 'the stale answer at once, no waiting for GitHub');
+  await updates.forDevices();
+  assert.strictEqual(asked.length, 1, 'one background check for both asks');
+  await new Promise((r) => setTimeout(r, 80));
+  assert.strictEqual((await updates.forDevices()).version, '2.1.0', 'the next ask has the new release');
+  assert.strictEqual(asked.length, 1, 'fresh now: no further check');
+  const [a, b] = await Promise.all([updates.check(), updates.check()]);
+  assert.strictEqual(a.version, b.version);
+  assert.strictEqual(asked.length, 2, 'two simultaneous checks share one request');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('only the user turns update checks on or off', () => {
   const tools = fs.readFileSync(path.join(ROOT, 'main/tools.js'), 'utf8');
   const settable = /const SETTABLE = \{([\s\S]*?)\n\};/.exec(tools)[1];
