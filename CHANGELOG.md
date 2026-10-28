@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 2.6.3 — 2026-10-28
+
+The first release of 2.6.2’s changes as well (2.6.2 was tagged but never published: the build machine took longer than the phone-client check allowed to draw the village at tablet size).
 
 - Fixed: the end-of-turn record of self-changes committed everything that had changed in the app's folder, including edits made there by someone else while the turn ran (a developer, Claude Code), under the turn's request as the message. It now records only the files the assistant's own tools wrote during the turn (everything, as before, only when the turn ran a shell command, which could have changed anything).
 
