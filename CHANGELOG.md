@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.6.2 — 2026-10-28
 
 - Push to talk answers at once. *(Each press used to open the microphone from scratch, which cost a few hundred milliseconds: the first word was lost and a short press recorded nothing; a press while the last words were still being transcribed was dropped; and a quick release could leave the recording running. The microphone is now opened ahead at launch and kept open a minute and a half after each press, a press during a transcription waits for it instead of being dropped, and a release always stops the recording it belongs to.)*
 - A new app icon: the sea nymph on her rock with her lyre, and the personas she can be as masks on the ring of her song (a ringmaster, a scholar, a companion). On the installer, the phone app and the watch too.
