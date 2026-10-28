@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.6.1 — 2026-10-28
 
 - Fixed: at start the face was awake for a split second before falling asleep (the sleeping state was set after the faces had drawn, and a custom face assumed "idle" until its first update). Asleep from the very first frame now, on the computer and the phone.
 
