@@ -356,8 +356,14 @@ const sse = (channel, payload) => `event: ${channel.replace(':', '.')}\ndata: ${
 // have changed, devices hear "info.changed" and fetch /api/info again (coalesced: Settings saves often).
 let infoTimer = null;
 function settingsChanged(patch) {
-  if (!server || !patch || typeof patch !== 'object') return;
+  if (!patch || typeof patch !== 'object') return;
   if (!Object.keys(patch).some((k) => INFO_SECTIONS.includes(k))) return;
+  infoChanged();
+}
+
+/** Something /api/info says has changed (settings, a new release found): devices fetch it again, coalesced. */
+function infoChanged() {
+  if (!server) return;
   clearTimeout(infoTimer);
   infoTimer = setTimeout(() => publish('info:changed', { at: Date.now() }), 400);
   infoTimer.unref?.();
@@ -914,4 +920,4 @@ async function chat(req, res, device) {
   return json(res, 200, { requestId, conversationId: r.conversationId });
 }
 
-module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged, presenceTracker };
+module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged, infoChanged, presenceTracker };

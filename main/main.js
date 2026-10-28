@@ -1008,7 +1008,8 @@ app.whenReady().then(async () => {
   startRoutines();
   startTasks();
   require('./innerworld').start({ notify: (ev) => toWindow('world:event', ev) });
-  if (!smoke.active) require('./updates').start({ notify: (st) => toWindow('updates:state', st) });
+  // A check's answer goes to the title bar, and to paired phones (they offer the newest APK from /api/info).
+  if (!smoke.active) require('./updates').start({ notify: (st) => (toWindow('updates:state', st), companion.infoChanged()) });
   store.sweepStaleTemp().catch(() => {});
   claudecode.sweepStaleTemp().catch(() => {});
 

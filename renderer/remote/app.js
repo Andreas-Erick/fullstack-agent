@@ -363,9 +363,10 @@ function dispatch(block) {
 let infoTimer = null;
 function onInfoChanged() {
   clearTimeout(infoTimer);
-  infoTimer = setTimeout(() => {
-    applyInfo();
+  infoTimer = setTimeout(async () => {
+    await applyInfo();
     android?.lookChanged?.();
+    if (state.view === 'more') showView('more'); // a new app version shows up there
   }, 250);
 }
 
