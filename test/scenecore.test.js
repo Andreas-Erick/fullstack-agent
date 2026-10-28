@@ -95,7 +95,7 @@ test('persona.generateScene asks the model with the theme colors and returns the
   assert.ok(r.portrait.includes('viewBox="0 0 900 1600"'), 'the tall drawing, from a second call made at the same time');
   assert.strictEqual(calls.length, 2);
   assert.ok(calls.every((c) => c.text.includes('accent #ff0066')));
-  assert.ok(calls.every((c) => c.text.includes('Hide the name "Tester"')), 'the user’s name from the profile, as the easter egg');
+  assert.ok(calls.every((c) => !c.text.includes('Hide the name')), 'the name easter egg is off for now');
   assert.ok(calls[0].opts.maxTokens >= 8000);
   require('fs').rmSync(dir, { recursive: true, force: true });
 });
