@@ -566,6 +566,8 @@ async function serveFace(res, key, rel) {
 }
 
 // Name and colors for the phone client, so it looks like the desktop.
+const sceneKey = (svg) => crypto.createHash('sha1').update(String(svg)).digest('hex').slice(0, 16);
+
 async function info() {
   const s = await store.getSettings();
   const colors = {};
@@ -585,7 +587,9 @@ async function info() {
   const sleepAfterMin = Math.max(0, Math.min(240, Number(s.ui?.sleepAfterMin) || 0));
   const t = tunnel.status();
   const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
-  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, update: await require('./updates').forDevices().catch(() => null) };
+  // The scene behind the face: only its key here; the device fetches /api/scene when the key changes.
+  const scene = s.appearance?.scene?.svg ? { key: sceneKey(s.appearance.scene.svg), caption: String(s.appearance.scene.caption || '').slice(0, 80) } : null;
+  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, scene, sleepOnLaunch: s.ui?.sleepOnLaunch !== false, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, update: await require('./updates').forDevices().catch(() => null) };
 }
 
 async function speak(req, res) {
@@ -651,6 +655,17 @@ async function route(req, res) {
   if (req.method === 'GET' && p === '/api/face') {
     if (!underLimit('face', device.id, 30)) return fail(res, 429, 'Too many requests; wait a minute');
     return faceLink(res, device);
+  }
+  // The scene behind the face (appearance.scene, drawn by the model: main/scenecore.js), cleaned again on the way out.
+  if (req.method === 'GET' && p === '/api/scene') {
+    if (!underLimit('scene', device.id, 30)) return fail(res, 429, 'Too many requests; wait a minute');
+    const sc = (await store.getSettings()).appearance?.scene;
+    try {
+      const c = sc?.svg ? require('./scenecore').cleanScene(sc.svg) : null;
+      return json(res, 200, c ? { svg: c.svg, caption: String(sc.caption || '').slice(0, 80), key: sceneKey(sc.svg) } : { svg: '', caption: '', key: '' });
+    } catch {
+      return json(res, 200, { svg: '', caption: '', key: '' });
+    }
   }
   // The face as recorded loops, for the watch (facecapture.js); unchanged → 304.
   if (req.method === 'GET' && p === '/api/face/frames') {

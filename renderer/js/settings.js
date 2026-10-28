@@ -215,7 +215,10 @@ function agentCard() {
         const theme = normalizeTheme(res.theme);
         await saveSettings({ appearance: { theme, personaNotes: res.personaNotes, greeting: res.greeting } });
         if (res.voice && state.settings.appearance.applyVoice) await saveSettings({ voice: { voice: res.voice } });
-        showResult(out, true, `✓ Applied “${theme.name}”${res.voice && state.settings.appearance.applyVoice ? ` · voice: ${res.voice}` : ''}. Fine-tune it below.`);
+        const applied = `✓ Applied “${theme.name}”${res.voice && state.settings.appearance.applyVoice ? ` · voice: ${res.voice}` : ''}.`;
+        showResult(out, true, `${applied} Drawing the scene behind the face…`);
+        const scene = await drawScene().catch((err) => (showResult(out, true, `${applied} The scene couldn't be drawn (${err.message}); try ↻ Draw the scene below.`), null));
+        if (scene) showResult(out, true, `${applied} Scene: ${scene.caption || 'drawn'}. Fine-tune it below.`);
         setTimeout(render, 900);
       } catch (err) {
         showResult(out, false, `✕ ${err.message}`);
@@ -240,6 +243,38 @@ function agentCard() {
     out,
     themeEditor(),
   );
+}
+
+// The scene behind the face, drawn by the model from the persona and the theme's colors, saved with
+// the persona (appearance.scene) and shown by js/scene.js.
+async function drawScene() {
+  const s = state.settings;
+  const scene = await api.persona.scene({ masterPrompt: s.agent.personality, aesthetic: s.agent.aesthetic, theme: normalizeTheme(s.appearance?.theme) });
+  await saveSettings({ appearance: { scene } });
+  return scene;
+}
+
+function sceneRow() {
+  const scene = state.settings.appearance?.scene;
+  const out = result();
+  const draw = el('button', {
+    class: 'btn',
+    onclick: async () => {
+      draw.disabled = true;
+      showResult(out, true, 'Drawing the scene… (half a minute)');
+      try {
+        const r = await drawScene();
+        showResult(out, true, `✓ ${r.caption || 'Drawn'}.`);
+        setTimeout(render, 700);
+      } catch (err) {
+        showResult(out, false, `✕ ${err.message}`);
+      } finally {
+        draw.disabled = false;
+      }
+    },
+  }, scene ? '↻ Draw the scene again' : '✨ Draw the scene');
+  const remove = scene ? el('button', { class: 'btn', onclick: async () => (await saveSettings({ appearance: { scene: null } }), render()) }, 'Remove') : '';
+  return field('Scene behind the face', el('div', {}, el('div', { class: 'row' }, el('span', { class: 'hint' }, scene ? `“${scene.caption || 'A scene'}” · ${Math.round(scene.svg.length / 1024)} KB` : 'None yet: a drawing of the place the persona lives in, in the theme’s colors.'), draw, remove), out), 'Drawn by the AI from the persona and aesthetic; its layers drift slowly and it dims while the face sleeps.');
 }
 
 // The saved personas: pick the one to edit (and be), add, duplicate, delete.
@@ -351,6 +386,7 @@ function themeEditor() {
       sel('Face traces', TRACE_STYLES, theme.face.traces, (t, v) => (t.face.traces = v)),
       sel('Headings', [['true', 'UPPERCASE'], ['false', 'Normal case']], String(theme.uppercaseDisplay), (t, v) => (t.uppercaseDisplay = v === 'true')),
     ),
+    sceneRow(),
     field('Voice & tone notes (from the aesthetic)', notes, 'Added to the system prompt so the agent writes in the matching style.'),
     text('appearance.greeting', 'Welcome greeting'),
     isDefault ? '' : el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => (await saveSettings({ appearance: { theme: null } }), render()) }, '↺ Reset to the default theme')),
@@ -1657,5 +1693,6 @@ function uiCard() {
     toggle('ui.showClaudeUsage', 'Show how much of the Claude plan is left (title bar, when the Claude account brain is used)'),
     toggle('ui.showSystemStats', 'Show CPU, RAM and GPU load in the title bar (click it for details; only you see these, they never go to the AI)'),
     text('ui.sleepAfterMin', 'Face dozes off after (minutes without activity; 0 = never)', { type: 'number' }),
+    toggle('ui.sleepOnLaunch', 'Asleep when the app starts, until the greeting or the first thing you do'),
   );
 }

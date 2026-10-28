@@ -19,6 +19,7 @@ const turns = []; // what hooks.startTurn was asked
 const habitLogs = [];
 const alerts = []; // hooks.notify events
 let uiFace = ''; // ui.face on the desktop
+let scene = null; // appearance.scene on the desktop
 const facesDir = path.join(dir, 'faces');
 fs.mkdirSync(path.join(facesDir, 'Aurora', 'img'), { recursive: true });
 fs.writeFileSync(path.join(facesDir, 'Aurora', 'index.html'), '<script src="core.js"></script>');
@@ -28,7 +29,7 @@ fs.writeFileSync(path.join(facesDir, 'Aurora', 'run.exe'), 'MZ');
 fs.writeFileSync(path.join(dir, 'outside.html'), 'outside');
 stub({
   './store': fileStore(dir, {
-    getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: {}, voice: {}, calendar: { enabled: true }, remote: { shareData: share }, ui: { face: uiFace } }),
+    getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: { scene }, voice: {}, calendar: { enabled: true }, remote: { shareData: share }, ui: { face: uiFace } }),
     listConversations: async () => Object.values(convs).map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, ...(c.setup ? { setup: true } : {}) })),
     getConversation: async (id) => convs[id] || null,
   }),
@@ -311,6 +312,26 @@ test('a question from the watch (through the phone) is a spoken turn, labelled a
   t = turns.pop();
   assert.strictEqual(t.voice, false, 'only a real true counts');
   assert.strictEqual(t.remote, 'Galaxy S26');
+});
+
+test('the scene behind the face: a key in /api/info, the drawing from /api/scene, cleaned on the way out', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Scene phone')}` };
+  assert.strictEqual((await fetch(`${base}/api/scene`)).status, 401, 'only paired devices');
+  let info = await (await fetch(`${base}/api/info`, { headers: auth })).json();
+  assert.strictEqual(info.scene, null);
+  assert.strictEqual(info.sleepOnLaunch, true);
+  assert.deepStrictEqual(await (await fetch(`${base}/api/scene`, { headers: auth })).json(), { svg: '', caption: '', key: '' });
+  scene = { svg: '<svg viewBox="0 0 1600 900" onload="x()"><g id="far"><rect width="9" height="9"/></g><script>bad()</script><g id="mid"><circle r="2"/></g><g id="near"><circle r="3"/><image href="http://x/y.png"/></g></svg>', caption: 'A test place' };
+  info = await (await fetch(`${base}/api/info`, { headers: auth })).json();
+  assert.match(info.scene.key, /^[0-9a-f]{16}$/);
+  assert.strictEqual(info.scene.caption, 'A test place');
+  const r = await (await fetch(`${base}/api/scene`, { headers: auth })).json();
+  assert.strictEqual(r.key, info.scene.key);
+  assert.strictEqual(r.caption, 'A test place');
+  assert.ok(r.svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"'));
+  for (const s of ['<script', 'onload', '<image', 'x/y.png']) assert.ok(!r.svg.includes(s), `no ${s}`);
+  assert.ok(r.svg.includes('<rect width="9" height="9"/>'));
+  scene = null;
 });
 
 test('custom faces: a short-lived link per device, the face folder only, sandboxed and offline', async () => {

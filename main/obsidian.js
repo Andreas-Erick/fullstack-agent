@@ -6,6 +6,7 @@
 //   Daily Notes/         one templated note per day, append-only session entries
 //   Jobs/                procedures for recurring tasks with quality bar and lessons learned
 //   Memory/ Notes/ Research/ Inbox/ Changelog/ — each with an auto-maintained folder index
+const crypto = require('crypto');
 const fs = require('fs');
 const fsp = fs.promises;
 const os = require('os');
@@ -153,16 +154,38 @@ async function writeIfMissing(file, text) {
 // is put into Notes/ once. A list in .obsidian remembers which, so a guide the user deleted stays gone.
 const GUIDES = path.join(__dirname, 'guides');
 
+// The bundled guides (main/guides/*.md) go into Notes/ once; .obsidian/siren-guides.json remembers
+// each with a hash of what was written. When a guide changes in a new version, the vault copy is
+// refreshed if it is still what was placed (the user never edited it) and left alone otherwise; a
+// deleted copy is not brought back. Installs from before the hashes (a list of names) get one refresh,
+// with the vault's git history (vaultgit.js) keeping what was there.
+const hashOf = (text) => crypto.createHash('sha1').update(text).digest('hex');
 async function placeGuides(dir, agentName) {
   const seenFile = path.join(dir, '.obsidian', 'siren-guides.json');
-  const seen = await store.readJson(seenFile, []);
-  const names = (await fsp.readdir(GUIDES).catch(() => [])).filter((f) => f.endsWith('.md') && !seen.includes(f));
-  if (!names.length) return;
+  const raw = await store.readJson(seenFile, {});
+  const seen = Array.isArray(raw) ? Object.fromEntries(raw.map((n) => [n, null])) : raw || {};
+  const names = (await fsp.readdir(GUIDES).catch(() => [])).filter((f) => f.endsWith('.md'));
+  let changed = false;
   for (const name of names) {
     const text = (await fsp.readFile(path.join(GUIDES, name), 'utf8')).replace(/\{\{name\}\}/g, agentName);
-    await writeIfMissing(path.join(dir, 'Notes', name), text);
+    const h = hashOf(text);
+    const target = path.join(dir, 'Notes', name);
+    if (!(name in seen)) {
+      await writeIfMissing(target, text);
+    } else if (seen[name] !== h) {
+      const current = await fsp.readFile(target, 'utf8').catch(() => null);
+      if (current === null) continue; // the user removed it
+      if (seen[name] !== null && hashOf(current) !== seen[name]) continue; // the user edited it
+      if (current !== text) {
+        await fsp.writeFile(target, text, 'utf8');
+        log.info('guide refreshed', { name });
+      }
+    } else continue;
+    seen[name] = h;
+    changed = true;
   }
-  await store.writeJsonAtomic(seenFile, [...seen, ...names]);
+  if (!changed) return;
+  await store.writeJsonAtomic(seenFile, seen);
   await refreshFolderIndex(dir, 'Notes').catch(() => {});
 }
 
@@ -633,6 +656,7 @@ async function notifyExternalChange(full, message) {
 }
 
 module.exports = {
+  placeGuides,
   vaultPath,
   defaultVaultPath,
   listNotes,

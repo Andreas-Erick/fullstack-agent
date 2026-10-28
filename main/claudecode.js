@@ -801,7 +801,8 @@ function shutdown() {
 }
 
 // One-shot completion (persona/theme generation, journaling). Optionally lets Claude look at an image.
-async function complete(prompt, { imagePath, model } = {}) {
+// timeoutMs: a long reply (a drawing) may need more than the usual four minutes.
+async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   const cli = await findCli();
   if (!cli) throw new Error('Claude Code is not installed.');
   const s = await store.getSettings();
@@ -810,7 +811,7 @@ async function complete(prompt, { imagePath, model } = {}) {
   if (m && m !== 'default') args.push('--model', m);
   if (imagePath) args.push('--tools', 'Read', '--allowedTools', 'Read');
   else args.push('--tools', '');
-  const r = await collect(cli, args, { cwd: imagePath ? path.dirname(imagePath) : os.tmpdir(), input: imagePath ? `${prompt}\n\nThe agent's image is at: ${imagePath} (read it with the Read tool).` : prompt, timeout: 240000 });
+  const r = await collect(cli, args, { cwd: imagePath ? path.dirname(imagePath) : os.tmpdir(), input: imagePath ? `${prompt}\n\nThe agent's image is at: ${imagePath} (read it with the Read tool).` : prompt, timeout: Math.max(240000, Number(timeoutMs) || 0) });
   let json;
   try {
     json = JSON.parse(r.out);

@@ -33,10 +33,15 @@ configureFaces({
 });
 
 window.__face = {
-  // { face: 'siren' | 'custom:<folder>', theme, name } → resolves once the face is drawing.
-  async mount({ face, theme: t, name }) {
+  // { face: 'siren' | 'custom:<folder>', theme, name, scene } → resolves once the face is drawing.
+  async mount({ face, theme: t, name, scene }) {
     theme = normalizeTheme(t || {});
     document.body.style.background = theme.colors.bg;
+    // The scene behind the face (appearance.scene, cleaned in main/scenecore.js and again here), dimmed
+    // in the sleeping state through body[data-agent] (the page's CSS).
+    const back = document.getElementById('scene');
+    back.style.setProperty('--bg', theme.colors.bg);
+    back.innerHTML = scene && window.DOMPurify ? window.DOMPurify.sanitize(String(scene), { USE_PROFILES: { svg: true }, FORBID_TAGS: ['style', 'foreignObject', 'image', 'use', 'a', 'script', 'filter', 'animate', 'animateTransform', 'animateMotion', 'set'], FORBID_ATTR: ['href', 'xlink:href', 'filter'] }) : '';
     const stage = document.getElementById('stage');
     if (String(face).startsWith('custom:')) {
       const frame = document.createElement('iframe');
@@ -61,5 +66,6 @@ window.__face = {
   },
   set(s) {
     current = s;
+    document.body.dataset.agent = s;
   },
 };

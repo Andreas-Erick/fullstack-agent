@@ -25,7 +25,7 @@ const SETTABLE = {
   perplexity: ['model', 'fastModel', 'deepModel'],
   obsidian: ['injectIndex', 'maxIndexEntries'],
   journal: ['enabled', 'idleMinutes', 'handoffOnClose'],
-  ui: ['showVisualizerInChat', 'captions', 'face', 'zoom', 'chatLayout', 'sleepAfterMin', 'fx'],
+  ui: ['showVisualizerInChat', 'captions', 'face', 'zoom', 'chatLayout', 'sleepAfterMin', 'sleepOnLaunch', 'fx'],
 };
 const SETTABLE_DESCRIPTION = () => Object.fromEntries(Object.entries(SETTABLE).map(([s, keys]) => [s, keys.join(',')]));
 const SECRET_KEYS = /key|secret|token|password/i;

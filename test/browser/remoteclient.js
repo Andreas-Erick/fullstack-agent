@@ -105,7 +105,9 @@ async function measure(wc, label) {
 async function run() {
   const store = require('../../main/store');
   const companion = require('../../main/companion');
-  await store.setSettings({ onboarded: true, remote: { shareData: true }, innerWorld: { enabled: true } });
+  // A scene behind the face (appearance.scene): three layers, a sky, a hill, a floor.
+  const scene = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><g id="far"><rect width="1600" height="900" fill="#1a1030"/><circle cx="1250" cy="150" r="50" fill="#ffe9a8"/></g><g id="mid"><path d="M0 700 Q800 300 1600 700 Z" fill="#2b4a5a"/></g><g id="near"><rect y="720" width="1600" height="180" fill="#120a18"/></g></svg>';
+  await store.setSettings({ onboarded: true, remote: { shareData: true }, innerWorld: { enabled: true }, appearance: { scene: { svg: scene, caption: 'Browser test scene' } } });
   // A flashcard deck to study on the phone (main/flashcards.js, in the throwaway vault).
   const fc = require('../../main/flashcards');
   const deck = (await fc.createDeck('Browser deck')).id;
@@ -213,6 +215,23 @@ async function run() {
       await shot(wc, apLabel);
     }
     companion.publish('approval:cancel', { id });
+    // The full-screen face (the button in the face panel): the face, its state and the scene behind it,
+    // over everything; asleep until something happens, so the state reads ASLEEP and the scene is dimmed.
+    const ffLabel = `${size.name}/face full`;
+    // Without the real fullscreen request: it would grow the test window to the screen, and this is a check of the phone's size.
+    await wc.executeJavaScript(`document.documentElement.requestFullscreen = () => Promise.resolve(); document.querySelector('#tabs [data-tab="chat"]').click(); document.querySelector('#faceFull').click()`, true);
+    await wait(900);
+    const ff = await wc.executeJavaScript(`({ full: document.body.classList.contains('face-full'), asleep: document.body.classList.contains('asleep'), label: document.querySelector('#faceState').textContent, scene: !!document.querySelector('#faceScene.on svg'), sceneOpacity: getComputedStyle(document.querySelector('#faceScene')).opacity, wide: document.body.classList.contains('wide'), size: innerWidth + 'x' + innerHeight, wrapBg: getComputedStyle(document.querySelector('.face-wrap')).backgroundColor })`);
+    if (!ff.full) problems.push(`${ffLabel}: the full-screen face did not open`);
+    if (/rgba\\(.*, 0\\)$/.test(ff.wrapBg) || ff.wrapBg === 'transparent') problems.push(`${ffLabel}: the full-screen face is see-through (${ff.wrapBg})`);
+    const wrap = await wc.executeJavaScript(`(() => { const r = document.querySelector('.face-wrap').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; })()`);
+    if (Math.abs(wrap.w - size.width) > 2 || Math.abs(wrap.h - size.height) > 2) problems.push(`${ffLabel}: the full-screen face covers ${wrap.w}x${wrap.h} of ${size.width}x${size.height}`);
+    if (!ff.scene) problems.push(`${ffLabel}: the scene behind the face is missing`);
+    if (!ff.asleep || ff.label !== 'ASLEEP') problems.push(`${ffLabel}: should start asleep (label "${ff.label}", asleep ${ff.asleep})`);
+    screens[ffLabel] = ff;
+    await clipped(wc, ffLabel);
+    await shot(wc, ffLabel);
+    await wc.executeJavaScript(`document.querySelector('#faceFull').click()`, true);
     win.destroy();
   }
 
