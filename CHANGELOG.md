@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.6.4 — 2026-10-28
+
+The same as 2.6.3, whose macOS build failed on a test written with Windows paths; the Windows and Android builds of 2.6.3 are fine.
+
 ## 2.6.3 — 2026-10-28
 
 The first release of 2.6.2’s changes as well (2.6.2 was tagged but never published: the build machine took longer than the phone-client check allowed to draw the village at tablet size).
