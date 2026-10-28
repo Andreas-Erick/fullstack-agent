@@ -8,6 +8,8 @@
 //   AV.samples  64 waveform samples (-1..1) while speaking
 //   AV.env      { name, colors: { bg, accent, accent2, text, … }, states: { idle: [main, accent], … }, alert }
 //   AV.init(onUpdate?)  start listening for updates (optionally get a callback on each one)
+// Updates arrive once per display frame (60, 120, 144 Hz…; ~30/s on the Balanced profile), so draw
+// with your own requestAnimationFrame loop and move by elapsed time, not by frame count.
 // Faces run sandboxed: no network access and no access to the app.
 (function () {
   const AV = {

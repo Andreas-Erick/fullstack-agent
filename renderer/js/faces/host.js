@@ -1,5 +1,5 @@
 // Face host: shows the selected face in a container — a built-in canvas face, or a custom face from
-// <userData>/faces/<name>/ in a sandboxed iframe fed with the agent state ~30×/s (see faces/core.js).
+// <userData>/faces/<name>/ in a sandboxed iframe fed with the agent state every display frame (see faces/core.js).
 import { CircuitFace } from '../visualizer.js';
 import { RadialFace } from './radial.js';
 import { RainFace } from './rain.js';
@@ -9,7 +9,7 @@ import { SirenFace } from './siren.js';
 import { state, setFlag, alertActive } from '../state.js';
 import { on } from '../util.js';
 import { DEFAULT_THEME } from '../themecore.js';
-import { faceState, samples64, audio, theme } from './common.js';
+import { faceState, samples64, audio, theme, pumpFrame } from './common.js';
 import { configureFaces } from './env.js';
 import { profile } from '../perfcore.js';
 
@@ -71,7 +71,7 @@ export class FaceHost {
       frame.src = `faces://${encodeURIComponent(folder)}/index.html`;
       this.container.append(frame);
       this.frame = frame;
-      this.pump = setInterval(() => this.post(name), 33);
+      this.pump = pumpFrame(frame, () => this.message(name));
       return;
     }
     const def = BUILT_IN.find((f) => f.id === id) || BUILT_IN[0];
@@ -83,20 +83,15 @@ export class FaceHost {
     this.face.setLabel(name);
   }
 
-  post(name) {
-    // Skip while hidden (the chat-only layout hides the face panel).
-    if (!this.frame?.contentWindow || !this.frame.offsetParent) return;
+  message(name) {
     const t = theme();
-    this.frame.contentWindow.postMessage(
-      {
-        type: 'av',
-        state: faceState(),
-        level: audio().level,
-        samples: samples64(),
-        env: { name, colors: t.colors, states: t.face.states, alert: state.alert?.message || null },
-      },
-      '*',
-    );
+    return {
+      type: 'av',
+      state: faceState(),
+      level: audio().level,
+      samples: samples64(),
+      env: { name, colors: t.colors, states: t.face.states, alert: state.alert?.message || null },
+    };
   }
 
   setAvatar(a) {
@@ -112,7 +107,8 @@ export class FaceHost {
   }
 
   teardown() {
-    clearInterval(this.pump);
+    this.pump?.();
+    this.pump = null;
     this.face?.destroy?.();
     this.face = null;
     this.frame?.remove();

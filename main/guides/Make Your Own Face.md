@@ -32,7 +32,7 @@ Technical contract (follow it exactly):
    Add a safe fallback so the face still animates if `AV` is missing (e.g. when the file is opened directly in a browser): state `'idle'`, level 0, colors `['#2dd4bf', '#38bdf8']`.
 3. Layout: the page background must be transparent (`html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }`). The face fills the window, stays centered, keeps its proportions, and nothing is ever cut off at the edges, at any size from a small 160×160 panel to a full 4K screen. Handle window resizing and high-DPI screens (devicePixelRatio, capped at 2).
 4. Motion and comfort: idle is calm and alive (breathing, slow drift, occasional blinks); thinking and working look busy (spinning, scanning, pulsing); speaking follows the voice closely; sleeping is slow and dim. Respect `prefers-reduced-motion` by slowing everything down a lot. No flashing faster than 3 times per second.
-5. Performance: keep it light enough for 60 frames per second on a laptop: no per-pixel loops over the whole canvas, reuse objects, cap particle counts.
+5. Performance: keep it light enough for 60 frames per second on a laptop: no per-pixel loops over the whole canvas, reuse objects, cap particle counts. Animate with time (the `requestAnimationFrame` timestamp), not per frame, so it moves at the same speed on 60, 120 or 144 Hz screens; the app sends `AV` fresh values on every display frame (about 30 per second on the Balanced profile).
 6. Output only the complete index.html, ready to save, with short comments explaining the main parts.
 
 ---

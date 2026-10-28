@@ -1161,21 +1161,20 @@ async function mountFace(id, theme) {
 
 // The desktop's custom face (a page from its faces folder): a short-lived link from /api/face, shown in a
 // sandboxed frame (scripts only: no access to this page, its token or storage) and fed the agent state
-// ~30×/s, as on the desktop (renderer/js/faces/host.js).
+// on every display frame, as on the desktop (renderer/js/faces/host.js, pumpFrame).
 async function mountCustomFace() {
   const link = await api('/api/face');
   if (!link.custom || !/^\/f\/[\w-]{32}\/index\.html$/.test(link.url)) return false;
   if (faceView.id === 'custom' && faceView.obj) return true;
-  const { faceState, samples64, audio: level, theme } = await import('./js/faces/common.js');
+  const { faceState, samples64, audio: level, theme, pumpFrame } = await import('./js/faces/common.js');
   faceView.obj?.destroy?.();
   const frame = el('iframe', { id: 'face', class: 'face-frame', sandbox: 'allow-scripts', referrerpolicy: 'no-referrer', 'aria-hidden': 'true', tabindex: '-1', src: link.url });
   $('#face').replaceWith(frame);
-  const pump = setInterval(() => {
-    if (!frame.contentWindow || !frame.offsetParent) return;
+  const stop = pumpFrame(frame, () => {
     const t = theme();
-    frame.contentWindow.postMessage({ type: 'av', state: faceState(), level: level().level, samples: samples64(), env: { name: state.name, colors: t.colors, states: t.face.states, alert: null } }, '*');
-  }, 33);
-  faceView.obj = { setLabel() {}, destroy: () => clearInterval(pump) };
+    return { type: 'av', state: faceState(), level: level().level, samples: samples64(), env: { name: state.name, colors: t.colors, states: t.face.states, alert: null } };
+  });
+  faceView.obj = { setLabel() {}, destroy: stop };
   faceView.id = 'custom';
   faceView.orb = false;
   return true;
@@ -1541,11 +1540,14 @@ function decode(node, text) {
   node.textContent = text;
   if (!document.body.classList.contains('fx-hud') || matchMedia('(prefers-reduced-motion: reduce)').matches || !text) return;
   const start = performance.now();
+  let shown = text;
   const step = (now) => {
-    if (node.dataset.decoding !== text) return;
+    // Stop when another decode took over or the app set the text itself meanwhile (Schedule, a conversation title).
+    if (node.dataset.decoding !== text || node.textContent !== shown) return;
     const done = Math.floor(((now - start) / 420) * text.length);
     if (done >= text.length) return void ((node.textContent = text), delete node.dataset.decoding);
-    node.textContent = text.slice(0, done) + [...text.slice(done)].map((c) => (c === ' ' ? ' ' : GLYPHS[(Math.random() * GLYPHS.length) | 0])).join('');
+    shown = text.slice(0, done) + [...text.slice(done)].map((c) => (c === ' ' ? ' ' : GLYPHS[(Math.random() * GLYPHS.length) | 0])).join('');
+    node.textContent = shown;
     requestAnimationFrame(step);
   };
   node.dataset.decoding = text;
