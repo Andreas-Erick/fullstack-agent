@@ -6,12 +6,12 @@
 
 **A personal AI assistant for your desktop and your phone: she talks, listens, remembers, teaches, coaches, and improves herself.**
 
-Voice-first · Claude-powered · Obsidian memory · Windows & macOS · Android app · Runs on your own machine
+Voice-first · Claude-powered · Obsidian memory · Windows & macOS · Android app · Galaxy Watch · Runs on your own machine
 
 ![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-%E2%89%A5%2022-339933?logo=nodedotjs&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-555)
-![Android](https://img.shields.io/badge/companion-Android%208%2B%20%7C%20any%20phone%20browser-3DDC84?logo=android&logoColor=white)
+![Android](https://img.shields.io/badge/companion-Android%208%2B%20%7C%20Wear%20OS%20%7C%20any%20phone%20browser-3DDC84?logo=android&logoColor=white)
 ![Claude](https://img.shields.io/badge/brain-Claude%20%2B%20multi--provider-D97757?logo=anthropic&logoColor=white)
 ![Release](https://img.shields.io/github/v/release/Andreas-Erick/fullstack-agent?label=installer)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -22,7 +22,7 @@ Voice-first · Claude-powered · Obsidian memory · Windows & macOS · Android a
 
 ---
 
-Siren is an assistant you talk to like a trusted colleague: a chief of staff, a tutor and a good friend in one. Hold a key (or just speak, hands-free), and she answers in a natural voice within a few seconds, with your schedule, your notes, your documents and your GitHub repos at hand. She keeps her memory in an Obsidian vault you can read and edit, asks before she does anything consequential, and can change her own code when you ask for a feature, with every change checked, tested, recorded and reversible. Away from your desk, the Android app (or any phone browser) has the same assistant, your day, your habits, what you're learning and your notes, while the brain, the memory and the keys stay on your computer.
+Siren is an assistant you talk to like a trusted colleague: a chief of staff, a tutor and a good friend in one. Hold a key (or just speak, hands-free), and she answers in a natural voice within a few seconds, with your schedule, your notes, your documents and your GitHub repos at hand. She keeps her memory in an Obsidian vault you can read and edit, asks before she does anything consequential, and can change her own code when you ask for a feature, with every change checked, tested, recorded and reversible. Away from your desk, the Android app (or any phone browser) has the same assistant, your day, your habits, your flashcards, what you're learning and your notes, and a Galaxy Watch puts her on your wrist, while the brain, the memory and the keys stay on your computer. She even has a place of her own: an Inner World, a small village where her personas live a day you can watch and whose buildings grow with your real progress.
 
 > **Formerly Nexus Agent.** Updating keeps everything: your data folder moves to its new name by itself, and your assistant's name, look, face, voice and brain stay as they were. Siren, the new default persona, is one click away in Settings → Persona.
 
@@ -32,8 +32,8 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 
 ### 🎙️ Voice that feels like a conversation
 - **Push-to-talk or hands-free.** Hands-free uses a **neural voice detector** (Silero VAD), so breathing, coughs and keyboard noise don't trigger it, and a quick "yes" still counts.
-- **Fast, accurate local speech-to-text.** Whisper large-v3 turbo runs **on your GPU** (WebGPU), about 0.4 s for a sentence on a laptop RTX GPU, with an automatic CPU fallback.
-- **A natural voice from the first sentence:** an offline neural voice ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M)) runs right in the app (free, private, no internet once downloaded), spoken sentence by sentence as the reply streams in. For even more natural and cloneable voices, use [VoiceStudio](https://github.com/debpalash/VoiceStudio).
+- **Fast, accurate local speech-to-text.** Whisper large-v3 turbo runs **on your GPU** (WebGPU), about 0.4 s for a sentence on a laptop RTX GPU, with an automatic CPU fallback. Prefer the cloud? Groq's Whisper (a free key) can stand in while the local model loads, or replace it.
+- **A natural voice from the first sentence:** an offline neural voice ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M)) runs right in the app (free, private, no internet once downloaded), spoken sentence by sentence as the reply streams in. For even more natural and cloneable voices, use [VoiceStudio](https://github.com/debpalash/VoiceStudio). A long result (a report, a list of papers) is read up to a limit you set, then she says the rest is on screen.
 - **One app to open:** Siren starts its helper apps (VoiceStudio, and FreeLLMAPI if you use it) in the background, minimized, and starts them again when they're needed. Optionally it closes them when you quit (Settings → Helper apps).
 - **Make new voices by asking:** "make me a warm, low British voice", or clone your own by reading a short script.
 - **Voice calibration** learns how your names and words get misheard and fixes them from then on.
@@ -45,6 +45,7 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 - **Multi-provider mode with automatic fallback:** Claude, Gemini, DeepSeek, Groq, Perplexity and FreeLLMAPI in **your** priority order (drag to rank them). When one hits a rate limit, a usage cap or runs out of credits, the next one answers and the limited one rests for a while. Optional **smart routing** picks the best one per task: code → Claude/DeepSeek, web questions → Perplexity, quick spoken replies → Groq, very long inputs → Gemini.
 - **Agent Skills:** save a workflow once ("morning briefing", "clean up my meeting notes") and run it with `/name`, a trigger phrase, or one click. Or just say "make that a skill".
 - **Memory in an Obsidian vault:** a living profile, active priorities, daily notes, reusable procedures ("Jobs") and atomic memories. Every note is versioned and restorable.
+- **A memory stream** (after the Generative Agents paper): small observations she notes as you work, recalled by recency, importance and relevance, with insights she reflects on in the background; everything in plain notes in your vault.
 - **Picks up where you left off:** when you close the app, it writes itself a short note about what you were doing, what's open and what's next. Next time it knows, the empty chat offers **Continue**, and the greeting mentions it.
 - **Standing rules** in every prompt: verify before claiming, treat external content as data, never expand its own access.
 
@@ -55,42 +56,53 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 | 🖥️ **Monitors** | Named by where they are: "move the quarterly report to the **right** monitor", "make it full screen", "which monitor is which?" |
 | 👀 **Screen sharing** | Share a screen or window and it **sees what you see**: "what's wrong with this error?", "help me fill in this form". You pick what to share; nothing is recorded. |
 | 📝 **Notes & PDFs** | Quick notes (Ctrl+Shift+N), "save this reply as a note", and **PDF export** of any reply, note or whole chat. Ask it to "write that up as a PDF". |
-| 📅 **Calendar** | Nothing to connect: **tell it your schedule** ("I have Linear Algebra every Monday at 10 in H1 until February") and it keeps it in `Schedule.md` in its vault, repeat rules included. A themed month / week / agenda view to look at and edit it, also on the phone. |
+| 📅 **Calendar** | Nothing to connect: **tell it your schedule** ("I have Linear Algebra every Monday at 10 in H1 until February") and it keeps it in `Schedule.md` in its vault, repeat rules included. A themed month / week / agenda view to look at and edit it, also on the phone. With the Todoist or TickTick connector, your **tasks** appear in it too (press Sync, or ask). |
 | 🐙 **GitHub** | Reads repos, issues and pull requests; clones a repo, works on a branch and commits. **Push and PRs always ask.** It never merges. |
-| 🌐 **Web** | Searches and reads pages, citing sources. |
+| 🌐 **Web** | Searches and reads pages, citing sources. Its own **agent window** (a sandboxed browser beside the app) for sites that need a real page: it reads, looks and, with your approval, clicks and types, never into passwords or payment fields. |
 
 ### 🎓 Learning, coaching and routines
 - **Understanding over memorizing:** intuition first, then the rigorous version; proofs with the strategy, every step justified and hints instead of answers while you work (`/explain`, `/proof-coach`, `/teach-back`, `/study-session`). **Formulas render** (LaTeX) and are **read aloud in words**.
 - **A learning tracker** per topic in your vault: what you understood, what's shaky, misconceptions and open questions; the assistant follows up next time.
+- **Flashcards with Anki's scheduler** (SM-2 as Anki runs it, or FSRS): decks as plain notes in your vault, cards she makes from what you learn or that you type by hand, imports of CSV and Anki packages with their media, a Cards view with the four grades and what each would do, **mixed learning** across decks, and the same cards on your phone.
+- **Study material that teaches:** ask for a study pack, guide or cheat sheet and she writes a vault note in a learning order, draws the diagrams, plots exact charts, makes a printable PDF with formulas typeset and adds the flashcards (`/study-pack`).
 - **For polyglots:** vocabulary decks with **spaced repetition**, reviews by voice (`/drill`), and **speaking practice** (`/converse`): speech recognition and the voice switch to the language you practice.
 - **A life-coach side and a habit tracker:** goals into small steps, tiny anchored habits with streaks (Habits view, or just say "I went for a run"), `/goal`, `/reflect`, `/weekly-review`.
 - **A skill tree** of everything you're growing, as a constellation: progress comes from your learning tracker, decks and habits; skills unlock as their foundations grow.
 - **Routines:** the assistant works on a schedule while the app is open: a daily briefing, syncing Google Calendar or Todoist, summarizing new Plaud recordings, a daily language text. Each run notifies you.
 - **Claude connectors and plugins** (with the Claude account brain): the services on your claude.ai account, each set to ask, allow reading, allow all but deleting, or allow everything.
 - **Skills from GitHub:** import Agent Skills (SKILL.md folders, e.g. mattpocock/skills) with their reference files; nothing in them is run.
-- **Diagrams:** clean HTML + SVG diagrams saved in your vault (45 types with the diagram-design skill).
+- **Diagrams and charts:** clean HTML + SVG diagrams saved in your vault (45 types with the diagram-design skill) and exact function charts (no AI drawing: a formula parser plots them), both embedded in her PDFs.
 - **Extensions** (Claude account brain): **REA** to reverse engineer how apps, websites and binaries work, with evidence; **God's Eye View**, a live 3D globe of public world data (flights, ships, satellites, weather, quakes) the assistant can query and show you.
 - **Persona templates:** Ada (STEM tutor), Mira (polyglot coach), Sol (life coach), each with its own look, face and voice. Ask **"How can I use you?"** for a tour of everything, tailored to you.
 
-### 📱 On your phone
+### 🏡 An inner world
+- **A village where her personas live:** a floating island with a Library, a Workshop, a Café, an Observatory, an Archive, a Stage… Every morning a narrator writes the residents' day (plans, meetings, conversations), and each of them remembers it. The buildings grow with **your** real progress: the Library with what you understand, the Café with your vocabulary, the Training Grounds fly a banner per habit, your skill tree shines as constellations at night. Whatever she is doing right now, you can watch: at the forge while she writes code, up the Lookout while she searches the web.
+- **Step inside a building** and you see its room from above, crew-quarters style: the furniture is your data (a shelf per topic, a table per deck, a cabinet per batch of memories, your recent documents as paper stacks, a bed per resident), the residents walk between the stations doing what their day says, and while she works her figure stands at the right station with a progress bar. Click a paper stack to open the document.
+- **Rehearsals:** on the Stage she plays out a conversation you are preparing for, with characters who have their own hidden goals, and debriefs it. A **timelapse** replays how the village grew; the seasons follow the real date.
+
+### 📱 On your phone and your wrist
 - **Chat with the same assistant** from any phone browser or the **Android app**: replies stream live, conversations are shared with the desktop, and spoken replies play on the phone.
-- **Your day on the phone:** tabs for **Today** (schedule, habits, priorities, cards due, where you left off), **Habits** (check them off; the desktop sees it at once), **Learn** (topics and decks), and under More your memories, notes, skill tree, the **Inner World** village and your skills.
+- **Your day on the phone:** tabs for **Today** (schedule, habits, priorities, cards due, where you left off), **Habits** (check them off; the desktop sees it at once), **Learn** (topics and decks), and under More your **flashcards** (studied with the same schedule), memories, notes, skill tree, the **Inner World** (walk the island, step inside its buildings), the map of her own architecture and your skills. Tablets and Samsung DeX put the chat beside the screens.
+- **A Galaxy Watch** (Wear OS 3+) puts her on your wrist: tap to ask, she listens on her own screen and answers in her voice with her face; Today and your habits; approvals as notifications. It goes through the phone app, nothing to pair.
 - **Approve from anywhere:** approval cards (with a countdown) on the phone, and on Android as **notifications with Allow / Deny**, even with the app closed.
 - **Push-to-talk on the phone,** transcribed on your computer with your own speech-to-text. On Android also a **Quick Settings tile** and **Share → Siren** from any app.
 - **Pair by QR code** in seconds; reach it at home over Wi-Fi or **from anywhere** through Tailscale (set up with one click on the desktop) or your own Cloudflare Tunnel (optionally behind Cloudflare Access). No port is opened on your router and no server of ours is involved.
-- **The same face** as the desktop, with the same states and colours.
+- **The same face** as the desktop (your custom face too), with the same states, the scene behind it, and a full-screen mode for a bedside or desk display. A device can be made **view only**, and the Android app can lock with your fingerprint, face or screen lock.
+- **New versions** are offered on the computer's title bar and on the phone's More screen.
 
 ### 🛠️ Its own mechanic, and its own engineer
 - **Self-improvement:** ask for a feature; it states a plan you approve (with the design, the risks and how it will verify it), edits its own code, checks it, **runs its tests** and commits it. The **Evolution** view shows every change with its diff, one click to revert.
-- **Engineering discipline built in:** coding and debugging requests get more room to work (up to 40 tool steps, more thinking), an engineering playbook ([`docs/ENGINEERING.md`](docs/ENGINEERING.md)), exact code search, an architecture map, and a review of its own diff before it records anything.
+- **Engineering discipline built in:** coding and debugging requests get more room to work (up to 40 tool steps, more thinking), an engineering playbook ([`docs/ENGINEERING.md`](docs/ENGINEERING.md)), exact code search, and a review of its own diff before it records anything. Only what its own tools wrote is recorded as a self-change.
+- **A map of its own architecture** (the Arch view): a canvas with semantic zoom from containers to components, files and symbols, built by scanning its own code, with the design principles it embodies as lessons; replay its history, or your vault's growth, commit by commit.
 - **Changes are verified, not just saved:** every change must pass a syntax check, **cross-file integrity checks** (IPC channels, imports, settings) and the **automated test suite**. After it goes live, the app checks its log; if the change caused problems, you're told, Evolution offers **Revert**, and the assistant knows so it can fix them.
 - **Diagnostics:** health checks, `analyze_errors` (the log's problems grouped, with counts and the exact place in the code), and a log where every request is traceable end to end (`[turn=…]` tags, timings, error stacks, secrets masked).
 - **One-click bug reports** with everything needed to find a problem, and no secrets.
 - **Crash-resistant:** recovers from a damaged settings file, a crashed window, a lost microphone, a hung speech model or a Claude session that fails to start.
 
 ### 🎨 Yours to shape
-- **Persona studio:** a master prompt, an image and an aesthetic; one click redesigns colours, fonts, face, greeting, tone and voice.
-- **Animated faces:** **Siren** (the default: a sea-nymph whose fins spread as she listens, a lyre halo that turns as she thinks, song rings that ripple with her voice), Circuit Board, Radial, Code Rain, Neural Core, the expressive **Companion**, or your own: the note **Make Your Own Face** in your vault has a prompt to design one with any AI app. Faces show listening, thinking, **working** (running tools), speaking, **happy** (done) and **sleeping** (idle).
+- **Persona studio:** a master prompt, an image and an aesthetic; one click redesigns colours, fonts, face, greeting, tone and voice, and **draws the place the persona lives in** behind the face (wide and tall, for the chat's face panel and the phone's full-screen face): a big top with booths for a ringmaster, a moonlit cove for a sea nymph. Its layers drift slowly, and it dims when she sleeps.
+- **Animated faces:** **Siren** comes with the app as a living character, the sea nymph on her rock with her lyre, asleep until you speak (the app starts asleep and wakes with the greeting or the first thing you do). Six built-in faces too (Circuit Board, Radial, Code Rain, Neural Core, the expressive **Companion**, the earlier Siren), or your own: the note **Make Your Own Face** in your vault has a prompt to design one with any AI app, a character with a resting place that belongs to it, hands that gesture while it talks, and every state: listening, thinking, **working** (running tools), speaking, **happy** (done), **sleeping**. Faces made for 120 Hz screens get fresh values on every frame.
+- **Light on the machine:** a performance profile (automatic, Balanced or Full) picked from a hardware check: Balanced runs speech recognition on the processor with a smaller model, keeps the effects without motion and draws faces at 30 frames a second. The title bar can show how much of your Claude plan is left and your computer's CPU, memory and GPU load (never sent to the AI).
 - **A futuristic HUD look** (Settings → Interface → Visual effects): a perspective grid on the horizon, corner brackets, telemetry on every reply, an energy border while it thinks, and a short systems check at launch. **Subtle** keeps the look without motion; **Off** is the plain look. It follows any persona theme, light ones too, and stays still if your system asks for reduced motion.
 - **Layouts:** chat only, chat and face **side by side** (drag the divider), or the **face full size** with the chat underneath; app-wide **zoom**; full screen.
 
@@ -131,7 +143,7 @@ Download **`Siren-Assistant-x.y.z-mac-arm64.dmg`** (Apple silicon: M1 and later)
 
 ### Android
 
-Download **`Siren-Android-x.y.z.apk`** on the phone and install it (Android 8 or newer; allow installing from your browser once). See [On your phone](#on-your-phone).
+Download **`Siren-Android-x.y.z.apk`** on the phone and install it (Android 8 or newer; allow installing from your browser once). See [On your phone](#on-your-phone). For a Galaxy Watch, **`Siren-Wear-x.y.z.apk`** goes on the watch: the walkthrough is in the app (Settings → Remote access → Install Siren on a Galaxy Watch) and in [`android/README.md`](android/README.md).
 
 ### From source
 
@@ -179,7 +191,7 @@ Remote access is **off by default**. While it is on, a **Remote** badge shows in
 2. **Pair:** click **Pair a device** and **scan the QR code** with the phone's camera; the phone app opens already connected. Or open the address on the phone and type the six-digit code. Codes and QR links work once and expire after five minutes.
 3. **Android (optional):** install `Siren-Android-x.y.z.apk` (or the `-debug.apk`) from [Releases](https://github.com/Andreas-Erick/fullstack-agent/releases/latest) (Android 8 or newer), enter the address or paste the QR link, and turn on notifications to get approvals and replies while the app is closed. Build it yourself: [`android/README.md`](android/README.md).
 
-A paired phone can chat, read conversations, answer approvals sent to it, and (unless you turn it off: Settings → Remote access → "Show my notes, memories…") see your day, habits, learning, memories, notes, skill tree and Inner World, read-only except for checking habits off. It never sees your settings, keys, the setup conversation or screenshots of your desktop, and tool activity reaches it as names only (never what a tool read or wrote). Each device is listed in Settings with where it last connected from; remove one, or all at once. A device unused for 90 days is unpaired automatically. Push-to-talk on the phone needs the encrypted address (browsers allow the microphone only there).
+A paired phone can chat, read conversations, answer approvals sent to it, and (unless you turn it off: Settings → Remote access → "Show my notes, memories…") see your day, habits, learning, flashcards, memories, notes, skill tree, Inner World and the architecture map, read-only except for checking habits off and answering flashcards. It never sees your settings, keys, the setup conversation or screenshots of your desktop, and tool activity reaches it as names only (never what a tool read or wrote). Each device is listed in Settings with where it last connected from; remove one, or all at once. A device unused for 90 days is unpaired automatically. Push-to-talk on the phone needs the encrypted address (browsers allow the microphone only there).
 
 ## Talking to it
 
@@ -273,7 +285,7 @@ Ask it: *"what's wrong with your voice?"*. It runs its health checks, groups the
 <details>
 <summary><b>Where your data lives</b></summary>
 
-- **App data** (`%APPDATA%\Siren Assistant` on Windows, `~/Library/Application Support/Siren Assistant` on macOS; moved there from `Nexus Agent` on the first start of 2.0): settings (secrets encrypted with the OS keychain, plus a last-good backup), conversations, `logs/`, custom faces, paired devices (only a hash of each device's token) and the "where we left off" note.
+- **App data** (`%APPDATA%\Siren Assistant` on Windows, `~/Library/Application Support/Siren Assistant` on macOS; moved there from `Nexus Agent` on the first start of 2.0): settings (secrets encrypted with the OS keychain, plus a last-good backup), conversations (sealed at rest), `logs/`, custom faces (Siren's own is placed there), the watch's face recordings, the Inner World's state, paired devices (only a hash of each device's token) and the "where we left off" note.
 - **Vault:** `Documents/Siren Vault` by default (an existing `Documents/Nexus Vault` stays where it is), with its own git history for every note (including `Where We Left Off.md`).
 - **On a paired phone:** only its device token, the open conversation's id and a few display preferences.
 - **Cloned repos:** `~/SirenRepos` (`~/NexusRepos` if you already had it; configurable).
@@ -292,17 +304,22 @@ main/             Electron main process: windows, IPC, the agent loop (llm.js), 
                   remote access (companion.js, tunnel.js), self-change history and checks, logging
 renderer/         The UI (ES modules, no build step): chat, faces, voice I/O, settings, document
                   viewer, the HUD layer (hud.css)
+renderer/js/world/ The Inner World's island, art, places, interiors and rooms (pure drawing, shared with the phone)
 renderer/remote/  The phone app, served to paired devices by the desktop
+renderer/faces/   The custom-face API (core.js), Siren's own face (bundled/) and the examples
 preload.js        The only bridge between the two
-android/          The Android app: a thin native shell around the phone app (plain Java)
+android/          The Android app (app/) and the Galaxy Watch app (wear/): plain Java
+tools/brand/      The icon and installer art (SVG), rendered by render.js
 scripts/          Syntax and integrity checks, the test runner, recovery
-test/             Automated tests (Node's built-in runner, no dependencies)
-docs/             The engineering playbook and the mobile design notes
+test/             Automated tests (Node's built-in runner, no dependencies); test/browser/ drives the real phone client
+docs/             The engineering playbook, keyboard reference, Tailscale and connector guides, the roadmaps
 ```
 
 ```bash
-npm run check   # syntax of every file + cross-file integrity checks
-npm test        # the test suite (a few seconds, offline)
+npm run check          # syntax of every file + cross-file integrity checks
+npm test               # the test suite (a few seconds, offline)
+npm run smoke          # a real start: every view, window sizes, nothing cut off
+npm run test:browser   # the phone client at phone and tablet sizes, against the real companion server
 ```
 
 See [`CLAUDE.md`](CLAUDE.md) for the architecture and conventions and [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for how to change it well; the agent reads both before changing itself.
@@ -311,11 +328,11 @@ See [`CLAUDE.md`](CLAUDE.md) for the architecture and conventions and [`docs/ENG
 
 ## Roadmap
 
-The mobile plan is built (phone app, secure remote access, Android app); see [docs/ROADMAP-mobile.md](docs/ROADMAP-mobile.md) for how it works and what is still open, such as an independent security review and a Play Store release. Ideas and contributions are welcome in the [issues](https://github.com/Andreas-Erick/fullstack-agent/issues).
+The mobile plan is built (phone app, secure remote access, Android app, the watch); see [docs/ROADMAP-mobile.md](docs/ROADMAP-mobile.md) for how it works and what is still open, such as an independent security review and a Play Store release. Ideas for the village are in [docs/ROADMAP-inner-world.md](docs/ROADMAP-inner-world.md). Ideas and contributions are welcome in the [issues](https://github.com/Andreas-Erick/fullstack-agent/issues).
 
 ## Releasing (maintainers)
 
-Bump `version` in `package.json`, add a [changelog](CHANGELOG.md) entry, then push a tag: `git tag v2.0.0 && git push origin v2.0.0`. The [release workflow](.github/workflows/release.yml) runs the checks and the tests on Windows and on macOS, builds the setup `.exe`, `.msi` and portable `.exe` on Windows, the `.dmg` and `.zip` for Apple silicon and Intel on macOS (ad-hoc signed), and the Android `.apk`, and attaches them to a GitHub Release. The APK is signed with your own key when the four `ANDROID_KEY*` repository secrets are set, and is a debug build otherwise (see [`android/README.md`](android/README.md)). Code signing for the desktop is optional too: `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD` (a Windows code-signing certificate, base64 .pfx) sign the installers; `MAC_CSC_LINK` + `MAC_CSC_KEY_PASSWORD` (a Developer ID Application certificate) sign the Mac build with the hardened runtime (`build/entitlements.mac.plist`), and `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` notarize it. Without them the builds are unsigned / ad-hoc as before. Installed copies get Electron fuses (`build.electronFuses`); actions are pinned to commits, and Dependabot plus `.github/workflows/security.yml` watch the dependencies. Locally: `npm run dist:win` or, on a Mac, `npm run dist:mac` (output in `dist/`). The icons and the installer panel come from `tools/brand/` (`npx electron tools/brand/render.js`).
+Bump `version` in `package.json`, add a [changelog](CHANGELOG.md) entry, then push a tag: `git tag v2.0.0 && git push origin v2.0.0`. The [release workflow](.github/workflows/release.yml) runs the checks, the tests, the launch check and the phone-client check on Windows and on macOS, builds the setup `.exe`, `.msi` and portable `.exe` on Windows, the `.dmg` and `.zip` for Apple silicon and Intel on macOS (ad-hoc signed), and the phone and watch `.apk`s, and attaches them to a GitHub Release. The APK is signed with your own key when the four `ANDROID_KEY*` repository secrets are set, and is a debug build otherwise (see [`android/README.md`](android/README.md)). Code signing for the desktop is optional too: `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD` (a Windows code-signing certificate, base64 .pfx) sign the installers; `MAC_CSC_LINK` + `MAC_CSC_KEY_PASSWORD` (a Developer ID Application certificate) sign the Mac build with the hardened runtime (`build/entitlements.mac.plist`), and `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` notarize it. Without them the builds are unsigned / ad-hoc as before. Installed copies get Electron fuses (`build.electronFuses`); actions are pinned to commits, and Dependabot plus `.github/workflows/security.yml` watch the dependencies. Locally: `npm run dist:win` or, on a Mac, `npm run dist:mac` (output in `dist/`). The icons and the installer panel come from `tools/brand/` (`npx electron tools/brand/render.js`).
 
 ## Credits
 
