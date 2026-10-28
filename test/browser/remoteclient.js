@@ -57,9 +57,10 @@ async function shot(wc, label) {
 // The screen in #panel finished loading (or the chat is showing); canvases get until PAINT_MS to draw
 // (the village loads its art first; a CI machine without a graphics card is several times slower).
 const PAINT_MS = 15000;
+const LOAD_MS = 60000; // the build machine draws the village's island in software, at tablet size slowly
 async function settled(wc, label) {
-  const ok = await until(wc, `!document.querySelector('#panel .panel-loading')`);
-  if (!ok) problems.push(`${label}: still loading after 15 s`);
+  const ok = await until(wc, `!document.querySelector('#panel .panel-loading')`, LOAD_MS);
+  if (!ok) problems.push(`${label}: still loading after ${LOAD_MS / 1000} s`);
   await wait(800);
   const end = Date.now() + PAINT_MS;
   do {
@@ -166,7 +167,7 @@ async function run() {
     await until(wc, `[...document.querySelectorAll('.more-tile b')].some((b) => b.textContent === 'Inner World')`);
     await wc.executeJavaScript(`[...document.querySelectorAll('.more-tile')].find((t) => t.textContent.includes('Inner World')).click()`, true);
     const roomLabel = `${size.name}/world room`;
-    if (!(await until(wc, `(document.querySelector('#panel .world-canvas') || {}).width > 0`))) problems.push(`${roomLabel}: no island`);
+    if (!(await until(wc, `(document.querySelector('#panel .world-canvas') || {}).width > 0`, LOAD_MS))) problems.push(`${roomLabel}: no island`);
     else {
       await wait(800);
       // Taps across the island find built buildings; up to three different rooms are opened in turn.

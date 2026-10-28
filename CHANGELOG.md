@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: the end-of-turn record of self-changes committed everything that had changed in the app's folder, including edits made there by someone else while the turn ran (a developer, Claude Code), under the turn's request as the message. It now records only the files the assistant's own tools wrote during the turn (everything, as before, only when the turn ran a shell command, which could have changed anything).
+
 ## 2.6.2 — 2026-10-28
 
 - Push to talk answers at once. *(Each press used to open the microphone from scratch, which cost a few hundred milliseconds: the first word was lost and a short press recorded nothing; a press while the last words were still being transcribed was dropped; and a quick release could leave the recording running. The microphone is now opened ahead at launch and kept open a minute and a half after each press, a press during a transcription waits for it instead of being dropped, and a release always stops the recording it belongs to.)*
