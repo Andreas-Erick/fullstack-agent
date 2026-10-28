@@ -1,6 +1,6 @@
 // Renderer entry point: wires views, the agent face, push-to-talk and status indicators together.
 import { $, $$, api, on, emit, el, toast, logEvent } from './util.js';
-import { state, loadSettings, saveSettings, ttsActive, raiseAlert, setFlag, noteActivity } from './state.js';
+import { state, loadSettings, saveSettings, ttsActive, raiseAlert, noteActivity } from './state.js';
 import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
 import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
@@ -65,6 +65,10 @@ async function boot() {
   const info = await api.app.info();
   if (info.platform === 'darwin') document.body.classList.add('mac');
   await loadSettings();
+  // Asleep from the very first frame (faces read state.agentState as soon as they exist); awake at once
+  // only when the user turned that off, or during the setup wizard.
+  state.sleeping = state.settings.onboarded && state.settings.ui.sleepOnLaunch !== false;
+  state.agentState = state.sleeping ? 'sleeping' : 'idle';
   syncTheme();
   initHud();
   const boot = bootScreen();
@@ -208,8 +212,9 @@ async function boot() {
   if (state.settings.stt.enabled && state.settings.stt.micMode === 'open') setMicMode('open');
   initSetup();
   if (!state.settings.onboarded) startOnboarding(); // first launch: the guided setup (it ends with the agent's interview)
-  // Asleep until the greeting or the first thing you do wakes her (typing, the mic; any turn does too).
-  if (state.settings.onboarded && state.settings.ui.sleepOnLaunch !== false) setFlag('sleeping', true);
+  // Asleep (since before the first frame, see the top of init) until the greeting or the first thing
+  // you do wakes her (typing, the mic; any turn does too). The labels learn the state now that they listen.
+  emit('agent-state', state.agentState);
   for (const ev of ['focus', 'pointerdown', 'keydown', 'input']) $('#input').addEventListener(ev, noteActivity);
   for (const b of ['#micBtn', '#faceMicBtn']) $(b)?.addEventListener('pointerdown', noteActivity);
   if (state.settings.onboarded) greetOnLaunch();

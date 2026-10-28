@@ -1065,7 +1065,7 @@ const faceView = { id: '', obj: null, themeFns: new Set(), orb: false };
 state.happyUntil = 0;
 state.lastActivity = Date.now();
 state.sleepAfterMin = 0;
-state.asleepAtStart = false; // asleep since the app opened (the desktop's ui.sleepOnLaunch), until something happens
+state.asleepAtStart = true; // asleep since the app opened, from the first frame (the desktop's ui.sleepOnLaunch may say otherwise), until something happens
 state.micLevel = 0;
 
 function setFace(s) {
@@ -1555,7 +1555,7 @@ async function applyInfo() {
     // The first look at the computer: asleep until something happens, as on the desktop.
     if (!state.infoSeen) {
       state.infoSeen = true;
-      if (info.sleepOnLaunch !== false && state.face === 'idle' && !state.woken) state.asleepAtStart = true;
+      state.asleepAtStart = info.sleepOnLaunch !== false && state.face === 'idle' && !state.woken;
       updateFaceLabel();
     }
     applyScene(info.scene);

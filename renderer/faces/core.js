@@ -14,7 +14,7 @@
 // Faces run sandboxed: no network access and no access to the app.
 (function () {
   const AV = {
-    state: 'idle',
+    state: 'sleeping', // the assistant starts asleep: so does the face, until the first update says otherwise
     level: 0,
     samples: new Array(64).fill(0),
     env: { name: 'Siren', colors: {}, states: {}, alert: null },
