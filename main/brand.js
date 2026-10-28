@@ -82,7 +82,7 @@ const GREETING = 'Siren here. What shall we take on?';
 // faces folder), and the place she lives in, drawn behind the face (main/scenes, wide and tall).
 const FACE = 'custom:siren';
 const sceneFile = (name) => fs.readFileSync(path.join(__dirname, 'scenes', name), 'utf8');
-const SCENE = { svg: sceneFile('siren.svg'), portrait: sceneFile('siren-tall.svg'), caption: "Moonlit siren's cove with shipwreck" };
+const SCENE = { svg: sceneFile('siren.svg'), portrait: sceneFile('siren-tall.svg'), caption: "Moonlit siren cove, wreck and lighthouse" };
 
 // What an install from before 2.0 (Nexus Agent) keeps when a setting was never saved: the rename must
 // not change anyone's name, look, face or voice. [section, key, value]
