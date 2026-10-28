@@ -274,7 +274,7 @@ function sceneRow() {
     },
   }, scene ? '↻ Draw the scene again' : '✨ Draw the scene');
   const remove = scene ? el('button', { class: 'btn', onclick: async () => (await saveSettings({ appearance: { scene: null } }), render()) }, 'Remove') : '';
-  return field('Scene behind the face', el('div', {}, el('div', { class: 'row' }, el('span', { class: 'hint' }, scene ? `“${scene.caption || 'A scene'}” · ${Math.round(scene.svg.length / 1024)} KB` : 'None yet: a drawing of the place the persona lives in, in the theme’s colors.'), draw, remove), out), 'Drawn by the AI from the persona and aesthetic; its layers drift slowly and it dims while the face sleeps.');
+  return field('Scene behind the face', el('div', {}, el('div', { class: 'row' }, el('span', { class: 'hint' }, scene ? `“${scene.caption || 'A scene'}” · ${Math.round(scene.svg.length / 1024)} KB${scene.portrait ? ` wide + ${Math.round(scene.portrait.length / 1024)} KB tall` : ' (wide only: narrow panels crop it)'}` : 'None yet: a drawing of the place the persona lives in, in the theme’s colors.'), draw, remove), out), 'Drawn by the AI from the persona and aesthetic, wide and tall (for the chat’s face panel); its layers drift slowly and it dims while the face sleeps.');
 }
 
 // The saved personas: pick the one to edit (and be), add, duplicate, delete.
@@ -892,6 +892,7 @@ function voiceCard() {
     'Voice output',
     'Replies are spoken sentence by sentence while they stream. The offline voice (Kokoro) runs in the app: free, private and without internet once downloaded. VoiceStudio is a separate app with more natural, cloneable voices (a local OpenAI-compatible <code>/v1/audio/speech</code> server).',
     el('div', { class: 'grid2' }, toggle('voice.ttsEnabled', 'Enable voice', () => emit('status-refresh')), toggle('voice.autoSpeak', 'Speak replies automatically')),
+    text('voice.speakLimit', 'Read aloud at most (characters of a reply; 0 = everything)', { type: 'number', hint: 'A long result (a report, a list of papers) is read up to here, then she says the rest is on screen. 1500 is about a minute and a half.' }),
     el('div', { class: 'grid2' }, select('voice.engine', 'Voice', [['local', 'Offline voice (Kokoro, in the app)'], ['voicestudio', 'VoiceStudio (separate app)']], { onChange: () => emit('status-refresh') }), select('voice.localVoice', 'Offline voice', KOKORO_VOICES)),
     text('voice.baseUrl', 'VoiceStudio URL', { placeholder: 'http://localhost:3900' }),
     text('voice.apiKey', 'API key', { type: 'password', placeholder: 'optional' }),

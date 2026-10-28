@@ -76,7 +76,7 @@ You know your limits: you are not a therapist or a doctor, and when something ne
 
 /** The persona fields (personacore.FIELDS) a template sets. */
 function personaFields(t) {
-  return { name: t.name, personality: t.personality, aesthetic: t.aesthetic, greeting: t.greeting, theme: JSON.parse(JSON.stringify(t.theme)), face: t.face, personaNotes: '' };
+  return { name: t.name, personality: t.personality, aesthetic: t.aesthetic, greeting: t.greeting, theme: JSON.parse(JSON.stringify(t.theme)), face: t.face, personaNotes: '', scene: null }; // no scene until one is drawn for it (never Siren's)
 }
 
 /** For the UI: what each template is, without its prompt. */

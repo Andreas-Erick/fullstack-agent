@@ -41,7 +41,7 @@ test('create, switch back and forth, and every persona keeps its own look', asyn
   assert.strictEqual(s.agent.name, 'Coach');
   assert.strictEqual(s.agent.personality, store.DEFAULTS.agent.personality, 'a fresh persona starts from the default prompt');
   assert.deepStrictEqual(s.appearance.theme, store.DEFAULTS.appearance.theme, 'and the default look (Siren)');
-  assert.strictEqual(s.ui.face, 'siren');
+  assert.strictEqual(s.ui.face, 'custom:siren');
 
   await store.setSettings({ agent: { personality: 'You are a strict study coach.' }, ui: { face: 'companion' }, voice: { voice: 'coach-voice' } });
   s = await persona.activate('aria'); // by name, any case

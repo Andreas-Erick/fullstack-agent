@@ -341,6 +341,17 @@
           </div>
           <div class="world-body">
             <canvas class="world-canvas" id="worldCanvas" aria-label="The village: click a building, a resident or a star"></canvas>
+            <!-- Inside a building (js/roomview.js over world/room.js): the room from above, over the island. -->
+            <div class="world-room hidden" id="worldRoom">
+              <div class="world-room-head">
+                <b class="display" id="worldRoomTitle"></b>
+                <span class="hint" id="worldRoomSub"></span>
+                <button class="btn small" id="worldRoomLeave" title="Back outside (Esc)">← Step outside</button>
+              </div>
+              <canvas class="world-room-canvas" id="worldRoomCanvas" aria-label="Inside the building: the residents at work and what the place holds of you"></canvas>
+              <div class="world-room-tip hidden" id="worldRoomTip"></div>
+              <div class="world-room-empty hidden" id="worldRoomEmpty">Nobody here right now.</div>
+            </div>
             <div class="world-now hidden" id="worldNow" aria-live="polite"></div>
             <div class="world-cam">
               <button class="btn small hidden" id="worldLeave" title="Step back outside (Esc)">← Outside</button>

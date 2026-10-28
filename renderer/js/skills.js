@@ -25,6 +25,20 @@ export async function refresh() {
   render();
 }
 
+// The first few trigger phrases, and "+N more" that unfolds the rest (a skill may have twenty).
+const SHOW_TRIGGERS = 5;
+function triggerChips(triggers) {
+  const box = el('div', { class: 'trig' });
+  const chips = triggers.map((t) => el('span', { class: 'tag' }, `“${t}”`));
+  if (triggers.length <= SHOW_TRIGGERS + 1) return (box.append(...chips), box);
+  const more = el('span', { class: 'tag more', role: 'button', tabindex: '0', title: 'Show every trigger phrase' }, `+${triggers.length - SHOW_TRIGGERS} more`);
+  const unfold = () => box.replaceChildren(...chips);
+  more.onclick = unfold;
+  more.onkeydown = (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), unfold());
+  box.append(...chips.slice(0, SHOW_TRIGGERS), more);
+  return box;
+}
+
 function render() {
   const q = $('#skillSearch').value.toLowerCase();
   const grid = $('#skillGrid');
@@ -51,7 +65,7 @@ function render() {
         el('h4', {}, el('span', {}, s.name), el('code', { class: 'cmd' }, `/${s.slug}`)),
         s.source ? el('div', { class: 'hint' }, `📦 from ${s.source}${s.files?.length ? ` · ${s.files.length} files` : ''}`) : '',
         s.description ? el('div', { class: 'sdesc' }, s.description) : '',
-        s.triggers.length ? el('div', { class: 'trig' }, s.triggers.map((t) => el('span', { class: 'tag' }, `“${t}”`))) : '',
+        s.triggers.length ? triggerChips(s.triggers) : '',
         el('div', { class: 'steps' }, s.steps),
         el(
           'div',

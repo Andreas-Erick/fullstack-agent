@@ -324,8 +324,8 @@ test('the scene behind the face: a key in /api/info, the drawing from /api/scene
   let info = await (await fetch(`${base}/api/info`, { headers: auth })).json();
   assert.strictEqual(info.scene, null);
   assert.strictEqual(info.sleepOnLaunch, true);
-  assert.deepStrictEqual(await (await fetch(`${base}/api/scene`, { headers: auth })).json(), { svg: '', caption: '', key: '' });
-  scene = { svg: '<svg viewBox="0 0 1600 900" onload="x()"><g id="far"><rect width="9" height="9"/></g><script>bad()</script><g id="mid"><circle r="2"/></g><g id="near"><circle r="3"/><image href="http://x/y.png"/></g></svg>', caption: 'A test place' };
+  assert.deepStrictEqual(await (await fetch(`${base}/api/scene`, { headers: auth })).json(), { svg: '', portrait: '', caption: '', key: '' });
+  scene = { svg: '<svg viewBox="0 0 1600 900" onload="x()"><g id="far"><rect width="9" height="9"/></g><script>bad()</script><g id="mid"><circle r="2"/></g><g id="near"><circle r="3"/><image href="http://x/y.png"/></g></svg>', portrait: '<svg><g id="far"><rect width="9" height="9"/></g><g id="mid"><circle r="2"/><script>x()</script></g><g id="near"><circle r="3"/></g></svg>', caption: 'A test place' };
   info = await (await fetch(`${base}/api/info`, { headers: auth })).json();
   assert.match(info.scene.key, /^[0-9a-f]{16}$/);
   assert.strictEqual(info.scene.caption, 'A test place');
@@ -335,6 +335,12 @@ test('the scene behind the face: a key in /api/info, the drawing from /api/scene
   assert.ok(r.svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"'));
   for (const s of ['<script', 'onload', '<image', 'x/y.png']) assert.ok(!r.svg.includes(s), `no ${s}`);
   assert.ok(r.svg.includes('<rect width="9" height="9"/>'));
+  assert.ok(r.portrait.startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1600"'), 'the tall drawing, in its own frame');
+  assert.ok(!r.portrait.includes('<script'));
+  scene = { svg: scene.svg, caption: 'Wide only' };
+  const wideOnly = await (await fetch(`${base}/api/scene`, { headers: auth })).json();
+  assert.strictEqual(wideOnly.portrait, '');
+  assert.notStrictEqual(wideOnly.key, r.key, 'the key covers both drawings');
   scene = null;
 });
 

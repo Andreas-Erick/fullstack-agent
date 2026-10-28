@@ -111,7 +111,7 @@ const localVoice = {
 
   warn(err) {
     logEvent('warn', 'offline voice failed', err.message);
-    if (Date.now() - this.lastWarn > 60000) toastError(new Error(`Offline voice: ${err.message} — using the system voice.`));
+    if (Date.now() - this.lastWarn > 60000) toastError(new Error(`Offline voice: ${err.message} — ${fallbackMode() === 'system' ? 'using the system voice' : 'the reply stays on screen'}.`));
     this.lastWarn = Date.now();
   },
 };
@@ -161,17 +161,34 @@ class Speaker {
     this.started = false;
   }
 
+  // A streamed reply: sentence by sentence, up to voice.speakLimit characters (a long result, such as
+  // a report or a list of papers, is for the screen); then one line says so and the rest stays silent.
   feed(delta) {
+    if (this.capped) return;
     this.buffer += delta;
     const { done, rest } = takeSentences(this.buffer);
     this.buffer = rest;
-    for (const s of done) this.chunk(speakable(s));
+    for (const s of done) {
+      if (this.overLimit(s)) return;
+      this.chunk(speakable(s));
+    }
+  }
+
+  overLimit(next) {
+    const limit = Number(state.settings.voice.speakLimit);
+    if (!(limit > 0)) return false;
+    this.spoken = (this.spoken || 0) + next.length;
+    if (this.spoken <= limit || !this.started) return false;
+    this.capped = true;
+    this.buffer = '';
+    this.chunk('The rest is on the screen.');
+    return true;
   }
 
   flush() {
-    const s = speakable(this.buffer);
+    const s = this.capped ? '' : speakable(this.buffer);
     this.buffer = '';
-    if (s) this.chunk(s);
+    if (s && !this.overLimit(s)) this.chunk(s);
     this.release();
     this.started = false;
   }
@@ -224,9 +241,11 @@ class Speaker {
       }
     }
     // The offline voice as the main voice: wait for it (its first download included) rather than
-    // filling in with the system voice, so the user hears one voice from the very first sentence.
+    // filling in with the system voice, so the user hears one voice from the very first sentence. If it
+    // fails (too slow, crashed), the rest of the reply stays silent, on screen; the system voice only
+    // fills in when the user chose it as the fallback.
     if (state.settings.voice.engine === 'local' && !override?.voice) {
-      return localVoice.speak(text, { waitMs: 180000 }).catch((err) => (localVoice.warn(err), gen === this.gen && 'speechSynthesis' in window ? 'system' : null));
+      return localVoice.speak(text, { waitMs: 180000 }).catch((err) => (localVoice.warn(err), gen === this.gen ? this.systemIfChosen() : null));
     }
     const mode = fallbackMode();
     if (this.onFallback && mode !== 'off' && Date.now() - this.fallbackSince < 120000) return this.fallback(text, gen);
@@ -254,15 +273,19 @@ class Speaker {
     }
   }
 
-  // The offline voice when it is chosen and works; the OS voice otherwise (also while the offline
-  // voice is still downloading, so a reply is never silent).
+  // VoiceStudio is unreachable: the offline voice when it is the chosen fallback and works (silence,
+  // on screen, while it still downloads or if it fails); the OS voice only when the user chose it.
   async fallback(text, gen) {
     if (fallbackMode() === 'local') {
       const buf = await localVoice.speak(text).catch((err) => (localVoice.warn(err), null));
       if (gen !== this.gen) return null;
-      if (buf) return buf;
+      return buf || null;
     }
-    return 'speechSynthesis' in window ? 'system' : null;
+    return this.systemIfChosen();
+  }
+
+  systemIfChosen() {
+    return fallbackMode() === 'system' && 'speechSynthesis' in window ? 'system' : null;
   }
 
   reportError(err) {
@@ -339,6 +362,8 @@ class Speaker {
     clearTimeout(this.batchTimer);
     this.batch = [];
     this.started = false;
+    this.spoken = 0;
+    this.capped = false;
     try {
       this.source?.stop();
     } catch {

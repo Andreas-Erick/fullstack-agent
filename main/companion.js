@@ -59,6 +59,7 @@ const STATIC = {
   '/js/world/art.js': 'renderer/js/world/art.js',
   '/js/world/places.js': 'renderer/js/world/places.js',
   '/js/world/interiors.js': 'renderer/js/world/interiors.js',
+  '/js/world/room.js': 'renderer/js/world/room.js',
   '/js/world/scene.js': 'renderer/js/world/scene.js',
   '/js/world/sprites.js': 'renderer/js/world/sprites.js',
   '/js/world/season.js': 'renderer/js/world/season.js',
@@ -594,7 +595,7 @@ async function info() {
   const t = tunnel.status();
   const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
   // The scene behind the face: only its key here; the device fetches /api/scene when the key changes.
-  const scene = s.appearance?.scene?.svg ? { key: sceneKey(s.appearance.scene.svg), caption: String(s.appearance.scene.caption || '').slice(0, 80) } : null;
+  const scene = s.appearance?.scene?.svg ? { key: sceneKey(`${s.appearance.scene.svg}\n${s.appearance.scene.portrait || ''}`), caption: String(s.appearance.scene.caption || '').slice(0, 80) } : null;
   return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, scene, sleepOnLaunch: s.ui?.sleepOnLaunch !== false, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, update: await Promise.resolve().then(() => require('./updates').forDevices()).catch(() => null) };
 }
 
@@ -667,10 +668,19 @@ async function route(req, res) {
     if (!underLimit('scene', device.id, 30)) return fail(res, 429, 'Too many requests; wait a minute');
     const sc = (await store.getSettings()).appearance?.scene;
     try {
-      const c = sc?.svg ? require('./scenecore').cleanScene(sc.svg) : null;
-      return json(res, 200, c ? { svg: c.svg, caption: String(sc.caption || '').slice(0, 80), key: sceneKey(sc.svg) } : { svg: '', caption: '', key: '' });
+      const scenecore = require('./scenecore');
+      const c = sc?.svg ? scenecore.cleanScene(sc.svg) : null;
+      let portrait = '';
+      if (c && sc.portrait) {
+        try {
+          portrait = scenecore.cleanScene(sc.portrait, { orientation: 'portrait' }).svg;
+        } catch {
+          /* no tall drawing: the wide one is cropped */
+        }
+      }
+      return json(res, 200, c ? { svg: c.svg, portrait, caption: String(sc.caption || '').slice(0, 80), key: sceneKey(`${sc.svg}\n${sc.portrait || ''}`) } : { svg: '', portrait: '', caption: '', key: '' });
     } catch {
-      return json(res, 200, { svg: '', caption: '', key: '' });
+      return json(res, 200, { svg: '', portrait: '', caption: '', key: '' });
     }
   }
   // The face as recorded loops, for the watch (facecapture.js); unchanged → 304.

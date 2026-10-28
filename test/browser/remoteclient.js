@@ -160,6 +160,57 @@ async function run() {
       await wc.executeJavaScript(`document.querySelectorAll('.more-tile')[${i}].click()`, true);
       await settled(wc, `${size.name}/more/${name}`);
     }
+    // Inside a building: a tap on the island picks a building, "Step inside" opens its room over the
+    // island (drawn by /js/world/room.js), with a painted canvas; "Step outside" closes it.
+    await wc.executeJavaScript(`document.querySelector('#tabs [data-tab="more"]').click()`, true);
+    await until(wc, `[...document.querySelectorAll('.more-tile b')].some((b) => b.textContent === 'Inner World')`);
+    await wc.executeJavaScript(`[...document.querySelectorAll('.more-tile')].find((t) => t.textContent.includes('Inner World')).click()`, true);
+    const roomLabel = `${size.name}/world room`;
+    if (!(await until(wc, `(document.querySelector('#panel .world-canvas') || {}).width > 0`))) problems.push(`${roomLabel}: no island`);
+    else {
+      await wait(800);
+      // Taps across the island find built buildings; up to three different rooms are opened in turn.
+      const rooms = [];
+      const seen = new Set();
+      for (const [fx, fy] of [[0.5, 0.5], [0.45, 0.42], [0.55, 0.58], [0.4, 0.55], [0.6, 0.45], [0.5, 0.35], [0.5, 0.65], [0.35, 0.5], [0.65, 0.5], [0.3, 0.4], [0.7, 0.6]]) {
+        if (rooms.length >= 3) break;
+        const opened = await wc.executeJavaScript(`(async () => {
+          const c = document.querySelector('#panel .world-canvas');
+          if (!c) return false;
+          const r = c.getBoundingClientRect();
+          for (const type of ['pointerdown', 'pointerup']) c.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: 'touch', clientX: r.left + r.width * ${fx}, clientY: r.top + r.height * ${fy}, bubbles: true, isPrimary: true }));
+          await new Promise((f) => setTimeout(f, 250));
+          const b = [...document.querySelectorAll('#panel button')].find((x) => x.textContent.includes('Step inside'));
+          if (!b) return false;
+          b.click();
+          return true;
+        })()`);
+        if (!opened) continue;
+        if (!(await until(wc, `!!document.querySelector('#panel .world-room canvas')`))) {
+          problems.push(`${roomLabel}: the room did not open`);
+          break;
+        }
+        await wait(1200);
+        const r = await wc.executeJavaScript(`(() => { const c = document.querySelector('#panel .world-room canvas'); const g = c.getContext('2d'); const d = g.getImageData(0, 0, c.width, c.height).data; let on = 0; for (let i = 0; i < d.length; i += 160) if (d[i] + d[i + 1] + d[i + 2] > 60) on++; return { size: c.width + 'x' + c.height, painted: Math.round((on / (d.length / 160)) * 100), title: document.querySelector('#panel .world-room-head b').textContent }; })()`);
+        const title = r.title.replace(/^\S+\s*/, '');
+        if (!seen.has(title)) {
+          seen.add(title);
+          rooms.push(r);
+          if (r.painted < 30) problems.push(`${roomLabel} (${title}): mostly blank (${r.painted}% painted)`);
+          await clipped(wc, `${roomLabel} ${title}`);
+          await shot(wc, `${roomLabel} ${title}`);
+        }
+        await wc.executeJavaScript(`[...document.querySelectorAll('#panel button')].find((x) => x.textContent.includes('Step outside'))?.click()`, true);
+        if (!(await until(wc, `!document.querySelector('#panel .world-room')`))) {
+          problems.push(`${roomLabel}: the room did not close`);
+          break;
+        }
+        await wc.executeJavaScript(`[...document.querySelectorAll('#panel button')].find((x) => x.textContent.includes('The day'))?.click()`, true);
+        await wait(200);
+      }
+      if (!rooms.length) problems.push(`${roomLabel}: no tap found a built building to step into`);
+      screens[roomLabel] = rooms;
+    }
     // Studying: open the deck, show the answer, grade it; the computer must have the answer.
     await wc.executeJavaScript(`document.querySelector('#tabs [data-tab="more"]').click()`, true);
     await until(wc, `[...document.querySelectorAll('.more-tile b')].some((b) => b.textContent === 'Flashcards')`);
@@ -219,7 +270,12 @@ async function run() {
     // over everything; asleep until something happens, so the state reads ASLEEP and the scene is dimmed.
     const ffLabel = `${size.name}/face full`;
     // Without the real fullscreen request: it would grow the test window to the screen, and this is a check of the phone's size.
-    await wc.executeJavaScript(`document.documentElement.requestFullscreen = () => Promise.resolve(); document.querySelector('#tabs [data-tab="chat"]').click(); document.querySelector('#faceFull').click()`, true);
+    // A real tap, not .click(): the button must be on top of the face canvas and the scene to be hit.
+    await wc.executeJavaScript(`document.documentElement.requestFullscreen = () => Promise.resolve(); document.querySelector('#tabs [data-tab="chat"]').click()`, true);
+    await wait(300);
+    const hit = await wc.executeJavaScript(`(() => { const b = document.querySelector('#faceFull'); const r = b.getBoundingClientRect(); const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2); const el = document.elementFromPoint(x, y); return { x, y, ok: !!el && (el === b || b.contains(el)), on: el ? el.tagName + '#' + el.id : 'nothing' }; })()`);
+    if (!hit.ok) problems.push(`${ffLabel}: a tap on the full-screen button lands on ${hit.on}`);
+    for (const type of ['mouseDown', 'mouseUp']) wc.sendInputEvent({ type, x: hit.x, y: hit.y, button: 'left', clickCount: 1 });
     await wait(900);
     const ff = await wc.executeJavaScript(`({ full: document.body.classList.contains('face-full'), asleep: document.body.classList.contains('asleep'), label: document.querySelector('#faceState').textContent, scene: !!document.querySelector('#faceScene.on svg'), sceneOpacity: getComputedStyle(document.querySelector('#faceScene')).opacity, wide: document.body.classList.contains('wide'), size: innerWidth + 'x' + innerHeight, wrapBg: getComputedStyle(document.querySelector('.face-wrap')).backgroundColor })`);
     if (!ff.full) problems.push(`${ffLabel}: the full-screen face did not open`);

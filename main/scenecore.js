@@ -9,12 +9,18 @@ const HEIGHT = 900;
 const MAX_BYTES = 200000;
 const MAX_ELEMENTS = 6000;
 const LAYERS = ['far', 'mid', 'near'];
+// Two drawings of the same place: wide for the Face view and the phone's face strip, tall for the
+// chat's narrow face panel and the phone's full-screen face (a wide picture cropped to a tall strip
+// shows only its quiet middle).
+const FRAMES = { landscape: { w: WIDTH, h: HEIGHT }, portrait: { w: HEIGHT, h: WIDTH } };
 
-function buildPrompt({ name, masterPrompt, aesthetic, colors = {} }) {
+function buildPrompt({ name, masterPrompt, aesthetic, colors = {}, orientation = 'landscape' }) {
   const palette = Object.entries(colors)
     .filter(([, v]) => /^#[0-9a-f]{6}$/i.test(String(v)))
     .map(([k, v]) => `${k} ${v}`)
     .join(', ');
+  const f = FRAMES[orientation] || FRAMES.landscape;
+  const tall = f.h > f.w;
   return `You are an illustrator. Draw the vector background scene for the animated face of a desktop AI assistant: the place its character lives in. The character itself is drawn by the app in the middle of the screen, over your scene, so your scene is the room, stage, landscape or world around it.
 
 ASSISTANT NAME: ${name}
@@ -34,9 +40,9 @@ Pick a concrete place that fits (a circus ringmaster: the fairground at night, t
 Respond with ONLY one <svg> element, no prose, no code fences, starting with an XML comment that captions the scene in at most six words: <!-- caption: ... -->
 
 Requirements:
-- viewBox="0 0 ${WIDTH} ${HEIGHT}" (a wide picture; it is cropped at the sides on narrow panels, so the most important things sit inside the middle 60% of the width, with more at the sides).
-- Exactly three groups, in this order, holding everything: <g id="far"> (sky, stars or clouds, distant silhouettes: hills, a skyline, more tents, trees), <g id="mid"> (the main scenery: at least six distinct structures or objects, plus small life such as simple silhouettes of people, animals, lanterns, flags, signs), <g id="near"> (foreground framing at the edges and the bottom: a prop or two in each lower corner, something hanging in from the top, the floor). The app moves them at different speeds for depth.
-- The character sits in the centre, so inside a circle of radius 260 around (${WIDTH / 2}, ${HEIGHT / 2}) put only what it stands on or in front of, in low contrast: a stage, a doorway, an archway, a path, a glow of light, a plain wall. Everything outside that circle is full: no empty area bigger than a tenth of the picture; the sky has stars, clouds, beams or bunting; the ground has texture.
+- viewBox="0 0 ${f.w} ${f.h}" (${tall ? 'a tall picture for a narrow panel: the sky and what hangs above fill the top third, the character sits in the middle third, the floor with props fills the bottom third; it may be cropped a little at the top and bottom' : 'a wide picture; it is cropped at the sides on narrow panels, so the most important things sit inside the middle 60% of the width, with more at the sides'}).
+- Exactly three groups, in this order, holding everything: <g id="far"> (sky, stars or clouds, distant silhouettes: hills, a skyline, more tents, trees), <g id="mid"> (the main scenery: at least ${tall ? 'four' : 'six'} distinct structures or objects, plus small life such as simple silhouettes of people, animals, lanterns, flags, signs), <g id="near"> (foreground framing at the edges and the bottom: a prop or two in each lower corner, something hanging in from the top, the floor). The app moves them at different speeds for depth.
+- The character sits in the centre, so inside a circle of radius ${tall ? 300 : 260} around (${f.w / 2}, ${f.h / 2}) put only what it stands on or in front of, in low contrast: a stage, a doorway, an archway, a path, a glow of light, a plain wall. Everything outside that circle is full: no empty area bigger than a tenth of the picture; the sky has stars, clouds, beams or bunting; the ground has texture.
 - 200 to 450 elements. Use only basic shapes, paths, polygons and linearGradient / radialGradient in <defs>. Repeat small things with varied positions and sizes (lights, stars, pebbles, planks) rather than one big flat fill.
 - No text, no <image>, no <use>, no <style>, no <filter>, no <foreignObject>, no <script>, no animation, no external references of any kind. Under 70 KB.`;
 }
@@ -57,7 +63,8 @@ const CAPTION = /<!--\s*caption:\s*([^>]*?)\s*-->/i;
  * images, uses, styles, filters, foreign objects, animation, links, external references), the root
  * given the app's viewBox and crop. Throws when it is not a drawing or too big.
  */
-function cleanScene(text) {
+function cleanScene(text, { orientation = 'landscape' } = {}) {
+  const f = FRAMES[orientation] || FRAMES.landscape;
   const raw = extractSvg(text) || extractSvg(`${text}</svg>`);
   if (!raw) throw new Error('The model did not return an SVG drawing. Try again, or use a more capable model.');
   const caption = String((CAPTION.exec(String(text)) || [])[1] || '').slice(0, 80);
@@ -81,11 +88,11 @@ function cleanScene(text) {
     let a = attrs
       .replace(/\s(width|height|preserveAspectRatio|xmlns(?::\w+)?)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
       .replace(/\s(viewBox)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
-    a = ` xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${HEIGHT}" preserveAspectRatio="xMidYMid slice"${a}`;
+    a = ` xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${f.w} ${f.h}" preserveAspectRatio="xMidYMid slice"${a}`;
     return `<svg${a}>`;
   });
   const layers = LAYERS.every((id) => new RegExp(`<g\\b[^>]*\\bid=["']${id}["']`).test(svg));
   return { svg, caption, bytes: Buffer.byteLength(svg, 'utf8'), elements, layers };
 }
 
-module.exports = { WIDTH, HEIGHT, MAX_BYTES, LAYERS, buildPrompt, extractSvg, cleanScene };
+module.exports = { WIDTH, HEIGHT, FRAMES, MAX_BYTES, LAYERS, buildPrompt, extractSvg, cleanScene };

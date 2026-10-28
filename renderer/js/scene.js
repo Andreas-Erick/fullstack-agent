@@ -13,12 +13,20 @@ const PURIFY = {
 
 let shown = null; // the SVG text on screen, to skip a redraw when nothing changed
 
+/** The wide drawing and, when there is one, the tall one; styles.css shows the one that fits the holder. */
+export function sceneMarkup(scene) {
+  const svg = scene?.svg ? String(scene.svg) : '';
+  if (!svg) return '';
+  const one = (text, cls) => window.DOMPurify.sanitize(text, PURIFY).replace(/^<svg\b/, `<svg class="${cls}"`);
+  return one(svg, 'landscape') + (scene.portrait ? one(String(scene.portrait), 'portrait') : '');
+}
+
 /** Puts the scene (or none) into every .face-scene holder. */
 export function applyScene(scene) {
-  const svg = scene?.svg ? String(scene.svg) : '';
-  if (svg === shown) return;
-  shown = svg;
-  const clean = svg ? window.DOMPurify.sanitize(svg, PURIFY) : '';
+  const key = scene?.svg ? `${scene.svg}\n${scene.portrait || ''}` : '';
+  if (key === shown) return;
+  shown = key;
+  const clean = sceneMarkup(scene);
   for (const holder of $$('.face-scene')) {
     holder.innerHTML = clean;
     holder.classList.toggle('on', Boolean(clean));

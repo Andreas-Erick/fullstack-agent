@@ -21,7 +21,8 @@ test('a new install is Siren: name, master prompt, theme, face and the offline v
   assert.strictEqual(s.agent.name, 'Siren');
   assert.strictEqual(s.agent.personality, brand.MASTER_PROMPT);
   assert.strictEqual(s.appearance.theme.name, 'Siren');
-  assert.strictEqual(s.ui.face, 'siren');
+  assert.strictEqual(s.ui.face, 'custom:siren', 'her shipped face');
+  assert.strictEqual(s.appearance.scene?.caption, "Moonlit siren's cove with shipwreck", 'her place behind the face');
   assert.strictEqual(s.voice.engine, 'local');
   fs.rmSync(dir, { recursive: true, force: true });
 });

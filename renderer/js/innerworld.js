@@ -18,6 +18,7 @@ import { loadSprites, spritesReady } from './world/sprites.js';
 import { palette, W, HZ } from './world/art.js';
 import { buildIsland, release as releaseIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf, bounds as sceneBounds } from './world/scene.js';
 import { createReplay, replayBar } from './replay.js';
+import { initRoom, openRoom, closeRoom, roomOpen, refreshRoom } from './roomview.js';
 
 const ACTIONS = {
   library: ['Study session', () => ask('/study-session')],
@@ -66,6 +67,17 @@ export function initInnerWorld() {
   new ResizeObserver(resize).observe(canvas);
   setupCamera();
   setupMinimap();
+  // The room inside a building borrows the island's palette, data, clock and who is where.
+  initRoom({
+    palette: () => (P ||= palette(season())),
+    data: () => data,
+    people: (m) => positions(m),
+    minute: at,
+    frameMs,
+    place: placeById,
+    showResident: (name) => select({ type: 'resident', id: name }),
+    leave: () => leave(),
+  });
   // The rendered art (renderer/assets/world): once loaded, the island is painted with it.
   loadSprites().then((ok) => {
     if (!ok) return logEvent('warn', 'inner world sprites unavailable', {});
@@ -108,6 +120,7 @@ export function initInnerWorld() {
       if (data?.details?.work) {
         data.details.work.today[ev.place] = (data.details.work.today[ev.place] || 0) + 1;
         sceneCache = null; // the count is painted on the building
+        refreshRoom(); // and on the Workshop's board
       }
       if (currentView === 'world') (renderNow(), draw());
       return;
@@ -137,6 +150,9 @@ export async function refresh() {
     toastError(err);
     return;
   }
+  // Your recently opened documents lie on the Workshop's drafting table and in the Archive's pigeonholes.
+  data.docs = await api.docs.recent().catch(() => []);
+  refreshRoom();
   if (data.levelups?.length) celebrate(data.levelups);
   clockLabel();
   renderHead();
@@ -397,22 +413,24 @@ function flyTo(target, then) {
 // would build it).
 const canEnter = (id) => Boolean(map?.sites[id] && placeById(id)?.level);
 
+// Inside: the room from above opens over the island (js/roomview.js), the camera glides to the
+// building meanwhile, so leaving lands on it.
 function enter(id) {
   const s = map?.sites[id];
   if (!s || !canEnter(id)) return;
   interior = id;
-  islandKey = '';
   select({ type: 'place', id });
   const c = W(s.gx, s.gy, s.h * HZ + 12);
-  flyTo({ x: c.x, y: c.y, z: home.z * INSIDE_ZOOM });
+  flyTo({ x: c.x, y: c.y, z: Math.max(cam?.z || home.z, home.z * 1.4) });
+  openRoom(placeById(id));
   $('#worldLeave').classList.remove('hidden');
 }
 
-/** Back outside: flies to the whole island, or (fly: false, after the user moved away) stays where it is. */
+/** Back outside: the room closes and the camera shows the whole island again (fly: false keeps it). */
 function leave({ fly = true } = {}) {
   if (!interior) return;
   interior = null;
-  islandKey = '';
+  closeRoom();
   $('#worldLeave').classList.add('hidden');
   renderPanel(); // its button turns back into "Step inside"
   if (fly) flyTo(home);
