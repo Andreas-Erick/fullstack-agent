@@ -49,11 +49,35 @@ function whole(field, v) {
   return v;
 }
 
+/**
+ * A tall scene drawing belongs with the wide one it was drawn for. Versions 2.6.0–2.6.3 could carry
+ * the previous persona's tall drawing across a switch and save it into the next persona (switching to
+ * the Ringmaster showed the Siren's cove behind him); this drops such a copy: when two personas hold
+ * the same tall drawing over different wide ones, it stays with its owner (the one whose wide drawing
+ * is the app's own default, else the first) and goes from the others.
+ */
+function repairScenes(list, defaultScene) {
+  const keeper = new Map(); // tall drawing → the persona it stays with
+  for (const x of list) {
+    const sc = x.scene;
+    if (!sc?.portrait) continue;
+    const k = keeper.get(sc.portrait);
+    if (!k || (defaultScene && sc.svg === defaultScene.svg)) keeper.set(sc.portrait, x);
+  }
+  return list.map((x) => {
+    const sc = x.scene;
+    if (!sc?.portrait) return x;
+    const k = keeper.get(sc.portrait);
+    return k === x || k.scene.svg === sc.svg ? x : { ...x, scene: { ...sc, portrait: '' } };
+  });
+}
+
 /** settings.personas, valid: never empty (the live settings become the first persona), active in the list. */
-function ensure(settings) {
+function ensure(settings, { defaultScene = null } = {}) {
   const p = settings.personas || {};
   let list = Array.isArray(p.list) ? p.list.filter((x) => x && typeof x.id === 'string') : [];
   if (!list.length) list = [{ id: FIRST_ID, ...snapshot(settings) }];
+  list = repairScenes(list, defaultScene);
   const active = list.some((x) => x.id === p.active) ? p.active : list[0].id;
   return { active, list };
 }
@@ -114,4 +138,4 @@ function summary(personas) {
   }));
 }
 
-module.exports = { FIELDS, FIRST_ID, MAX_PERSONAS, snapshot, patchFor, ensure, sync, find, create, remove, summary };
+module.exports = { FIELDS, FIRST_ID, MAX_PERSONAS, snapshot, patchFor, ensure, repairScenes, sync, find, create, remove, summary };

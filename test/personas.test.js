@@ -77,6 +77,23 @@ test('a switch never keeps the previous persona’s tall scene drawing or face c
   assert.deepStrictEqual(s.appearance.theme.face.states.idle, ['#111111', '#222222']);
 });
 
+test('a tall scene drawing copied into another persona by 2.6.0–2.6.3 is dropped there, kept with its owner', () => {
+  const siren = { id: 'a', name: 'Siren', scene: { svg: '<svg>cove</svg>', portrait: '<svg>cove tall</svg>', caption: 'cove' } };
+  const ring = { id: 'b', name: 'Ringmaster', scene: { svg: '<svg>carnival</svg>', portrait: '<svg>cove tall</svg>', caption: 'carnival' } };
+  const copy = { id: 'c', name: 'Siren (copy)', scene: { ...siren.scene } };
+  const ada = { id: 'd', name: 'Ada', scene: null };
+  const out = core.repairScenes([ring, siren, copy, ada], { svg: '<svg>cove</svg>', portrait: '<svg>cove tall</svg>' });
+  assert.strictEqual(out[0].scene.portrait, '', 'the Ringmaster loses the cove’s tall drawing');
+  assert.strictEqual(out[0].scene.svg, '<svg>carnival</svg>', 'and keeps his wide one');
+  assert.strictEqual(out[1].scene.portrait, '<svg>cove tall</svg>', 'the owner keeps it (the default pair, wherever it is in the list)');
+  assert.strictEqual(out[2].scene.portrait, '<svg>cove tall</svg>', 'a true copy of the whole scene keeps it too');
+  assert.strictEqual(out[3].scene, null);
+  // Without a default to tell the owner, the first in the list keeps it.
+  const two = core.repairScenes([ring, siren], null);
+  assert.strictEqual(two[0].scene.portrait, '<svg>cove tall</svg>');
+  assert.strictEqual(two[1].scene.portrait, '');
+});
+
 test('duplicate copies the active persona under a free name', async () => {
   await persona.activate('Aria');
   const s = await persona.create({ copy: true });

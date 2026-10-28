@@ -451,8 +451,13 @@ async function getSettings() {
   // Google Calendar and iCal links were replaced by the schedule in the vault (1.3).
   for (const k of ['clientId', 'clientSecret', 'allCalendars', 'allowWrite', 'icsUrls']) delete merged.calendar[k];
   for (const [section, key] of SECRET_FIELDS) merged[section][key] = decrypt(merged[section][key]);
-  // Installs from before personas (1.4) get their current persona as the first saved one.
-  merged.personas = personas.ensure(merged);
+  // Installs from before personas (1.4) get their current persona as the first saved one. A tall scene
+  // drawing that 2.6.0–2.6.3 copied into another persona goes (personacore.repairScenes), from the live
+  // scene too when it is the active persona's.
+  merged.personas = personas.ensure(merged, { defaultScene: DEFAULTS.appearance.scene });
+  const act = merged.personas.list.find((x) => x.id === merged.personas.active);
+  const live = merged.appearance?.scene;
+  if (live?.portrait && act?.scene && act.scene.svg === live.svg && !act.scene.portrait) merged.appearance.scene = { ...live, portrait: '' };
   settingsCache = merged;
   setSealing(merged.privacy?.encryptConversations !== false);
   return merged;
