@@ -107,6 +107,7 @@ public class WatchActivity extends Activity {
             if (ttsReady) tts.setLanguage(Locale.getDefault());
         });
         setContentView(build());
+        setState("sleeping"); // asleep when opened, like the desktop; the first tap (ask) wakes her
     }
 
     private View build() {

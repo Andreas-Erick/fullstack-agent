@@ -29,6 +29,7 @@ const DEFAULTS = {
     theme: brand.THEME, // generated or edited theme object; null = the "Neon Circuit" theme
     personaNotes: '', // tone/style notes derived from the aesthetic, injected into the system prompt
     greeting: '', // welcome line on the empty chat and spoken on launch; empty = a default greeting
+    scene: null, // { svg, caption }: the place the persona lives in, drawn behind the face (main/scenecore.js); null = none
     applyVoice: true, // let persona generation pick a matching VoiceStudio voice
   },
   // The user's saved personas (main/personacore.js). The live agent/appearance/ui.face/voice settings
@@ -243,6 +244,7 @@ const DEFAULTS = {
     chatLayout: 'split', // chat | split | face — what the chat view shows
     facePanelWidth: 300, // width of the face next to the chat in the split layout (drag the divider)
     sleepAfterMin: 10, // the face dozes off after this long without activity (0 = never)
+    sleepOnLaunch: true, // the face starts asleep and wakes with the greeting or the first thing you do
     fx: 'hud', // visual effects (renderer/hud.css): hud = futuristic, with motion | subtle = static | off
     showClaudeUsage: true, // title-bar meter: how much of the Claude plan is left (main/claudeusage.js)
     showSystemStats: true, // title-bar system monitor: CPU, RAM, GPU, disk (main/sysmon.js; never sent to the AI)

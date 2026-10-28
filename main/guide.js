@@ -15,7 +15,7 @@ const FEATURES = [
   {
     id: 'personas',
     title: 'Personas, look and faces',
-    what: 'Several personas, each with its own master prompt, image, theme, face, greeting and voice; switch in the title bar. Ready-made templates: Ada (STEM tutor), Mira (polyglot coach), Sol (life coach). Ask me to change my look and I restyle myself. Six built-in faces (Siren is the default); make your own with any AI app using the prompt in the note "Make Your Own Face" in your vault.',
+    what: 'Several personas, each with its own master prompt, image, theme, face, greeting and voice; switch in the title bar. Ready-made templates: Ada (STEM tutor), Mira (polyglot coach), Sol (life coach). Ask me to change my look and I restyle myself. Generate the look & feel and I also draw the place the persona lives in behind the face (a scene from the description, in the theme\'s colors; its layers drift slowly and it dims while I sleep). I start asleep and wake with the greeting or the first thing you do. Six built-in faces (Siren is the default); make your own with any AI app using the prompt in the note "Make Your Own Face" in your vault: a character with a resting place, asleep at the start, hands that gesture while it talks.',
     say: ['"Make yourself look like an 80s synthwave terminal"', '"Use the companion face"', '"Switch to Ada"'],
     where: 'Settings → Persona studio (🎓 Templates…); the switcher next to my name; Face view → ＋ Custom faces.',
     status: (s) => `${s.personas.list.length} persona${s.personas.list.length === 1 ? '' : 's'}; active: ${s.agent.name}`,

@@ -23,10 +23,10 @@ let running = null; // { key, promise }
 
 const cacheDir = () => path.join(store.dataDir(), 'face-frames');
 
-/** What a recording depends on: the face, its theme and the name it shows. */
+/** What a recording depends on: the face, its theme, the name it shows and the scene behind it. */
 function recipe(settings) {
   const face = String(settings.ui?.face || 'siren');
-  return { face: /^(custom:[\w.-]{1,80}|\w{1,20})$/.test(face) ? face : 'siren', theme: settings.appearance?.theme || {}, name: String(settings.agent?.name || 'Siren').slice(0, 40) };
+  return { face: /^(custom:[\w.-]{1,80}|\w{1,20})$/.test(face) ? face : 'siren', theme: settings.appearance?.theme || {}, name: String(settings.agent?.name || 'Siren').slice(0, 40), scene: String(settings.appearance?.scene?.svg || '') };
 }
 
 const keyOf = (r) => crypto.createHash('sha256').update(JSON.stringify(r)).digest('hex').slice(0, 24);

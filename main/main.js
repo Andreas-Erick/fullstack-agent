@@ -671,6 +671,7 @@ function registerIpc() {
 
   // Persona look & feel
   handle('persona:generate', (payload) => persona.generate(payload));
+  handle('persona:scene', (payload) => persona.generateScene(payload));
   // Saved personas: each returns the new settings (the live persona changed).
   handle('persona:switch', (id) => persona.activate(String(id || '')));
   handle('persona:create', (opts) => persona.create({ name: String(opts?.name || ''), copy: opts?.copy === true, template: typeof opts?.template === 'string' ? opts.template : null, activate: opts?.activate !== false }));

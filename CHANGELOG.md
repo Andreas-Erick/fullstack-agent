@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- A scene behind the face. *(Generate the look & feel from the persona and the AI also draws the place the persona lives in: a big top with booths and string lights for a ringmaster, a moonlit cove for a sea nymph. It sits behind the face in the Face view and in the chat's face panel, its three layers drift slowly for depth, it dims when the face sleeps, and it is saved with the persona. Settings → Persona studio → "Scene behind the face" draws it again or removes it. Paired phones and tablets show it behind the face too, with the same drift and dimming, and the watch gets it baked into the face loops it plays.)*
+- The assistant starts asleep. *(Until the launch greeting or the first thing you do: focusing or typing in the message box, pressing the mic, any turn. Off in Settings → Interface if you prefer her awake at once. The phone app starts asleep the same way, and the watch shows the sleeping face until you tap it.)*
+- Fixed on tablets: the full-screen face was see-through (the chat showed through it) since 2.4.0's redesign gave the face panel a transparent background. The phone test now opens the full-screen face too.
+- The "Make Your Own Face" prompt now asks for a living character: a resting place (a chair, a cushion, a perch) it dozes on at the start and wakes from with a stretch, a body with hands that gesture with the voice while it talks, and no scenery of its own, since the app draws the scene behind it. *(The guide notes in your vault's Notes/ now follow new versions: a guide you never edited is refreshed, an edited one is left alone, a removed one stays removed.)*
+
 ## 2.4.0 — 2026-10-28
 
 - A redesigned phone and tablet app. *(Cards with depth, a floating tab bar with the current tab lit, the screen's name as a clear title, tinted tiles in More, empty screens with an icon and one thing to do, a bigger face and starter tiles in an empty chat. Today opens with three numbers at a glance (events left, habits done, cards to study) that take you where they live; Habits shows the day as a ring with your best streak.)*

@@ -12,6 +12,7 @@ const FIELDS = [
   ['appearance', 'theme', 'theme'],
   ['appearance', 'personaNotes', 'personaNotes'],
   ['appearance', 'greeting', 'greeting'],
+  ['appearance', 'scene', 'scene'],
   ['ui', 'face', 'face'],
   ['voice', 'voice', 'voice'],
   ['voice', 'localVoice', 'localVoice'],

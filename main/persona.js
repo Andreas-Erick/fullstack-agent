@@ -6,6 +6,8 @@ const store = require('./store');
 const llm = require('./llm');
 const core = require('./personacore');
 const templates = require('./personatemplates');
+const scenecore = require('./scenecore');
+const log = require('./logger');
 
 function extractJson(text) {
   const s = String(text || '');
@@ -78,6 +80,18 @@ async function generate({ masterPrompt, aesthetic, palette, voices, image, optio
     greeting: String(json.greeting || '').slice(0, 120),
     voice: json.voice && voices?.includes(json.voice) ? json.voice : null,
   };
+}
+
+/**
+ * The scene behind the face (scenecore.js): the model draws the place the persona lives in as one
+ * SVG in the theme's colors. Returns { svg, caption } ready for appearance.scene.
+ */
+async function generateScene({ masterPrompt, aesthetic, theme }) {
+  const settings = await store.getSettings();
+  const text = await llm.complete(settings, scenecore.buildPrompt({ name: settings.agent.name, masterPrompt, aesthetic, colors: theme?.colors || {} }), { maxTokens: 20000, timeoutMs: 480000 });
+  const scene = scenecore.cleanScene(text);
+  log.info('scene drawn', { bytes: scene.bytes, elements: scene.elements, layers: scene.layers });
+  return { svg: scene.svg, caption: scene.caption };
 }
 
 // Same choices the renderer's theme engine supports (renderer/js/theme.js).
@@ -169,4 +183,4 @@ async function remove(id) {
   return store.setSettings(next ? { ...core.patchFor(next, store.DEFAULTS), personas } : { personas });
 }
 
-module.exports = { generate, extractJson, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, templates: templates.list };
+module.exports = { generate, generateScene, extractJson, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, templates: templates.list };

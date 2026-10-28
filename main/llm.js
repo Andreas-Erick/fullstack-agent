@@ -289,7 +289,8 @@ async function complete(settings, text, opts = {}) {
   throw lastErr;
 }
 
-async function completeOn(settings, text, { image } = {}) {
+// maxTokens: room for a long reply (a drawing) on the OpenAI-style path; the others already have it.
+async function completeOn(settings, text, { image, maxTokens, timeoutMs } = {}) {
   const provider = settings.llm.provider;
   const model = effectiveModel(settings);
   if (model) settings = withModel(settings, provider === 'anthropic' ? 'anthropic' : provider === 'claude-code' ? 'claudeCode' : 'llm', model);
@@ -303,7 +304,7 @@ async function completeOn(settings, text, { image } = {}) {
         await fsp.writeFile(imagePath, Buffer.from(m[2], 'base64'));
       }
     }
-    return claudecode.complete(text, { imagePath, model: settings.claudeCode.model });
+    return claudecode.complete(text, { imagePath, model: settings.claudeCode.model, timeoutMs });
   }
   if (provider === 'anthropic') {
     const client = anthropicClient(settings);
@@ -324,8 +325,8 @@ async function completeOn(settings, text, { image } = {}) {
   const res = await fetch(`${trimBase(settings.llm.baseUrl)}/chat/completions`, {
     method: 'POST',
     headers: openaiHeaders(settings.llm.apiKey),
-    body: JSON.stringify({ model: chatModel, temperature: 0.8, max_tokens: 3000, messages: [{ role: 'user', content: text }] }),
-    signal: AbortSignal.timeout(180000),
+    body: JSON.stringify({ model: chatModel, temperature: 0.8, max_tokens: Math.max(3000, Number(maxTokens) || 0), messages: [{ role: 'user', content: text }] }),
+    signal: AbortSignal.timeout(Math.max(180000, Number(timeoutMs) || 0)),
   });
   const body = await res.text();
   if (!res.ok) throw new Error(`LLM error ${res.status}: ${body.slice(0, 300)}`);

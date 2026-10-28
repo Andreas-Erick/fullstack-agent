@@ -2,7 +2,8 @@
 //   <script src="core.js"></script>
 // then read these in your draw loop:
 //   AV.state    'idle' | 'listening' | 'thinking' | 'working' | 'speaking' | 'happy' | 'sleeping' | 'alert'
-//               (working = running tools, happy = a reply just finished, sleeping = idle for a while;
+//               (working = running tools, happy = a reply just finished, sleeping = how the assistant
+//               starts and after a quiet while;
 //               treat them like thinking / speaking / idle if your face doesn't show them)
 //   AV.level    0..1 voice / mic level
 //   AV.samples  64 waveform samples (-1..1) while speaking

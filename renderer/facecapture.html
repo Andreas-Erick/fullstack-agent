@@ -11,10 +11,18 @@
       html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
       #stage { position: fixed; inset: 0; }
       #stage canvas, #stage iframe { width: 100%; height: 100%; display: block; border: 0; }
+      /* The scene behind the face, as the app shows it: dimmed, with a vignette, darker while asleep. No
+         transitions: every recorded frame must show the finished look. */
+      #scene { position: fixed; inset: 0; overflow: hidden; opacity: 0.92; }
+      body[data-agent='sleeping'] #scene { opacity: 0.42; }
+      #scene svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+      #scene::after { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--bg) 45%, transparent) 0%, color-mix(in srgb, var(--bg) 10%, transparent) 30%, color-mix(in srgb, var(--bg) 35%, transparent) 70%, color-mix(in srgb, var(--bg) 85%, transparent) 100%); }
     </style>
+    <script src="app://bundle/node_modules/dompurify/dist/purify.min.js"></script>
     <script type="module" src="js/facecapture.js"></script>
   </head>
   <body>
+    <div id="scene"></div>
     <div id="stage"></div>
   </body>
 </html>

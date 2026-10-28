@@ -8,10 +8,13 @@ const fc = load('main/facecapture.js');
 
 test('the recipe: face, theme and name; anything odd falls back to Siren', () => {
   const r = fc.recipe({ ui: { face: 'custom:Aurora' }, appearance: { theme: { colors: { bg: '#000000' } } }, agent: { name: 'Mira' } });
-  assert.deepStrictEqual(r, { face: 'custom:Aurora', theme: { colors: { bg: '#000000' } }, name: 'Mira' });
+  assert.deepStrictEqual(r, { face: 'custom:Aurora', theme: { colors: { bg: '#000000' } }, name: 'Mira', scene: '' });
   assert.strictEqual(fc.recipe({ ui: { face: 'custom:../x' } }).face, 'siren');
   assert.strictEqual(fc.recipe({}).name, 'Siren');
   assert.notStrictEqual(fc.keyOf(r), fc.keyOf({ ...r, name: 'Other' }), 'a new name records again');
+  const withScene = fc.recipe({ ui: { face: 'siren' }, appearance: { scene: { svg: '<svg/>', caption: 'x' } } });
+  assert.strictEqual(withScene.scene, '<svg/>');
+  assert.notStrictEqual(fc.keyOf(withScene), fc.keyOf({ ...withScene, scene: '' }), 'a new scene behind the face records again');
 });
 
 test('pack and unpack keep every frame, state by state', () => {

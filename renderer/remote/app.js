@@ -1064,20 +1064,29 @@ const faceView = { id: '', obj: null, themeFns: new Set(), orb: false };
 state.happyUntil = 0;
 state.lastActivity = Date.now();
 state.sleepAfterMin = 0;
+state.asleepAtStart = false; // asleep since the app opened (the desktop's ui.sleepOnLaunch), until something happens
 state.micLevel = 0;
 
 function setFace(s) {
   state.face = s;
-  if (s !== 'idle') state.lastActivity = Date.now();
+  if (s !== 'idle') wake();
   updateFaceLabel();
 }
 
+// Anything that counts as doing something: typing, the mic, a turn.
+function wake() {
+  state.lastActivity = Date.now();
+  state.asleepAtStart = false;
+  state.woken = true;
+}
+
 // The state as the desktop names it: replying without a voice is "speaking"; after a reply, a moment of
-// "happy"; after quiet minutes (the desktop's ui.sleepAfterMin), "sleeping".
+// "happy"; asleep since the app opened, or after quiet minutes (the desktop's ui.sleepAfterMin), "sleeping".
 function agentState() {
   const f = state.face === 'speaking-text' ? 'speaking' : state.face;
   if (f !== 'idle') return f;
   if (state.happyUntil > Date.now()) return 'happy';
+  if (state.asleepAtStart) return 'sleeping';
   if (state.sleepAfterMin && Date.now() - state.lastActivity > state.sleepAfterMin * 60000) return 'sleeping';
   return 'idle';
 }
@@ -1085,9 +1094,35 @@ function agentState() {
 function updateFaceLabel() {
   const s = state.face === 'speaking-text' ? 'speaking-text' : agentState();
   $('#faceState').textContent = (STATES[s] || STATES.idle)[0];
+  document.body.classList.toggle('asleep', s === 'sleeping'); // the scene behind the face dims
 }
 setInterval(updateFaceLabel, 1000);
 for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => (state.lastActivity = Date.now()), { passive: true });
+for (const ev of ['focus', 'pointerdown', 'keydown', 'input']) $('#input').addEventListener(ev, () => (wake(), updateFaceLabel()));
+$('#micBtn').addEventListener('pointerdown', () => (wake(), updateFaceLabel()));
+
+// The scene behind the face: fetched when its key in /api/info changes, cleaned again here (DOMPurify's
+// SVG profile) before it joins the page; none → cleared.
+const SCENE_PURIFY = { USE_PROFILES: { svg: true }, FORBID_TAGS: ['style', 'foreignObject', 'image', 'use', 'a', 'script', 'filter', 'animate', 'animateTransform', 'animateMotion', 'set'], FORBID_ATTR: ['href', 'xlink:href', 'filter'] };
+async function applyScene(sc) {
+  const key = typeof sc?.key === 'string' ? sc.key : '';
+  if (key === state.sceneKey) return;
+  const holder = $('#faceScene');
+  if (!key) {
+    state.sceneKey = '';
+    holder.replaceChildren();
+    holder.classList.remove('on');
+    return;
+  }
+  try {
+    const r = await api('/api/scene');
+    holder.innerHTML = window.DOMPurify.sanitize(String(r.svg || ''), SCENE_PURIFY);
+    holder.classList.toggle('on', Boolean(r.svg));
+    state.sceneKey = key;
+  } catch {
+    /* the next info.changed or reload tries again */
+  }
+}
 
 // Spoken replies drive the face like on the desktop: an analyser on the reply audio. Created on a tap
 // (a suspended audio graph would silence the replies), and only used while it is running.
@@ -1515,6 +1550,13 @@ async function applyInfo() {
     }
     if (info.colors.bg) document.querySelector('meta[name="theme-color"]').setAttribute('content', info.colors.bg);
     state.sleepAfterMin = Number(info.sleepAfterMin) || 0;
+    // The first look at the computer: asleep until something happens, as on the desktop.
+    if (!state.infoSeen) {
+      state.infoSeen = true;
+      if (info.sleepOnLaunch !== false && state.face === 'idle' && !state.woken) state.asleepAtStart = true;
+      updateFaceLabel();
+    }
+    applyScene(info.scene);
     state.secureUrl = typeof info.secureUrl === 'string' && info.secureUrl.startsWith('https://') ? info.secureUrl : '';
     $('#schedBtn').classList.toggle('hidden', !info.calendar);
     if (!info.calendar && state.view === 'sched') showView('chat');
