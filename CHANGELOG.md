@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: a persona that had received another persona's tall scene drawing through the switch bug of 2.6.0–2.6.3 kept it in its saved look (the Ringmaster's chat face panel still showed the Siren's cove after the fix). On start, such a copied drawing is dropped from the persona it doesn't belong to; its wide drawing is cropped there until "↻ Draw the scene again" makes its own tall one.
+
 ## 2.6.4 — 2026-10-28
 
 The same as 2.6.3, whose macOS build failed on a test written with Windows paths; the Windows and Android builds of 2.6.3 are fine.
