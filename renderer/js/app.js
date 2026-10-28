@@ -4,7 +4,7 @@ import { state, loadSettings, saveSettings, ttsActive, raiseAlert, noteActivity 
 import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
 import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
-import { startListening, stopListening, toggleListening, speaker, preloadLocalModel, preloadOfflineVoice, setMicMode, handsFree } from './voice.js';
+import { startListening, stopListening, toggleListening, speaker, preloadLocalModel, preloadOfflineVoice, setMicMode, handsFree, warmMic } from './voice.js';
 import { initChat, newChat, sendVoice, currentConversationId } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
@@ -185,6 +185,9 @@ async function boot() {
   initPerf();
   preloadOfflineVoice();
   perfReady.then(() => setTimeout(() => !isBalanced() && preloadLocalModel(), 3000));
+  // The microphone, open before the first push-to-talk press (and again when you come back to the window).
+  setTimeout(warmMic, 1500);
+  window.addEventListener('focus', warmMic);
 
   // Alerts turn the face red; vault edits by the agent refresh the open views.
   on('alert', (a) => {

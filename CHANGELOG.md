@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Push to talk answers at once. *(Each press used to open the microphone from scratch, which cost a few hundred milliseconds: the first word was lost and a short press recorded nothing; a press while the last words were still being transcribed was dropped; and a quick release could leave the recording running. The microphone is now opened ahead at launch and kept open a minute and a half after each press, a press during a transcription waits for it instead of being dropped, and a release always stops the recording it belongs to.)*
+- A new app icon: the sea nymph on her rock with her lyre, and the personas she can be as masks on the ring of her song (a ringmaster, a scholar, a companion). On the installer, the phone app and the watch too.
+- Fixed in the rooms: the Observatory's chart stars floated above their boards and the open-air night sky showed only a few stars in a row (positions from a hash that could go negative and lined neighbours up). The night sky has a moon now and stars that twinkle.
+- Fixed: switching personas could keep the previous persona's tall scene drawing behind the new face (a scene drawn before tall drawings existed has none, and the store kept the old one), and likewise its face colours when the new theme named none. A switch now sets both outright.
+
 ## 2.6.1 — 2026-10-28
 
 - Fixed: at start the face was awake for a split second before falling asleep (the sleeping state was set after the faces had drawn, and a custom face assumed "idle" until its first update). Asleep from the very first frame now, on the computer and the phone.

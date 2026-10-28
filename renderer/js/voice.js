@@ -447,28 +447,67 @@ async function toMono16k(float32, sampleRate) {
   return (await off.startRendering()).getChannelData(0);
 }
 
-// Push-to-talk recorder: raw PCM via an AudioWorklet while the key is held.
+// Push-to-talk recorder: raw PCM via an AudioWorklet while the key is held. The microphone and the
+// worklet are opened ahead (at launch, and kept a while after each press): opening them on the press
+// took a few hundred milliseconds, which lost the first word and made a short press record nothing.
+const WARM_MS = 90000; // the mic stays open this long after a press (then the OS's mic light goes off)
 class Recorder {
-  async start() {
-    if (this.active) return;
-    this.stream = await openMic();
+  constructor() {
+    this.keepTimer = 0;
+    this.module = null; // the worklet, loaded once
+    this.starting = null; // a start in progress, so a release that comes first still stops it
+  }
+
+  /** The mic stream and the worklet, ready; reopened when the chosen microphone changed. */
+  async warm() {
     const ac = ctx();
-    await ac.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url)).catch(() => {});
-    this.src = ac.createMediaStreamSource(this.stream);
-    this.node = new AudioWorkletNode(ac, 'pcm-capture');
-    this.chunks = [];
-    this.node.port.onmessage = (e) => {
-      this.chunks.push(e.data.samples);
-      state.micLevel = Math.min(1, e.data.rms * 5);
-    };
-    this.src.connect(this.node);
-    this.sink = silentSink(ac);
-    this.node.connect(this.sink);
-    this.startedAt = performance.now();
-    this.active = true;
+    this.module ||= ac.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url)).catch(() => {});
+    await this.module;
+    const device = state.settings?.stt?.micDevice || '';
+    if (this.stream && (device !== this.device || !this.stream.getTracks().some((t) => t.readyState === 'live'))) this.release();
+    if (!this.stream) {
+      this.stream = await openMic();
+      this.device = device;
+    }
+    this.keep();
+    return this.stream;
+  }
+
+  keep() {
+    clearTimeout(this.keepTimer);
+    this.keepTimer = setTimeout(() => !this.active && !this.starting && this.release(), WARM_MS);
+  }
+
+  release() {
+    clearTimeout(this.keepTimer);
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = null;
+  }
+
+  start() {
+    if (this.active) return Promise.resolve();
+    if (this.starting) return this.starting;
+    this.starting = (async () => {
+      const stream = await this.warm();
+      const ac = ctx();
+      this.src = ac.createMediaStreamSource(stream);
+      this.node = new AudioWorkletNode(ac, 'pcm-capture');
+      this.chunks = [];
+      this.node.port.onmessage = (e) => {
+        this.chunks.push(e.data.samples);
+        state.micLevel = Math.min(1, e.data.rms * 5);
+      };
+      this.src.connect(this.node);
+      this.sink = silentSink(ac);
+      this.node.connect(this.sink);
+      this.startedAt = performance.now();
+      this.active = true;
+    })().finally(() => (this.starting = null));
+    return this.starting;
   }
 
   async stop() {
+    if (this.starting) await this.starting.catch(() => {});
     if (!this.active) return null;
     this.active = false;
     state.micLevel = 0;
@@ -478,11 +517,12 @@ class Recorder {
     return toMono16k(concat(this.chunks), ctx().sampleRate);
   }
 
+  // The capture graph goes; the mic stream stays open for the next press (release() after WARM_MS).
   teardown() {
     this.src?.disconnect();
     this.node?.disconnect();
     this.sink?.disconnect();
-    this.stream?.getTracks().forEach((t) => t.stop());
+    this.keep();
   }
 
   cancel() {
@@ -936,14 +976,35 @@ async function finishUtterance(getSamples) {
   }
 }
 
+// A press while the last utterance is still being transcribed waits for it (a moment) instead of
+// being dropped; a release meanwhile cancels the wait. `press` tells a start which press it belongs to.
+let press = 0;
+const untilIdle = (ms) => new Promise((resolve) => {
+  const t0 = performance.now();
+  const poll = () => (!busy || performance.now() - t0 > ms ? resolve() : setTimeout(poll, 40));
+  poll();
+});
+
+/** Opens the microphone ahead of the first press (at launch, when the window gets focus). */
+export function warmMic() {
+  const s = state.settings?.stt;
+  if (s?.enabled && s.micMode !== 'open') recorder.warm().catch(() => {});
+}
+
 export async function startListening() {
   if (!state.settings?.stt?.enabled) {
     toastError(new Error('Voice input is disabled in Settings.'));
     return;
   }
-  if (recorder.active || busy) return;
+  if (recorder.active || recorder.starting) return;
+  const mine = ++press;
   speaker.stop(); // barge-in: pressing the talk key interrupts the agent
   emit('barge-in');
+  if (busy) {
+    setCaption('One moment…', 'user');
+    await untilIdle(4000);
+    if (mine !== press) return; // released meanwhile
+  }
   try {
     await recorder.start();
     setFlag('recording', true);
@@ -956,6 +1017,8 @@ export async function startListening() {
 }
 
 export async function stopListening() {
+  press++; // a press still waiting to start is over
+  if (recorder.starting) await recorder.starting.catch(() => {});
   if (!recorder.active) return;
   setFlag('recording', false);
   emit('listening', false);

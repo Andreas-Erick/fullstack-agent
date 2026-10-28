@@ -34,9 +34,19 @@ function patchFor(persona, defaults) {
   const patch = {};
   for (const [section, key, field] of FIELDS) {
     const v = persona[field] ?? defaults[section]?.[key] ?? null;
-    (patch[section] ||= {})[key] = clone(v);
+    (patch[section] ||= {})[key] = whole(field, clone(v));
   }
   return patch;
+}
+
+// The store merges a patch key by key, so a persona that lacks a key would keep the previous persona's
+// (a scene drawn before tall drawings existed kept the last persona's tall one behind the new face).
+// The keys a switch must always set are named here, empty when the persona has none.
+function whole(field, v) {
+  if (!v || typeof v !== 'object') return v;
+  if (field === 'scene') return { svg: '', portrait: '', caption: '', ...v };
+  if (field === 'theme') return { ...v, face: { states: null, ...(v.face || {}) } };
+  return v;
 }
 
 /** settings.personas, valid: never empty (the live settings become the first persona), active in the list. */

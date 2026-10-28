@@ -58,6 +58,25 @@ test('create, switch back and forth, and every persona keeps its own look', asyn
   assert.strictEqual(s.appearance.theme.name, 'Siren');
 });
 
+test('a switch never keeps the previous persona’s tall scene drawing or face colours', async () => {
+  const s0 = await store.getSettings();
+  const coach = s0.personas.list.find((p) => p.name === 'Coach').id;
+  await persona.activate('Aria');
+  await store.setSettings({ appearance: { scene: { svg: '<svg>aria wide</svg>', portrait: '<svg>aria tall</svg>', caption: 'Aria’s place' }, theme: { name: 'Ember', face: { states: { idle: ['#111111', '#222222'] } } } } });
+  // Coach's scene was drawn before tall drawings existed: a wide one only; its theme names no face colours.
+  await persona.activate(coach);
+  await store.setSettings({ appearance: { scene: null, theme: null } });
+  await store.setSettings({ appearance: { scene: { svg: '<svg>coach wide</svg>', caption: 'Coach’s place' }, theme: { name: 'Plain', colors: { bg: '#010203' } } } });
+  await persona.activate('Aria');
+  let s = await persona.activate(coach);
+  assert.strictEqual(s.appearance.scene.svg, '<svg>coach wide</svg>');
+  assert.strictEqual(s.appearance.scene.portrait, '', 'no tall drawing of Aria’s behind Coach');
+  assert.strictEqual(s.appearance.theme.face?.states ?? null, null, 'no face colours of Aria’s on Coach');
+  s = await persona.activate('Aria');
+  assert.strictEqual(s.appearance.scene.portrait, '<svg>aria tall</svg>');
+  assert.deepStrictEqual(s.appearance.theme.face.states.idle, ['#111111', '#222222']);
+});
+
 test('duplicate copies the active persona under a free name', async () => {
   await persona.activate('Aria');
   const s = await persona.create({ copy: true });
