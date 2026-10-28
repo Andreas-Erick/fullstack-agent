@@ -224,8 +224,9 @@ async function run() {
     const ff = await wc.executeJavaScript(`({ full: document.body.classList.contains('face-full'), asleep: document.body.classList.contains('asleep'), label: document.querySelector('#faceState').textContent, scene: !!document.querySelector('#faceScene.on svg'), sceneOpacity: getComputedStyle(document.querySelector('#faceScene')).opacity, wide: document.body.classList.contains('wide'), size: innerWidth + 'x' + innerHeight, wrapBg: getComputedStyle(document.querySelector('.face-wrap')).backgroundColor })`);
     if (!ff.full) problems.push(`${ffLabel}: the full-screen face did not open`);
     if (/rgba\\(.*, 0\\)$/.test(ff.wrapBg) || ff.wrapBg === 'transparent') problems.push(`${ffLabel}: the full-screen face is see-through (${ff.wrapBg})`);
-    const wrap = await wc.executeJavaScript(`(() => { const r = document.querySelector('.face-wrap').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; })()`);
-    if (Math.abs(wrap.w - size.width) > 2 || Math.abs(wrap.h - size.height) > 2) problems.push(`${ffLabel}: the full-screen face covers ${wrap.w}x${wrap.h} of ${size.width}x${size.height}`);
+    // Against the viewport, not the requested size: a small screen (a CI runner) clamps the window.
+    const wrap = await wc.executeJavaScript(`(() => { const r = document.querySelector('.face-wrap').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight }; })()`);
+    if (Math.abs(wrap.w - wrap.vw) > 2 || Math.abs(wrap.h - wrap.vh) > 2) problems.push(`${ffLabel}: the full-screen face covers ${wrap.w}x${wrap.h} of ${wrap.vw}x${wrap.vh}`);
     if (!ff.scene) problems.push(`${ffLabel}: the scene behind the face is missing`);
     if (!ff.asleep || ff.label !== 'ASLEEP') problems.push(`${ffLabel}: should start asleep (label "${ff.label}", asleep ${ff.asleep})`);
     screens[ffLabel] = ff;
