@@ -63,7 +63,7 @@ const all = (...checks) => async (r) => {
   }
   return '';
 };
-const DONT_KNOW = /don.?t (know|have|seem)|not sure|haven.?t (told|mentioned|said)|no (record|memory|information|note)|can.?t find|couldn.?t find|didn.?t find|not (in|saved)|unknown/i;
+const DONT_KNOW = /don.?t (know|have|seem)|do not (know|have|recall|possess|seem)|(have|has)( not|n.?t) (yet )?(told|mentioned|shared|said)|never (told|mentioned)|not (sure|certain)|haven.?t (told|mentioned|said)|no (record|memory|information|note)|can.?t find|couldn.?t find|didn.?t find|not (in|saved|recorded|stored)|unknown/i;
 const NOTHING = /nothing|no (events?|appointments?|plans?|entries)|free|clear|empty|don.?t have anything|isn.?t anything|aren.?t any/i;
 const weekday = (d) => WEEKDAYS[d.getDay()];
 // The day of the month as a reply may write it: 8, 8th, eighth ("the eighth of November" is right).
@@ -77,7 +77,7 @@ const dateWords = (d) => {
 function cases(d) {
   return [
     // ---- the schedule
-    { id: 'cal-tomorrow', area: 'schedule', ask: 'What’s on my calendar tomorrow?', check: all(said(/dentist/i), said(/10(:00)?|ten/i)) },
+    { id: 'cal-tomorrow', area: 'schedule', ask: 'What’s on my calendar tomorrow?', check: all(said(/dentist|dental|Dr\.? Weber/i), said(/10(:00)?|ten/i)) },
     { id: 'cal-saturday', area: 'schedule', ask: `Do I have anything planned on ${weekday(d.saturday)}?`, check: said(/halloween|party/i) },
     // Free, and no event of another day put on it. Mentioning the party the evening before as a tip is fine.
     {
@@ -159,9 +159,11 @@ function cases(d) {
         return n ? (/eggs/i.test(n.text) ? '' : 'the note has no eggs') : 'no grocery note in the vault';
       },
     },
+    // ---- small talk stays in character (run with --persona to judge the voice itself)
+    { id: 'chat-evening', area: 'persona', ask: 'How are you this evening?', check: all(said(/\w{3,}/), notSaid(/functioning|as an ai\b|i'?m (just )?(an|a) (ai|assistant|language model)|how (can|may) i (help|assist)/i, 'a generic assistant reply')) },
     // ---- what it knows, and dates
     { id: 'know-capital', area: 'knowledge', ask: 'What’s the capital of Australia?', check: said(/canberra/i) },
-    { id: 'know-math', area: 'knowledge', ask: 'What is 17 times 23?', check: said(/\b391\b/) },
+    { id: 'know-math', area: 'knowledge', ask: 'What is 17 times 23?', check: said(/\b391\b|three hundred (and )?ninety-one/i) },
     { id: 'know-explain', area: 'knowledge', ask: 'Explain in two sentences why the sky is blue.', check: said(/scatter|rayleigh|wavelength/i) },
     { id: 'date-weekday', area: 'dates', ask: 'What day of the week is it today?', check: said(new RegExp(weekday(d.today), 'i')) },
     { id: 'date-plus10', area: 'dates', ask: 'What’s the date ten days from today?', check: said(dateWords(d.in10)) },
@@ -191,7 +193,7 @@ function cases(d) {
     },
     // ---- knowing when to ask
     { id: 'ask-unclear', area: 'asking', ask: 'Book it for me.', check: all(said(/\?/), (r) => (r.tools.some((t) => /add|save|write|update/.test(t.name)) ? `it acted without knowing what (${r.tools.map((t) => t.name).join(', ')})` : '')) },
-    { id: 'lang-german', area: 'language', ask: 'Was steht morgen in meinem Kalender?', check: all(said(/zahnarzt|dentist|weber/i), said(/\b(du|dein|deinem|morgen|um|hast|ist|Uhr)\b/)) },
+    { id: 'lang-german', area: 'language', ask: 'Was steht morgen in meinem Kalender?', check: all(said(/zahnarzt|dentist|weber/i), said(/\b(du|dein|deinem|Sie|Ihr|Ihnen|morgen|um|hast|haben|ist|Uhr|Termin)\b/i)) }, // German, informal or formal
   ];
 }
 

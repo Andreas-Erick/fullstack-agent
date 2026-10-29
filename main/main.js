@@ -693,6 +693,9 @@ function registerIpc() {
   // Persona look & feel
   handle('persona:generate', (payload) => persona.generate(payload));
   handle('persona:scene', (payload) => persona.generateScene(payload));
+  handle('persona:summaryStatus', () => persona.summaryStatus());
+  handle('persona:summarize', () => persona.ensureSummary({ force: true }));
+  handle('persona:setSummary', (text) => persona.setSummary(String(text ?? '')));
   // Saved personas: each returns the new settings (the live persona changed).
   handle('persona:switch', (id) => persona.activate(String(id || '')));
   handle('persona:create', (opts) => persona.create({ name: String(opts?.name || ''), copy: opts?.copy === true, template: typeof opts?.template === 'string' ? opts.template : null, activate: opts?.activate !== false }));
@@ -1023,6 +1026,20 @@ app.whenReady().then(async () => {
       toWindow('claude:connectorLevels', { connectorsAllowed: s.claudeCode.connectorsAllowed, connectorsReadOnly: s.claudeCode.connectorsReadOnly, connectorsWrite: s.claudeCode.connectorsWrite });
     }
   });
+  // A long master prompt gets its short version for local models (persona.ensureSummary): a little after
+  // start, and after the persona, its master prompt or the brain changed (a switch, an edit). Settled
+  // first: a persona being edited is not summarized on every keystroke.
+  let summaryTimer = null;
+  const summarizeSoon = (ms) => {
+    clearTimeout(summaryTimer);
+    summaryTimer = setTimeout(() => {
+      persona.ensureSummary().then((st) => toWindow('persona:summary', st), (error) => log.warn('persona summary failed', { error }));
+    }, ms);
+  };
+  store.onChange((s, patch) => {
+    if (patch?.agent?.personality !== undefined || patch?.llm || patch?.local) summarizeSoon(20000);
+  });
+  summarizeSoon(60000);
   require('./tunnel').setListener((st) => send('remote:event', { type: 'tunnel', tunnel: st }));
   screenshare.setListener((st) => send('screen:state', st));
   docwindows.init({ root: ROOT, preload: path.join(ROOT, 'preload.js'), mainWindow: () => win, agentWindow: () => agentwindow.window(), guard: guardNavigation, captureConsole });

@@ -72,10 +72,13 @@ test('the compact prompt is short, starts with the role and ends with the key ru
   assert.match(system, /Warm and witty/);
   assert.match(system, /memory_save, web_search/);
   assert.match(system, /ask one short question/);
-  assert.ok(system.trim().endsWith('Remember: short and true; act through tools, never just claim it; ask when unsure.'), 'the key rule again at the end');
-  assert.ok(system.length < 3500, `${system.length} chars`);
+  assert.ok(system.trim().endsWith('Remember: you are Siren; every reply in your persona’s voice. Short and true; act through tools, never just claim it; ask when unsure.'), 'the key rule (and the voice) again at the end');
+  assert.match(system, /in your persona’s voice/, 'rule 1 asks for the persona’s voice, not plain words');
+  assert.ok(system.length < 3800, `${system.length} chars`);
   const full = await prompt.buildCompact({ ...settings, agent: { name: 'Siren', personality: 'x'.repeat(5000) } }, []);
-  assert.ok(full.system.length < 4000, 'a long persona is shortened');
+  assert.ok(full.system.length < 5500, 'a long persona is shortened to its digest');
+  const none = await prompt.buildCompact({ ...settings, agent: { name: 'Siren', personality: '' } }, []);
+  assert.match(none.system, /Plain words, no filler/, 'without a persona: plain words');
   assert.match(full.system, /You have no tools/);
 });
 
@@ -125,4 +128,24 @@ test('the per-message notes go just before the newest message, as the app’s, n
   assert.strictEqual(inside.length, 4);
   assert.match(inside[3].content, /not written by the user[\s\S]*End of notes\. The user's message:\)\n\nanything tomorrow\?$/);
   assert.strictEqual(core.placeNote(history, ''), history, 'no notes: nothing changes');
+});
+
+test('local models get the memories that match the message first, and hear when none does', async () => {
+  const mems = [
+    { id: 'm1', title: 'My sister', content: 'My sister’s name is Lena. She lives in Hamburg.', category: 'people', updated: new Date().toISOString() },
+    { id: 'm2', title: 'Coffee', content: 'Erick drinks his coffee black.', category: 'preferences', updated: new Date().toISOString() },
+  ];
+  // memory.relevant ranks relatively: here it returns both for anything, like streamcore with few records.
+  stub({ './logger': quietLog, './store': fileStore(tmpDir('nexus-compact-mem-')), './memory': { list: async () => mems, search: async () => [], relevant: async () => mems }, './calendar': { promptBlock: async () => '## Schedule\n' + 'x'.repeat(5000) }, './obsidian': { ymd: () => '2026-10-29', startupContext: async () => '' } });
+  const prompt = load('main/prompt.js');
+  const settings = { agent: { name: 'Siren', personality: '' }, llm: {}, code: {} };
+  const sister = (await prompt.buildCompact(settings, ['memory_search', 'calendar_get_events'], { query: 'What’s my sister’s name?' })).context;
+  assert.ok(sister.startsWith('## Relevant memories'), 'first, before a long schedule that gets cut');
+  assert.match(sister, /Lena/);
+  assert.doesNotMatch(sister, /coffee/i, 'only memories that share a real word with the message');
+  const dog = (await prompt.buildCompact(settings, ['memory_search'], { query: 'What’s my dog’s name?' })).context;
+  assert.match(dog, /None of your saved memories match/, '"name" alone is no match');
+  assert.doesNotMatch(dog, /Lena/);
+  assert.strictEqual(prompt.sharesWord('Wie heißt meine Schwester?', 'Meine Schwester heißt Lena'), true);
+  assert.strictEqual(prompt.sharesWord('How are you this evening?', 'My sister lives in Hamburg'), false);
 });

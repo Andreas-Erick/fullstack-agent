@@ -42,12 +42,27 @@ async function memoryBlock() {
   return { text, ids: mems.map((m) => `${m.id}@${m.updated}`), many: true };
 }
 
-/** Per turn, when there are many memories: the ones that matter for this message, in full. */
-async function relevantMemories(query) {
+// Words that say nothing about which memory is meant (question words, pronouns, "name").
+const FILLER = new Set('the and for are was were what whats where when who whom whose which why how does did can could would should will you your yours mine our ours their they them she her hers his him this that these those with from about have has had not any all name names called live lives living tell know remember please today again also just like there here then than into onto over under only very much many some more most other was ist der die das und wer wie wo was mein meine meinen ich du dein'.split(' '));
+const wordsOf = (s) => new Set(String(s).toLowerCase().normalize('NFKD').replace(/[’']s\b/g, '').match(/\p{L}{3,}/gu)?.map((w) => w.replace(/(es|s)$/, '')).filter((w) => w.length >= 3 && !FILLER.has(w)) || []);
+function sharesWord(query, text) {
+  const q = wordsOf(query);
+  for (const w of wordsOf(text)) if (q.has(w)) return true;
+  return false;
+}
+
+/**
+ * Per turn, when there are many memories: the ones that matter for this message, in full. always: also
+ * with few (the compact prompt has no memories of its own), k: how many at most.
+ */
+async function relevantMemories(query, { always = false, k = 8 } = {}) {
   const all = await memory.list().catch(() => []);
   const full = all.map((m) => `${m.title}: ${m.content}`).join('\n');
-  if (!query || full.length <= FULL_MEMORY_CHARS) return '';
-  const top = await memory.relevant(query, 8).catch(() => []);
+  if (!query || (!always && full.length <= FULL_MEMORY_CHARS)) return '';
+  let top = await memory.relevant(query, k).catch(() => []);
+  // The ranking is relative: among a few memories the best always looks relevant ("my dog's name"
+  // matched the sister's memory by "name"). With always (few memories), only real word matches count.
+  if (always) top = top.filter((m) => sharesWord(query, `${m.title} ${m.content}`));
   return top.length ? `## Relevant memories (for this message)\n${top.map((m) => `- [${m.id}] (${m.category}) ${m.title}: ${m.content.replace(/\s*\n\s*/g, ' ').slice(0, 400)}`).join('\n')}` : '';
 }
 
@@ -219,7 +234,7 @@ When one of your own parts misbehaves (no voice, the brain unreachable, the cale
     parts.push(
       [
         '## Voice',
-        'Your replies are spoken aloud by a text-to-speech voice, which performs your punctuation. Write the way you talk, not like a memo: contractions, short conversational sentences, a few sentences per answer unless the question genuinely needs more.',
+        'Your replies are spoken aloud by a text-to-speech voice, which performs your punctuation. Write the way your persona talks, not like a memo: spoken sentences in its own voice and rhythm, a few per answer unless the question genuinely needs more. Short replies stay in character too.',
         '- No tables, lists, code blocks or emoji in what you say; if the user needs code or a list, keep it brief and say that it is on screen.',
         '- Never read out a file path, URL or long ID. Name the thing instead: "the settings file", "voice dot js", "the link I put on screen".',
         '- Say numbers the way a person would out loud ("about two thousand", "half past three"), not raw figures or symbols.',
@@ -323,7 +338,7 @@ function coachingBlock(has) {
 }
 
 // Per-turn context. When `sessionMemIds` is given (warm session), report memory changes since then.
-async function turnContext(settings, activeToolNames, sessionMemIds, { query = '' } = {}) {
+async function turnContext(settings, activeToolNames, sessionMemIds, { query = '', relevant = true } = {}) {
   const has = (prefix) => activeToolNames.some((n) => n.startsWith(prefix));
   const now = new Date();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -333,7 +348,7 @@ async function turnContext(settings, activeToolNames, sessionMemIds, { query = '
     habits: has('habit_') ? quiet(() => require('./habits').promptLine()) : none,
     calendar: has('calendar_') ? quiet(() => calendar.promptBlock()) : none,
     verification: settings.code?.allowSelfModify ? quiet(() => require('./selfchange').lastVerification(), null) : none,
-    relevant: has('memory_') && query ? quiet(() => relevantMemories(query)) : none,
+    relevant: relevant && has('memory_') && query ? quiet(() => relevantMemories(query)) : none,
     recalled: has('stream_') && query ? quiet(() => require('./stream').promptBlock(query)) : none,
     memories: sessionMemIds && has('memory_') ? quiet(() => memory.list(), []) : none,
     tasks: quiet(() => require('./tasks').read(), null),
@@ -456,13 +471,15 @@ function comingDays(now = new Date()) {
 
 async function buildCompact(settings, activeToolNames = [], { query = '' } = {}) {
   const { agent } = settings;
-  const persona = String(agent.personality || '').trim();
+  // A long master prompt as its short version (written by the local model, or the user), else its
+  // digest (identity, how it speaks, lines it would say): personacore.forSmallModels.
+  const persona = require('./personacore').forSmallModels(agent);
   const tools = activeToolNames.length ? `You have tools: ${activeToolNames.join(', ')}. Use one only when the answer needs it (the user's notes, schedule, habits, memories, or something current from the web); otherwise just answer.` : 'You have no tools: answer from what you know and say so when you are not sure.';
   const stable = [
-    `You are ${agent.name}, the user's personal assistant, running on their own computer.${persona ? `\n\nYour persona: ${persona.length > 900 ? `${persona.slice(0, 900)}…` : persona}` : ''}`,
+    `You are ${agent.name}, the user's personal assistant, running on their own computer.${persona ? `\n\n## Your persona (stay in character in every reply)\n${persona}\n\nThe persona is how you speak. What you do follows the rules below: look things up with your tools, never guess a fact, a date or a name, and give the answer itself, in your voice.` : ''}`,
     [
       '## Rules',
-      '1. Answer in 1–4 short sentences unless the user asks for more. Plain words, no filler.',
+      `1. Answer in 1–4 sentences unless the user asks for more${persona ? ', in your persona’s voice: its tone, its word choice, its kind of remark. Never generic assistant phrasing ("I’m functioning well", "How can I help you today?")' : '. Plain words, no filler'}.`,
       '2. Answer from your own knowledge when you know it well. For anything current, personal to the user, or that you are unsure of, use a tool or say you are not sure. Never invent facts, dates or names.',
       '2b. Before you say you don’t know something about the user (their people, plans, projects, preferences), look it up: memory_search, then vault_search. Say you don’t know only when both find nothing.',
       '3. If the message is unclear, cut off or could mean two things, say what you understood and ask one short question.',
@@ -473,12 +490,16 @@ async function buildCompact(settings, activeToolNames = [], { query = '' } = {})
       '8. Reply in the language the user wrote in.',
       ...(activeToolNames.includes('hand_over') ? ['9. A stronger brain is there for what is beyond you: when a message needs several steps, careful reasoning, a long or polished text, code, or a service you have no tool for, call hand_over first instead of trying. Do the simple things yourself.'] : []),
     ].join('\n'),
-    '## Examples\nUser: whats on tomorrow\nYou (after calendar_get_events): Tomorrow you have the dentist at 9:30 and team standup at 11. The afternoon is free.\n\nUser: remember that I hate early meetings\nYou: (call memory_save, then, once it succeeded) Noted: no early meetings if you can help it.\n\nUser: who painted the Mona Lisa?\nYou: Leonardo da Vinci, in the early 1500s.',
+    (persona ? '## Examples (what to do; say it in your own voice)' : '## Examples') + '\nUser: whats on tomorrow\nYou (after calendar_get_events): Tomorrow you have the dentist at 9:30 and team standup at 11. The afternoon is free.\n\nUser: remember that I hate early meetings\nYou: (call memory_save, then, once it succeeded) Noted: no early meetings if you can help it.\n\nUser: who painted the Mona Lisa?\nYou: Leonardo da Vinci, in the early 1500s.',
   ].join('\n\n');
-  const raw = `${comingDays()}\n\n${await turnContext(settings, activeToolNames, null, { query })}`;
+  // The memories that match this message first: the notes are cut at COMPACT_CONTEXT_CHARS, and a
+  // small model answers from what it is given more reliably than it decides to search.
+  // None matching is said too: given matches, a small model stopped searching and made the rest up.
+  const memories = activeToolNames.some((n) => n.startsWith('memory_')) && query ? (await relevantMemories(query, { always: true, k: 5 }).catch(() => '')) || '## Relevant memories (for this message)\nNone of your saved memories match this message. Anything about the user not given here: look it up (vault_search) or say you don’t know; never make it up.' : '';
+  const raw = [memories, comingDays(), await turnContext(settings, activeToolNames, null, { query, relevant: false })].filter(Boolean).join('\n\n');
   const context = raw.length > COMPACT_CONTEXT_CHARS ? `${raw.slice(0, COMPACT_CONTEXT_CHARS)}\n…` : raw;
-  const reminder = 'Remember: short and true; act through tools, never just claim it; ask when unsure.';
+  const reminder = `Remember: ${persona ? `you are ${agent.name}; every reply in your persona’s voice. ` : ''}Short and true; act through tools, never just claim it; ask when unsure.`;
   return { stable, context, reminder, system: `${stable}\n\n${context}\n\n${reminder}` };
 }
 
-module.exports = { build, buildSetup, buildCompact, turnContext };
+module.exports = { build, buildSetup, buildCompact, turnContext, sharesWord };

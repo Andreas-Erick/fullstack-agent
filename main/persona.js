@@ -192,4 +192,87 @@ async function remove(id) {
   return store.setSettings(next ? { ...core.patchFor(next, store.DEFAULTS), personas } : { personas });
 }
 
-module.exports = { generate, generateScene, extractJson, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, templates: templates.list };
+// ------------------------------------------------------------ the summary for small models
+// Written by the user's own local model (the deep one when set: the best writer), so the master
+// prompt never leaves the computer for it; only local models read it (prompt.buildCompact), so
+// without a local brain nothing is written. One at a time; dropped if the persona changed meanwhile.
+
+/** The local brain that writes the summary (its strongest model), or null when no local brain is set. */
+function summaryWriter(settings) {
+  const router = require('./router');
+  const localcore = require('./localcore');
+  const id = settings.llm.provider;
+  let s = null;
+  if (id === 'auto') s = settings.local?.model ? router.concrete(settings, 'local') : null;
+  else {
+    const narrowed = router.PROVIDERS[id]?.openai ? router.concrete(settings, id) : settings;
+    s = narrowed.llm.provider === 'openai' && localcore.isLocal(narrowed) ? narrowed : null;
+  }
+  if (!s?.llm?.model) return null;
+  return { ...s, llm: { ...s.llm, provider: 'openai', model: s.llm.deepModel || s.llm.model, modelMode: 'default' } };
+}
+
+/** What the Persona studio shows. */
+async function summaryStatus() {
+  const s = await store.getSettings();
+  const writer = summaryWriter(s);
+  const sum = s.agent.personaSummary || null;
+  return {
+    needed: core.needsSummary(s.agent),
+    text: sum?.text || '',
+    by: sum?.by || '',
+    model: sum?.model || '',
+    fresh: core.summaryFresh(s.agent),
+    stale: Boolean(sum?.text && sum.by === 'user' && sum.for !== core.fingerprint(s.agent.personality)),
+    writer: writer?.llm.model || '',
+    writing: Boolean(summarizing),
+    chars: String(s.agent.personality || '').trim().length,
+  };
+}
+
+let summarizing = null;
+/**
+ * Writes the summary when the active persona needs one and has none for its current master prompt
+ * (force: write a new one now, replacing the user's own too). Returns summaryStatus().
+ */
+function ensureSummary(opts = {}) {
+  if (!summarizing) {
+    summarizing = writeSummary(opts).finally(() => {
+      summarizing = null;
+    });
+  }
+  return summarizing.then(summaryStatus);
+}
+
+async function writeSummary({ force = false }) {
+  const settings = await store.getSettings();
+  const { agent } = settings;
+  if (!core.needsSummary(agent) || (!force && core.summaryFresh(agent))) return;
+  const writer = summaryWriter(settings);
+  if (!writer) {
+    if (force) throw new Error('Writing the short version needs a local model (Settings → AI brain): it is written on this computer.');
+    return;
+  }
+  const fp = core.fingerprint(agent.personality);
+  const started = Date.now();
+  const text = core.cleanSummary(await llm.complete(writer, core.summaryPrompt(agent.name, agent.personality), { maxTokens: 4000, timeoutMs: 300000 }));
+  if (!text) throw new Error('The local model’s short version came back empty or too short. Try again, or write it yourself.');
+  const now = (await store.getSettings()).agent;
+  if (core.fingerprint(now.personality) !== fp || (!force && now.personaSummary?.by === 'user')) {
+    log.info('persona summary dropped', { reason: 'the persona changed meanwhile' });
+    return;
+  }
+  await store.setSettings({ agent: { personaSummary: { text, for: fp, by: 'model', model: writer.llm.model, at: Date.now() } } });
+  log.info('persona summary written', { persona: agent.name, model: writer.llm.model, ms: Date.now() - started, chars: text.length });
+}
+
+/** The user's own short version (kept until they change it); empty text goes back to the written one. */
+async function setSummary(text) {
+  const s = await store.getSettings();
+  const t = String(text || '').trim().slice(0, core.SUMMARY_MAX * 2);
+  await store.setSettings({ agent: { personaSummary: t ? { text: t, for: core.fingerprint(s.agent.personality), by: 'user', at: Date.now() } : null } });
+  if (!t) ensureSummary().catch((error) => log.warn('persona summary failed', { error }));
+  return summaryStatus();
+}
+
+module.exports = { generate, generateScene, extractJson, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, templates: templates.list, summaryWriter, summaryStatus, ensureSummary, setSummary };

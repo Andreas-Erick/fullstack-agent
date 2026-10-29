@@ -151,7 +151,7 @@ test('a reply that gives up without looking is taken back once, and the model lo
 });
 
 test('what counts as giving up', () => {
-  for (const s of ['I don’t have that information.', "I don't know when that is.", 'I have no information about Project Atlas.', 'I’m not sure when your deadline is.']) assert.ok(core.gaveUpUnlooked(s), s);
+  for (const s of ['I don’t have that information.', "I don't know when that is.", 'I have no information about Project Atlas.', 'I’m not sure when your deadline is.', 'I do not possess that information.', 'I am afraid I do not recall the name of your dog.', 'Would you like me to search your notes for it?', 'I believe it is the 12th. Let me confirm that for you.', 'I am not aware of any Project Atlas deadline.']) assert.ok(core.gaveUpUnlooked(s), s);
   for (const s of ['The deadline is 20 November.', 'Canberra.', `I don't know ${'x'.repeat(400)}`]) assert.ok(!core.gaveUpUnlooked(s), s.slice(0, 30));
 });
 

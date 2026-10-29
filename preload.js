@@ -45,7 +45,7 @@ const channels = {
   code: ['root'],
   self: ['status', 'ensure', 'log', 'show', 'check', 'verification', 'commit', 'revert', 'restore', 'discard', 'reload', 'restart'],
   claude: ['status', 'login', 'logout', 'installHint', 'connectors', 'usage', 'setConnectorLevel'],
-  persona: ['generate', 'scene', 'switch', 'create', 'remove', 'templates'],
+  persona: ['generate', 'scene', 'switch', 'create', 'remove', 'templates', 'summaryStatus', 'summarize', 'setSummary'],
   habits: ['status', 'log', 'add', 'pause'],
   skilltree: ['view', 'upsert', 'remove'],
   stream: ['recent', 'reflect'],

@@ -21,6 +21,10 @@ const opt = (name) => args.flatMap((a, i) => (a === `--${name}` ? [args[i + 1]] 
 const brains = opt('brain');
 const only = new Set(opt('only').flatMap((s) => s.split(',')));
 const outFile = opt('out')[0] || '';
+// --persona <file> [--name <name>]: run with that master prompt (how well a brain stays in character).
+const personaFile = opt('persona')[0] || '';
+const personaName = opt('name')[0] || 'Siren';
+let personaShown = false;
 const TURN_MS = 240000;
 // Electron's main process: console.log is not always shown in a terminal on Windows (as in smoke.js).
 const say = (line) => (process.stdout.write(`${line}\n`), process.env.NEXUS_EVAL_LOG && fs.appendFileSync(process.env.NEXUS_EVAL_LOG, `${line}\n`));
@@ -63,6 +67,12 @@ async function main() {
   const { cases, seed, dates } = require('./eval-cases');
 
   const base = { onboarded: true, privacy: { acceptedAt: Date.now(), encryptConversations: false }, safety: { permissionMode: 'auto' }, llm: { useTools: true, autoPace: true, modelMode: 'default', voiceUsesFast: true, compactPrompt: 'auto' }, memory: { stream: false }, journal: { enabled: false, handoffOnClose: false } };
+  if (personaFile) {
+    const personality = fs.readFileSync(personaFile, 'utf8');
+    // --summary <file>: the short version local models read (else they get the digest).
+    const summary = opt('summary')[0] ? { text: fs.readFileSync(opt('summary')[0], 'utf8').trim(), for: require(path.join(ROOT, 'main/personacore')).fingerprint(personality), by: 'model' } : null;
+    base.agent = { name: personaName, personality, personaSummary: summary };
+  }
   await store.setSettings(base);
   const d = dates();
   // The made-up vault, once; every case gets its own copy.
@@ -77,9 +87,11 @@ async function main() {
     say(`\n=== ${brain} (${list.length} cases)`);
     for (const c of list) {
       const vault = path.join(tmp, 'vaults', `${brain.replace(/[^\w.-]+/g, '_')}-${c.id}`);
-      fs.cpSync(template, vault, { recursive: true });
+      // Without the template's note history: it may still be writing it in the background (vaultgit).
+      fs.cpSync(template, vault, { recursive: true, filter: (src) => path.basename(src) !== '.git' });
       await store.setSettings({ ...brainPatch, obsidian: { enabled: true, vaultPath: vault } });
       const settings = await store.getSettings();
+      if (personaFile && !personaShown) (personaShown = true), say(`persona: ${settings.agent.name}, ${settings.agent.personality.length} chars; local models get ${require(path.join(ROOT, 'main/personacore')).forSmallModels(settings.agent).length}`);
       const conv = await store.createConversation();
       conv.messages.push({ id: store.newId('m'), role: 'user', content: c.ask, createdAt: Date.now() });
       const tools = [];
