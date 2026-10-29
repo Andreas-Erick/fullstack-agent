@@ -49,8 +49,12 @@ stub({
     execute: async (name, args, ctx) => ({ ok: true, result: await [...toolbox, memorySave, memorySearch].find((t) => t.name === name).run(args, ctx) }),
     stringifyResult: (r) => JSON.stringify(r),
   },
-  './prompt': { buildCompact: async () => ({ system: 'rules', stable: 'rules', context: 'now', reminder: 'r' }), build: async () => ({ system: 's', stable: 's', context: 'c' }) },
-  './claudecode': { runTurn: async () => (calls.claude++, { text: 'From Claude', toolCalls: [] }), cachedConnectors: async () => ({ list: [{ name: 'claude.ai TickTick', source: 'connector' }] }) },
+  './prompt': { buildCompact: async (s, names, opts) => ((calls.promptOpts = opts), { system: 'rules', stable: 'rules', context: 'now', reminder: 'r' }), build: async () => ({ system: 's', stable: 's', context: 'c' }) },
+  './claudecode': {
+    runTurn: async () => (calls.claude++, { text: 'From Claude', toolCalls: [], contextTokens: calls.contextTokens || 20000 }),
+    needsRollover: (n) => n > 100000,
+    rollover: (id, n) => calls.rolled.push([id, n]),
+    prewarm: async (conv) => calls.prewarmed.push(conv), cachedConnectors: async () => ({ list: [{ name: 'claude.ai TickTick', source: 'connector' }] }) },
   './codebase': { root: async () => '/app' },
   './obsidian': { vaultPath: async () => null },
   './github': {},
@@ -83,7 +87,7 @@ async function turn(text, s = settings(), { routine = false } = {}) {
   const r = await llm.runTurn({ settings: s, conv, history: conv.messages, emit: (e) => events.push(e), signal: new AbortController().signal, images: [], routine });
   return { r, events };
 }
-const reset = () => Object.assign(calls, { claude: 0, local: 0, lastTools: [] });
+const reset = () => Object.assign(calls, { claude: 0, local: 0, lastTools: [], contextTokens: 0, rolled: [], prewarmed: [] });
 const callTool = (name, args) => [{ content: 'Let me see… ' }, { tool_calls: [{ index: 0, id: 't1', function: { name, arguments: JSON.stringify(args) } }] }];
 
 test('the local model hands a hard message over: its text is taken back, Claude answers', async () => {
@@ -174,4 +178,26 @@ test('a routine for a connected service runs on Claude even with the hand-over o
   localReplies = [[{ content: 'Done locally.' }]];
   t = await turn('⏰ Routine "Evening review": fix the errors in today’s note', settings(true), { routine: true });
   assert.strictEqual(calls.claude, 0, 'a routine’s own words are not code work');
+});
+
+test('the persona that wrote the last reply reaches the prompt (a switch is named)', async () => {
+  reset();
+  localReplies = [[{ content: 'Welcome to the show!' }]];
+  const conv = { id: 'c2', messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'I am Hastur.', persona: 'Hastur' }, { role: 'user', content: 'Tell me about yourself.' }] };
+  await llm.runTurn({ settings: settings(false), conv, history: conv.messages, emit: () => {}, signal: new AbortController().signal, images: [] });
+  assert.strictEqual(calls.promptOpts.previousPersona, 'Hastur');
+});
+
+test('a Claude session grown past 100k tokens is closed after the reply and a fresh one warmed', async () => {
+  reset();
+  calls.contextTokens = 370000;
+  const { r } = await turn('what is on my ticktick today?');
+  assert.strictEqual(r.text, 'From Claude');
+  assert.strictEqual(r.rollover, true, 'main.js keeps no session id to resume');
+  assert.deepStrictEqual(calls.rolled, [['c1', 370000]]);
+  assert.deepStrictEqual(calls.prewarmed, [{ id: 'c1', claudeSessionId: null }], 'the next one starts fresh, warm');
+  reset();
+  calls.contextTokens = 40000;
+  assert.strictEqual((await turn('what is on my ticktick today?')).r.rollover, undefined, 'a small session stays');
+  assert.strictEqual(calls.rolled.length, 0);
 });

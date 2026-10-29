@@ -582,8 +582,8 @@ class Session {
         return;
       }
       // Where the time went: the CLI's own overhead vs. waiting for the model (finding slow turns).
-      log.info('claude timing', { totalMs: msg.duration_ms, apiMs: msg.duration_api_ms, firstTokenMs: msg.ttft_ms, toRequestMs: msg.time_to_request_ms, turns: msg.num_turns });
-      t.resolve({ text: t.text.trim() || String(msg.result || '').trim(), toolCalls: t.records, raw: null, model: this.model || this.spec.model, sessionId: this.sessionId });
+      log.info('claude timing', { totalMs: msg.duration_ms, apiMs: msg.duration_api_ms, firstTokenMs: msg.ttft_ms, toRequestMs: msg.time_to_request_ms, turns: msg.num_turns, contextTokens: t.contextTokens || undefined });
+      t.resolve({ text: t.text.trim() || String(msg.result || '').trim(), toolCalls: t.records, raw: null, model: this.model || this.spec.model, sessionId: this.sessionId, contextTokens: t.contextTokens || 0 });
       this.resetIdle();
       return;
     }
@@ -601,6 +601,9 @@ class Session {
       return;
     }
     if (msg.type === 'assistant') {
+      // How much the model read for this call: the session's size (the result's usage sums every call).
+      const u = msg.message?.usage;
+      if (u) t.contextTokens = Math.max(t.contextTokens || 0, (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0));
       for (const block of msg.message?.content || []) {
         if (block.type !== 'tool_use' || t.tools.has(block.id)) continue;
         const name = shortTool(block.name);
@@ -813,6 +816,20 @@ function endSession(convId) {
   sessions.delete(convId);
 }
 
+// A conversation's Claude session keeps everything it ever read (tool results included) and is resumed
+// across restarts: one used for days had ~370k tokens, so every message re-read them (2–3 s before the
+// first word warm, 6–11 s after a restart, and plan usage). Past this size it is closed after the turn
+// and a fresh one carries on with the recent messages (transcript()); memories, notes and "where we
+// left off" keep the rest.
+const ROLLOVER_TOKENS = Number(process.env.NEXUS_ROLLOVER_TOKENS) || 100000; // the variable: tests only
+const needsRollover = (contextTokens) => Number(contextTokens) > ROLLOVER_TOKENS;
+
+/** Closes the conversation's session so the next one starts fresh (not resumed). */
+function rollover(convId, contextTokens) {
+  log.info('claude session rolls over', { conversation: convId, contextTokens });
+  endSession(convId);
+}
+
 // Session folders (system prompt, MCP config) left behind by processes that were killed hard.
 async function sweepStaleTemp() {
   const root = os.tmpdir();
@@ -851,4 +868,4 @@ async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };
+module.exports = { changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };
