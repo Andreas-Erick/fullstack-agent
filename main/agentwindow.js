@@ -109,12 +109,16 @@ function isGlobeRequest(u, details) {
   return /^http:\/\/(localhost|127\.0\.0\.1):4173(\/|$)/.test(from);
 }
 
-// What a name resolves to, through the window's own session (its resolver, its cache), remembered
-// for a minute: one private address is enough to refuse it.
+// What a name resolves to, through the window's own session (its resolver and host cache, the ones its
+// connections use): one private address is enough to refuse it. A refusal is remembered for a minute; a
+// pass only for a moment (a burst of requests), so a name that switches to a local address (DNS
+// rebinding) is caught on its next request.
+const BAD_FOR_MS = 60000;
+const GOOD_FOR_MS = 2000;
 const resolved = new Map(); // host -> { at, bad }
 async function resolvesPrivate(ses, host) {
   const hit = resolved.get(host);
-  if (hit && Date.now() - hit.at < 60000) return hit.bad;
+  if (hit && Date.now() - hit.at < (hit.bad ? BAD_FOR_MS : GOOD_FOR_MS)) return hit.bad;
   const r = await ses.resolveHost(host);
   const bad = (r?.endpoints || []).some((e) => isPrivateAddress(e.address));
   if (resolved.size > 500) resolved.clear();

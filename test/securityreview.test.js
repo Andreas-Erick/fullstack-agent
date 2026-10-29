@@ -26,6 +26,8 @@ test('names are looked up, and a name that points to a local address is refused'
   const src = fs.readFileSync(path.join(ROOT, 'main/agentwindow.js'), 'utf8');
   assert.match(src, /resolvesPrivate\(ses, u\.hostname\)/, 'every non-literal host is resolved in onBeforeRequest');
   assert.match(src, /ses\.resolveHost\(host\)/);
+  // A pass is trusted only for a moment, so a name switched to a local address (DNS rebinding) is caught.
+  assert.ok(Number(/const GOOD_FOR_MS = (\d+);/.exec(src)?.[1]) <= 5000, 'a passed lookup is reused for seconds, not a minute');
   assert.match(src, /function isGlobeRequest/, 'the globe exception only for the globe’s own pages');
 });
 

@@ -269,8 +269,8 @@ async function track(places, date) {
   return { levelups, history: st.history };
 }
 
-/** Everything the Inner World view draws. */
-async function view() {
+/** Everything the Inner World view draws. `track: false` only reads (the phone's world screen). */
+async function view({ track: tracking = true } = {}) {
   const settings = await store.getSettings();
   const st = await state();
   const vault = Boolean(await obsidian.vaultPath().catch(() => null));
@@ -279,7 +279,7 @@ async function view() {
   const residents = await residentsNow(settings);
   const date = today();
   const day = [...st.days].reverse().find((d) => d.date === date) || null;
-  const { levelups, history } = settings.innerWorld?.enabled ? await track(places, date) : { levelups: [], history: st.history };
+  const { levelups, history } = settings.innerWorld?.enabled && tracking ? await track(places, date) : { levelups: [], history: st.history };
   return {
     levelups,
     timelapse: core.timelapse(history, Object.fromEntries(places.map((p) => [p.id, p.name]))),

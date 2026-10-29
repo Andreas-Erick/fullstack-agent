@@ -1,6 +1,6 @@
 // Agent tools: flashcards (flashcards.js): decks in the vault scheduled like Anki, importing CSV and
 // Anki files from the workspace folder, adding cards, quizzing the user in the chat.
-const { arr, obj, str, int } = require('./common');
+const { arr, obj, str, int, bool } = require('./common');
 
 const GRADE = { type: 'string', enum: ['again', 'hard', 'good', 'easy'], description: 'Anki’s four buttons: again (forgot), hard, good, easy' };
 const DECK = str('The deck id from flashcards_decks ("f:Biology" for a flashcard deck, "v:Spanish" for a vocabulary deck), or a deck name');
@@ -28,14 +28,18 @@ module.exports = [
     group: 'learning',
     description:
       'Import flashcards from a file in the user’s workspace folder (or a folder they allowed): CSV or TSV (front, back, optional tags column; a header row is recognised), Anki’s “Notes in Plain Text” export (.txt), or an Anki package (.apkg / .colpkg: notes, card templates, cloze cards, images and sounds, and the schedule Anki had). Without a path it lists the files waiting there. Cards are added to the deck you name (or one named after the file); nothing is overwritten. Use it when the user asks to import their flashcards or an Anki deck.',
-    parameters: obj({ path: str('The file: its name in the workspace folder, or a full path inside an allowed folder. Leave out to list importable files.'), deck: str('Optional: the deck to add them to (a new deck is created if it doesn’t exist)') }),
+    parameters: obj({
+      path: str('The file: its name in the workspace folder, or a full path inside an allowed folder. Leave out to list importable files.'),
+      deck: str('Optional: the deck to add them to (a new deck is created if it doesn’t exist)'),
+      skipFirstLine: bool('CSV/TSV/TXT only: true when the user says the first line only explains the columns (it is dropped). A header row named front/back/question/answer is dropped anyway.'),
+    }),
     run: async (a) => {
       const fc = require('../flashcards');
       if (!a.path) {
         const files = await fc.importable();
         return { files, note: files.length ? 'Ask which to import (or import the one they meant).' : 'No CSV, TSV, TXT or Anki files in the workspace folder. Ask the user to put the file there (Settings → Documents shows the folder).' };
       }
-      return fc.importFile(a.path, { deck: a.deck || '' });
+      return fc.importFile(a.path, { deck: a.deck || '', skipFirst: a.skipFirstLine === true });
     },
   },
   {

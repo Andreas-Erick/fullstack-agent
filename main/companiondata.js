@@ -113,7 +113,7 @@ async function note(path) {
 }
 
 async function world() {
-  const v = await require('./innerworld').view();
+  const v = await require('./innerworld').view({ track: false }); // looking from the phone writes nothing
   return {
     enabled: v.enabled,
     vault: v.vault,

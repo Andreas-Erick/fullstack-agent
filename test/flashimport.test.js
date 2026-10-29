@@ -108,10 +108,22 @@ test('CSV and TSV: quotes, header rows, tags; Anki’s text export with its head
   assert.strictEqual(t.deck, 'Languages::German');
 });
 
+test('a first line that only explains the columns is skipped when asked', () => {
+  const csv = 'Spanish word,English meaning\nperro,dog\ngato,cat\n';
+  assert.strictEqual(core.parseText(csv, { name: 'd' }).cards[0].front, 'Spanish word', 'kept by default: it could be a card');
+  const r = core.parseText(csv, { name: 'd', skipFirst: true });
+  assert.deepStrictEqual(r.cards.map((c) => c.front), ['perro', 'gato']);
+  // A recognised header is dropped once, not twice.
+  assert.deepStrictEqual(core.parseText('Front,Back\nperro,dog\ngato,cat\n', { name: 'd', skipFirst: true }).cards.map((c) => c.front), ['perro', 'gato']);
+});
+
 test('Anki HTML becomes Markdown; media references are collected; templates are filled in', () => {
   const r = core.htmlToMarkdown('<div>Hello&nbsp;<b>world</b></div><div><i>x</i> &lt;3 <img src="a b.png"> [sound:s.mp3]<script>bad()</script></div>');
   assert.strictEqual(r.text, 'Hello **world**\n*x* <3 ![[a b.png]] ![[s.mp3]]');
   assert.deepStrictEqual(r.media, ['s.mp3', 'a b.png']);
+  // Escaped tags in a field stay text in the note (Obsidian would otherwise render them as HTML).
+  assert.strictEqual(core.htmlToMarkdown('&lt;img src=x onerror=alert(1)&gt; &lt;/div&gt; a &lt; b').text, '&lt;img src=x onerror=alert(1)> &lt;/div> a < b');
+  assert.strictEqual(core.parseText('one\tuno\n<script>x()</script>\tback\n', { name: 'd' }).cards[1].front, '&lt;script>x()&lt;/script>');
   assert.strictEqual(core.fillTemplate('{{#Extra}}[{{Extra}}]{{/Extra}}{{^Extra}}none{{/Extra}} {{text:Front}}', { Front: '<b>F</b>', Extra: '' }), 'none F');
   assert.strictEqual(core.fillTemplate('{{FrontSide}}|{{Back}}{{Tags}}{{type:Back}}', { Back: 'b' }, { frontSide: 'q' }), 'q|b');
 });

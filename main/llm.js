@@ -599,11 +599,13 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
   const toolRecords = [];
   let fullText = '';
   let servedModel = model;
+  let lookNudged = false;
+  const nudges = []; // the taken-back reply and the ask to look: sent, never stored
 
   for (let round = 0; round < ctx.budget.rounds + 1; round++) {
     const payload = {
       model,
-      messages: [...messages, ...turnMessages],
+      messages: [...messages, ...nudges, ...turnMessages],
       stream: true,
       temperature: Number(settings.llm.temperature),
       max_tokens: Number(settings.llm.maxTokens) || undefined,
@@ -653,6 +655,16 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       throw err;
     }
     servedModel = result.model || servedModel;
+
+    // A local model that gave up without looking anything up: take the reply back and ask once to look.
+    const lc = require('./localcore');
+    if (!result.calls.length && round === 0 && !lookNudged && ctx.toolset && useTools && (ctx.toolset.list || []).some((t) => t.name === 'memory_search') && lc.gaveUpUnlooked(result.text)) {
+      lookNudged = true;
+      if (result.text) emit({ type: 'retract', chars: result.text.length });
+      log.info('local model gave up without looking; asked to look first', { model });
+      nudges.push({ role: 'assistant', content: result.text }, { role: noteAsSystem ? 'system' : 'user', content: lc.LOOK_FIRST });
+      continue;
+    }
     fullText += result.text;
 
     if (!result.calls.length) {

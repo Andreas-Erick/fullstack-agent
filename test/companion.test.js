@@ -417,7 +417,7 @@ test('the watch face pack: paired devices only, cached by its key', async () => 
   assert.strictEqual(dev.watch, true, 'a device that asked for the face gets it recorded ahead from now on');
 });
 
-test('view-only devices read but cannot chat, approve, talk or check habits off', async () => {
+test('view-only devices read but cannot chat, approve, talk, have text spoken or check habits off', async () => {
   const token = await pairDevice('Kitchen tablet');
   const auth = { Authorization: `Bearer ${token}` };
   const id = JSON.parse(fs.readFileSync(devicesFile, 'utf8')).find((d) => d.name === 'Kitchen tablet').id;
@@ -426,7 +426,7 @@ test('view-only devices read but cannot chat, approve, talk or check habits off'
   assert.strictEqual((await (await fetch(`${base}/api/info`, { headers: auth })).json()).readOnly, true);
   assert.strictEqual((await fetch(`${base}/api/conversations`, { headers: auth })).status, 200, 'reading works');
   const before = turns.length;
-  for (const [p, body] of [['/api/chat', { text: 'hi' }], ['/api/chat/r1/abort', {}], ['/api/approvals/a1', { allow: true }], ['/api/data/habits/log', { name: 'Run' }]]) {
+  for (const [p, body] of [['/api/chat', { text: 'hi' }], ['/api/chat/r1/abort', {}], ['/api/approvals/a1', { allow: true }], ['/api/data/habits/log', { name: 'Run' }], ['/api/speak', { text: 'hello' }]]) {
     assert.strictEqual((await post(p, body, auth)).status, 403, p);
   }
   assert.strictEqual(turns.length, before, 'no turn started');

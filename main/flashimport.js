@@ -94,14 +94,14 @@ async function readPackage(buf, now) {
 /**
  * Reads an import file (full path, already allowed) → { cards, media: Map, deckName, format, skipped }.
  */
-async function read(full, { now = Date.now() } = {}) {
+async function read(full, { now = Date.now(), skipFirst = false } = {}) {
   const ext = path.extname(full).toLowerCase();
   const st = await fsp.stat(full);
   if (!st.isFile()) throw new Error('Not a file.');
   if (st.size > MAX_FILE) throw new Error('The file is too large to import (500 MB at most).');
   const base = safeName(path.basename(full, ext)) || 'Imported';
   if (TEXT_EXT.test(ext)) {
-    const r = core.parseText(await fsp.readFile(full, 'utf8'), { name: base });
+    const r = core.parseText(await fsp.readFile(full, 'utf8'), { name: base, skipFirst });
     return { cards: r.cards, media: new Map(), deckName: safeName(r.deck.split('::').pop()) || base, format: r.format, skipped: r.skipped };
   }
   if (ANKI_EXT.test(ext)) {

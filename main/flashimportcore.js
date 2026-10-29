@@ -57,8 +57,10 @@ const HEADER_TAGS = /^(tags?|labels?|schlagwörter)$/i;
  * CSV / TSV / Anki "Notes in Plain Text" → { cards: [{ front, back, tags }], deck, format, skipped }.
  * Anki's header lines (#separator:tab, #html:true, #tags column:3, #deck:…) are honoured; otherwise the
  * first two columns are front and back (a header row naming them is recognised), a "tags" column is kept.
+ * skipFirst: the first line describes the columns in other words; it is dropped (a recognised header is
+ * dropped either way).
  */
-function parseText(text, { name = '' } = {}) {
+function parseText(text, { name = '', skipFirst = false } = {}) {
   const lines = String(text).replace(/^﻿/, '').split(/\r?\n/);
   const head = {};
   while (lines.length && /^#[\w ]+:/.test(lines[0])) {
@@ -80,8 +82,8 @@ function parseText(text, { name = '' } = {}) {
     const t = first.findIndex((h) => HEADER_TAGS.test(h.trim()));
     if (t >= 0) tagsCol = t;
     rows = rows.slice(1);
-  }
-  const conv = (s) => (html ? htmlToMarkdown(s).text : String(s || '').trim());
+  } else if (skipFirst) rows = rows.slice(1); // the user says the first line only explains the columns
+  const conv =(s) => (html ? htmlToMarkdown(s).text : keepAsText(String(s || '').trim()));
   let skipped = 0;
   const cards = [];
   for (const r of rows.slice(0, MAX_CARDS)) {
@@ -101,6 +103,10 @@ function parseText(text, { name = '' } = {}) {
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—', hellip: '…', laquo: '«', raquo: '»', shy: '' };
 const decode = (s) => s.replace(/&(#x[\da-f]+|#\d+|\w+);/gi, (m, e) => (e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : ENTITIES[e.toLowerCase()] ?? m));
 
+// Text that would read as a tag (`&lt;b&gt;` in a field, or a raw `<script>` in a CSV) stays text in the
+// note: Obsidian and Markdown viewers show `&lt;` as `<` and never run or render it. "<3" and "a < b" are kept.
+const keepAsText = (s) => s.replace(/<(?=[A-Za-z!/?])/g, '&lt;');
+
 /** An Anki field → { text (Markdown), media: [file names it shows or plays] }. */
 function htmlToMarkdown(html) {
   const media = [];
@@ -118,7 +124,7 @@ function htmlToMarkdown(html) {
   s = s.replace(/<(i|em)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _t, x) => (x.trim() ? `*${x.trim()}*` : x));
   s = s.replace(/<(sub|sup|u|code)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_m, t, x) => (t.toLowerCase() === 'code' ? `\`${x}\`` : x));
   s = s.replace(/<[^>]+>/g, '');
-  s = decode(s)
+  s = keepAsText(decode(s))
     .split('\n')
     .map((l) => l.replace(/[ \t]+/g, ' ').trim())
     .join('\n')
