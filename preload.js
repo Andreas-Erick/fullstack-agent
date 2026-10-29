@@ -44,7 +44,7 @@ const channels = {
   docs: ['pick', 'load', 'popup', 'closePopup', 'windowState', 'recent', 'clearRecent', 'roots', 'showInFolder', 'openExternal'],
   code: ['root'],
   self: ['status', 'ensure', 'log', 'show', 'check', 'verification', 'commit', 'revert', 'restore', 'discard', 'reload', 'restart'],
-  claude: ['status', 'login', 'logout', 'installHint', 'connectors', 'usage'],
+  claude: ['status', 'login', 'logout', 'installHint', 'connectors', 'usage', 'setConnectorLevel'],
   persona: ['generate', 'scene', 'switch', 'create', 'remove', 'templates'],
   habits: ['status', 'log', 'add', 'pause'],
   skilltree: ['view', 'upsert', 'remove'],

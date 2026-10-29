@@ -244,3 +244,24 @@ test('extensions reach the session with connectors off, through the permission l
   assert.strictEqual((await sess.approve({ tool_name: 'mcp__claude_ai_Todoist__find-tasks', input: {} })).behavior, 'deny', 'connectors stay off, whatever their level');
   live = { claudeCode: {} };
 });
+
+// Regression: Settings rebuilt all three level lists from the window's copy of the settings, which
+// never heard of an "Always allow…" given in an approval, so the next level change in Settings
+// erased it and the connector asked again after a restart. Levels are now changed in the main
+// process on the saved lists, and the window is told about changes made elsewhere.
+test('a level changed in Settings never overwrites the saved lists with the window’s copy', () => {
+  const renderer = fs.readdirSync(path.join(ROOT, 'renderer/js')).filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(ROOT, 'renderer/js', f), 'utf8')).join('\n');
+  assert.doesNotMatch(renderer, /saveSettings\(\{\s*claudeCode:\s*\{[^}]*connectors(Allowed|ReadOnly|Write)/, 'the window must not save the level lists itself');
+  assert.match(renderer, /api\.claude\.setConnectorLevel\(/);
+  assert.match(renderer, /api\.on\('claude:connectorLevels'/);
+  const main = fs.readFileSync(path.join(ROOT, 'main/main.js'), 'utf8');
+  assert.match(main, /handle\('claude:setConnectorLevel'[\s\S]{0,600}levelPatch\(\(await store\.getSettings\(\)\)\.claudeCode/);
+  assert.match(main, /toWindow\('claude:connectorLevels'/);
+});
+
+test('changing one connector keeps every other connector’s level', () => {
+  const connectors = load('main/connectors.js');
+  const cc = { connectorsAllowed: ['claude_ai_TickTick'], connectorsReadOnly: ['claude_ai_Wolfram'], connectorsWrite: ['claude_ai_Consensus', 'claude_ai_Google_Calendar'] };
+  const p = connectors.levelPatch(cc, 'claude_ai_Plaud', 'all');
+  assert.deepStrictEqual(p, { connectorsAllowed: ['claude_ai_TickTick', 'claude_ai_Plaud'], connectorsWrite: ['claude_ai_Consensus', 'claude_ai_Google_Calendar'], connectorsReadOnly: ['claude_ai_Wolfram'] });
+});

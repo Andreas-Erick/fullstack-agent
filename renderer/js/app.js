@@ -179,6 +179,12 @@ async function boot() {
       refreshStatus();
     }
   });
+  // A connector's level saved outside the window (an approval's "Always allow…", the agent's
+  // connector_permission): keep this window's copy current, so Settings shows it and never saves over it.
+  api.on('claude:connectorLevels', (lists) => {
+    state.settings = { ...state.settings, claudeCode: { ...state.settings.claudeCode, ...lists } };
+    emit('settings', state.settings);
+  });
   setInterval(refreshStatus, 60000);
   window.addEventListener('focus', refreshStatus);
 

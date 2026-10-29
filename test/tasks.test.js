@@ -121,3 +121,37 @@ test('the sync request asks only to read and to save', () => {
   assert.match(p, /tasks_save/);
   assert.match(p, /Do not change anything/);
 });
+
+// The saved copy in the per-message notes: "what's on my list today?" without a connector call.
+test('the saved tasks in the per-message notes: today, tomorrow, overdue, and how old the copy is', () => {
+  const core = require('./helpers').load('main/taskscore.js');
+  const now = Date.parse('2026-10-29T14:00:00');
+  const state = core.replace({ sources: {}, tasks: [] }, 'ticktick', core.clean([
+    { id: '1', title: 'Submit report', due: '2026-10-29T09:30', project: 'Uni' },
+    { id: '2', title: 'Buy milk', due: '2026-10-29' },
+    { id: '3', title: 'Call Anna', due: '2026-10-30' },
+    { id: '4', title: 'Old thing', due: '2026-10-20' },
+    { id: '5', title: 'Done already', due: '2026-10-29', done: true },
+  ]).tasks, now - 2 * 3600000);
+  const block = core.promptBlock(state, { today: '2026-10-29', tomorrow: '2026-10-30', now });
+  assert.match(block, /TickTick, fetched 2 h ago: today 09:30 Submit report \(Uni\); Buy milk\. Tomorrow Call Anna\. Overdue: 1 \(oldest due 2026-10-20\)\./);
+  assert.doesNotMatch(block, /Done already/);
+  assert.doesNotMatch(block, /fetch it again/, 'a recent copy is answered from');
+  assert.match(block, /without the connector/);
+
+  const old = core.promptBlock(state, { today: '2026-10-29', tomorrow: '2026-10-30', now: now + 8 * 3600000 });
+  assert.match(old, /fetched 10 h ago \(old: fetch it again with the connector before answering about these\)/);
+  assert.match(core.promptBlock(state, { today: '2026-10-29', tomorrow: '2026-10-30', now: now + 8 * 3600000, canFetch: false }), /old: say so.*needs the Claude brain/s, 'a brain without the connector does not promise to fetch');
+
+  assert.strictEqual(core.promptBlock({ sources: {}, tasks: [] }, { today: '2026-10-29', tomorrow: '2026-10-30', now }), '', 'nothing synced: nothing in the prompt');
+  const empty = core.replace({ sources: {}, tasks: [] }, 'todoist', [], now);
+  assert.match(core.promptBlock(empty, { today: '2026-10-29', tomorrow: '2026-10-30', now }), /Todoist, fetched 1 min ago: today nothing\. Tomorrow nothing\./);
+
+  const many = core.replace({ sources: {}, tasks: [] }, 'todoist', core.clean(Array.from({ length: 12 }, (_, i) => ({ id: `m${i}`, title: `Task ${i}`, due: '2026-10-29' }))).tasks, now);
+  assert.match(core.promptBlock(many, { today: '2026-10-29', tomorrow: '2026-10-30', now }), /; and 4 more\./, 'at most 8 per day');
+});
+
+test('connectors: load a service in one search, not one tool per search', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main', 'prompt.js'), 'utf8');
+  assert.match(src, /load every tool of it you may need for the task in that one search/);
+});

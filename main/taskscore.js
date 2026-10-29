@@ -100,4 +100,35 @@ function syncPrompt(sources, today) {
   ].join('\n');
 }
 
-module.exports = { SOURCES, MAX_TASKS, connectedSources, clean, replace, onDay, overdue, syncPrompt };
+const STALE_HOURS = 6; // an older copy is not answered from as if it were current
+const PER_DAY = 8; // tasks listed per day; the rest as a count
+
+const ago = (ms) => (ms < 3600000 ? `${Math.max(1, Math.round(ms / 60000))} min ago` : ms < 48 * 3600000 ? `${Math.round(ms / 3600000)} h ago` : `${Math.round(ms / 86400000)} days ago`);
+const line = (t) => `${t.time ? `${t.time} ` : ''}${t.title}${t.project ? ` (${t.project})` : ''}`;
+const list = (tasks) => (tasks.length ? `${tasks.slice(0, PER_DAY).map(line).join('; ')}${tasks.length > PER_DAY ? `; and ${tasks.length - PER_DAY} more` : ''}` : 'nothing');
+
+/**
+ * The tasks saved from the user's task apps for the per-message notes (prompt.turnContext): today's,
+ * tomorrow's and how many are overdue, with when they were fetched. Reading questions are answered
+ * from it without a connector call; it says when the copy is too old for that. '' when nothing was
+ * ever synced. state = tasks.read(); today/tomorrow = YYYY-MM-DD.
+ */
+function promptBlock(state, { today, tomorrow, now = Date.now(), canFetch = true } = {}) {
+  const sources = Object.entries(state?.sources || {}).filter(([id, s]) => Object.hasOwn(SOURCES, id) && Number.isFinite(s?.at));
+  if (!sources.length) return '';
+  const out = [];
+  for (const [id, s] of sources) {
+    const mine = (state.tasks || []).filter((t) => t.source === id);
+    const late = overdue(mine, today);
+    const stale = now - s.at > STALE_HOURS * 3600000;
+    out.push(
+      `- ${SOURCES[id]}, fetched ${ago(now - s.at)}${stale ? (canFetch ? ' (old: fetch it again with the connector before answering about these)' : ' (old: say so when you answer from it)') : ''}: today ${list(onDay(mine, today))}. Tomorrow ${list(onDay(mine, tomorrow))}.${late.length ? ` Overdue: ${late.length} (oldest due ${late[0].date}).` : ''}`,
+    );
+  }
+  const how = canFetch
+    ? 'Answer questions about these tasks from this copy when it is recent, without the connector, and say when it was fetched if that matters. Use the connector to change a task, for other days or details, or when the user wants it fresh; then save what you fetched with tasks_save.'
+    : 'Answer questions about these tasks from this copy and say when it was fetched. Changing a task or fetching fresh ones needs the Claude brain with the connector.';
+  return `## Your task apps (saved copy)\n${out.join('\n')}\n${how}`;
+}
+
+module.exports = { SOURCES, MAX_TASKS, STALE_HOURS, connectedSources, clean, replace, onDay, overdue, syncPrompt, promptBlock };

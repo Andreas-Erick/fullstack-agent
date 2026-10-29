@@ -60,13 +60,30 @@ function suggest({ vramGb = 0, ramGb = 0 } = {}) {
 
 const LOCAL_URL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i;
 
-/** Does this turn get the compact prompt? llm.compactPrompt: 'on' | 'off' | 'auto' (a small local model). */
-function compactWanted(settings, model) {
+const isLocal = (settings) => settings?.llm?.via === 'local' || LOCAL_URL.test(String(settings?.llm?.baseUrl || ''));
+
+/**
+ * Does this turn get the compact prompt? llm.compactPrompt: 'on' | 'off' | 'auto' (every local model).
+ * Not only small ones: every tool's description alone is ~25k tokens, which a local model re-reads on
+ * each message (seconds to tens of seconds) and which overflows Ollama's usual 4–32k window, cutting off
+ * the start of the prompt (the time, the persona). Measured with a 27B model: 32 s to the first word.
+ */
+function compactWanted(settings) {
   const mode = settings?.llm?.compactPrompt || 'auto';
   if (mode === 'on') return true;
   if (mode === 'off') return false;
-  const local = settings?.llm?.via === 'local' || LOCAL_URL.test(String(settings?.llm?.baseUrl || ''));
-  return local && isSmall(model || settings?.llm?.model);
+  return isLocal(settings);
+}
+
+/**
+ * Extra request fields for a local server: the model stays loaded for 30 minutes (Ollama unloads it
+ * after 5, and reloading a big one takes seconds), and no hidden thinking before the answer unless the
+ * message needs it (pace 'deep'): a 27B thinking model spent 8 s thinking before a five-word reply,
+ * 0.5 s without. Servers that don't know a field ignore it; llm.js retries without them on a 400.
+ */
+function requestExtras(settings, pace) {
+  if (!isLocal(settings)) return {};
+  return { keep_alive: '30m', ...(pace === 'deep' ? {} : { reasoning_effort: 'none' }) };
 }
 
 // The tools a small model gets: the everyday ones, each easy to call right. (A model this size
@@ -77,4 +94,59 @@ const COMPACT_TOOLS = [
   'priorities_update', 'learning_overview', 'brain_switch',
 ];
 
-module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, compactWanted };
+// More tools on request (tool tools_more): what a local model may add to the everyday ones, by the
+// name it asks for → the tool groups (main/tools/*.js). Code changes, self-changes and connectors are
+// not offered: they need the Claude brain. A loaded group stays for the rest of the conversation
+// (conv.toolGroups) and is added after the others, so the start of the request stays the same and
+// the local server keeps reusing what it already read.
+const TOOLBOX = {
+  memory: ['memory', 'stream'],
+  calendar: ['calendar'],
+  notes: ['vault'],
+  learning: ['learning', 'practice'],
+  habits: ['habits', 'skilltree'],
+  routines: ['routines'],
+  documents: ['documents'],
+  browser: ['browser'],
+  skills: ['skills'],
+  looks: ['appearance'],
+  voice: ['voice', 'listening'],
+  github: ['github'],
+  world: ['world', 'rehearsal'],
+  diagnostics: ['mechanic'],
+};
+
+// Words that make a group's need obvious, so it is there from the first round (it only ever adds).
+const HINTS = [
+  ['learning', /\b(flash ?cards?|decks?|vocab\w*|study|studying|quiz|anki|learn(ing)?|lernen|karteikarten)\b/i],
+  ['routines', /\b(routines?|automatically|every (morning|evening|night|day|week|weekday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|each (morning|evening|day|week))\b/i],
+  ['documents', /\b(pdf|documents?|diagrams?|charts?|graph|plot|monitors?|windows?|full ?screen)\b/i],
+  ['habits', /\b(habits?|streaks?|skill ?tree|goals?)\b/i],
+  ['browser', /\b(website|web ?page|browser|open (the )?(site|page))\b/i],
+  ['looks', /\b(persona|theme|colou?rs?|look and feel|appearance)\b/i],
+  ['github', /\b(github|repo(sitory)?|pull request|issues?)\b/i],
+  ['skills', /\b(skills?)\b/i],
+  ['diagnostics', /\b(diagnos\w*|not working|broken|error|log)\b/i],
+  ['notes', /\b(notes?|vault|obsidian|journal|daily note)\b/i],
+  ['calendar', /\b(reschedule|move|cancel|delete|change) (the |my )?(event|meeting|appointment|lecture|class)\b/i],
+  ['memory', /\b(forget|what do you (know|remember))\b/i],
+];
+
+/** The groups a message obviously needs (word hints, no model call). */
+function hintGroups(text) {
+  const t = String(text || '');
+  return HINTS.filter(([, re]) => re.test(t)).map(([g]) => g);
+}
+
+/**
+ * The tool names a local model gets: the everyday ones in their fixed order, then each loaded group's
+ * tools in the order the groups were loaded. Only tools in `active` (what the settings allow) count.
+ */
+function compactTools(active, loaded = []) {
+  const byName = new Map(active.map((t) => [t.name, t]));
+  const out = COMPACT_TOOLS.filter((n) => byName.has(n));
+  for (const g of loaded) for (const t of active) if ((TOOLBOX[g] || []).includes(t.group) && !out.includes(t.name)) out.push(t.name);
+  return out.map((n) => byName.get(n));
+}
+
+module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };

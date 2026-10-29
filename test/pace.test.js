@@ -59,7 +59,7 @@ test('plan: quick = fast model at low effort; deep raises an explicit low/medium
   assert.deepStrictEqual(pace.plan(settings(), { text: 'explain entropy', base: 'medium' }), { pace: 'deep', mode: 'default', effort: 'high' });
   assert.deepStrictEqual(pace.plan(settings(), { text: 'explain entropy', base: 'xhigh' }), { pace: 'deep', mode: 'default', effort: 'xhigh' });
   assert.deepStrictEqual(pace.plan(settings(), { text: 'explain entropy' }), { pace: 'deep', mode: 'default', effort: 'default' }, 'the model\'s own default is left alone');
-  assert.deepStrictEqual(pace.plan(settings(), { text: 'tell me a story', base: 'medium' }), { pace: 'normal', mode: 'default', effort: 'medium' });
+  assert.deepStrictEqual(pace.plan(settings(), { text: 'tell me a story', base: 'medium' }), { pace: 'normal', mode: 'normal', effort: 'medium' }, 'everyday messages run on the normal model (Sonnet)');
   assert.strictEqual(pace.plan(settings(), { text: 'tell me a story', voice: true }).mode, 'fast', 'spoken turns keep "fast for voice"');
   assert.strictEqual(pace.plan(settings(), { text: 'add milk', engineering: true }).pace, 'deep');
 });
@@ -86,4 +86,24 @@ test('a very long prompt is classified at once, as deep', () => {
   assert.strictEqual(pace.classify(`${'a'.repeat(200000)}`), 'deep', 'one endless word');
   assert.strictEqual(pace.classify(`${'why '.repeat(50000)}`), 'deep');
   assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0} ms`);
+});
+
+// Regression: "How are you today?" was deep ("how … are" read as an explanation question), so a
+// greeting got the full thinking treatment.
+test('asking how the assistant is doing is small talk, not a deep question', () => {
+  for (const t of ['How are you today?', 'how are you', 'hey, how is it going?', "What's up?", "how's it going"]) assert.strictEqual(pace.classify(t), 'quick', t);
+  for (const t of ['How does a transformer work?', 'How are prime numbers distributed?', 'how is entropy defined?']) assert.strictEqual(pace.classify(t), 'deep', t);
+});
+
+// Opus took ~15 s to start a tool-using reply in the log; everyday messages now run on Sonnet.
+test('the model per pace: quick → fast, everyday → normal (Sonnet), deep → the main model', () => {
+  const { stub: s, load: l, quietLog } = require('./helpers');
+  s({ './logger': quietLog });
+  const llm = l('main/llm.js');
+  const settings = { llm: { provider: 'claude-code', modelMode: 'default' }, claudeCode: { model: 'default', fastModel: 'haiku', normalModel: 'sonnet', deepModel: 'opus' }, anthropic: {} };
+  assert.strictEqual(llm.effectiveModel(settings, { mode: 'fast' }), 'haiku');
+  assert.strictEqual(llm.effectiveModel(settings, { mode: 'normal' }), 'sonnet');
+  assert.strictEqual(llm.effectiveModel(settings, { mode: 'default' }), 'default', 'deep questions keep the main model');
+  assert.strictEqual(llm.effectiveModel({ ...settings, claudeCode: { ...settings.claudeCode, normalModel: '' } }, { mode: 'normal' }), 'default', 'empty = the main model');
+  assert.strictEqual(llm.effectiveModel({ ...settings, llm: { provider: 'openai', model: 'qwen3:8b' } }, { mode: 'normal' }), 'qwen3:8b', 'other providers have no normal model');
 });
