@@ -251,6 +251,19 @@ test('the view keeps a daily snapshot and announces a place that rose, once', as
   assert.ok(Array.isArray(v.timelapse) && v.timelapse[0].kind === 'baseline');
 });
 
+test('a read-only view (the phone) writes nothing and announces nothing', async () => {
+  const file = require('path').join(dir, 'innerworld.json');
+  const events = [];
+  world.start({ notify: (ev) => events.push(ev) });
+  const before = fs.readFileSync(file, 'utf8');
+  understood = 80;
+  const v = await world.view({ track: false });
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), before, 'innerworld.json untouched');
+  assert.strictEqual(v.levelups.length, 0);
+  assert.strictEqual(events.length, 0);
+  assert.ok(v.places.some((p) => p.id === 'library'), 'still shows the village');
+});
+
 test('asleep: nothing is written', async () => {
   settings = { ...settings, innerWorld: { enabled: false } };
   await assert.rejects(world.simulate(), /asleep/);

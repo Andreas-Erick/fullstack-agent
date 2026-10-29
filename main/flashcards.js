@@ -455,11 +455,11 @@ async function deleteDeck(id) {
  * existing one gets the new cards added, otherwise a deck named after the file. Media go to
  * Flashcards/media/<Deck>/.
  */
-async function importFile(file, { deck: deckName = '', fromUser = false } = {}) {
+async function importFile(file, { deck: deckName = '', fromUser = false, skipFirst = false } = {}) {
   const root = await requireVault();
   const full = await require('./documents').resolveAllowed(file, { fromUser });
   const started = Date.now();
-  const r = await require('./flashimport').read(full);
+  const r = await require('./flashimport').read(full, { skipFirst: skipFirst === true });
   if (!r.cards.length) throw new Error('No cards found in that file.');
   const name = safeName(deckName) || r.deckName;
   // Media files first, then the cards that point at them.

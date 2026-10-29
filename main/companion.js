@@ -77,8 +77,9 @@ const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascr
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const FACE_LINK = /^\/f\/([A-Za-z0-9_-]{32})\/(.*)$/;
 // What a view-only device may not do (all POSTs): chat, stop a reply, answer approvals, push-to-talk,
-// check a habit off. Reading, the voice for replies and moving to the secure address stay allowed.
-const VIEW_ONLY_BLOCKED = /^\/api\/(chat(\/.*)?|approvals\/.*|transcribe|data\/.*)$/;
+// have text spoken (a device speaks only its own replies, and it has none), check a habit off.
+// Reading and moving to the secure address stay allowed.
+const VIEW_ONLY_BLOCKED = /^\/api\/(chat(\/.*)?|approvals\/.*|transcribe|speak|data\/.*)$/;
 // On every response. HSTS is added for the tunnel address (HTTPS at the edge).
 const HEADERS = {
   'X-Content-Type-Options': 'nosniff',

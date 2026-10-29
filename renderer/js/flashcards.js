@@ -337,9 +337,36 @@ async function newDeck() {
   }
 }
 
-async function importFile(deck = '') {
+const SKIP_FIRST_KEY = 'fc.import.skipFirst';
+
+// Choose the options, then the file. The first-line option applies to CSV, TSV and text files.
+function importFile(deck = '') {
+  let remembered = false;
   try {
-    const r = await api.flashcards.import(null, deck);
+    remembered = localStorage.getItem(SKIP_FIRST_KEY) === '1';
+  } catch {}
+  modal((box, close) => {
+    const skip = el('input', { type: 'checkbox', checked: remembered });
+    const choose = async () => {
+      try {
+        localStorage.setItem(SKIP_FIRST_KEY, skip.checked ? '1' : '0');
+      } catch {}
+      close(true);
+      await runImport(deck, { skipFirst: skip.checked });
+    };
+    box.append(
+      el('h3', { class: 'display' }, 'Import flashcards'),
+      el('p', { class: 'hint' }, 'CSV, TSV or text files (front, back, optional tags), or Anki packages (.apkg, .colpkg).'),
+      el('label', { class: 'fc-pick wrap' }, skip, el('span', {}, 'Skip the first line: it only names the columns'), el('small', { class: 'hint' }, 'CSV · TSV · TXT')),
+      el('p', { class: 'hint' }, 'A first line like “Front, Back” is recognised and skipped either way.'),
+      el('div', { class: 'row', style: { justifyContent: 'flex-end' } }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), el('button', { class: 'btn primary', onclick: choose }, 'Choose file…')),
+    );
+  });
+}
+
+async function runImport(deck, opts) {
+  try {
+    const r = await api.flashcards.import(null, deck, opts);
     if (!r) return;
     toast(`📥 ${r.added} card${r.added === 1 ? '' : 's'} imported into “${r.name}”${r.media ? ` with ${r.media} media file${r.media === 1 ? '' : 's'}` : ''}${r.skipped ? ` (${r.skipped} skipped: empty or already there)` : ''}.`);
     if (r.note) toast(r.note);

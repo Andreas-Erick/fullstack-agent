@@ -561,7 +561,7 @@ function registerIpc() {
   handle('flashcards:options', (id, opts) => fc().setOptions(String(id), opts || {}));
   handle('flashcards:delete', (id) => fc().deleteDeck(String(id)));
   handle('flashcards:importable', () => fc().importable());
-  handle('flashcards:import', async (file, deck) => {
+  handle('flashcards:import', async (file, deck, opts) => {
     // No path: the user picks one; a picked file may be anywhere (it is the user's choice).
     let p = file;
     if (!p) {
@@ -569,7 +569,7 @@ function registerIpc() {
       if (r.canceled || !r.filePaths[0]) return null;
       p = r.filePaths[0];
     }
-    return fc().importFile(p, { deck: deck || '', fromUser: !file });
+    return fc().importFile(p, { deck: deck || '', fromUser: !file, skipFirst: opts?.skipFirst === true });
   });
   handle('obsidian:links', async (rel) => require('./linkindex').forNote(await obsidian.vaultPath(), String(rel || '')));
 

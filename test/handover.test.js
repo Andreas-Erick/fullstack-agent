@@ -34,17 +34,19 @@ global.fetch = async (url, init) => {
   calls.local++;
   const payload = JSON.parse(init.body);
   calls.lastTools = (payload.tools || []).map((t) => t.function.name);
+  calls.lastMessages = payload.messages;
   return sse(localReplies.shift() || [{ content: 'ok' }]);
 };
 const toolbox = require('../main/tools/toolbox');
 const memorySave = { name: 'memory_save', group: 'memory', description: 'save', parameters: { type: 'object', properties: {} }, run: async () => ({ saved: true }) };
+const memorySearch = { name: 'memory_search', group: 'memory', description: 'search', parameters: { type: 'object', properties: {} }, run: async () => ({ results: [{ text: 'Project Atlas is due on 20 November' }] }) };
 let claudeReady = true;
 stub({
   './logger': quietLog,
   './tools': {
-    TOOLS: [...toolbox, memorySave],
-    activeTools: async () => [memorySave],
-    execute: async (name, args, ctx) => ({ ok: true, result: await [...toolbox, memorySave].find((t) => t.name === name).run(args, ctx) }),
+    TOOLS: [...toolbox, memorySave, memorySearch],
+    activeTools: async () => [memorySave, memorySearch],
+    execute: async (name, args, ctx) => ({ ok: true, result: await [...toolbox, memorySave, memorySearch].find((t) => t.name === name).run(args, ctx) }),
     stringifyResult: (r) => JSON.stringify(r),
   },
   './prompt': { buildCompact: async () => ({ system: 'rules', stable: 'rules', context: 'now', reminder: 'r' }), build: async () => ({ system: 's', stable: 's', context: 'c' }) },
@@ -128,4 +130,27 @@ test('off unless the user turned it on, and only with a Claude brain ready', asy
   claudeReady = true;
   assert.strictEqual(calls.claude, 0, 'no Claude brain ready');
   assert.ok(!calls.lastTools.includes('hand_over'));
+});
+
+test('a reply that gives up without looking is taken back once, and the model looks first', async () => {
+  reset();
+  const gaveUp = 'I don’t have that information. Would you like me to check your notes?';
+  localReplies = [[{ content: gaveUp }], callTool('memory_search', { query: 'Project Atlas' }), [{ content: 'It’s due on 20 November.' }]];
+  const { r, events } = await turn('When is the Project Atlas deadline?', settings(false));
+  assert.deepStrictEqual(events.find((e) => e.type === 'retract'), { type: 'retract', chars: gaveUp.length });
+  assert.strictEqual(r.text.includes('don’t have'), false, 'the given-up reply is not kept');
+  assert.match(r.text, /20 November/);
+  assert.ok(r.toolCalls.some((c) => c.name === 'memory_search'));
+  assert.ok(!JSON.stringify(r.raw.messages).includes('look it up now'), 'the ask to look is not stored');
+  // Only once: a second "I don't know" after looking stands.
+  reset();
+  localReplies = [[{ content: gaveUp }], [{ content: 'I don’t know, sorry.' }]];
+  const t = await turn('Who is my dentist?', settings(false));
+  assert.strictEqual(calls.local, 2);
+  assert.match(t.r.text, /I don’t know, sorry\./);
+});
+
+test('what counts as giving up', () => {
+  for (const s of ['I don’t have that information.', "I don't know when that is.", 'I have no information about Project Atlas.', 'I’m not sure when your deadline is.']) assert.ok(core.gaveUpUnlooked(s), s);
+  for (const s of ['The deadline is 20 November.', 'Canberra.', `I don't know ${'x'.repeat(400)}`]) assert.ok(!core.gaveUpUnlooked(s), s.slice(0, 30));
 });
