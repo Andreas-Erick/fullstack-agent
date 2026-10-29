@@ -49,8 +49,9 @@ function plan(settings, { text = '', voice = false, setup = false, engineering =
   if (setup || settings.llm?.autoPace === false || configured !== 'default') return { pace: 'off', mode: fastVoice ? 'fast' : configured, effort: base };
   const pace = engineering ? 'deep' : classify(text);
   if (pace === 'quick') return { pace, mode: 'fast', effort: 'low' };
-  // Deep raises an explicit low/medium; 'default' already lets the model think as much as it likes.
-  if (pace === 'deep') return { pace, mode: fastVoice ? 'fast' : 'default', effort: base === 'default' ? base : atLeast(base, 'high') };
+  // Deep goes to the provider's deep model (llm.js effectiveModel: the main one when none is set) and
+  // raises an explicit low/medium effort; 'default' already lets the model think as much as it likes.
+  if (pace === 'deep') return { pace, mode: fastVoice ? 'fast' : 'deep', effort: base === 'default' ? base : atLeast(base, 'high') };
   // Normal messages run on the provider's normal model (Sonnet for Claude, llm.js effectiveModel):
   // a calendar entry or a short task doesn't need Opus, which took ~15 s to start a tool-using reply.
   return { pace, mode: fastVoice ? 'fast' : 'normal', effort: base };
