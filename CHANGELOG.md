@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.4 — 2026-10-29
+
+- The "Deep model" you set is used for deep questions (explain, why, compare, plans) on its own. Before, it only answered after you switched to deep mode by hand ("switch to the deep model"). Spoken questions still go to the fast model. With no deep model set, deep questions stay with the main model, as before.
+
 ## 2.7.3 — 2026-10-29
 
 - Local brains no longer answer "Based on the context you provided…". The notes that go with each message (the time, your schedule, recalled memories) were put inside your message, so a local model took them for your words. They are now a separate note from the app right before it, as fast as before. If a model can't take that, they go inside your message again, clearly marked as the app's.
