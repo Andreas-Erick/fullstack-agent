@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.7.3 — 2026-10-29
+
+- Local brains no longer answer "Based on the context you provided…". The notes that go with each message (the time, your schedule, recalled memories) were put inside your message, so a local model took them for your words. They are now a separate note from the app right before it, as fast as before. If a model can't take that, they go inside your message again, clearly marked as the app's.
+- macOS: 2.7.2's macOS installer wasn't published because a new test failed there (its stand-in for the Claude program couldn't be stopped the macOS way). The Windows and Android builds of 2.7.2 are fine.
+
 ## 2.7.2 — 2026-10-29
 
 - Local brains are fast now. A local model used to get the full prompt with every tool (about 26,000 tokens), which it read again for every message, and a thinking model like Qwen also thought silently before answering: 20–30 seconds to the first word with a 27B model. Every local model now gets the compact prompt with the everyday tools. Quick and normal messages are answered without hidden thinking (deep questions still may think). The parts that change with each message come last, so Ollama reuses everything it already read. Ollama keeps the model loaded for 30 minutes instead of 5. Measured with a 27B model on Ollama: the first word in 0.2–0.5 s instead of 20 s. It also fixes a local model getting the time wrong: the full prompt overflowed its memory and the start, with the time, was cut off.
