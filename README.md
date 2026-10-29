@@ -32,6 +32,8 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 
 ![Chatting with Siren: a reply with a formula, the tools it used, and her face beside the chat](docs/screenshots/chat.jpg)
 
+![Siren awake and speaking in the face view, with her moonlit cove behind her: the wreck, the lighthouse and the shore](docs/screenshots/face-awake.jpg)
+
 | | |
 |---|---|
 | ![The Inner World: a floating village whose buildings grow with your progress](docs/screenshots/inner-world.jpg) | ![The face view: Siren on her rock in her cove, with live telemetry](docs/screenshots/face.jpg) |
