@@ -109,3 +109,20 @@ test('tools_more is never in the full prompt, which already has every tool', asy
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main', 'tools.js'), 'utf8');
   assert.match(src, /t\.group === 'setup' \|\| t\.group === 'toolbox'\) return false/);
 });
+
+// Regression: notes put inside the user's message made models answer "Based on the context you
+// provided…" (glm4, 2.7.2). They are now a system message just before it; inside it only as a
+// fallback for templates that refuse a later system message.
+test('the per-message notes go just before the newest message, as the app’s, not the user’s', () => {
+  const history = [{ role: 'system', content: 'rules' }, { role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }, { role: 'user', content: 'anything tomorrow?' }];
+  const asSystem = core.placeNote(history, 'Now: 15:10.');
+  assert.deepStrictEqual(asSystem.slice(0, 3), history.slice(0, 3), 'everything before stays the same, so the server reuses it');
+  assert.strictEqual(asSystem[3].role, 'system');
+  assert.match(asSystem[3].content, /from the app \(not written by the user/);
+  assert.match(asSystem[3].content, /Now: 15:10\./);
+  assert.deepStrictEqual(asSystem[4], history[3], 'the user’s message is unchanged');
+  const inside = core.placeNote(history, 'Now: 15:10.', { asSystem: false });
+  assert.strictEqual(inside.length, 4);
+  assert.match(inside[3].content, /not written by the user[\s\S]*End of notes\. The user's message:\)\n\nanything tomorrow\?$/);
+  assert.strictEqual(core.placeNote(history, ''), history, 'no notes: nothing changes');
+});

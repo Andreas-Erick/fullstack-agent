@@ -66,11 +66,14 @@ test('a session restart names what changed', () => {
 // being built, and each started one (two "claude session started" for one conversation at once).
 test('two callers at once start one process for a conversation, not two', async () => {
   let spawned = 0;
+  const made = [];
   const realSpawn = claudecode.Session.prototype.spawn;
   claudecode.Session.prototype.spawn = async function (spec) {
     spawned++;
     await new Promise((r) => setTimeout(r, 20));
-    this.child = { exitCode: null, stdin: { write() {} }, once() {}, pid: spawned };
+    // Fake processes: ended before cleanup, so endSession never signals (macOS) or taskkills (Windows) a real pid.
+    this.child = { exitCode: null, stdin: { write() {} }, once() {}, kill() {}, pid: -1 };
+    made.push(this.child);
     this.dead = false;
     this.spec = spec;
     this.key = spec.key;
@@ -83,6 +86,7 @@ test('two callers at once start one process for a conversation, not two', async 
     assert.strictEqual(spawned, 1);
   } finally {
     claudecode.Session.prototype.spawn = realSpawn;
+    for (const c of made) c.exitCode = 0;
     claudecode.endSession('race-1');
   }
 });

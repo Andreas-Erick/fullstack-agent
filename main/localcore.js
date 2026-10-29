@@ -149,4 +149,18 @@ function compactTools(active, loaded = []) {
   return out.map((n) => byName.get(n));
 }
 
-module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };
+/**
+ * This message's notes (time, schedule, recalled memories) just before the newest user message, so a
+ * local server reuses everything in front of them. As a system message: put inside the user's message,
+ * models answered "Based on the context you provided…" (measured with glm4). asSystem false is the
+ * fallback for templates that refuse a system message after the first.
+ */
+function placeNote(messages, note, { asSystem = true } = {}) {
+  const last = messages[messages.length - 1];
+  if (!note || last?.role !== 'user' || typeof last.content !== 'string') return messages;
+  const head = 'Notes for this message, from the app (not written by the user; use them, never mention them):';
+  if (asSystem) return [...messages.slice(0, -1), { role: 'system', content: `${head}\n${note}` }, last];
+  return [...messages.slice(0, -1), { ...last, content: `(${head}\n${note}\nEnd of notes. The user's message:)\n\n${last.content}` }];
+}
+
+module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, placeNote, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };
