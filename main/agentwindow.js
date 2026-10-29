@@ -10,6 +10,7 @@ const path = require('path');
 const { BrowserWindow, WebContentsView, session, screen } = require('electron');
 const core = require('./agentwindowcore');
 const log = require('./logger');
+const { isPrivateAddress } = require('./netcore');
 
 const BAR = 46; // the toolbar's height in renderer/agentwindow.html (.aw-bar)
 const INSET = 6; // the page sits this far inside the window, so the frame drawn around it shows (.aw-frame)
@@ -75,7 +76,9 @@ function prepareSession() {
     e.preventDefault();
     say(`Downloads are off in this window (${item.getFilename()}). Open the page in your browser to download it.`);
   });
-  // Pages may not reach this computer or the local network either (only the globe's own server).
+  // Pages may not reach this computer or the local network either (only the globe's own server). Every
+  // request is checked, also the ones a page starts (links, redirects, frames, fetch, forms, sockets):
+  // by name and address, and a name by what it resolves to (127.0.0.1.nip.io, a rebinding name).
   ses.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, cb) => {
     let u;
     try {
@@ -84,9 +87,40 @@ function prepareSession() {
       return cb({ cancel: false });
     }
     if (!/^(https?|wss?):$/.test(u.protocol)) return cb({ cancel: false });
-    const local = core.isPrivateHost(u.hostname);
-    cb({ cancel: local && !(['localhost', '127.0.0.1'].includes(u.hostname) && Number(u.port) === core.GLOBE_PORT) });
+    if (isGlobeRequest(u, details)) return cb({ cancel: false });
+    if (core.isPrivateHost(u.hostname)) return cb({ cancel: true });
+    if (core.isIpLiteral(u.hostname)) return cb({ cancel: false });
+    resolvesPrivate(ses, u.hostname).then(
+      (bad) => cb({ cancel: bad }),
+      () => cb({ cancel: false }), // no answer: the request fails on its own
+    );
   });
+}
+
+// The globe's own server, for the globe's own pages (and the window opening it), not for any site:
+// a public page could otherwise send requests to that local server.
+function isGlobeRequest(u, details) {
+  if (!(['localhost', '127.0.0.1'].includes(u.hostname) && Number(u.port) === core.GLOBE_PORT)) return false;
+  if (details.resourceType === 'mainFrame') return true;
+  let from = '';
+  try {
+    from = details.webContents?.getURL?.() || details.referrer || '';
+  } catch {}
+  return /^http:\/\/(localhost|127\.0\.0\.1):4173(\/|$)/.test(from);
+}
+
+// What a name resolves to, through the window's own session (its resolver, its cache), remembered
+// for a minute: one private address is enough to refuse it.
+const resolved = new Map(); // host -> { at, bad }
+async function resolvesPrivate(ses, host) {
+  const hit = resolved.get(host);
+  if (hit && Date.now() - hit.at < 60000) return hit.bad;
+  const r = await ses.resolveHost(host);
+  const bad = (r?.endpoints || []).some((e) => isPrivateAddress(e.address));
+  if (resolved.size > 500) resolved.clear();
+  resolved.set(host, { at: Date.now(), bad });
+  if (bad) log.warn('agent window blocked a name that points to a local address', { host });
+  return bad;
 }
 
 function layout() {

@@ -235,7 +235,8 @@ function fileIn(repo, rel) {
   const full = path.resolve(root, String(rel || ''));
   const r = path.relative(root, full);
   if (!r || r.startsWith('..') || path.isAbsolute(r)) throw new Error(`"${rel}" is outside ${repo}.`);
-  if (/^\.git(\/|\\|$)/.test(r)) throw new Error('.git must not be touched directly.');
+  // Any part, compared as the OS does (".GIT/config" is .git/config on Windows).
+  if (require('./files').hasReservedPart(r, ['.git'])) throw new Error('.git must not be touched directly.');
   return full;
 }
 

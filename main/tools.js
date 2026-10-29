@@ -171,7 +171,8 @@ const SETUP_TOOLS = [
       if (a.setting === 'stt.micMode' && !['ptt', 'open'].includes(value)) throw new Error('micMode must be "ptt" or "open"');
       if (a.setting === 'safety.permissionMode' && !['ask', 'auto'].includes(value)) throw new Error('permissionMode must be "ask" or "auto"');
       // What widens the agent's own access is confirmed by the user in the app, not only in the chat.
-      const widens = (a.setting === 'safety.permissionMode' && value === 'auto') || (a.setting === 'code.allowSelfModify' && value === true) || (a.setting === 'documents.workspace' && value && value !== old);
+      // The vault too: whatever folder it is, the agent may read and write all of it (review 2026-10-29).
+      const widens = (a.setting === 'safety.permissionMode' && value === 'auto') || (a.setting === 'code.allowSelfModify' && value === true) || (['documents.workspace', 'obsidian.vaultPath'].includes(a.setting) && value && value !== old);
       if (widens) await requireApproval(ctx, 'permissions', `Give the assistant more access: ${a.setting}`, `${JSON.stringify(old)} → ${JSON.stringify(value)}`);
       await store.setSettings({ [section]: { [key]: value } });
       log.info('setup configured', { setting: a.setting, value: typeof value === 'string' ? value.slice(0, 80) : value });

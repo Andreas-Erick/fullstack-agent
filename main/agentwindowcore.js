@@ -2,18 +2,28 @@
 // bar turns typed text into, and the scripts it runs in a page to read it and find what to click.
 // No Electron here (tested in test/agentwindow.test.js).
 
+const net = require('net');
+const { isPrivateAddress } = require('./netcore');
+
 const GLOBE_PORT = 4173; // God's Eye View's local server (extensions.js)
 
-/** Hosts on this computer or the local network: never shown, except the globe's own server. */
+/**
+ * Hosts on this computer or the local network: never shown, except the globe's own server. By name and
+ * address only; a public name that resolves to a private address is caught by the lookup in
+ * agentwindow.js (pages reached "localhost." and 127.0.0.1.nip.io before it, security review 2026-10-29).
+ */
 function isPrivateHost(host) {
-  const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
+  // "localhost." is localhost: one or more trailing dots name the same host.
+  const h = String(host || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
   if (!h) return true;
-  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || h.endsWith('.lan') || h.endsWith('.home.arpa')) return true;
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(h)) return /^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h);
-  if (h.includes(':')) return h === '::' || h === '::1' || /^(fc|fd|fe80)/.test(h) || /^::ffff:/.test(h);
+  if (h === 'localhost' || h.endsWith('.localhost') || /\.(local|internal|lan|home|home\.arpa|localdomain|intranet|corp|private)$/.test(h)) return true;
+  if (net.isIP(h)) return isPrivateAddress(h);
   // A bare number or hex is an IP address in disguise (http://2130706433 = 127.0.0.1).
   return /^(0x[0-9a-f]+|\d+)$/.test(h);
 }
+
+/** Whether a host is an IP literal (no lookup needed) rather than a name. */
+const isIpLiteral = (host) => Boolean(net.isIP(String(host || '').replace(/^\[|\]$/g, '')));
 
 function isGlobeUrl(u) {
   return u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname) && Number(u.port) === GLOBE_PORT;
@@ -105,4 +115,4 @@ const focusScript = (id) => `(() => {
 const scrollScript = (direction) =>
   ({ top: 'scrollTo(0, 0)', bottom: 'scrollTo(0, document.documentElement.scrollHeight)', up: 'scrollBy(0, -innerHeight * 0.8)' })[direction] || 'scrollBy(0, innerHeight * 0.8)';
 
-module.exports = { GLOBE_PORT, isPrivateHost, checkUrl, fromAddressBar, onlyHashDiffers, readScript, locateScript, focusScript, scrollScript };
+module.exports = { GLOBE_PORT, isPrivateHost, isIpLiteral, checkUrl, fromAddressBar, onlyHashDiffers, readScript, locateScript, focusScript, scrollScript };

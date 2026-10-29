@@ -75,8 +75,16 @@ async function readPackage(buf, now) {
   for (const [idx, name] of Object.entries(map)) {
     if (!data.media.has(name) || !MEDIA_EXT.test(name) || !byName.has(idx)) continue;
     const e = byName.get(idx);
-    if (e.size > MAX_MEDIA_FILE || total + e.size > MAX_MEDIA_TOTAL) continue;
-    const bytes = core.unzstd(core.zipRead(buf, e));
+    // What is still allowed, enforced while unpacking (the declared sizes can lie: a zip bomb).
+    const room = Math.min(MAX_MEDIA_FILE, MAX_MEDIA_TOTAL - total);
+    if (room <= 0 || e.size > room) continue;
+    let bytes;
+    try {
+      bytes = core.unzstd(core.zipRead(buf, e, { max: room }), { max: room });
+    } catch {
+      continue; // too large once unpacked, or damaged: that file is left out
+    }
+    if (bytes.length > room) continue;
     total += bytes.length;
     media.set(name, bytes);
   }

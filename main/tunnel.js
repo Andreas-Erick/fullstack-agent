@@ -257,6 +257,9 @@ function teamDomain(team) {
 
 async function certs(domain, fresh = false) {
   const c = certCache.get(domain);
+  // A forced refresh (an unknown key id: keys rotate) at most once a minute: a forged token with a
+  // made-up kid would otherwise fetch the certificates on every request (review 2026-10-29).
+  if (c && fresh && Date.now() - c.at < 60 * 1000) return c.keys;
   if (c && !fresh && Date.now() - c.at < 60 * 60 * 1000) return c.keys;
   const res = await fetch(`https://${domain}/cdn-cgi/access/certs`, { signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`Access certificates: HTTP ${res.status}`);

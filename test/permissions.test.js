@@ -67,6 +67,6 @@ test('the brain and voice addresses ask each time, also in auto mode and after a
 });
 
 test('during setup, widening access goes through the approval dialog', () => {
-  assert.match(tools, /const widens = \(a\.setting === 'safety\.permissionMode' && value === 'auto'\) \|\| \(a\.setting === 'code\.allowSelfModify' && value === true\) \|\| \(a\.setting === 'documents\.workspace'/);
+  assert.match(tools, /const widens = \(a\.setting === 'safety\.permissionMode' && value === 'auto'\) \|\| \(a\.setting === 'code\.allowSelfModify' && value === true\) \|\| \(\['documents\.workspace', 'obsidian\.vaultPath'\]\.includes\(a\.setting\)/, 'the workspace and the vault (both opened to the agent) ask');
   assert.match(tools, /if \(widens\) await requireApproval\(ctx, 'permissions'/);
 });

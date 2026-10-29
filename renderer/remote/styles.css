@@ -202,6 +202,7 @@ body.asleep .face-scene.on { opacity: 0.42; }
 .approval { padding: 12px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--surface); box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 25%, transparent); animation: rise 0.2s ease-out; }
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
 .approval .kind { font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); }
+.approval .desktop-only { margin-top: 10px; font-size: 13px; color: var(--muted); }
 .approval .kind .left { color: var(--muted); letter-spacing: 0.05em; text-transform: none; font-variant-numeric: tabular-nums; }
 .approval b { display: block; margin: 2px 0 6px; }
 .approval .detail { max-height: 120px; overflow: auto; margin: 0 0 8px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }

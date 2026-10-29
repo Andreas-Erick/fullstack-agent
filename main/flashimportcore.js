@@ -185,25 +185,45 @@ function zipEntries(buf) {
 
 const MAX_ENTRY = 400 * 1024 * 1024;
 
-/** One zip entry's bytes (stored or deflated). */
-function zipRead(buf, e) {
-  if (e.size > MAX_ENTRY) throw new Error(`"${e.name}" in the package is too large.`);
+/**
+ * One zip entry's bytes (stored or deflated), at most `max` once unpacked. The sizes an entry declares
+ * are not trusted: an entry claiming 1 byte unpacked to 60 MB (a zip bomb, review 2026-10-29), so the
+ * limit is enforced while unpacking.
+ */
+function zipRead(buf, e, { max = MAX_ENTRY } = {}) {
+  const limit = Math.min(max, MAX_ENTRY);
+  if (e.size > limit) throw new Error(`"${e.name}" in the package is too large.`);
   const p = e.local;
   if (buf.readUInt32LE(p) !== 0x04034b50) throw new Error('Damaged zip file.');
   const start = p + 30 + buf.readUInt16LE(p + 26) + buf.readUInt16LE(p + 28);
+  if (start + e.csize > buf.length) throw new Error('Damaged zip file.');
   const data = buf.subarray(start, start + e.csize);
-  if (e.method === 0) return Buffer.from(data);
-  if (e.method === 8) return zlib.inflateRawSync(data, { maxOutputLength: MAX_ENTRY });
+  if (e.method === 0) {
+    if (data.length > limit) throw new Error(`"${e.name}" in the package is too large.`);
+    return Buffer.from(data);
+  }
+  if (e.method === 8) return tooLarge(e.name, () => zlib.inflateRawSync(data, { maxOutputLength: limit }));
   throw new Error(`Unsupported compression in the package (method ${e.method}).`);
 }
 
+// zlib stops at maxOutputLength with a RangeError; say what it means.
+function tooLarge(name, fn) {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof RangeError || err?.code === 'ERR_BUFFER_TOO_LARGE') throw new Error(`"${name}" in the package is too large.`);
+    throw err;
+  }
+}
+
 const ZSTD_MAGIC = 0xfd2fb528;
-/** Anki's newest packages compress their files with zstd; older ones don't. */
-function unzstd(b) {
+/** Anki's newest packages compress their files with zstd; older ones don't. At most `max` bytes out. */
+function unzstd(b, { max = MAX_ENTRY } = {}) {
   if (b.length >= 4 && b.readUInt32LE(0) === ZSTD_MAGIC) {
     if (typeof zlib.zstdDecompressSync !== 'function') throw new Error('This Anki package uses zstd compression, which needs a newer Node.js.');
-    return zlib.zstdDecompressSync(b, { maxOutputLength: MAX_ENTRY });
+    return tooLarge('a file', () => zlib.zstdDecompressSync(b, { maxOutputLength: Math.min(max, MAX_ENTRY) }));
   }
+  if (b.length > max) throw new Error('A file in the package is too large.');
   return b;
 }
 

@@ -66,22 +66,36 @@ const CAPTION = /<!--\s*caption:\s*([^>]*?)\s*-->/i;
  * images, uses, styles, filters, foreign objects, animation, links, external references), the root
  * given the app's viewBox and crop. Throws when it is not a drawing or too big.
  */
-function cleanScene(text, { orientation = 'landscape' } = {}) {
-  const f = FRAMES[orientation] || FRAMES.landscape;
-  const raw = extractSvg(text) || extractSvg(`${text}</svg>`);
-  if (!raw) throw new Error('The model did not return an SVG drawing. Try again, or use a more capable model.');
-  const caption = String((CAPTION.exec(String(text)) || [])[1] || '').slice(0, 80);
-  let svg = raw
+// One cleaning pass (cleanScene repeats it until nothing changes).
+function cleanOnce(svg) {
+  return svg
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<\?[\s\S]*?\?>/g, '')
     .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '')
     .replace(/<(script|style|foreignObject|image|use|filter|animate|animateTransform|animateMotion|set|title|desc|metadata)\b(?:[^>]*?\/>|[\s\S]*?<\/\1\s*>)/gi, '') // with everything inside
     .replace(/<\/?(script|style|foreignObject|image|use|filter|a|animate|animateTransform|animateMotion|set|title|desc|metadata)\b[^>]*>/gi, '') // stray tags; a link loses only its tags
-    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    // Handlers after a space, a slash or a quote (<svg/onload=…>, fill="red"onclick=…).
+    .replace(/(?<=[\s/"'])on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/\s(href|xlink:href)\s*=\s*("(?!#)[^"]*"|'(?!#)[^']*'|(?!#)[^\s>]+)/gi, '') // only in-document references
     .replace(/\sfilter\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/\sstyle\s*=\s*("[^"]*url\([^#][^"]*"|'[^']*url\([^#][^']*')/gi, '') // no url() to outside
-    .replace(/\s(fill|stroke|mask|clip-path|marker(?:-start|-mid|-end)?)\s*=\s*("url\([^#][^"]*"|'url\([^#][^']*')/gi, '');
+    .replace(/\s(fill|stroke|mask|clip-path|marker(?:-start|-mid|-end)?)\s*=\s*("url\([^#][^"]*"|'url\([^#][^']*'|url\([^#][^\s>]*)/gi, ''); // quoted or not
+}
+
+function cleanScene(text, { orientation = 'landscape' } = {}) {
+  const f = FRAMES[orientation] || FRAMES.landscape;
+  const raw = extractSvg(text) || extractSvg(`${text}</svg>`);
+  if (!raw) throw new Error('The model did not return an SVG drawing. Try again, or use a more capable model.');
+  const caption = String((CAPTION.exec(String(text)) || [])[1] || '').slice(0, 80);
+  // The size first: cleaning a huge drawing with unclosed tags takes minutes (review 2026-10-29).
+  if (Buffer.byteLength(raw, 'utf8') > MAX_BYTES * 4) throw new Error('The scene is over 200 KB; ask for a simpler one.');
+  // Cleaned until nothing changes: a removed tag can't rebuild one (<scr<script>ipt>).
+  let svg = raw;
+  for (let i = 0; i < 6; i++) {
+    const next = cleanOnce(svg);
+    if (next === svg) break;
+    svg = next;
+  }
   if (Buffer.byteLength(svg, 'utf8') > MAX_BYTES) throw new Error('The scene is over 200 KB; ask for a simpler one.');
   const elements = (svg.match(/<[a-z]/gi) || []).length;
   if (elements > MAX_ELEMENTS) throw new Error('The scene has too many parts; ask for a simpler one.');
