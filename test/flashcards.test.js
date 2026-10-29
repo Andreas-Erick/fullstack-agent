@@ -211,3 +211,15 @@ test('a deck emptied or edited mid-practice: missing cards are skipped, not show
   }
   assert.ok(n <= 2, `only what is still there (${n})`);
 });
+
+// Regression (the test set, scripts/eval-cases.js): asked to "add a flashcard to my Spanish deck",
+// every brain used vocab_add, which made a second Spanish deck in Languages/ next to the user's own.
+test('vocab_add puts words into the user’s own flashcard deck of that name, not a second deck', async () => {
+  await fc.addCards('Spanish', [{ front: 'casa', back: 'house' }]);
+  const vocabAdd = require('../main/tools/learning').find((t) => t.name === 'vocab_add');
+  const r = await vocabAdd.run({ language: 'Spanish', cards: [{ front: 'perro', back: 'dog', example: 'El perro corre.' }] }, { emit() {} });
+  assert.match(r.note, /own flashcard deck "Spanish"/);
+  const cards = (await fc.browse('f:Spanish')).cards;
+  assert.ok(cards.some((c) => c.front === 'perro' && /dog/.test(c.back) && /El perro corre/.test(c.back)), 'the card, with its example, is in the deck');
+  assert.ok(!fs.existsSync(notes('Languages/Spanish.md')), 'no second Spanish deck');
+});

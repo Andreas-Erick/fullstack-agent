@@ -379,6 +379,7 @@ const TOOL_LABELS = {
   brain_options: '🧠 Checked its brains',
   brain_switch: '🧠 Switched brain',
   tools_more: '🧰 Got more tools',
+  hand_over: '🧠 Handed to Claude',
   Read: '💾 Read file',
   Edit: '🛠 Edited file',
   Write: '🛠 Wrote file',

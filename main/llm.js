@@ -181,6 +181,55 @@ async function claudeCodeOptions(settings, active, model) {
   };
 }
 
+// ------------------------------------------------------------------ hand-over
+// A local brain hands a message it can't do well to the Claude brain (setting llm.handOver, off by
+// default and user-only: the message then leaves this computer). Obvious cases go straight there
+// (localcore.handOverHint), others when the local model calls hand_over; never after it changed
+// something, and the text it already streamed is taken back.
+
+/** The Claude brain to hand over to, or null: the setting is on, this brain is local, Claude is ready. */
+async function handOverTarget(settings, narrowed) {
+  if (!settings.llm.handOver || !require('./localcore').isLocal(narrowed)) return null;
+  const ready = await router.status(settings).catch(() => []);
+  return ['claude-code', 'anthropic'].find((id) => ready.some((p) => p.id === id && p.configured && !p.resting)) || null;
+}
+
+// The names of the user's connectors ("TickTick"…), when the Claude brain may use them.
+async function connectorNames(settings) {
+  if (!settings.claudeCode?.connectors) return [];
+  const cached = await claudecode.cachedConnectors().catch(() => null);
+  return (cached?.list || []).filter((c) => c.source === 'connector').map((c) => c.name.replace(/^claude\.ai\s+/i, '').replace(/[®™]/g, '').trim()).filter(Boolean);
+}
+
+async function runSingle(opts) {
+  const { settings, conv, history, emit } = opts;
+  const narrowed = narrow(settings);
+  const target = conv.setup ? null : await handOverTarget(settings, narrowed);
+  const text = String(history[history.length - 1]?.content || '');
+  const handOver = async (why) => {
+    log.info('handed over', { to: target, why });
+    emit({ type: 'notice', message: `Handed to ${router.label(target)}: ${why}.` });
+    return { ...(await runOn(router.concrete(settings, target), opts)), provider: target, handedOver: why };
+  };
+  if (target) {
+    const why = require('./localcore').handOverHint(text, { services: await connectorNames(settings), engineering: isEngineeringTask(text) });
+    if (why) return handOver(why);
+  }
+  // What the local model already showed, to take back if it hands over.
+  let shown = 0;
+  const watch = (ev) => {
+    if (ev.type === 'text') shown += ev.delta.length;
+    if (ev.type === 'retract') shown -= ev.chars;
+    emit(ev);
+  };
+  const result = await runOn(narrowed, { ...opts, emit: target ? watch : emit, handOverTo: target });
+  if (target && result.handOver) {
+    if (shown > 0) emit({ type: 'retract', chars: shown });
+    return handOver(result.handOver);
+  }
+  return { ...result, provider: settings.llm.provider };
+}
+
 /**
  * One turn. `images` (data URLs, e.g. the shared screen) go with the newest user message only; they
  * are never stored in the conversation. In multi-provider mode the turn goes to the providers in
@@ -188,7 +237,7 @@ async function claudeCodeOptions(settings, active, model) {
  */
 async function runTurn(opts) {
   const { settings, conv, history, emit, signal, voice = false } = opts;
-  if (settings.llm.provider !== 'auto') return { ...(await runOn(narrow(settings), opts)), provider: settings.llm.provider };
+  if (settings.llm.provider !== 'auto') return runSingle(opts);
   const text = String(history[history.length - 1]?.content || '');
   const plan = await router.plan(settings, { text, voice, needsTools: Boolean(conv.setup) });
   if (!plan.length) throw new Error('No AI provider is ready. Connect your Claude account or add an API key in Settings → AI brain.');
@@ -224,7 +273,8 @@ async function runTurn(opts) {
   throw new Error(`No provider could answer: ${failures.join('; ')}.`);
 }
 
-async function runOn(settings, { conv, history, emit, signal, voice = false, images = [] }) {
+// handOverTo: the Claude brain a local model may hand this message to (runTurn), or null.
+async function runOn(settings, { conv, history, emit, signal, voice = false, images = [], handOverTo = null }) {
   const setup = Boolean(conv.setup);
   const active = setup || settings.llm.useTools ? await tools.activeTools(settings, { setup }) : [];
   const names = active.map((t) => t.name);
@@ -257,26 +307,28 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     // The everyday tools, the groups this conversation loaded before or this message obviously needs,
     // and tools_more for the rest (localcore.js TOOLBOX).
     const loaded = [...new Set([...(Array.isArray(conv.toolGroups) ? conv.toolGroups : []), ...localcore.hintGroups(lastText)])].filter((g) => localcore.TOOLBOX[g]);
-    const more = tools.TOOLS.find((t) => t.name === 'tools_more');
+    // tools_more, and hand_over when the user lets this brain hand messages to Claude (runTurn).
+    const extra = [tools.TOOLS.find((t) => t.name === 'tools_more'), ...(handOverTo ? [tools.TOOLS.find((t) => t.name === 'hand_over')] : [])];
     const toolset = {
       loaded,
       changed: loaded.length !== (conv.toolGroups || []).length,
-      list: [...localcore.compactTools(active, loaded), more],
+      list: [...localcore.compactTools(active, loaded), ...extra],
       add(group) {
         if (!localcore.TOOLBOX[group] || this.loaded.includes(group)) return [];
         const before = new Set(this.list.map((t) => t.name));
         this.loaded.push(group);
         this.changed = true;
-        this.list = [...localcore.compactTools(active, this.loaded), more];
+        this.list = [...localcore.compactTools(active, this.loaded), ...extra];
         const added = this.list.filter((t) => !before.has(t.name)).map((t) => t.name);
         log.info('tools loaded', { group, added: added.length });
         return added;
       },
     };
     ctx.toolset = toolset;
+    ctx.handOver = handOverTo ? { to: handOverTo, requested: '' } : null;
     // The prompt names only the everyday tools, so it stays the same when a group is added.
     const everyday = localcore.compactTools(active).map((t) => t.name);
-    const { system, stable, context, reminder } = await prompt.buildCompact(settings, [...everyday, 'tools_more'], { query: lastText });
+    const { system, stable, context, reminder } = await prompt.buildCompact(settings, [...everyday, ...extra.map((t) => t.name)], { query: lastText });
     log.info('compact prompt', { model: model || settings.llm.model, tools: toolset.list.length, groups: loaded.join(',') || undefined, chars: system.length });
     // A local server reuses what it already read when the start of the request is unchanged: the
     // rules, the tools (which its template puts after the system text) and the history. So the
@@ -286,6 +338,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     const local = localcore.isLocal(settings);
     const result = await runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active: toolset.list, system: local ? `${stable}\n\n${reminder}` : system, turnNote: local ? context : '', ctx, images });
     if (toolset.changed) result.convPatch = { ...(result.convPatch || {}), toolGroups: toolset.loaded };
+    if (ctx.handOver?.requested) result.handOver = ctx.handOver.requested;
     return result;
   }
   const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText });
@@ -628,9 +681,13 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       toolRecords.push(r.record);
       turnMessages.push({ role: 'tool', tool_call_id: tc.id, content: r.content });
       if (r.image && !settings.llm.noVision) seen.push(r.image);
+      // A tool that changed something: this turn is never handed over (it would run again there).
+      if (r.ok && !require('./localcore').isReadTool(tc.function.name) && tc.function.name !== 'hand_over') ctx.wrote = true;
     }
     if (seen.length) turnMessages.push({ role: 'user', content: [{ type: 'text', text: '(The screenshot you asked for.)' }, ...seen.map((url) => ({ type: 'image_url', image_url: { url } }))] });
     if (signal.aborted) break;
+    // Handed over (tool hand_over): the other brain answers; nothing more from this one.
+    if (ctx.handOver?.requested) break;
   }
 
   return { text: fullText.trim(), toolCalls: toolRecords, raw: { provider: 'openai', messages: stripImages(turnMessages) }, model: servedModel, convPatch: compacted.patch };

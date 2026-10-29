@@ -674,6 +674,7 @@ function brainCard() {
       toggle('llm.compaction', 'Summarize older messages instead of dropping them'),
       el('div', { class: 'grid2' }, text('llm.fastModel', 'Fast model', { placeholder: 'same as above' }), text('llm.deepModel', 'Deep model', { placeholder: 'same as above' })),
       compactSelect(),
+      handOverToggle(),
     );
   } else if (SINGLE_BRAINS[provider]) {
     // One brain of the multi-provider list on its own (switched in the chat: "switch to a local model").
@@ -728,6 +729,16 @@ const PROVIDER_HINT = {
   openai: 'FreeLLMAPI or any OpenAI-compatible server.',
   local: 'A model running on this computer with Ollama or LM Studio: private, free, and quick for short replies with a small model. Smart routing sends quick spoken replies here first.',
 };
+
+// A local brain passes what it can't do well to Claude (main/llm.js runSingle). Off by default: it sends
+// those messages off this computer.
+const handOverToggle = () =>
+  el(
+    'div',
+    {},
+    toggle('llm.handOver', 'Hand hard messages to Claude'),
+    el('div', { class: 'hint' }, 'A local model answers what it can; messages that need code, a connected service, several steps or careful reasoning go to your Claude account (or Claude API key) instead, and the chat says so. Those messages, with the conversation so far, then leave this computer. It never hands over after it already changed something in that turn.'),
+  );
 
 // Small local models: a short prompt and the everyday tools (main/localcore.js compactWanted).
 const compactSelect = () =>
