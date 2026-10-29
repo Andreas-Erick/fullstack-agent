@@ -35,17 +35,20 @@ test('the batch is written on its own shortly after', async () => {
 });
 
 test('every key format the app can hold is masked before it is written', () => {
+  // Fake keys, put together at run time: written out whole, GitHub's secret scanning takes them for
+  // real ones (it reported the Google and Tailscale ones). Each is a real prefix plus filler.
+  const fill = (n) => 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ'.slice(0, n);
   const keys = {
-    anthropic: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123',
-    openai: 'sk-proj-abcdefghijklmnopqrstuvwxyz012345',
-    groq: 'gsk_abcdefghijklmnopqrstuvwxyz0123456789ABCD',
-    perplexity: 'pplx-abcdefghijklmnopqrstuvwxyz0123456789abcd',
-    xai: 'xai-abcdefghijklmnopqrstuvwxyz0123456789',
-    openrouter: 'sk-or-v1-abcdefghijklmnopqrstuvwxyz0123456789',
-    gemini: 'AIzaSyAbcdefghijklmnopqrstuvwxyz0123456',
-    github: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789',
-    tailscale: 'tskey-auth-kAbCdEfGh1CNTRL-abcdefghijklmnopqrstuvwxyz',
-    jwt: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopqrstu',
+    anthropic: ['sk-ant-', 'api03-', fill(30)].join(''),
+    openai: ['sk-', 'proj-', fill(32)].join(''),
+    groq: ['gsk', '_', fill(40)].join(''),
+    perplexity: ['pplx', '-', fill(40)].join(''),
+    xai: ['xai', '-', fill(36)].join(''),
+    openrouter: ['sk-or-', 'v1-', fill(36)].join(''),
+    gemini: ['AI', 'za', 'Sy', fill(33)].join(''),
+    github: ['gh', 'p_', fill(36)].join(''),
+    tailscale: ['tskey', '-auth-', 'k', fill(12), '-', fill(26)].join(''),
+    jwt: ['ey', 'J', fill(18), '.ey', 'J', fill(20), '.', fill(21)].join(''),
   };
   for (const [name, key] of Object.entries(keys)) {
     const out = log.redact(`failed with ${key} in it`);
