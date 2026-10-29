@@ -56,9 +56,9 @@ const settings = (llm = {}) => ({ llm: { modelMode: 'default', voiceUsesFast: tr
 
 test('plan: quick = fast model at low effort; deep raises an explicit low/medium effort only', () => {
   assert.deepStrictEqual(pace.plan(settings(), { text: 'what is my schedule tomorrow?' }), { pace: 'quick', mode: 'fast', effort: 'low' });
-  assert.deepStrictEqual(pace.plan(settings(), { text: 'explain entropy', base: 'medium' }), { pace: 'deep', mode: 'default', effort: 'high' });
-  assert.deepStrictEqual(pace.plan(settings(), { text: 'explain entropy', base: 'xhigh' }), { pace: 'deep', mode: 'default', effort: 'xhigh' });
-  assert.deepStrictEqual(pace.plan(settings(), { text: 'explain entropy' }), { pace: 'deep', mode: 'default', effort: 'default' }, 'the model\'s own default is left alone');
+  assert.deepStrictEqual(pace.plan(settings(), { text: 'explain entropy', base: 'medium' }), { pace: 'deep', mode: 'deep', effort: 'high' });
+  assert.deepStrictEqual(pace.plan(settings(), { text: 'explain entropy', base: 'xhigh' }), { pace: 'deep', mode: 'deep', effort: 'xhigh' });
+  assert.deepStrictEqual(pace.plan(settings(), { text: 'explain entropy' }), { pace: 'deep', mode: 'deep', effort: 'default' }, 'the model\'s own default is left alone');
   assert.deepStrictEqual(pace.plan(settings(), { text: 'tell me a story', base: 'medium' }), { pace: 'normal', mode: 'normal', effort: 'medium' }, 'everyday messages run on the normal model (Sonnet)');
   assert.strictEqual(pace.plan(settings(), { text: 'tell me a story', voice: true }).mode, 'fast', 'spoken turns keep "fast for voice"');
   assert.strictEqual(pace.plan(settings(), { text: 'add milk', engineering: true }).pace, 'deep');
@@ -96,14 +96,20 @@ test('asking how the assistant is doing is small talk, not a deep question', () 
 });
 
 // Opus took ~15 s to start a tool-using reply in the log; everyday messages now run on Sonnet.
-test('the model per pace: quick → fast, everyday → normal (Sonnet), deep → the main model', () => {
+test('the model per pace: quick → fast, everyday → normal (Sonnet), deep → the deep model', () => {
   const { stub: s, load: l, quietLog } = require('./helpers');
   s({ './logger': quietLog });
   const llm = l('main/llm.js');
   const settings = { llm: { provider: 'claude-code', modelMode: 'default' }, claudeCode: { model: 'default', fastModel: 'haiku', normalModel: 'sonnet', deepModel: 'opus' }, anthropic: {} };
   assert.strictEqual(llm.effectiveModel(settings, { mode: 'fast' }), 'haiku');
   assert.strictEqual(llm.effectiveModel(settings, { mode: 'normal' }), 'sonnet');
-  assert.strictEqual(llm.effectiveModel(settings, { mode: 'default' }), 'default', 'deep questions keep the main model');
+  assert.strictEqual(llm.effectiveModel(settings, { mode: 'deep' }), 'opus', 'deep questions go to the deep model');
+  assert.strictEqual(llm.effectiveModel({ ...settings, claudeCode: { ...settings.claudeCode, deepModel: '' } }, { mode: 'deep' }), 'default', 'no deep model: the main model');
+  // Regression: a local deep model was only used in the explicit deep mode, never for a deep question.
+  const local = { llm: { provider: 'openai', model: 'qwen3:8b', fastModel: 'qwen3:8b', deepModel: 'qwen3.8:27b', modelMode: 'default', autoPace: true, voiceUsesFast: true } };
+  assert.strictEqual(llm.effectiveModel(local, { mode: pace.plan(local, { text: 'explain why the sky is blue' }).mode }), 'qwen3.8:27b');
+  assert.strictEqual(llm.effectiveModel(local, { mode: pace.plan(local, { text: 'thanks!' }).mode }), 'qwen3:8b');
+  assert.strictEqual(llm.effectiveModel(local, { mode: pace.plan(local, { text: 'explain why the sky is blue', voice: true }).mode }), 'qwen3:8b', 'spoken: the fast model, as before');
   assert.strictEqual(llm.effectiveModel({ ...settings, claudeCode: { ...settings.claudeCode, normalModel: '' } }, { mode: 'normal' }), 'default', 'empty = the main model');
   assert.strictEqual(llm.effectiveModel({ ...settings, llm: { provider: 'openai', model: 'qwen3:8b' } }, { mode: 'normal' }), 'qwen3:8b', 'other providers have no normal model');
 });
