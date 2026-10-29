@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.7.5 — 2026-10-29
+
+- A local brain can hand hard messages to Claude. Turn on Settings → AI brain → "Hand hard messages to Claude": your local model still answers what it can, quickly and on your computer, but messages that need code, one of your connected services, several steps or careful reasoning go to your Claude account (or API key) instead, and the chat says so. It never hands over after it already saved or changed something in that message. Off unless you turn it on, because those messages then leave your computer.
+- A test set for the assistant itself (`npm run eval`): about 25 messages like yours (your schedule, habits, memories, flashcards, notes, dates, several steps at once, knowing when to ask), run against any brain on a made-up vault and checked on what really happened, so changes to the assistant can be measured instead of guessed. Its first run found the fixes below; an 8B local model went from 20 to 23 of 25, and with the 27B for deep questions and the hand-over on, 24 of 25.
+- "Add a flashcard to my Spanish deck" goes into your Spanish deck. Every brain, Claude included, used to start a second Spanish deck for vocabulary next to it.
+- A local brain moves an event when you ask ("move my dentist appointment to 11:30") instead of adding a second one.
+- A local brain looks in your memories and notes before it says it doesn't know something about you.
+- A local brain gets the coming two weeks with their weekdays, so "ten days from today" comes out right.
+
 ## 2.7.4 — 2026-10-29
 
 - The "Deep model" you set is used for deep questions (explain, why, compare, plans) on its own. Before, it only answered after you switched to deep mode by hand ("switch to the deep model"). Spoken questions still go to the fast model. With no deep model set, deep questions stay with the main model, as before.
