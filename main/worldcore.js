@@ -22,10 +22,13 @@ const PLACES = [
 
 // What the assistant is doing, as a place in the village: each tool it uses sends the active persona
 // there (live, in the view) and is counted (the Workshop and the Lookout grow with it; the narrator
-// hears how the day went). Covers the app's own tools and Claude Code's native ones.
+// hears how the day went). Covers the app's own tools and Claude Code's native ones. A fourth entry
+// counts the work toward another place than the one it happens in (research is read in the Library
+// but is a trip out to the web: the Lookout grows with it).
 const WORK = [
   [/^(code_|self_change|run_tests|analyze_errors|read_app_log|diagnose|github_|diagram_save|pdf_|Edit$|Write$|MultiEdit$|NotebookEdit$|Bash$|PowerShell$|Glob$|Grep$|TodoWrite$)/, 'workshop', 'at the forge, building something'],
-  [/^(web_|browser_|globe_|WebSearch$|WebFetch$|look_at_screen|connectors_list)/, 'lookout', 'up the Lookout, scouting the web'],
+  [/^(web_search|web_fetch|WebSearch$|WebFetch$)/, 'library', 'in the Library, researching', 'lookout'],
+  [/^(browser_|globe_|look_at_screen|connectors_list)/, 'lookout', 'up the Lookout, scouting the web'],
   [/^mcp__(?!nexus__)/, 'lookout', 'sending a raven to a connected service'],
   [/^(memory_|stream_|vault_|daily_note|priorities_|profile_|job_|history_search)/, 'archive', 'in the Archive, filing notes'],
   [/^(learning_|open_document|close_document|documents?_|doc_|read_document|Read$)/, 'library', 'in the Library, reading'],
@@ -37,11 +40,11 @@ const WORK = [
   [/^(persona_|theme_|voice_|settings_|skill_|app_guide|capabilities_for)/, 'hearth', 'at the Hearth, tidying up'],
 ];
 
-/** Where in the village a tool belongs: { place, label }. Unknown tools are mulled over in the Garden. */
+/** Where in the village a tool belongs: { place, label, counts } (counts: the place it grows). Unknown tools are mulled over in the Garden. */
 function workFor(tool) {
   const name = String(tool || '').replace(/^mcp__nexus__/, '');
-  for (const [re, place, label] of WORK) if (re.test(name)) return { place, label };
-  return { place: 'garden', label: 'in the Garden, thinking it over' };
+  for (const [re, place, label, counts = place] of WORK) if (re.test(name)) return { place, label, counts };
+  return { place: 'garden', label: 'in the Garden, thinking it over', counts: 'garden' };
 }
 
 /** A day's activity counts ({ place: n }) as narrator news: what the Keeper and the assistant did. */

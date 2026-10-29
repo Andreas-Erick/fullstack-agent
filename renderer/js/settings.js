@@ -581,7 +581,7 @@ function brainCard() {
   const seg = el(
     'div',
     { class: 'seg' },
-    [['auto', 'Multi-provider'], ['claude-code', 'Claude account'], ['openai', 'FreeLLMAPI'], ['anthropic', 'Claude API key']].map(([v, l]) =>
+    [['auto', 'Multi-provider'], ['claude-code', 'Claude account'], ['openai', 'FreeLLMAPI / local'], ['anthropic', 'Claude API key']].map(([v, l]) =>
       el('button', { class: provider === v ? 'active' : '', onclick: async () => (await save('llm.provider', v), render(), emit('status-refresh')) }, l),
     ),
   );
@@ -661,6 +661,7 @@ function brainCard() {
     };
     loadModels(true);
     body.push(
+      localFinder('llm', () => (render(), loadModels(true))),
       text('llm.baseUrl', 'FreeLLMAPI base URL', { placeholder: 'http://localhost:3001/v1', hint: 'OpenAI-compatible endpoint. Uses <code>/chat/completions</code> (streaming) and <code>/models</code>.' }),
       text('llm.apiKey', 'Bearer token', { type: 'password', placeholder: 'optional' }),
       field('Model', el('div', { class: 'row' }, modelSel, el('button', { class: 'btn', onclick: () => loadModels(false) }, '⟳ Load models'))),
@@ -668,6 +669,7 @@ function brainCard() {
       text('llm.historyLimit', 'Messages of history sent per request', { type: 'number', hint: 'Keeps prompts within the context window of free models.' }),
       toggle('llm.compaction', 'Summarize older messages instead of dropping them'),
       el('div', { class: 'grid2' }, text('llm.fastModel', 'Fast model', { placeholder: 'same as above' }), text('llm.deepModel', 'Deep model', { placeholder: 'same as above' })),
+      compactSelect(),
     );
   } else {
     body.push(
@@ -711,8 +713,64 @@ const PROVIDER_HINT = {
   deepseek: 'DeepSeek. Low-cost, strong at code.',
   groq: 'Groq. Very fast replies (good for voice); free tier available.',
   perplexity: 'Perplexity Sonar. Searches the web itself; no tools (calendar, notes…).',
-  openai: 'FreeLLMAPI or any OpenAI-compatible server (also local models via Ollama / LM Studio).',
+  openai: 'FreeLLMAPI or any OpenAI-compatible server.',
+  local: 'A model running on this computer with Ollama or LM Studio: private, free, and quick for short replies with a small model. Smart routing sends quick spoken replies here first.',
 };
+
+// Small local models: a short prompt and the everyday tools (main/localcore.js compactWanted).
+const compactSelect = () =>
+  select('llm.compactPrompt', 'Prompt for small models', [['auto', 'Automatic (compact for small local models)'], ['on', 'Always compact'], ['off', 'Always the full prompt']], {
+    hint: 'A 3–14B model follows a short, plain prompt with a few tools much better than the full one. Automatic uses it for local models up to 14B.',
+  });
+
+// Finds Ollama and LM Studio on this computer and the models they have; picking one fills in the
+// server address and the model of `section` (llm, or local in multi-provider mode).
+function localFinder(section, after) {
+  const out = el('div', { class: 'local-found' });
+  const find = async () => {
+    out.replaceChildren(el('div', { class: 'hint' }, 'Looking on this computer…'));
+    const servers = await api.llm.localModels().catch((err) => (toastError(err), []));
+    const up = servers.filter((s) => s.running);
+    const hw = state.settings.perf?.hw || {};
+    const ideas = await api.llm.localSuggest({ vramGb: hw.vramGB || 0, ramGb: hw.ramGB || 0 }).catch(() => []);
+    const pick = async (s, m) => {
+      await save(`${section}.baseUrl`, s.baseUrl);
+      await save(`${section}.model`, m.id);
+      toast(`Using ${m.name} through ${s.name}`);
+      after?.();
+    };
+    out.replaceChildren(
+      ...(up.length
+        ? up.map((s) =>
+            el('div', { class: 'tree-sec' }, el('b', {}, `${s.name} · ${s.baseUrl}`), ...(s.models.length ? s.models.map((m) => el('button', { class: `chip ${state.settings[section]?.model === m.id ? 'ok' : ''}`, onclick: () => pick(s, m) }, `${m.name}${m.params ? ` · ${m.params}B` : ''}${m.small ? ' · fast' : ''}`)) : [el('div', { class: 'hint' }, 'Running, but no models yet.')])),
+          )
+        : [el('div', { class: 'hint' }, 'Neither Ollama nor LM Studio is running on this computer. Install one (ollama.com or lmstudio.ai), start it, and look again.')]),
+      ideas.length ? el('div', { class: 'hint' }, `Good small models for this computer: ${ideas.map((i) => `${i.model} (${i.why})`).join(' · ')}${up.some((s) => s.id === 'ollama') ? ' Get one with “ollama pull <name>” in a terminal.' : ''}`) : '',
+    );
+  };
+  return el('div', {}, el('div', { class: 'row' }, el('button', { class: 'btn small', onclick: find }, '🔍 Find local models (Ollama / LM Studio)')), out);
+}
+
+// The cloud voice (main/voice.js CLOUD_VOICES): which service, its voice, and OpenAI's own key (Groq
+// uses the Groq key from speech-to-text). What is spoken is sent to that service.
+function cloudVoiceFields() {
+  const c = state.settings.cloudVoice || {};
+  const voiceSel = el('select', { class: 'input' });
+  const fill = async () => {
+    const all = await api.tts.cloudVoices().catch(() => ({}));
+    const p = all[state.settings.cloudVoice?.provider || 'groq'];
+    fillSelect(voiceSel, (p?.voices || []).map((v) => [v, v]), state.settings.cloudVoice?.voice || p?.voices?.[0]);
+  };
+  voiceSel.addEventListener('change', () => save('cloudVoice.voice', voiceSel.value));
+  fill();
+  return el(
+    'div',
+    {},
+    el('div', { class: 'grid2' }, select('cloudVoice.provider', 'Cloud voice service', [['groq', 'Groq: Orpheus, English (uses your Groq key)'], ['openai', 'OpenAI: gpt-4o-mini-tts, many languages']], { onChange: () => (save('cloudVoice.voice', ''), render()) }), field('Cloud voice', voiceSel)),
+    (c.provider || 'groq') === 'openai' ? text('cloudVoice.apiKey', 'OpenAI API key', { type: 'password', placeholder: 'sk-…' }) : text('groq.apiKey', 'Groq API key', { type: 'password', placeholder: 'gsk_…', hint: 'The same key as for Groq speech-to-text. Orpheus needs its terms accepted once in the Groq console (Playground).' }),
+    el('div', { class: 'hint' }, 'Natural and quick, with nothing to install, but every reply that is spoken is sent to the service (and costs a little: about 1–2 cents a minute). If it fails, the fallback below speaks instead.'),
+  );
+}
 
 function routingSection() {
   const list = el('div', { class: 'prov-list' });
@@ -728,7 +786,7 @@ function routingSection() {
     el('div', { class: 'hint' }, 'Each message goes to the first provider that is ready. When one hits a rate limit, a usage cap or runs out of credits, the next one answers and the limited one is skipped for a while. Drag to reorder; click a provider to set it up.'),
     list,
     el('div', { class: 'grid2' }, el('div', { style: { alignSelf: 'center' } }, toggle('routing.smart', 'Pick the best provider for each task')), text('routing.cooldownMin', 'Skip a limited provider for (minutes)', { type: 'number' })),
-    el('div', { class: 'hint' }, 'Smart routing: code → Claude or DeepSeek, web questions → Perplexity, quick spoken replies → Groq, very long inputs → Gemini, deep mode → Claude. Only providers you switched on are used; the rest of your order is the fallback.'),
+    el('div', { class: 'hint' }, 'Smart routing: code → Claude or DeepSeek, web questions → Perplexity, quick spoken replies → a local model or Groq, very long inputs → Gemini, deep mode → Claude. Only providers you switched on are used; the rest of your order is the fallback.'),
   ];
 }
 
@@ -823,9 +881,12 @@ function providerConfig(p) {
   return [
     hint,
     p.id === 'openai' ? text('llm.baseUrl', 'Server URL', { placeholder: 'http://localhost:3001/v1' }) : '',
+    p.id === 'local' ? localFinder('local', after) : '',
+    p.id === 'local' ? text('local.baseUrl', 'Server URL', { placeholder: 'http://localhost:11434/v1', hint: 'Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1', onChange: debounceAfter(after) }) : '',
     el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, text(`${section}.apiKey`, p.id === 'openai' ? 'Bearer token (optional)' : 'API key', { type: 'password', onChange: debounceAfter(after) })), p.keyUrl ? el('button', { class: 'btn small', style: { alignSelf: 'end' }, onclick: () => api.shell.openExternal(p.keyUrl) }, 'Get a key ↗') : ''),
     field('Model', el('div', { class: 'row' }, modelSel, el('button', { class: 'btn small', onclick: load }, '⟳ Load models'))),
     el('div', { class: 'grid2' }, text(`${section}.fastModel`, 'Fast model (voice)', { placeholder: 'same as above' }), text(`${section}.deepModel`, 'Deep model', { placeholder: 'same as above' })),
+    p.id === 'local' ? compactSelect() : '',
   ];
 }
 
@@ -893,7 +954,8 @@ function voiceCard() {
     'Replies are spoken sentence by sentence while they stream. The offline voice (Kokoro) runs in the app: free, private and without internet once downloaded. VoiceStudio is a separate app with more natural, cloneable voices (a local OpenAI-compatible <code>/v1/audio/speech</code> server).',
     el('div', { class: 'grid2' }, toggle('voice.ttsEnabled', 'Enable voice', () => emit('status-refresh')), toggle('voice.autoSpeak', 'Speak replies automatically')),
     text('voice.speakLimit', 'Read aloud at most (characters of a reply; 0 = everything)', { type: 'number', hint: 'A long result (a report, a list of papers) is read up to here, then she says the rest is on screen. 1500 is about a minute and a half.' }),
-    el('div', { class: 'grid2' }, select('voice.engine', 'Voice', [['local', 'Offline voice (Kokoro, in the app)'], ['voicestudio', 'VoiceStudio (separate app)']], { onChange: () => emit('status-refresh') }), select('voice.localVoice', 'Offline voice', KOKORO_VOICES)),
+    el('div', { class: 'grid2' }, select('voice.engine', 'Voice', [['local', 'Offline voice (Kokoro, in the app)'], ['voicestudio', 'VoiceStudio (separate app)'], ['cloud', 'Cloud voice (Groq or OpenAI)']], { onChange: () => (emit('status-refresh'), render()) }), select('voice.localVoice', 'Offline voice', KOKORO_VOICES)),
+    state.settings.voice.engine === 'cloud' ? cloudVoiceFields() : '',
     text('voice.baseUrl', 'VoiceStudio URL', { placeholder: 'http://localhost:3900' }),
     text('voice.apiKey', 'API key', { type: 'password', placeholder: 'optional' }),
     field('Voice', el('div', { class: 'row' }, voiceSel, el('button', { class: 'btn', onclick: () => loadVoices(false) }, '⟳ Load voices')), 'Saved with the current persona, like the offline voice.'),
@@ -904,7 +966,7 @@ function voiceCard() {
     el(
       'div',
       { class: 'grid2' },
-      select('voice.fallback', 'When VoiceStudio is unreachable', [['local', 'Offline voice (Kokoro, runs in the app)'], ['system', 'System voice (Windows / macOS)'], ['off', 'Stay silent']], {
+      select('voice.fallback', 'When VoiceStudio or the cloud voice is unreachable', [['local', 'Offline voice (Kokoro, runs in the app)'], ['system', 'System voice (Windows / macOS)'], ['off', 'Stay silent']], {
         hint: 'The offline voice downloads once (about 330 MB with a GPU, 90 MB without) and then works without internet.',
       }),
     ),
@@ -1185,6 +1247,7 @@ async function dataCard() {
       danger('Reset settings', 'Reset settings', 'Restore all settings to defaults (memories and history are kept)?', async () => (await api.settings.reset(), await loadSettings())),
     ),
     toggle('updates.check', 'Check for new versions once a day (one request to GitHub; nothing is downloaded until you click Download)'),
+    toggle('privacy.reportIssues', 'Offer anonymized problem reports for the Siren project on GitHub when something breaks (you see the text and send it yourself)'),
     (() => {
       const out = el('span', { class: 'muted' });
       return el('div', { class: 'row', style: { flexWrap: 'wrap' } }, el('button', { class: 'btn', onclick: () => checkUpdatesNow(out) }, 'Check for updates now'), out);

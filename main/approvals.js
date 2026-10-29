@@ -15,10 +15,12 @@ const pending = new Map(); // id -> resolve
 // recording, publishing to GitHub (push, pull request) and the user's connectors (their accounts in
 // other services) always need a human, even in auto mode.
 // Giving a connector more permission (tool connector_permission) always asks too.
-const ALWAYS_ASK = new Set(['self_modify', 'command', 'invite', 'voice_clone', 'github_publish', 'connector', 'connector_trust']);
+// Changing where the brain or the voice connects (their keys go there) and widening the agent's own
+// access during setup ask too, each time.
+const ALWAYS_ASK = new Set(['self_modify', 'command', 'invite', 'voice_clone', 'github_publish', 'connector', 'connector_trust', 'endpoint', 'permissions']);
 // Each of these names different people, a different recording or a different service, so one yes
 // never covers the next (claudecode.js remembers a connector's yes per service for the turn).
-const EACH_TIME = new Set(['invite', 'voice_clone', 'github_publish', 'connector', 'connector_trust']);
+const EACH_TIME = new Set(['invite', 'voice_clone', 'github_publish', 'connector', 'connector_trust', 'endpoint', 'permissions']);
 let sender = null;
 
 function setSender(fn) {
@@ -37,14 +39,14 @@ function markTainted(turn, source) {
 
 /**
  * @param {object} turn per-turn state from newTurn()
- * @param {string} kind self_modify | settings | delete | command | calendar | invite | voice | voice_clone | repo_change | github_publish | connector | browser
+ * @param {string} kind self_modify | settings | endpoint | permissions | delete | command | calendar | invite | voice | voice_clone | repo_change | github_publish | connector | browser
  * @param {object} [extra] e.g. `remember`: [{ level, label }] "from now on" choices the dialog offers
  * @returns {Promise<{allow: boolean, reason?: string, remember?: string}>} remember = the choice the user picked
  */
 async function gate(turn, kind, title, detail = '', extra = {}) {
   const s = await store.getSettings();
   if (turn?.approved.has(kind) && !EACH_TIME.has(kind)) return { allow: true };
-  const tainted = Boolean(turn?.tainted) && kind === 'self_modify' && s.safety.taintGuard;
+  const tainted = Boolean(turn?.tainted) && (kind === 'self_modify' || kind === 'endpoint') && s.safety.taintGuard;
   if (s.safety.permissionMode === 'auto' && !tainted && !ALWAYS_ASK.has(kind)) {
     turn?.approved.add(kind);
     return { allow: true, auto: true };

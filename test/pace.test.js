@@ -78,3 +78,12 @@ test('odd messages never throw: empty, null, emoji only, a pasted wall of text, 
   assert.strictEqual(pace.classify('🙂'), 'normal');
   assert.doesNotThrow(() => pace.plan({}, { text: 'hi' }), 'settings without an llm section');
 });
+
+test('a very long prompt is classified at once, as deep', () => {
+  const long = `${'Here is everything about my project, in detail. '.repeat(4000)}What should I do first?`;
+  const t0 = Date.now();
+  assert.strictEqual(pace.classify(long), 'deep');
+  assert.strictEqual(pace.classify(`${'a'.repeat(200000)}`), 'deep', 'one endless word');
+  assert.strictEqual(pace.classify(`${'why '.repeat(50000)}`), 'deep');
+  assert.ok(Date.now() - t0 < 500, `took ${Date.now() - t0} ms`);
+});

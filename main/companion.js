@@ -63,6 +63,7 @@ const STATIC = {
   '/js/world/scene.js': 'renderer/js/world/scene.js',
   '/js/world/sprites.js': 'renderer/js/world/sprites.js',
   '/js/world/season.js': 'renderer/js/world/season.js',
+  '/js/world/whereabouts.js': 'renderer/js/world/whereabouts.js',
   // The Architecture map's drawing code (app code, no data), so a tablet draws the same map.
   '/js/archdraw.js': 'renderer/js/archdraw.js',
 };
@@ -89,7 +90,7 @@ const HEADERS = {
 const HEX = /^#[0-9a-f]{6}$/i;
 
 const MAX_BODY = 64 * 1024;
-const MAX_AUDIO_SEC = 60;
+const MAX_AUDIO_SEC = 120; // as long as the client records (renderer/remote/app.js MAX_REC_MS)
 const PAIR_TTL_MS = 5 * 60 * 1000;
 const PAIR_TRIES = 5;
 const MOVE_TTL_MS = 2 * 60 * 1000;
@@ -382,8 +383,11 @@ function chatForDevice(ev) {
       return { ...base, delta: ev.delta };
     case 'retract':
       return { ...base, chars: ev.chars };
-    case 'tool_start':
-      return { ...base, id: ev.id, name: ev.name };
+    case 'tool_start': {
+      // Where the village shows the work (from the tool's name alone), for the phone's world screen.
+      const { place, label } = require('./worldcore').workFor(ev.name);
+      return { ...base, id: ev.id, name: ev.name, work: { place, label } };
+    }
     case 'tool_end':
       return { ...base, id: ev.id, name: ev.name, ok: ev.ok };
     case 'done':
@@ -596,7 +600,7 @@ async function info() {
   const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
   // The scene behind the face: only its key here; the device fetches /api/scene when the key changes.
   const scene = s.appearance?.scene?.svg ? { key: sceneKey(`${s.appearance.scene.svg}\n${s.appearance.scene.portrait || ''}`), caption: String(s.appearance.scene.caption || '').slice(0, 80) } : null;
-  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, scene, sleepOnLaunch: s.ui?.sleepOnLaunch !== false, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, update: await Promise.resolve().then(() => require('./updates').forDevices()).catch(() => null) };
+  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, scene, sleepOnLaunch: s.ui?.sleepOnLaunch !== false, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.engine === 'cloud' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, update: await Promise.resolve().then(() => require('./updates').forDevices()).catch(() => null) };
 }
 
 async function speak(req, res) {
@@ -605,7 +609,7 @@ async function speak(req, res) {
   const text = String(body.text || '').trim().slice(0, 4000);
   if (!text) return fail(res, 400, 'Nothing to say');
   const s = await store.getSettings();
-  // The offline voice (the default) runs in the desktop window; VoiceStudio falls back to it when chosen.
+  // The offline voice (the default) runs in the desktop window; VoiceStudio and the cloud voice fall back to it when chosen.
   const offline = () => hooks.synthesize(text).then((wav) => ({ mime: 'audio/wav', audio: wav }));
   const viaStudio = s.voice?.engine !== 'local';
   let { mime, audio } = await (viaStudio ? voice.speak(text) : offline()).catch((err) => ({ err }));

@@ -15,7 +15,7 @@ function on(channel, fn) {
 
 const channels = {
   settings: ['get', 'set', 'reset'],
-  llm: ['models', 'test', 'prewarm', 'routerStatus', 'routerReset'],
+  llm: ['models', 'test', 'prewarm', 'routerStatus', 'routerReset', 'localModels', 'localSuggest'],
   win: ['zoom', 'overlay', 'fullscreen'],
   screen: ['sources', 'start', 'stop', 'state', 'preview'],
   skills: ['list', 'save', 'delete', 'openFolder', 'scan', 'import'],
@@ -31,10 +31,11 @@ const channels = {
   guide: ['features'],
   diag: ['run'],
   log: ['write', 'tail', 'open', 'report'],
+  issues: ['pending', 'open', 'dismiss'],
   faces: ['list', 'openFolder'],
   conv: ['list', 'get', 'new', 'delete', 'rename', 'clear', 'export'],
   memory: ['list', 'search', 'save', 'update', 'delete', 'clear', 'dir', 'openDir', 'export', 'import'],
-  tts: ['speak', 'voices', 'ping'],
+  tts: ['speak', 'voices', 'ping', 'cloudVoices'],
   stt: ['transcribe'],
   calendar: ['status', 'events', 'entries', 'add', 'update', 'remove'],
   tasks: ['status', 'sync'],

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-70 -70 1164 1164" width="432" height="432">
+  <!-- The Android adaptive icon's monochrome layer (themed icons, Android 13+), made from icon.svg: only
+       the alpha counts, so the moon and the sea are left out.
+       Siren Assistant: Siren in profile, singing, her hair flowing into the waves, a moon behind her.
+       Behind her, two fading echoes of the same figure: the other personas she can be. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0f3a4a"/>
+      <stop offset="1" stop-color="#040a14"/>
+    </linearGradient>
+    <linearGradient id="hair" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#0369a1"/>
+    </linearGradient>
+    <clipPath id="tile"><circle cx="512" cy="512" r="560"/></clipPath>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="5"/></filter>
+    <filter id="softer" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="10"/></filter>
+    <path id="hairShape" d="M600 280 C500 230 360 270 300 380 C250 470 260 560 200 640 C260 640 300 610 330 580 C330 650 300 720 240 780 C330 770 400 720 430 650 C450 720 440 790 400 850 C500 820 560 740 572 650 Z"/>
+    <path id="faceShape" d="M600 280 C680 300 720 360 716 420 C714 450 740 470 760 500 C770 516 754 526 736 530 C744 548 740 566 726 572 C734 590 726 612 700 616 C690 650 660 670 614 666 C600 700 590 730 572 760 C560 720 556 680 560 650 C520 600 500 520 520 440 C540 360 560 300 600 280 Z"/>
+    <!-- Her, whole: the hair and the face. An echo is this, faded as one (group opacity). -->
+    <g id="her"><use href="#hairShape" fill="url(#hair)"/><use href="#faceShape" fill="#06202a"/></g>
+  </defs>
+  <!-- One colour (Android's themed icons tint it): her head as a solid silhouette, her two echoes fainter. -->
+  <g fill="#ffffff">
+    <g opacity="0.3"><use href="#hairShape" transform="translate(-62 48) scale(0.85)"/><use href="#faceShape" transform="translate(-62 48) scale(0.85)"/></g>
+    <g opacity="0.55"><use href="#hairShape" transform="translate(16 70) scale(0.85)"/><use href="#faceShape" transform="translate(16 70) scale(0.85)"/></g>
+    <g transform="translate(92 92) scale(0.85)"><use href="#hairShape"/><use href="#faceShape"/><circle cx="820" cy="560" r="22"/><circle cx="868" cy="498" r="17"/><circle cx="904" cy="436" r="12"/></g>
+  </g>
+</svg>

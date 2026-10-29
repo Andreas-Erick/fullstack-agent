@@ -55,7 +55,7 @@ const FEATURES = [
   {
     id: 'coaching',
     title: 'Coaching, goals and habits',
-    what: 'A life-coach side: I listen first, help turn intentions into small concrete steps with if-then plans, and follow up without nagging. A habit tracker with streaks and weekly targets; tick habits off in the Habits view or just tell me.',
+    what: 'A life-coach side: I listen first, help turn intentions into small concrete steps with if-then plans, aiming for 1% better every day rather than big leaps, and follow up without nagging. A habit tracker with streaks and weekly targets; tick habits off in the Habits view or just tell me.',
     say: ['"/goal run a half marathon"', '"I meditated"', '"How are my habits?"', '"/reflect"', '"/weekly-review"'],
     where: 'Habits view (rail); Habits.md in the vault.',
     status: (_s, f) => (f.vault ? `${f.habits} habit${f.habits === 1 ? '' : 's'} tracked` : 'needs the vault'),
@@ -63,7 +63,7 @@ const FEATURES = [
   {
     id: 'skilltree',
     title: 'Skill tree',
-    what: 'A constellation of what you are growing (subjects, languages, physical skills, ways of working) with prerequisites. Progress comes from your learning tracker, vocabulary decks and habits; skills unlock as what they build on grows.',
+    what: 'A constellation of what you are growing (subjects, languages, physical skills, ways of working) with prerequisites. Progress comes from your learning tracker, vocabulary decks and habits; skills unlock as what they build on grows. A broad goal is split into intermediate steps, and its progress adds up from them.',
     say: ['"Map my goal of speaking Icelandic at B2 into my skill tree"', '"What should I work on next?"'],
     where: 'Tree view (rail); Skill Tree.md in the vault.',
     status: (_s, f) => (f.vault ? `${f.skills} skill${f.skills === 1 ? '' : 's'}` : 'needs the vault'),
@@ -147,6 +147,14 @@ const FEATURES = [
     say: [],
     where: 'The CPU · RAM · GPU meter in the title bar; turn it off in Settings → Interface.',
     status: (s) => (s.ui?.showSystemStats === false ? 'hidden' : 'shown'),
+  },
+  {
+    id: 'local-brain',
+    title: 'A brain on your own computer',
+    what: 'A small model running on this computer with Ollama or LM Studio: free, private, and quick for short replies. Small models get a compact prompt and the everyday tools, which they follow much better than the full one. In multi-provider mode it answers quick spoken replies first and the cloud brains take the rest.',
+    say: ['"Which local model should I use?"'],
+    where: 'Settings → AI brain → FreeLLMAPI / local → Find local models, or Multi-provider → Local model.',
+    status: (s) => (s.local?.model ? `local model: ${s.local.model}` : s.llm?.provider === 'openai' && s.llm?.model ? `model: ${s.llm.model}` : 'not set up'),
   },
   {
     id: 'usage',

@@ -731,6 +731,8 @@ body.perf-lite .face-scene svg g { will-change: auto; }
 .tree-node.locked { opacity: 0.45; }
 .tree-node.locked .core, .tree-node.locked .ring { filter: none; }
 .tree-node.mastered .core { fill: rgba(var(--node), 0.55); }
+.tree-node.goal .ring-bg { stroke-dasharray: 3 4; }
+.tree-node.goal .core { stroke-width: 2.5; }
 .tree-node:focus { outline: none; }
 .tree-node:focus-visible .halo { opacity: 1; }
 

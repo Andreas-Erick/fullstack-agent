@@ -28,21 +28,38 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 
 > Inspired by [jaredrhod/fullstack-agent](https://github.com/jaredrhod/fullstack-agent): a warm Claude session, memory loaded on demand, standing rules, an agent that is its own mechanic, and hardened voice handling.
 
+## Screenshots
+
+![Chatting with Siren: a reply with a formula, the tools it used, and her face beside the chat](docs/screenshots/chat.jpg)
+
+| | |
+|---|---|
+| ![The Inner World: a floating village whose buildings grow with your progress](docs/screenshots/inner-world.jpg) | ![The face view: Siren on her rock in her cove, with live telemetry](docs/screenshots/face.jpg) |
+| **The Inner World.** Her personas live here; she walks to the Library when she researches and to the Workshop when she codes. | **Her face.** Listening, thinking, speaking and sleeping, in your theme. |
+| ![The skill tree: Machine Learning as a goal made of steps](docs/screenshots/skill-tree.jpg) | ![Habits with streaks and weekly targets](docs/screenshots/habits.jpg) |
+| **Skill tree.** A broad goal split into steps; progress comes from what you learn, study and practice. | **Habits.** Tick them off or just say "I went for a run"; never miss twice. |
+| ![Flashcards: decks scheduled like Anki, and mixed review](docs/screenshots/flashcards.jpg) | ![The phone app: today, habits, the Inner World and flashcards](docs/screenshots/phone.jpg) |
+| **Flashcards.** Anki's scheduler (SM-2 or FSRS), imports from Anki, mixed review across decks. | **On your phone.** Your day, habits, the village and your cards, with the brain staying on your computer. |
+
+<sub>Sample data. The screenshots are made by the app itself (`NEXUS_SHOTS`, see [CLAUDE.md](CLAUDE.md) → Engineering method).</sub>
+
 ## Features
 
 ### 🎙️ Voice that feels like a conversation
 - **Push-to-talk or hands-free.** Hands-free uses a **neural voice detector** (Silero VAD), so breathing, coughs and keyboard noise don't trigger it, and a quick "yes" still counts.
 - **Fast, accurate local speech-to-text.** Whisper large-v3 turbo runs **on your GPU** (WebGPU), about 0.4 s for a sentence on a laptop RTX GPU, with an automatic CPU fallback. Prefer the cloud? Groq's Whisper (a free key) can stand in while the local model loads, or replace it.
-- **A natural voice from the first sentence:** an offline neural voice ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M)) runs right in the app (free, private, no internet once downloaded), spoken sentence by sentence as the reply streams in. For even more natural and cloneable voices, use [VoiceStudio](https://github.com/debpalash/VoiceStudio). A long result (a report, a list of papers) is read up to a limit you set, then she says the rest is on screen.
+- **A natural voice from the first sentence:** an offline neural voice ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M)) runs right in the app (free, private, no internet once downloaded), spoken sentence by sentence as the reply streams in. For even more natural and cloneable voices, use [VoiceStudio](https://github.com/debpalash/VoiceStudio), or a **cloud voice** with nothing to install (Groq's Orpheus with the Groq key you may already have, or OpenAI). A long result (a report, a list of papers) is read up to a limit you set, then she says the rest is on screen.
 - **One app to open:** Siren starts its helper apps (VoiceStudio, and FreeLLMAPI if you use it) in the background, minimized, and starts them again when they're needed. Optionally it closes them when you quit (Settings → Helper apps).
 - **Make new voices by asking:** "make me a warm, low British voice", or clone your own by reading a short script.
 - **Voice calibration** learns how your names and words get misheard and fixes them from then on.
-- **Interruptible:** talk over it (with headphones) or press the key.
+- **Interruptible:** talk over it (with headphones) or press the key. A cough doesn't cut it off; a word does.
+- **Long thoughts stay whole:** a long spoken message stays one message (up to two minutes), and a sentence you pause in the middle of ("book a table for…") waits for the rest instead of being sent half-finished. When she's unsure what you meant, she asks.
 - A subtle **grandfather-clock tick** while it works on longer tasks (or soft, classic, or off).
 
 ### 🧠 A brain with memory
 - **Your Claude account** through the Claude Code CLI, kept as a warm session. Spoken turns use the fast model, typed ones your default, switched **without restarting** the session. Also works with an Anthropic API key or any OpenAI-compatible server (e.g. FreeLLMAPI, Ollama, LM Studio).
-- **Multi-provider mode with automatic fallback:** Claude, Gemini, DeepSeek, Groq, Perplexity and FreeLLMAPI in **your** priority order (drag to rank them). When one hits a rate limit, a usage cap or runs out of credits, the next one answers and the limited one rests for a while. Optional **smart routing** picks the best one per task: code → Claude/DeepSeek, web questions → Perplexity, quick spoken replies → Groq, very long inputs → Gemini.
+- **Small, fast local brains:** "Find local models" lists what Ollama or LM Studio has on your computer. A small model (3–14B) gets a short prompt written for small models and the everyday tools, which it follows far better than the full one, and answers in a fraction of a second once loaded.
+- **Multi-provider mode with automatic fallback:** Claude, Gemini, DeepSeek, Groq, Perplexity, FreeLLMAPI and a local model in **your** priority order (drag to rank them). When one hits a rate limit, a usage cap or runs out of credits, the next one answers and the limited one rests for a while. Optional **smart routing** picks the best one per task: code → Claude/DeepSeek, web questions → Perplexity, quick spoken replies → a local model or Groq, very long inputs → Gemini.
 - **Agent Skills:** save a workflow once ("morning briefing", "clean up my meeting notes") and run it with `/name`, a trigger phrase, or one click. Or just say "make that a skill".
 - **Memory in an Obsidian vault:** a living profile, active priorities, daily notes, reusable procedures ("Jobs") and atomic memories. Every note is versioned and restorable.
 - **A memory stream** (after the Generative Agents paper): small observations she notes as you work, recalled by recency, importance and relevance, with insights she reflects on in the background; everything in plain notes in your vault.

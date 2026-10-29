@@ -10,6 +10,7 @@ import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
 import { initUsage } from './usage.js';
 import { initUpdates } from './updates.js';
+import { initIssues } from './issues.js';
 import { initSysmon } from './sysmon.js';
 import { initHandoff, handoffNote } from './handoff.js';
 import { initHud, bootScreen } from './hud.js';
@@ -95,6 +96,7 @@ async function boot() {
   initRemote();
   initUsage();
   initUpdates();
+  initIssues();
   initSysmon();
   $('#pillAgentWin').addEventListener('click', () => api.agentWindow.open().catch((err) => toast(err.message, 'error')));
   const showAgentWin = () => $('#pillAgentWin').classList.toggle('hidden', state.settings?.agentWindow?.enabled === false);
@@ -450,7 +452,11 @@ async function refreshStatus() {
   }
   // The offline voice runs in the app, so there is no server to check.
   if (s.voice.engine === 'local') setPill('#pillVoice', s.voice.ttsEnabled ? 'ok' : '', s.voice.ttsEnabled ? 'The offline voice (Kokoro, in the app)' : 'Voice disabled');
-  else api.tts
+  else if (s.voice.engine === 'cloud') {
+    const openai = s.cloudVoice?.provider === 'openai';
+    const keyed = openai ? Boolean(s.cloudVoice?.apiKey) : Boolean(s.groq?.apiKey);
+    setPill('#pillVoice', !s.voice.ttsEnabled ? '' : keyed ? 'ok' : 'err', !s.voice.ttsEnabled ? 'Voice disabled' : keyed ? `Cloud voice · ${openai ? 'OpenAI' : 'Groq'}` : `Cloud voice: add a ${openai ? 'OpenAI' : 'Groq'} key in Settings → Voice`);
+  } else api.tts
     .ping()
     .then((r) => setPill('#pillVoice', !r.enabled ? '' : r.ok ? 'ok' : 'err', !r.enabled ? 'Voice disabled' : r.ok ? `VoiceStudio · ${s.voice.baseUrl}` : `VoiceStudio unreachable at ${s.voice.baseUrl}`))
     .catch(() => setPill('#pillVoice', 'err', 'VoiceStudio error'));

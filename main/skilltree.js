@@ -54,8 +54,8 @@ async function remove(name) {
 async function summary() {
   const { skills } = await view();
   return {
-    skills: skills.map((s) => ({ name: s.name, area: s.area, progress: `${Math.round(s.progress * 100)}%`, state: s.state, needs: s.needs, blockedBy: s.blockers, sources: s.sources.map((x) => `${x.type}: ${x.name} (${x.detail})`) })),
-    next: skills.filter((s) => s.state === 'ready' || (s.state === 'growing' && !s.blockers.length)).sort((a, b) => b.progress - a.progress).slice(0, 5).map((s) => s.name),
+    skills: skills.map((s) => ({ name: s.name, area: s.area, ...(s.goal ? { goal: true, openSteps: s.blockers } : {}), progress: `${Math.round(s.progress * 100)}%`, state: s.state, needs: s.needs, blockedBy: s.blockers, sources: s.sources.map((x) => `${x.type}: ${x.name} (${x.detail})`) })),
+    next: skills.filter((s) => !s.goal && (s.state === 'ready' || (s.state === 'growing' && !s.blockers.length))).sort((a, b) => b.progress - a.progress).slice(0, 5).map((s) => s.name),
   };
 }
 

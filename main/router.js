@@ -13,6 +13,7 @@ const PROVIDERS = {
   groq: { name: 'Groq', openai: true, tools: true, vision: false, keyUrl: 'https://console.groq.com/keys' },
   perplexity: { name: 'Perplexity', openai: true, tools: false, vision: false, plain: true, keyUrl: 'https://www.perplexity.ai/account/api/keys', models: ['sonar', 'sonar-pro', 'sonar-reasoning', 'sonar-reasoning-pro'] },
   openai: { name: 'FreeLLMAPI', tools: true, vision: false },
+  local: { name: 'Local model (Ollama / LM Studio)', openai: true, tools: true, vision: false, local: true },
 };
 const IDS = Object.keys(PROVIDERS);
 
@@ -21,7 +22,7 @@ const IDS = Object.keys(PROVIDERS);
 const PREFER = {
   code: ['claude-code', 'anthropic', 'deepseek', 'gemini'],
   search: ['perplexity', 'gemini'],
-  quick: ['groq', 'gemini', 'claude-code', 'anthropic'],
+  quick: ['local', 'groq', 'gemini', 'claude-code', 'anthropic'],
   long: ['gemini', 'anthropic', 'claude-code'],
   deep: ['anthropic', 'claude-code', 'gemini', 'deepseek'],
 };
@@ -50,6 +51,7 @@ async function configured(settings, id) {
   }
   if (id === 'anthropic') return Boolean(settings.anthropic.apiKey);
   if (id === 'openai') return Boolean(settings.llm.baseUrl);
+  if (id === 'local') return Boolean(settings.local?.baseUrl && settings.local?.model); // no key: a model picked
   return Boolean(settings[id]?.apiKey);
 }
 

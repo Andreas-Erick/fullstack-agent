@@ -98,7 +98,7 @@ function draw() {
     const area = Math.max(0, areas.indexOf(s.area || '')) % 5;
     const r = 15;
     const circ = 2 * Math.PI * (r + 6);
-    const g = svg('g', { class: `tree-node ${s.state} area-${area} ${s.name === selected ? 'selected' : ''}`, transform: `translate(${p.x},${p.y})`, tabindex: 0 });
+    const g = svg('g', { class: `tree-node ${s.state} area-${area}${s.goal ? ' goal' : ''} ${s.name === selected ? 'selected' : ''}`, transform: `translate(${p.x},${p.y})`, tabindex: 0 });
     g.append(
       svg('circle', { class: 'halo', r: r + 14 }),
       svg('circle', { class: 'ring-bg', r: r + 6 }),
@@ -174,20 +174,20 @@ function showDetail(name) {
     send(q);
   };
   box.append(
-    el('div', { class: 'hint' }, `${s.area || 'No branch'} · ${STATE_LABEL[s.state]}`),
+    el('div', { class: 'hint' }, `${s.area || 'No branch'} · ${s.goal ? 'Goal · ' : ''}${STATE_LABEL[s.state]}`),
     el('h3', { class: 'display' }, s.name),
     s.description ? el('p', {}, s.description) : '',
     el('div', { class: 'tree-bar' }, el('i', { style: { width: `${pct}%` } })),
     el('div', { class: 'hint' }, `${pct}%${s.manual !== undefined ? ` (you set ${Math.round(s.manual * 100)}% as a starting point)` : ''}`),
-    s.needs.length ? el('div', { class: 'tree-sec' }, el('b', {}, 'Builds on'), ...s.needs.map((n) => el('button', { class: `chip ${s.blockers.includes(n) ? 'warn' : 'ok'}`, onclick: () => showDetail(n) }, `${s.blockers.includes(n) ? '○' : '●'} ${n}`))) : '',
-    el('div', { class: 'tree-sec' }, el('b', {}, 'Progress comes from'), ...(s.sources.length ? s.sources.map((x) => el('div', { class: 'tree-src' }, `${{ learning: '🎓', deck: '🗂', habit: '✅' }[x.type]} ${x.name}: ${x.detail}`)) : [el('div', { class: 'hint' }, 'Nothing linked yet: edit it to connect a learning topic, a deck or a habit.')])),
+    s.needs.length ? el('div', { class: 'tree-sec' }, el('b', {}, s.goal ? 'Steps' : 'Builds on'), ...s.needs.map((n) => el('button', { class: `chip ${s.blockers.includes(n) ? 'warn' : 'ok'}`, onclick: () => showDetail(n) }, `${s.blockers.includes(n) ? '○' : '●'} ${n}`))) : '',
+    s.goal && !s.sources.length ? el('div', { class: 'hint' }, `Progress adds up from its steps: ${s.needs.length - s.blockers.length} of ${s.needs.length} done.`) : el('div', { class: 'tree-sec' }, el('b', {}, 'Progress comes from'), ...(s.sources.length ? s.sources.map((x) => el('div', { class: 'tree-src' }, `${{ learning: '🎓', deck: '🗂', habit: '✅' }[x.type]} ${x.name}: ${x.detail}`)) : [el('div', { class: 'hint' }, 'Nothing linked yet: edit it to connect a learning topic, a deck or a habit.')])),
     el(
       'div',
       { class: 'tree-actions' },
       el('button', { class: 'btn primary', onclick: () => ask(`For my skill "${s.name}" in my skill tree: where do I stand, and what is the best next step this week?`) }, 'What next?'),
       s.sources.some((x) => x.type === 'learning') ? el('button', { class: 'btn', onclick: () => ask(`/study-session ${s.sources.find((x) => x.type === 'learning').name}`) }, 'Study session') : '',
       s.sources.some((x) => x.type === 'deck') ? el('button', { class: 'btn', onclick: () => ask(`/drill ${s.sources.find((x) => x.type === 'deck').name}`) }, 'Review cards') : '',
-      el('button', { class: 'btn', onclick: () => ask(`Help me break down the skill "${s.name}" in my skill tree into the skills it builds on, and add them.`) }, 'Break it down'),
+      el('button', { class: 'btn', onclick: () => ask(`Help me break down "${s.name}" in my skill tree into intermediate steps (as a goal made of them), and add them.`) }, 'Break it down'),
       el('button', { class: 'btn', onclick: () => editSkill(s) }, 'Edit'),
       el('button', {
         class: 'btn danger',
@@ -204,7 +204,7 @@ async function mapGoal() {
   const goal = await promptDialog('What do you want to grow? (e.g. “understand measure theory”, “speak Spanish at B2”, “run a half marathon”)');
   if (!goal?.trim()) return;
   switchView('chat');
-  send(`Map this into my skill tree: ${goal.trim()}. Propose the skill, the skills it builds on and where progress should come from (my learning topics, decks or habits, or new ones), ask me if anything is unclear, then add it with skilltree_update.`);
+  send(`Map this into my skill tree: ${goal.trim()}. If it is broad, make it a goal and split it into 3–7 intermediate steps; otherwise propose the skill and the skills it builds on. Say where each one's progress should come from (my learning topics, decks or habits, or new ones), ask me if anything is unclear, then add it with skilltree_update.`);
 }
 
 async function editSkill(s = null) {

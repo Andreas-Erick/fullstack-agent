@@ -10,6 +10,8 @@ import { speaker, recordClip, analyzeClip } from './voice.js';
 const KIND_LABEL = {
   self_modify: 'Self-modification',
   settings: 'Settings change',
+  endpoint: 'Change where the brain or voice connects',
+  permissions: 'Give the assistant more access',
   delete: 'Deletion',
   command: 'Run a command',
   calendar: 'Calendar change',

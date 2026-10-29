@@ -7,6 +7,7 @@ import { KOKORO_SAMPLE_RATE } from './kokorotext.js';
 import { mathOpen } from './mathtext.js';
 import { practiceLanguage, pickVoice, languageName } from './practice.js';
 import { BALANCED, profile, speechPlan } from './perfcore.js';
+import { onset, segmentEnd, endSilence, createJoiner, HOLD_MS, PTT_MAX_MS } from './utterance.js';
 
 let audioCtx = null;
 export function ctx() {
@@ -253,18 +254,18 @@ class Speaker {
       const { audio } = await api.tts.speak(text, override);
       const bytes = audio instanceof Uint8Array ? audio : new Uint8Array(audio);
       const buf = await ctx().decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
-      if (this.onFallback) logEvent('info', 'VoiceStudio back online');
+      if (this.onFallback) logEvent('info', `${engineName()} back online`);
       this.onFallback = false;
       return buf;
     } catch (err) {
       if (gen !== this.gen) return null;
-      logEvent('warn', 'VoiceStudio failed', err.message);
+      logEvent('warn', `${engineName()} failed`, err.message);
       if (mode === 'off') {
         this.reportError(err);
         return null;
       }
       if (!this.onFallback && !state.setupMode) {
-        toastError(new Error(`VoiceStudio unavailable — using the ${mode === 'local' ? 'offline' : 'system'} voice. (${err.message})`));
+        toastError(new Error(`${engineName()} unavailable — using the ${mode === 'local' ? 'offline' : 'system'} voice. (${err.message})`));
         emit('voice-fallback', err.message);
       }
       this.onFallback = true;
@@ -273,7 +274,7 @@ class Speaker {
     }
   }
 
-  // VoiceStudio is unreachable: the offline voice when it is the chosen fallback and works (silence,
+  // VoiceStudio (or the cloud voice) is unreachable: the offline voice when it is the chosen fallback and works (silence,
   // on screen, while it still downloads or if it fails); the OS voice only when the user chose it.
   async fallback(text, gen) {
     if (fallbackMode() === 'local') {
@@ -579,6 +580,8 @@ function concat(chunks) {
 
 export const recorder = new Recorder();
 
+const engineName = () => (state.settings?.voice?.engine === 'cloud' ? 'The cloud voice' : 'VoiceStudio');
+
 // Neural voice detector (Silero VAD in a worker). Scores arrive about one frame behind the audio,
 // which the pre-roll absorbs. Until it is ready, or if it fails to load, the energy detector is used.
 const neural = {
@@ -717,8 +720,8 @@ class HandsFree {
         if (voiced) this.onsetVoiced = (this.onsetVoiced || 0) + frameMs;
         this.gap = 0;
         // Interrupting the agent needs clearly voiced speech, so breathing or a cough doesn't cut it off.
-        const started = agentTalking ? this.onsetVoiced >= 240 : this.loud > 120;
-        if (started) {
+        if (onset({ agentTalking, loudMs: this.loud, voicedMs: this.onsetVoiced || 0 })) {
+          heldPiece.wait(); // a piece waiting for its continuation: this is it
           if (agentTalking) {
             speaker.stop();
             emit('barge-in');
@@ -737,16 +740,17 @@ class HandsFree {
     this.seg.length += frameMs;
     this.seg.silence = held ? 0 : this.seg.silence + frameMs;
     if (speaking && voiced) this.seg.voiced += frameMs;
-    const endMs = Math.min(2000, Math.max(300, Number(s.endSilenceMs) || 600));
-    if (this.seg.silence > endMs || this.seg.length > 30000) {
+    const ended = segmentEnd({ silenceMs: this.seg.silence, lengthMs: this.seg.length }, { endMs: endSilence(s.endSilenceMs) });
+    if (ended) {
       const seg = this.seg;
       this.seg = null;
       this.loud = 0;
       this.onsetVoiced = 0;
       setFlag('recording', false);
       // A short "yes" has ~150 ms of vowel; segments with none are breath or noise.
-      if (seg.voiced < 80) return setCaption('');
-      finishUtterance(() => toMono16k(concat(seg.chunks), this.rate));
+      if (seg.voiced < 80) return (setCaption(heldPiece.pending), heldPiece.pending && heldPiece.later());
+      if (ended === 'limit') logEvent('info', 'long utterance split at the limit', { sec: Math.round(seg.length / 1000) });
+      finishUtterance(() => toMono16k(concat(seg.chunks), this.rate), { join: true, limit: ended === 'limit' });
     }
   }
 }
@@ -946,13 +950,36 @@ function logFirstAudio(item) {
   logEvent('info', 'first audio', { synthMs: Math.round(now - item.queuedAt), sinceSpeechEndMs, chars: item.text.length });
 }
 
-async function finishUtterance(getSamples) {
+// Hands-free pieces of one message (utterance.js): a recording that hit the length limit, or a
+// transcript that trails off, waits a moment for its continuation and goes out joined with it.
+const joiner = createJoiner();
+const heldPiece = {
+  timer: 0,
+  get pending() {
+    return joiner.pending;
+  },
+  // Speech started again: wait for it instead of sending the held piece.
+  wait() {
+    clearTimeout(this.timer);
+    joiner.hold(performance.now());
+  },
+  later() {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      const text = joiner.due(performance.now());
+      if (text) emit('voice-input', text);
+    }, HOLD_MS + 50);
+  },
+};
+
+async function finishUtterance(getSamples, { join = false, limit = false } = {}) {
   utteranceEndedAt = performance.now();
   busy = true;
   try {
     const samples = await getSamples();
     if (!samples?.length) {
-      setCaption('');
+      setCaption(heldPiece.pending);
+      if (join && heldPiece.pending) return heldPiece.later();
       emit('barge-in-over'); // nothing was said: an interrupted reply speaks again
       return;
     }
@@ -961,15 +988,20 @@ async function finishUtterance(getSamples) {
     const started = performance.now();
     const text = await transcribe(samples);
     setCaption(text || '(didn’t catch that)', 'user');
-    if (text) {
-      logEvent('info', 'heard', { text, sttMs: Math.round(performance.now() - started), audioSec: +(samples.length / 16000).toFixed(1) });
-      emit('voice-input', text);
-    } else emit('barge-in-over');
+    if (text) logEvent('info', 'heard', { text, sttMs: Math.round(performance.now() - started), audioSec: +(samples.length / 16000).toFixed(1) });
+    if (join) {
+      const whole = joiner.add(text, { limit, now: performance.now() });
+      if (whole) emit('voice-input', whole);
+      else if (joiner.pending) (setCaption(`${joiner.pending} …`, 'user'), heldPiece.later());
+      else emit('barge-in-over');
+    } else if (text) emit('voice-input', text);
+    else emit('barge-in-over');
   } catch (err) {
     emit('barge-in-over');
     logEvent('error', 'speech-to-text failed', err.message);
     toastError(new Error(`Speech-to-text: ${err.message}`));
     setCaption('');
+    if (join && joiner.pending) heldPiece.later(); // what was heard before still goes out
   } finally {
     setFlag('transcribing', false);
     busy = false;
@@ -1010,13 +1042,18 @@ export async function startListening() {
     setFlag('recording', true);
     setCaption('Listening…', 'user');
     emit('listening', true);
+    // A stuck talk key must not record forever: what was said so far is sent.
+    clearTimeout(pttLimit);
+    pttLimit = setTimeout(() => mine === press && recorder.active && (logEvent('warn', 'push-to-talk held at the limit; stopped', { min: PTT_MAX_MS / 60000 }), stopListening()), PTT_MAX_MS);
   } catch (err) {
     logEvent('error', 'microphone failed', err.message);
     toastError(new Error(`Microphone: ${err.message}`));
   }
 }
 
+let pttLimit = 0;
 export async function stopListening() {
+  clearTimeout(pttLimit);
   press++; // a press still waiting to start is over
   if (recorder.starting) await recorder.starting.catch(() => {});
   if (!recorder.active) return;

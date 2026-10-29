@@ -418,6 +418,8 @@ function registerIpc() {
   handle('llm:models', async (override) => llm.listModels(merge(await store.getSettings(), override)));
   handle('llm:test', async (override) => llm.testConnection(merge(await store.getSettings(), override)));
   handle('llm:routerStatus', async () => router.status(await store.getSettings()));
+  handle('llm:localModels', async () => require('./localmodels').detect());
+  handle('llm:localSuggest', async (hw) => require('./localcore').suggest({ vramGb: Number(hw?.vramGb) || 0, ramGb: Number(hw?.ramGb) || 0 }));
   handle('llm:routerReset', (id) => router.reset(id));
 
   // Chat
@@ -511,6 +513,7 @@ function registerIpc() {
   handle('helperApps:status', async () => helperApps.status(await store.getSettings()));
   handle('helperApps:start', async (id) => helperApps.start(String(id), await store.getSettings(), { reason: 'manual' }));
   handle('tts:voices', (override) => voice.voices(override));
+  handle('tts:cloudVoices', () => Object.fromEntries(Object.entries(voice.CLOUD_VOICES).map(([id, p]) => [id, { name: p.name, voices: p.voices }])));
   handle('tts:ping', () => voice.ping());
   handle('stt:transcribe', (wav, opts) => voice.transcribe(wav, opts || {}));
 
@@ -745,6 +748,9 @@ function registerIpc() {
   handle('log:write', (level, event, data) => log[['info', 'warn', 'error'].includes(level) ? level : 'info'](`ui: ${event}`, data));
   handle('log:tail', (n, filter) => log.tail(n || 300, filter || ''));
   handle('log:open', () => shell.showItemInFolder(log.file()));
+  handle('issues:pending', () => require('./issues').pending());
+  handle('issues:open', (key) => require('./issues').open(String(key || '')));
+  handle('issues:dismiss', (key) => require('./issues').dismiss(String(key || '')));
   handle('log:report', async (note) => {
     const r = await envinfo.bugReport(note || '');
     shell.showItemInFolder(r.file);
@@ -820,19 +826,20 @@ function registerIpc() {
 // (local Whisper runs there) and answers through remote:transcribed. Likewise the offline voice: the
 // window speaks a reply into a WAV for the device (remote:speak → remote:spoken).
 const pendingTranscripts = new Map(); // id -> { resolve, reject, timer }
-function askWindow(channel, payload, what) {
+function askWindow(channel, payload, what, timeoutMs = 90000) {
   if (!win || win.isDestroyed()) return Promise.reject(new Error('The assistant window is closed'));
   const id = require('crypto').randomUUID();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingTranscripts.delete(id);
       reject(new Error(`${what} took too long`));
-    }, 90000);
+    }, timeoutMs);
     pendingTranscripts.set(id, { resolve, reject, timer });
     win.webContents.send(channel, { id, ...payload });
   });
 }
-const transcribeInWindow = (wav) => askWindow('remote:transcribe', { wav: new Uint8Array(wav) }, 'Speech-to-text');
+// A longer recording gets longer: a minute, plus a second per second of audio (16 kHz 16-bit = 32000 bytes/s).
+const transcribeInWindow = (wav) => askWindow('remote:transcribe', { wav: new Uint8Array(wav) }, 'Speech-to-text', 60000 + Math.ceil(wav.length / 32000) * 1000);
 const speakInWindow = (text) => askWindow('remote:speak', { text: String(text).slice(0, 4000) }, 'The offline voice');
 
 // One chat turn, from the window (chat:send) or a paired device (remote = the device name). Returns

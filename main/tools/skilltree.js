@@ -14,7 +14,7 @@ module.exports = [
     name: 'skilltree_update',
     group: 'skilltree',
     description:
-      'Add skills to the user\'s skill tree or change them. When they set a goal or start learning something, offer to map it: the skill, the 2–5 skills it builds on (needs), and where its progress comes from (from: a learning-tracker topic, a flashcard or vocabulary deck, or a habit, by their exact names). Link a flashcard deck the user studies to the skill it trains (type deck, the deck’s name): its cards maturing in reviews then grow that skill. Use manual (0–1) only for what they already know from before. Fields you leave out stay as they are.',
+      'Add skills to the user\'s skill tree or change them. When they set a goal or start learning something, offer to map it: the skill, the 2–5 skills it builds on (needs), and where its progress comes from (from: a learning-tracker topic, a flashcard or vocabulary deck, or a habit, by their exact names). Link a flashcard deck the user studies to the skill it trains (type deck, the deck’s name): its cards maturing in reviews then grow that skill. Use manual (0–1) only for what they already know from before. A broad goal ("get fit", "become a backend developer", "speak Spanish"): add it with goal true and split it into 3–7 intermediate steps, each a skill of its own that is concrete and checkable, with its own source where one exists, chained by needs where one builds on another; the goal’s needs are its steps, and its progress adds up from theirs. Split a step that is still too big the same way. Fields you leave out stay as they are.',
     parameters: obj(
       {
         skills: {
@@ -29,6 +29,7 @@ module.exports = [
               needs: arr('Names of the skills this builds on'),
               from: { type: 'array', description: 'Where progress comes from', items: { type: 'object', properties: { type: { type: 'string', enum: ['learning', 'deck', 'habit'] }, name: str('The learning topic, the deck name (a flashcard deck or a language) or the habit name'), target: { type: 'number', description: 'Optional: concepts understood (learning, default 12) or mature cards (deck, default: the deck size, at most 300) for 100%' } }, required: ['type', 'name'], additionalProperties: false } },
               manual: { type: 'number', description: 'Optional 0–1: how far along they already are, from before tracking' },
+              goal: { type: 'boolean', description: 'A broad goal made of steps (its needs): its progress adds up from them. false makes it an ordinary skill again.' },
             },
             required: ['name'],
             additionalProperties: false,

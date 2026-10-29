@@ -27,6 +27,8 @@ import java.util.concurrent.Executors;
  * The persona's face on the watch: the desktop records it (built-in or custom, in its theme) as a short
  * loop per agent state (main/facecapture.js, a "SRF1" pack); this view plays the loop of the current
  * state in a circle. Only the current state's frames are decoded (a few MB); the rest stay as JPEG.
+ * Smooth: the next frame is asked for exactly when it is due (on the display's beat), nothing is
+ * redrawn between two frames, and a new state starts as soon as its first frame is decoded.
  */
 public class FacePlayer extends View {
     private final Map<String, List<byte[]>> packed = new HashMap<>();
@@ -37,7 +39,7 @@ public class FacePlayer extends View {
     private final Rect dst = new Rect();
     private Bitmap[] frames = new Bitmap[0];
     private String state = "idle";
-    private int fps = 12;
+    private int fps = 24;
     private long start = System.currentTimeMillis();
     private int generation;
 
@@ -96,8 +98,21 @@ public class FacePlayer extends View {
         decoder.execute(() -> {
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inPreferredConfig = Bitmap.Config.RGB_565; // half the memory; the frames are JPEG anyway
+            o.inDither = true; // RGB_565 bands the gradients without it
             Bitmap[] out = new Bitmap[list.size()];
-            for (int i = 0; i < out.length; i++) out[i] = BitmapFactory.decodeByteArray(list.get(i), 0, list.get(i).length, o);
+            for (int i = 0; i < out.length; i++) {
+                if (gen != generation) return; // another state was asked for meanwhile
+                out[i] = BitmapFactory.decodeByteArray(list.get(i), 0, list.get(i).length, o);
+                if (i == 0) {
+                    // Show the new state at once; its frame 0 holds until the rest are ready.
+                    Bitmap first = out[0];
+                    main.post(() -> {
+                        if (gen != generation) return;
+                        frames = new Bitmap[] { first };
+                        invalidate();
+                    });
+                }
+            }
             main.post(() -> {
                 if (gen != generation) return;
                 frames = out;
@@ -110,7 +125,8 @@ public class FacePlayer extends View {
     @Override
     protected void onDraw(Canvas c) {
         if (frames.length == 0) return;
-        int i = (int) (((System.currentTimeMillis() - start) * fps / 1000) % frames.length);
+        long t = System.currentTimeMillis() - start;
+        int i = (int) ((t * fps / 1000) % frames.length);
         Bitmap f = frames[i];
         int w = getWidth();
         int h = getHeight();
@@ -122,7 +138,12 @@ public class FacePlayer extends View {
         c.clipPath(clip);
         if (f != null) c.drawBitmap(f, null, dst, paint);
         c.restore();
-        postInvalidateDelayed(1000 / fps);
+        if (frames.length > 1) {
+            // Wake when the next frame is due, not 1/fps after this draw (that drifts, and a late
+            // draw then skips or doubles a frame): every frame is then drawn on the vsync after it.
+            long next = ((t * fps / 1000) + 1) * 1000 / fps;
+            postInvalidateDelayed(Math.max(1, next - t));
+        }
     }
 
     @Override
