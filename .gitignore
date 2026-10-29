@@ -6,3 +6,15 @@ dist/
 # Python bytecode (tools/world-art)
 __pycache__/
 *.pyc
+
+# Personal working material in the project folder: bug screenshots, design references, notes.
+# (The app's own images live in assets/, docs/screenshots/, renderer/assets/ and android/…/res/.)
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.webp
+/village design ideas/
+/Nexus Next Features.md
+/Next_Features_to_Implement.md
+/Prompt edits.md
