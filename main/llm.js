@@ -187,9 +187,12 @@ async function claudeCodeOptions(settings, active, model) {
 // (localcore.handOverHint), others when the local model calls hand_over; never after it changed
 // something, and the text it already streamed is taken back.
 
-/** The Claude brain to hand over to, or null: the setting is on, this brain is local, Claude is ready. */
-async function handOverTarget(settings, narrowed) {
-  if (!settings.llm.handOver || !require('./localcore').isLocal(narrowed)) return null;
+/**
+ * The Claude brain to hand over to, or null: the setting is on (or this is a routine: see runSingle),
+ * this brain is local, Claude is ready.
+ */
+async function handOverTarget(settings, narrowed, { routine = false } = {}) {
+  if (!(settings.llm.handOver || routine) || !require('./localcore').isLocal(narrowed)) return null;
   const ready = await router.status(settings).catch(() => []);
   return ['claude-code', 'anthropic'].find((id) => ready.some((p) => p.id === id && p.configured && !p.resting)) || null;
 }
@@ -204,7 +207,10 @@ async function connectorNames(settings) {
 async function runSingle(opts) {
   const { settings, conv, history, emit } = opts;
   const narrowed = narrow(settings);
-  const target = conv.setup ? null : await handOverTarget(settings, narrowed);
+  // A routine the user made for a connected service ("sync Google Calendar") can only work on Claude
+  // (a local brain has no connectors): it goes there even with the hand-over off, and only then.
+  const userOn = Boolean(settings.llm.handOver);
+  const target = conv.setup ? null : await handOverTarget(settings, narrowed, { routine: opts.routine });
   const text = String(history[history.length - 1]?.content || '');
   const handOver = async (why) => {
     log.info('handed over', { to: target, why });
@@ -212,8 +218,10 @@ async function runSingle(opts) {
     return { ...(await runOn(router.concrete(settings, target), opts)), provider: target, handedOver: why };
   };
   if (target) {
-    const why = require('./localcore').handOverHint(text, { services: await connectorNames(settings), engineering: isEngineeringTask(text) });
-    if (why) return handOver(why);
+    const services = await connectorNames(settings);
+    const why = userOn ? require('./localcore').handOverHint(text, { services, engineering: !opts.routine && isEngineeringTask(text) }) : require('./localcore').neededService(text, services);
+    if (why) return handOver(userOn ? why : `the routine needs ${why}`);
+    if (!userOn) return { ...(await runOn(narrowed, opts)), provider: settings.llm.provider };
   }
   // What the local model already showed, to take back if it hands over.
   let shown = 0;
@@ -274,7 +282,7 @@ async function runTurn(opts) {
 }
 
 // handOverTo: the Claude brain a local model may hand this message to (runTurn), or null.
-async function runOn(settings, { conv, history, emit, signal, voice = false, images = [], handOverTo = null }) {
+async function runOn(settings, { conv, history, emit, signal, voice = false, images = [], handOverTo = null, routine = false }) {
   const setup = Boolean(conv.setup);
   const active = setup || settings.llm.useTools ? await tools.activeTools(settings, { setup }) : [];
   const names = active.map((t) => t.name);
@@ -282,11 +290,14 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   // process's output) are logged under this turn too.
   const lastText = String(history[history.length - 1]?.content || '');
   // Spoken turns stay quick unless they actually start engineering work (upgraded in runTool).
-  const engineering = !setup && !voice && isEngineeringTask(lastText);
+  // A routine's own instructions ("fix the errors in…") are not a request for code work.
+  const engineering = !setup && !voice && !routine && isEngineeringTask(lastText);
   // How much thinking this message needs (pace.js): a lookup gets the fast model at low effort.
   const base = settings.llm.provider === 'claude-code' ? settings.claudeCode.effort : settings.llm.provider === 'anthropic' ? settings.anthropic.effort : 'default';
   const paced = pace.plan(settings, { text: lastText, voice, setup, engineering, base });
   const ctx = { emit, turn: approvals.newTurn(), logTags: log.context(), budget: toolBudget(settings, engineering), effort: paced.effort, pace: paced.pace };
+  // A routine works on its own (a sync can take many steps): the larger number of rounds, not code work's effort.
+  if (routine) ctx.budget.rounds = ctx.budget.deep;
   // A screenshot can contain anything on screen (web pages, emails): it is external content.
   if (images.length) approvals.markTainted(ctx.turn, 'the shared screen');
   const model = effectiveModel(settings, { voice, mode: paced.mode });

@@ -172,3 +172,19 @@ test('an end of 24:00 is midnight', () => {
   assert.throws(() => core.parseWhen('2026-10-31 24:00'), /not a time/, 'a start of 24:00 is still wrong');
   assert.throws(() => core.parseWhen('2026-10-31 19:00-24:30'), /not a time/);
 });
+
+test('the prompt splits today at the current time: what is over, what is still to come', () => {
+  const ev = (title, start, end, more = {}) => ({ title, start: new Date(start).toISOString(), end: new Date(end).toISOString(), ...more });
+  const list = [
+    ev('Icelandic class', '2026-10-29T19:30', '2026-10-29T21:00'),
+    ev('Open-ended call', '2026-10-29T20:00', '2026-10-29T20:00', { openEnd: true }),
+    ev('Holiday', '2026-10-29T00:00', '2026-10-30T00:00', { allDay: true }),
+    ev('Night walk', '2026-10-29T22:30', '2026-10-29T23:00'),
+    ev('Halloween party', '2026-10-31T19:00', '2026-11-01T00:00'),
+  ];
+  const s = core.splitToday(list, new Date('2026-10-29T22:18'));
+  assert.deepStrictEqual(s.earlier.map((e) => e.title), ['Icelandic class', 'Open-ended call'], 'the class at 19:30 is over at 22:18');
+  assert.deepStrictEqual(s.later.map((e) => e.title), ['Holiday', 'Night walk'], 'an all-day event lasts until midnight');
+  assert.deepStrictEqual(s.upcoming.map((e) => e.title), ['Halloween party']);
+  assert.deepStrictEqual(['03:00', '08:00', '13:00', '22:18', '23:30'].map((t) => core.partOfDay(new Date(`2026-10-29T${t}`))), ['night', 'morning', 'afternoon', 'evening', 'night']);
+});

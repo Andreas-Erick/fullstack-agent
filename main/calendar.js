@@ -145,13 +145,16 @@ async function promptBlock() {
   if (!st.connected) return '';
   try {
     const list = await events();
-    const todayEnd = startOfDay(new Date()).getTime() + 86400000;
-    const today = list.filter((e) => new Date(e.start).getTime() < todayEnd);
-    const upcoming = list.filter((e) => new Date(e.start).getTime() >= todayEnd).slice(0, 40);
+    const now = new Date();
+    const { earlier, later, upcoming: rest } = core.splitToday(list, now);
+    const upcoming = rest.slice(0, 40);
+    const clock = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     return [
       `## Schedule (${FILE} in your vault: ${st.recurring} repeating, ${st.events} single entries${st.problems ? `, ${st.problems} unreadable line(s): see calendar_list_entries` : ''})`,
-      "Today's schedule:",
-      today.length ? today.map(fmtEvent).join('\n') : '- Nothing scheduled today.',
+      `It is ${core.partOfDay(now)} now, ${clock}.`,
+      ...(earlier.length ? ['Earlier today (already over):', earlier.map(fmtEvent).join('\n')] : []),
+      earlier.length ? 'Still to come today:' : "Today's schedule:",
+      later.length ? later.map(fmtEvent).join('\n') : earlier.length ? '- Nothing more today.' : '- Nothing scheduled today.',
       'Upcoming:',
       upcoming.length ? upcoming.map(fmtEvent).join('\n') : '- Nothing upcoming in the next days.',
     ].join('\n');

@@ -410,4 +410,25 @@ function occurrences(entries, from, to) {
   return out.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.title.localeCompare(b.title)));
 }
 
-module.exports = { parse, parseWhen, formatWhen, formatLine, describe, normalize, addEntry, replaceEntry, removeEntry, occurrences, template, WHEN_HELP, DAYS, ymd };
+// ------------------------------------------------------------------ for the prompt
+/**
+ * Today's events split at `now`: earlier (already over), now/later (not over yet), and the days after.
+ * An all-day event counts as still on until the day ends. Models read a plain list of today's events as
+ * all still to come ("your class is tonight at 19:30" at 22:18).
+ */
+function splitToday(list, now = new Date()) {
+  const t = now.getTime();
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+  const today = list.filter((e) => new Date(e.start).getTime() < end);
+  const over = (e) => !e.allDay && !e.openEnd && new Date(e.end).getTime() <= t;
+  const startedOpen = (e) => !e.allDay && e.openEnd && new Date(e.start).getTime() + 3600000 <= t; // an open end: over an hour after it began
+  return { earlier: today.filter((e) => over(e) || startedOpen(e)), later: today.filter((e) => !over(e) && !startedOpen(e)), upcoming: list.filter((e) => new Date(e.start).getTime() >= end) };
+}
+
+/** The time of day in words, for the prompt: night (0–5), morning (5–12), afternoon (12–17), evening (17–23), night. */
+function partOfDay(now = new Date()) {
+  const h = now.getHours();
+  return h < 5 ? 'night' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 23 ? 'evening' : 'night';
+}
+
+module.exports = { parse, parseWhen, formatWhen, formatLine, describe, normalize, addEntry, replaceEntry, removeEntry, occurrences, template, WHEN_HELP, DAYS, ymd, splitToday, partOfDay };
