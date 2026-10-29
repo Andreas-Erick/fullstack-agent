@@ -451,9 +451,24 @@ class Session {
       if (turnState?.connectorsApproved?.has(server)) return { behavior: 'allow', updatedInput: input };
       const cc = (await store.getSettings()).claudeCode;
       if (connectors.permits(connectors.levelOf(cc, server), tool)) return { behavior: 'allow', updatedInput: input };
+      // Parallel calls to one service (several searches at once) ask once: the others wait for that
+      // answer instead of each opening a dialog.
+      const asking = turnState?.connectorAsking?.get(server);
+      if (asking) {
+        const first = await asking;
+        if (first.allow) return { behavior: 'allow', updatedInput: input };
+        return { behavior: 'deny', message: `User did not approve: ${first.reason}` };
+      }
       const { service, action } = connectors.describeTool(tool);
       const choices = connectors.rememberChoices(tool);
-      const r = await approvals.gate(turnState, 'connector', `Use ${service}: ${action}`, JSON.stringify(input, null, 2).slice(0, 1500), { remember: choices });
+      const question = approvals.gate(turnState, 'connector', `Use ${service}: ${action}`, JSON.stringify(input, null, 2).slice(0, 1500), { remember: choices });
+      if (turnState) (turnState.connectorAsking ||= new Map()).set(server, question);
+      let r;
+      try {
+        r = await question;
+      } finally {
+        turnState?.connectorAsking?.delete(server);
+      }
       if (r.allow && turnState) (turnState.connectorsApproved ||= new Set()).add(server);
       // "Always allow…" in the dialog (the user's click or spoken "always"): only a level offered for this tool.
       if (r.allow && choices.some((c) => c.level === r.remember)) {

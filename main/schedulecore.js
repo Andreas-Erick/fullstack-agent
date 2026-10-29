@@ -34,12 +34,14 @@ function checkDate(s, what) {
   return s;
 }
 
-/** "9:05", "14:00", "2pm", "2:30 p.m." -> "HH:MM", or null. */
-function parseTime(s) {
+/** "9:05", "14:00", "2pm", "2:30 p.m." -> "HH:MM", or null. As an end time, "24:00" is midnight ("00:00"). */
+function parseTime(s, { end = false } = {}) {
   const m = /^(\d{1,2})(?::(\d{2}))?\s*([ap])?\.?m?\.?$/i.exec(String(s || '').trim());
   if (!m) return null;
   let h = Number(m[1]);
   const min = Number(m[2] || 0);
+  // An end at or before the start runs past midnight (occurrence()), so this ends exactly at midnight.
+  if (end && !m[3] && h === 24 && min === 0) return '00:00';
   if (m[3]) {
     if (h < 1 || h > 12) return null;
     h = (h % 12) + (m[3].toLowerCase() === 'p' ? 12 : 0);
@@ -98,7 +100,7 @@ function parseWhen(text) {
   const t = TIME_TAIL.exec(s);
   if (t) {
     start = parseTime(t[1]);
-    end = t[2] ? parseTime(t[2]) : '';
+    end = t[2] ? parseTime(t[2], { end: true }) : '';
     if (!start || end === null) throw new Error(`"${t[0].trim()}" is not a time. ${WHEN_HELP}`);
     s = s.slice(0, t.index).trim();
   }
