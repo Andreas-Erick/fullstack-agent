@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.7.1 — 2026-10-29
+
+- Switch brains by asking. "Switch to a local model", "switch back to the Claude brain", "which brains can I use?": your assistant lists the brains that are ready (your Claude account, a Claude API key, a local model in Ollama or LM Studio, Gemini, DeepSeek, Groq, Perplexity, FreeLLMAPI or multi-provider mode), asks which one you want, and switches from your next message on. For a local model it offers the ones installed. A small local brain can switch back too.
+- macOS build: 2.7.0's macOS installer wasn't published because a check failed. The title bar's CPU · RAM meter grew by two pixels whenever a reading reached 100% in macOS's font, which shifted the title bar. The percentages now have room for "100%".
+
 ## 2.7.0 — 2026-10-29
 
 - A new app icon: Siren in profile, singing, her hair flowing into the waves under the moon, with two fading echoes of her behind: the other personas she can be. Clear down to the 16-pixel size in title bars. On the installer, the phone app and the watch too, with a one-colour version for Android's themed icons.
