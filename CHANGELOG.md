@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.7.0 — 2026-10-29
+
+- A new app icon: Siren in profile, singing, her hair flowing into the waves under the moon, with two fading echoes of her behind: the other personas she can be. Clear down to the 16-pixel size in title bars. On the installer, the phone app and the watch too, with a one-colour version for Android's themed icons.
+- The Inner World follows what your assistant is really doing, on the computer, the phone and the tablet. Its persona walks along the roads to the work: to the Library when it researches the web, to the Workshop when it writes code. It goes to the Garden while it thinks, and when there's nothing to do it takes a walk through the village, stopping at each place on the way. Your other personas relax at the Hearth, by the fire or at the table. Web research still grows the Lookout.
+- Big goals in the skill tree can be split into steps. A goal's progress adds up from its steps (a goal inside a goal does too), it is never locked by them, and the Tree view shows which steps are still open. "Map a goal" and "Break it down" ask for 3–7 concrete steps.
+- Coaching works on the "1% better every day" principle: small daily gains that add up, the next step sized to fit today, and comparisons only with your own yesterday.
+- Tighter permissions. Your assistant can no longer change the path of the Claude program it runs (that setting is now yours alone, in Settings). Changing the address its brain or voice connects to, which is where their API keys go, now asks you every time, even in automatic mode, and warns you when the turn has read web pages or documents. During setup, giving it more access (automatic mode, self-changes, a documents folder) is confirmed in the app, not just in the chat. A new test makes sure none of this, and no secret, ever becomes a setting the assistant can change itself.
+- Long spoken messages stay whole. Hands-free used to cut speech into 30-second pieces and send each as its own message, so the second half interrupted the reply to the first, and what you said while the first piece was being transcribed was lost. One message now lasts up to two minutes (on the phone too). A sentence you pause in the middle of ("book a table for…") waits a moment for the rest instead of being sent half-finished. A stuck talk key stops recording after five minutes.
+- The face on the watch is smooth. It is recorded at 24 frames a second instead of 12, at even steps (screenshots used to arrive at uneven times, which made it stutter), and the end of each loop fades into its start, so there is no jump where it repeats. On the watch, each frame is drawn when it is due, and a new state shows its first frame at once.
+- Small, fast local brains. Settings → AI brain → "Find local models" lists what Ollama or LM Studio has on this computer and suggests models that fit it. A small model (3–14B) gets a short prompt written for small models and the everyday tools, which it follows far better than the full one. In multi-provider mode a local model can answer quick spoken replies first.
+- A cloud voice: Groq's Orpheus voices (with the Groq key you may already have) or OpenAI's, with nothing to install. It works for the phone and the watch too, and the offline voice steps in if it fails.
+- Problem reports, if you want them (off unless you tick the box in onboarding or Settings). When something breaks, your assistant offers an anonymized report for the Siren project on GitHub. You see exactly what it says (versions, the error and where in the code, with no paths, names, addresses, keys or anything you wrote) and send it yourself in the browser, or not.
+- More kinds of keys are masked in the log: Groq, Perplexity, xAI, OpenRouter, Tailscale and login tokens.
+- The README has screenshots.
+- When your assistant isn't sure what you meant (speech that came through garbled, a message cut off mid-sentence, or one that could mean two things), it says what it understood and asks, instead of guessing.
+
 ## 2.6.5 — 2026-10-29
 
 - Siren's new face and her new cove are the defaults of a fresh install: the redesigned sea nymph on her rock, and the moonlit cove with the wreck and a lighthouse behind her, wide and tall. Existing installs keep what they have; an unedited copy of her shipped face is refreshed on the next start.
