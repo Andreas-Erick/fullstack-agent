@@ -109,7 +109,7 @@ function loop() {
 function render(dt = 0, t = performance.now() / 1000) {
   if (!open || !ctx || !size.w) return;
   const m = src.minute();
-  const here = src.people(m).filter((p) => p.place === open.id);
+  const here = src.people(m).filter((p) => p.place === open.id && !p.walking); // still on the road: not inside yet
   open.actors = open.sim.update(here.map((p) => ({ name: p.name, color: p.color, active: p.kind === 'active', kind: p.kind, activity: p.activity, working: p.working, thinking: p.thinking, asleep: p.asleep })), open.layout.stations, animated() ? dt : 0, t);
   ctx.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
   draw(ctx, { w: size.w, h: size.h, P: src.palette(), t, place: open.id, level: open.level, name: open.name, stations: open.layout.stations, actors: open.actors, floor: open.layout.floor, open: open.layout.open, night: m < 6 * 60 || m >= 20 * 60, anim: animated(), lite: document.body.classList.contains('perf-lite'), hover: open.hover });

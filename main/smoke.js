@@ -206,6 +206,43 @@ async function scanText() {
   return [...found];
 }
 
+// NEXUS_SMOKE_FACE=1: also record the watch's face (main/facecapture.js, ~30 s) and check the pack:
+// every state, a steady frame rate, frames that move, and a loop without a jump where it repeats.
+async function checkFace() {
+  const fc = require('./facecapture');
+  const { nativeImage } = require('electron');
+  const t0 = Date.now();
+  const { header, frames } = fc.unpack((await fc.frames(await require('./store').getSettings())).data);
+  const found = [];
+  const ms = Date.now() - t0;
+  if (header.fps !== fc.FPS) found.push(`face: fps ${header.fps}, expected ${fc.FPS}`);
+  // Mean absolute difference of two frames, 0–255.
+  const diff = (a, b) => {
+    const x = nativeImage.createFromBuffer(a).toBitmap();
+    const y = nativeImage.createFromBuffer(b).toBitmap();
+    let d = 0;
+    for (let i = 0; i < x.length; i += 4) d += Math.abs(x[i] - y[i]) + Math.abs(x[i + 1] - y[i + 1]) + Math.abs(x[i + 2] - y[i + 2]);
+    return d / (x.length * 0.75);
+  };
+  const report = {};
+  for (const s of fc.STATES) {
+    const list = frames[s] || [];
+    if (!list.length) {
+      found.push(`face: no frames for ${s}`);
+      continue;
+    }
+    const steps = list.slice(1).map((f, i) => diff(list[i], f));
+    const seam = list.length > 1 ? diff(list[list.length - 1], list[0]) : 0;
+    const typical = steps.length ? steps.reduce((a, b) => a + b, 0) / steps.length : 0;
+    report[s] = { n: list.length, step: +typical.toFixed(2), seam: +seam.toFixed(2) };
+    // The jump from the last frame back to the first may be a little bigger than a usual step, never a cut.
+    if (typical > 0.05 && seam > Math.max(3 * typical, 2)) found.push(`face: ${s} jumps where the loop repeats (seam ${seam.toFixed(1)} vs step ${typical.toFixed(1)})`);
+  }
+  process.stdout.write(`SMOKE FACE recorded in ${ms} ms: ${JSON.stringify(report)}
+`);
+  return found;
+}
+
 let win = null;
 /** The renderer booted (ipc app:ready, with its boot time in ms). */
 function ready(ms) {
@@ -220,6 +257,7 @@ function ready(ms) {
       toured = views;
       if (!SHOTS) for (const p of await win.webContents.executeJavaScript(STEADY, true)) problems.push(`layout: ${p}`);
       if (!SHOTS) for (const p of await scanText()) problems.push(p);
+      if (process.env.NEXUS_SMOKE_FACE === '1') for (const p of await checkFace()) problems.push(p);
     })
     .then(done)
     .catch((err) => (problems.push(`tour: ${err.message}`), done()));

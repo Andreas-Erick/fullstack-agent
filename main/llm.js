@@ -248,6 +248,15 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText });
     return claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
   }
+  // A small local model gets the compact prompt and the everyday tools only (localcore.js).
+  const localcore = require('./localcore');
+  if (!setup && settings.llm.provider === 'openai' && localcore.compactWanted(settings, model)) {
+    const keep = new Set(localcore.COMPACT_TOOLS);
+    const few = active.filter((t) => keep.has(t.name));
+    const { system } = await prompt.buildCompact(settings, few.map((t) => t.name), { query: lastText });
+    log.info('compact prompt', { model: model || settings.llm.model, tools: few.length, chars: system.length });
+    return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active: few, system, ctx, images });
+  }
   const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText });
   if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), conv, history, emit, signal, active, system, stable, context, ctx, images });
   return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active, system, ctx, images });

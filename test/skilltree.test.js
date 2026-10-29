@@ -80,3 +80,26 @@ test('the feature guide covers every area and finds one by topic', async () => {
   assert.strictEqual(one.topic, 'Routines (things I do on a schedule)');
   assert.ok(one.try.length && one.where);
 });
+
+test('a broad goal split into steps adds up from them, and is never locked by them', () => {
+  const { tree } = core.upsert(core.parse(''), [
+    { name: 'Run a half marathon', area: 'Body', goal: true, needs: ['Run 5k', 'Run 10k', 'Long run habit'] },
+    { name: 'Run 5k', area: 'Body', manual: 1 },
+    { name: 'Run 10k', area: 'Body', needs: ['Run 5k'], manual: 0.5 },
+    { name: 'Long run habit', area: 'Body', from: [{ type: 'habit', name: 'Sunday long run' }] },
+  ]);
+  const again = core.parse(core.serialize(tree));
+  assert.strictEqual(again.skills.find((s) => s.name === 'Run a half marathon').goal, true, 'the flag round-trips');
+  const get = (skills, n) => skills.find((s) => s.name === n);
+  let skills = core.compute(again, {});
+  const goal = get(skills, 'Run a half marathon');
+  assert.strictEqual(goal.progress, 0.5, '(1 + 0.5 + 0) / 3');
+  assert.strictEqual(goal.state, 'growing');
+  assert.deepStrictEqual(goal.blockers, ['Run 10k', 'Long run habit'], 'the open steps');
+  assert.strictEqual(core.compute(core.upsert(again, [{ name: 'Run 5k', manual: 0 }, { name: 'Run 10k', manual: 0 }]).tree, {}).find((s) => s.goal).state, 'ready', 'nothing done yet: ready, not locked');
+  skills = core.compute(again, { habits: [{ name: 'Sunday long run', rate28: 1 }] });
+  assert.strictEqual(get(skills, 'Run a half marathon').progress, 0.83);
+  const nested = core.upsert(again, [{ name: 'Fit for life', goal: true, needs: ['Run a half marathon'] }]).tree;
+  assert.strictEqual(get(core.compute(nested, {}), 'Fit for life').progress, 0.5, 'a goal inside a goal adds up in turn');
+  assert.strictEqual(core.upsert(again, [{ name: 'Run a half marathon', goal: false }]).tree.skills[0].goal, undefined);
+});

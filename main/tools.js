@@ -10,10 +10,13 @@ const github = require('./github');
 const { FACES, obj, str, UNTRUSTED_NOTICE, requireApproval } = require('./tools/common');
 
 // Settings the agent may change itself (to fix its own tools). Never safety, permissions, code
-// access, document roots or secrets — the agent must not expand its own access.
+// access, document roots, programs to run (claudeCode.cliPath) or secrets — the agent must not
+// expand its own access (test/permissions.test.js). The addresses its brain and voice talk to
+// (ENDPOINTS) carry their API keys and the conversation, so changing one always asks, every time.
+const ENDPOINTS = new Set(['llm.baseUrl', 'voice.baseUrl']);
 const SETTABLE = {
   llm: ['baseUrl', 'model', 'temperature', 'maxTokens', 'historyLimit', 'modelMode', 'autoPace', 'fastModel', 'deepModel', 'maxToolRounds', 'engineeringToolRounds'],
-  claudeCode: ['model', 'effort', 'fastModel', 'deepModel', 'cliPath', 'idleMinutes'],
+  claudeCode: ['model', 'effort', 'fastModel', 'deepModel', 'idleMinutes'],
   anthropic: ['model', 'effort', 'fastModel', 'deepModel'],
   voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'speakLimit', 'thinkingSound', 'thinkingVolume', 'filler', 'fallback', 'localVoice'],
   stt: ['enabled', 'engine', 'localModel', 'language', 'pttKey', 'autoSend', 'micMode', 'micDevice', 'headphones', 'vadSensitivity'],
@@ -62,7 +65,9 @@ const SETTINGS_TOOLS = [
       const old = s[a.section][a.key];
       if (typeof old === 'number') a.value = Number(a.value);
       if (typeof old === 'boolean') a.value = a.value === true || a.value === 'true';
-      await requireApproval(ctx, 'settings', `Change setting ${a.section}.${a.key}`, `${JSON.stringify(old)} → ${JSON.stringify(a.value)}`);
+      const endpoint = ENDPOINTS.has(`${a.section}.${a.key}`);
+      if (endpoint && !/^https?:\/\/[^\s/]+/i.test(String(a.value))) throw new Error('An address must start with http:// or https://.');
+      await requireApproval(ctx, endpoint ? 'endpoint' : 'settings', `Change setting ${a.section}.${a.key}`, `${JSON.stringify(old)} → ${JSON.stringify(a.value)}${endpoint ? ' (your API key and conversations will be sent to this address)' : ''}`);
       await store.setSettings({ [a.section]: { [a.key]: a.value } });
       ctx.emit({ type: 'settings_changed' });
       return { changed: `${a.section}.${a.key}`, from: old, to: a.value };
@@ -163,6 +168,9 @@ const SETUP_TOOLS = [
       if (a.setting === 'ui.face' && !FACES.includes(value) && !String(value).startsWith('custom:')) throw new Error(`Unknown face. Use one of: ${FACES.join(', ')}`);
       if (a.setting === 'stt.micMode' && !['ptt', 'open'].includes(value)) throw new Error('micMode must be "ptt" or "open"');
       if (a.setting === 'safety.permissionMode' && !['ask', 'auto'].includes(value)) throw new Error('permissionMode must be "ask" or "auto"');
+      // What widens the agent's own access is confirmed by the user in the app, not only in the chat.
+      const widens = (a.setting === 'safety.permissionMode' && value === 'auto') || (a.setting === 'code.allowSelfModify' && value === true) || (a.setting === 'documents.workspace' && value && value !== old);
+      if (widens) await requireApproval(ctx, 'permissions', `Give the assistant more access: ${a.setting}`, `${JSON.stringify(old)} → ${JSON.stringify(value)}`);
       await store.setSettings({ [section]: { [key]: value } });
       log.info('setup configured', { setting: a.setting, value: typeof value === 'string' ? value.slice(0, 80) : value });
       ctx.emit({ type: 'settings_changed' });

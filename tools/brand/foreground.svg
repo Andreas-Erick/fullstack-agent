@@ -1,152 +1,38 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="-70 -70 1164 1164" width="432" height="432">
-  <!-- The Android adaptive icon's foreground: the icon without its tile, inside the 66/108 safe zone (made from icon.svg). -->
+  <!-- The Android adaptive icon's foreground (made from icon.svg): the picture without its tile, inside
+       the 66/108 safe zone; the launcher draws the shape and the deep-sea colour (@color/bg) behind it.
+       Siren Assistant: Siren in profile, singing, her hair flowing into the waves, a moon behind her.
+       Behind her, two fading echoes of the same figure: the other personas she can be. -->
   <defs>
-    <radialGradient id="sea" cx="50%" cy="38%" r="75%">
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#0f3a4a"/>
-      <stop offset="0.55" stop-color="#081a2c"/>
       <stop offset="1" stop-color="#040a14"/>
-    </radialGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0" stop-color="#2dd4bf" stop-opacity="0.55"/>
-      <stop offset="0.6" stop-color="#38bdf8" stop-opacity="0.12"/>
-      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#f7dc8c"/>
-      <stop offset="1" stop-color="#c8913a"/>
     </linearGradient>
-    <linearGradient id="fin" x1="0" y1="0" x2="1" y2="0">
+    <linearGradient id="hair" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#2dd4bf"/>
-      <stop offset="1" stop-color="#7dd3fc" stop-opacity="0.85"/>
-    </linearGradient>
-    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#5eead4"/>
-      <stop offset="1" stop-color="#0e9f9a"/>
-    </linearGradient>
-    <linearGradient id="tail" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#14b8a6"/>
       <stop offset="1" stop-color="#0369a1"/>
     </linearGradient>
-    <linearGradient id="rock" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#4b5c70"/>
-      <stop offset="1" stop-color="#1f2a3a"/>
-    </linearGradient>
-    <!-- A persona: a mask in its own colour, with a glance and a smile. -->
-    <symbol id="mask" viewBox="-60 -60 120 120">
-      <path d="M-52 -10 C-52 -48 -26 -58 0 -58 C26 -58 52 -48 52 -10 C52 28 28 56 0 56 C-28 56 -52 28 -52 -10 Z" fill="currentColor" stroke="#f3fbfb" stroke-width="6" stroke-linejoin="round"/>
-      <path d="M-34 -8 Q-20 -22 -6 -8 Q-20 2 -34 -8 Z M6 -8 Q20 -22 34 -8 Q20 2 6 -8 Z" fill="#06202a"/>
-      <path d="M-20 22 Q0 40 20 22" fill="none" stroke="#06202a" stroke-width="7" stroke-linecap="round"/>
-    </symbol>
+    <clipPath id="tile"><circle cx="512" cy="512" r="560"/></clipPath>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="5"/></filter>
+    <filter id="softer" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="10"/></filter>
+    <path id="hairShape" d="M600 280 C500 230 360 270 300 380 C250 470 260 560 200 640 C260 640 300 610 330 580 C330 650 300 720 240 780 C330 770 400 720 430 650 C450 720 440 790 400 850 C500 820 560 740 572 650 Z"/>
+    <path id="faceShape" d="M600 280 C680 300 720 360 716 420 C714 450 740 470 760 500 C770 516 754 526 736 530 C744 548 740 566 726 572 C734 590 726 612 700 616 C690 650 660 670 614 666 C600 700 590 730 572 760 C560 720 556 680 560 650 C520 600 500 520 520 440 C540 360 560 300 600 280 Z"/>
+    <!-- Her, whole: the hair and the face. An echo is this, faded as one (group opacity). -->
+    <g id="her"><use href="#hairShape" fill="url(#hair)"/><use href="#faceShape" fill="#06202a"/></g>
   </defs>
-
-  <circle cx="512" cy="520" r="400" fill="url(#glow)"/>
-
-  <!-- song rings -->
-  <circle cx="512" cy="520" r="372" fill="none" stroke="#38bdf8" stroke-opacity="0.22" stroke-width="10"/>
-  <circle cx="512" cy="520" r="318" fill="none" stroke="#2dd4bf" stroke-opacity="0.3" stroke-width="8"/>
-
-  <!-- the ring of personas: a gold lyre halo she sings along -->
-  <circle cx="512" cy="470" r="262" fill="none" stroke="url(#gold)" stroke-width="22" stroke-dasharray="84 30 16 30"/>
-
-  <!-- hair drifting like a current -->
-  <g fill="none" stroke-linecap="round">
-    <path d="M450 330 C360 420 340 560 380 700" stroke="#2dd4bf" stroke-opacity="0.75" stroke-width="30"/>
-    <path d="M574 330 C664 420 684 560 644 700" stroke="#2dd4bf" stroke-opacity="0.75" stroke-width="30"/>
-    <path d="M430 360 C330 470 330 610 300 720" stroke="#38bdf8" stroke-opacity="0.55" stroke-width="18"/>
-    <path d="M594 360 C694 470 694 610 724 720" stroke="#38bdf8" stroke-opacity="0.55" stroke-width="18"/>
-  </g>
-
-  <!-- her rock, and the tail curled over it -->
-  <path d="M250 900 C270 820 330 790 420 800 C500 808 560 840 600 900 Z" fill="url(#rock)" stroke="#0b1320" stroke-width="8" stroke-linejoin="round"/>
-  <path d="M470 690 C440 760 500 800 600 790 C690 780 740 740 760 690" fill="none" stroke="url(#tail)" stroke-width="44" stroke-linecap="round"/>
-  <path d="M760 690 Q820 630 860 560 Q830 640 836 700 Q870 650 900 620 Q850 700 790 730 Z" fill="url(#fin)" stroke="#d6fbf6" stroke-width="7" stroke-linejoin="round"/>
-  <path d="M478 700 C500 740 540 770 600 766" fill="none" stroke="#e6fffb" stroke-opacity="0.35" stroke-width="8" stroke-linecap="round"/>
-
-  <!-- fins (left and right), mirrored -->
-  <g id="fins" fill="url(#fin)" stroke="#d6fbf6" stroke-width="7" stroke-linejoin="round">
-    <path d="M396 470 Q300 330 196 300 Q262 380 300 470 Z"/>
-    <path d="M392 520 Q280 450 166 470 Q252 520 300 560 Z"/>
-    <path d="M396 566 Q300 570 210 640 Q300 630 352 612 Z"/>
-  </g>
-  <use href="#fins" transform="translate(1024 0) scale(-1 1)"/>
-
-  <!-- the lyre in her hand -->
-  <g transform="translate(236 600) rotate(-14)">
-    <path d="M0 0 C-50 -50 -60 -130 -30 -170 M0 0 C50 -50 60 -130 30 -170" fill="none" stroke="url(#gold)" stroke-width="16" stroke-linecap="round"/>
-    <path d="M-34 -168 L34 -168" stroke="url(#gold)" stroke-width="14" stroke-linecap="round"/>
-    <g stroke="#fff6d6" stroke-width="4" stroke-opacity="0.9">
-      <path d="M-18 -150 L-10 -26 M-6 -158 L-3 -22 M6 -158 L3 -22 M18 -150 L10 -26"/>
+  <g clip-path="url(#tile)">
+    <circle cx="600" cy="452" r="212" fill="#f3e9c6" fill-opacity="0.9"/>
+    <!-- Her echoes: the same Siren, further back, fainter and softer. -->
+    <g opacity="0.2" filter="url(#softer)"><use href="#her" transform="translate(-62 48) scale(0.85)"/></g>
+    <g opacity="0.42" filter="url(#soft)"><use href="#her" transform="translate(16 70) scale(0.85)"/></g>
+    <!-- Siren herself, in front. -->
+    <g transform="translate(92 92) scale(0.85)">
+      <use href="#hairShape" fill="url(#hair)" stroke="#071a24" stroke-width="12" stroke-linejoin="round"/>
+      <use href="#faceShape" fill="#06202a"/>
+      <circle cx="820" cy="560" r="22" fill="#5eead4"/>
+      <circle cx="868" cy="498" r="17" fill="#5eead4" fill-opacity="0.75"/>
+      <circle cx="904" cy="436" r="12" fill="#5eead4" fill-opacity="0.5"/>
     </g>
-    <circle cx="0" cy="4" r="14" fill="url(#gold)"/>
+    <path d="M0 872 Q160 832 288 872 T544 872 T800 872 T1024 862 L1024 1024 L0 1024 Z" fill="#0c5266" fill-opacity="0.92"/>
   </g>
-
-  <!-- the face -->
-  <path d="M512 300 C612 300 650 380 640 470 C630 570 572 640 512 668 C452 640 394 570 384 470 C374 380 412 300 512 300 Z" fill="url(#face)" stroke="#e6fffb" stroke-width="10"/>
-
-  <!-- crown spires and the mind-gem -->
-  <g fill="url(#gold)">
-    <path d="M500 308 L512 196 L524 308 Z"/>
-    <path d="M462 318 L432 226 L486 312 Z"/>
-    <path d="M562 318 L592 226 L538 312 Z"/>
-  </g>
-  <path d="M512 336 L534 370 L512 404 L490 370 Z" fill="#fff6d6" stroke="#c8913a" stroke-width="6"/>
-
-  <!-- brows -->
-  <g fill="none" stroke="#e6fffb" stroke-width="9" stroke-linecap="round">
-    <path d="M424 428 Q462 404 500 424"/>
-    <path d="M600 428 Q562 404 524 424"/>
-  </g>
-  <!-- eyes: almond, glowing, with gold irises and slit pupils -->
-  <g stroke="#063b3f" stroke-width="7" stroke-linejoin="round">
-    <path d="M422 468 Q462 430 504 462 Q462 494 422 468 Z" fill="#f2fffd"/>
-    <path d="M602 468 Q562 430 520 462 Q562 494 602 468 Z" fill="#f2fffd"/>
-  </g>
-  <circle cx="466" cy="464" r="20" fill="url(#gold)"/>
-  <circle cx="558" cy="464" r="20" fill="url(#gold)"/>
-  <ellipse cx="466" cy="464" rx="6" ry="17" fill="#063b3f"/>
-  <ellipse cx="558" cy="464" rx="6" ry="17" fill="#063b3f"/>
-  <circle cx="472" cy="456" r="5" fill="#ffffff"/>
-  <circle cx="564" cy="456" r="5" fill="#ffffff"/>
-  <!-- nose and a softly singing mouth -->
-  <path d="M512 488 L512 528 M500 534 Q512 542 524 534" fill="none" stroke="#0b6b6a" stroke-width="6" stroke-linecap="round"/>
-  <path d="M484 574 Q498 562 512 568 Q526 562 540 574 Q512 600 484 574 Z" fill="#fff1d0" stroke="#063b3f" stroke-width="6" stroke-linejoin="round"/>
-  <!-- cheek scales -->
-  <g fill="#e6fffb" opacity="0.85">
-    <circle cx="428" cy="512" r="7"/><circle cx="442" cy="530" r="5"/>
-    <circle cx="596" cy="512" r="7"/><circle cx="582" cy="530" r="5"/>
-  </g>
-
-  <!-- the personas on the ring: a ringmaster (gold, with his top hat), a scholar (violet, with her
-       spectacles), a companion (coral, with a flower); each a mask she can put on -->
-  <g>
-    <circle cx="258" cy="258" r="86" fill="#040a14" fill-opacity="0.75" stroke="url(#gold)" stroke-width="8"/>
-    <use href="#mask" x="202" y="202" width="112" height="112" color="#e6b84a"/>
-    <path d="M214 214 L302 214 L296 192 L220 192 Z M226 192 L226 150 L290 150 L290 192 Z" fill="#2a1a22" stroke="#e6b84a" stroke-width="6" stroke-linejoin="round"/>
-    <path d="M226 178 L290 178" stroke="#c9323f" stroke-width="8"/>
-  </g>
-  <g>
-    <circle cx="766" cy="258" r="86" fill="#040a14" fill-opacity="0.75" stroke="url(#gold)" stroke-width="8"/>
-    <use href="#mask" x="710" y="202" width="112" height="112" color="#b58df4"/>
-    <g fill="none" stroke="#f3fbfb" stroke-width="6">
-      <circle cx="744" cy="252" r="18"/><circle cx="788" cy="252" r="18"/><path d="M762 252 L770 252 M726 250 L716 242 M806 250 L816 242"/>
-    </g>
-  </g>
-  <g>
-    <circle cx="820" cy="560" r="86" fill="#040a14" fill-opacity="0.75" stroke="url(#gold)" stroke-width="8"/>
-    <use href="#mask" x="764" y="504" width="112" height="112" color="#f58a8a"/>
-    <g fill="#ffd166">
-      <circle cx="864" cy="506" r="9"/><circle cx="880" cy="518" r="9"/><circle cx="876" cy="538" r="9"/><circle cx="856" cy="538" r="9"/><circle cx="850" cy="518" r="9"/>
-    </g>
-    <circle cx="865" cy="523" r="8" fill="#c9323f"/>
-  </g>
-
-  <!-- pearls -->
-  <g fill="#e6fffb">
-    <circle cx="300" cy="760" r="12" opacity="0.8"/>
-    <circle cx="742" cy="742" r="10" opacity="0.7"/>
-    <circle cx="240" cy="330" r="8" opacity="0.5"/>
-  </g>
-
-  <!-- the water line beneath her rock: Siren -->
-  <path d="M332 930 C392 880 452 880 512 930 C572 980 632 980 692 930" fill="none" stroke="url(#gold)" stroke-width="22" stroke-linecap="round" stroke-opacity="0.9"/>
 </svg>

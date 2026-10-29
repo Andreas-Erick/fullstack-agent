@@ -1,5 +1,23 @@
-// VoiceStudio TTS (OpenAI-compatible /v1/audio/speech) and optional remote speech-to-text.
+// VoiceStudio TTS (OpenAI-compatible /v1/audio/speech), a cloud voice (voice.engine 'cloud': Groq's
+// Orpheus or OpenAI, the same API) and optional remote speech-to-text.
 const store = require('./store');
+
+// Cloud voices (settings cloudVoice.*). Groq uses the Groq key the user already has for speech-to-text.
+const CLOUD_VOICES = {
+  groq: { name: 'Groq (Orpheus)', baseUrl: 'https://api.groq.com/openai/v1', model: 'canopylabs/orpheus-v1-english', voices: ['hannah', 'autumn', 'diana', 'austin', 'daniel', 'troy'], format: 'wav', speed: false, keyUrl: 'https://console.groq.com/keys' },
+  openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini-tts', voices: ['coral', 'nova', 'shimmer', 'sage', 'alloy', 'ash', 'ballad', 'echo', 'fable', 'onyx', 'verse'], format: 'mp3', speed: true, keyUrl: 'https://platform.openai.com/api-keys' },
+};
+
+/** The request for one line in the cloud voice: { url, key, body }. Pure. */
+function cloudRequest(s, text) {
+  const c = s.cloudVoice || {};
+  const p = CLOUD_VOICES[c.provider] || CLOUD_VOICES.groq;
+  const key = c.provider === 'openai' ? c.apiKey : s.groq?.apiKey;
+  if (!key) throw new Error(c.provider === 'openai' ? 'Add an OpenAI API key for the cloud voice (Settings → Voice).' : 'Add a Groq API key for the cloud voice (Settings → Voice).');
+  const body = { model: c.model || p.model, input: String(text).slice(0, 4000), voice: c.voice && p.voices.includes(c.voice) ? c.voice : p.voices[0], response_format: p.format };
+  if (p.speed && Number(s.voice?.speed) && Number(s.voice.speed) !== 1) body.speed = Number(s.voice.speed);
+  return { url: `${p.baseUrl}/audio/speech`, key, body, name: p.name };
+}
 
 function apiBase(url) {
   const u = String(url || '').trim().replace(/\/+$/, '');
@@ -13,6 +31,7 @@ function authHeaders(key) {
 async function speak(text, override = {}) {
   const s = await store.getSettings();
   const v = { ...s.voice, ...override };
+  if (v.engine === 'cloud' && !override.voice) return speakCloud(s, text);
   if (!v.baseUrl) throw new Error('VoiceStudio URL is not set');
   const body = {
     model: v.model || 'tts-1',
@@ -33,6 +52,16 @@ async function speak(text, override = {}) {
   }
   const mime = res.headers.get('content-type') || 'audio/mpeg';
   return { mime, audio: new Uint8Array(await res.arrayBuffer()) };
+}
+
+async function speakCloud(s, text) {
+  const r = cloudRequest(s, text);
+  const res = await fetch(r.url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders(r.key) }, body: JSON.stringify(r.body), signal: AbortSignal.timeout(30000) });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`${r.name} voice error ${res.status}: ${detail.slice(0, 300)}`);
+  }
+  return { mime: res.headers.get('content-type') || (r.body.response_format === 'wav' ? 'audio/wav' : 'audio/mpeg'), audio: new Uint8Array(await res.arrayBuffer()) };
 }
 
 // VoiceStudio builds differ; try the common voice-listing endpoints.
@@ -115,4 +144,4 @@ async function transcribe(wavBytes, { raw = false, provider } = {}) {
   }
 }
 
-module.exports = { speak, voices, transcribe, ping, sttEndpoint, GROQ_STT };
+module.exports = { speak, voices, transcribe, ping, sttEndpoint, cloudRequest, CLOUD_VOICES, GROQ_STT };

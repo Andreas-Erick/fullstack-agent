@@ -13,6 +13,7 @@ import { send } from './chat.js';
 import { state, saveSettings } from './state.js';
 import { fxLevel } from './hud.js';
 import { buildMap, route, along } from './world/map.js';
+import { createWalker, activeTarget, offDuty, byPlan, strollOrder } from './world/whereabouts.js';
 import { seasonOf } from './world/season.js';
 import { loadSprites, spritesReady } from './world/sprites.js';
 import { palette, W, HZ } from './world/art.js';
@@ -118,7 +119,8 @@ export function initInnerWorld() {
     if (ev.type === 'work') {
       live = { place: ev.place, label: ev.label, tool: ev.tool, at: Date.now(), done: 0 };
       if (data?.details?.work) {
-        data.details.work.today[ev.place] = (data.details.work.today[ev.place] || 0) + 1;
+        const counts = ev.counts || ev.place;
+        data.details.work.today[counts] = (data.details.work.today[counts] || 0) + 1;
         sceneCache = null; // the count is painted on the building
         refreshRoom(); // and on the Workshop's board
       }
@@ -778,52 +780,35 @@ function sceneAt(m) {
   });
 }
 
-/** Everyone at minute m: in a scene, at live work, walking the roads, at their plan's place, or asleep. */
+/** Everyone at minute m: in a scene, at live work (walking there), off duty, on a walk, or asleep. */
+const walker = createWalker();
+let strollRing = null; // { key, order }: the places a walk passes, again when the village grows
+function ring() {
+  const ids = (data?.places || []).filter((p) => p.level > 0).map((p) => p.id);
+  const key = ids.join();
+  if (strollRing?.key !== key || strollRing.map !== map) strollRing = { key, map, order: strollOrder(map.sites, ids) };
+  return strollRing.order;
+}
 function positions(m) {
   const out = [];
   if (!data?.residents) return out;
   if (!map) sceneData();
   const scene = sceneAt(m);
-  const l = liveNow();
   const me = activeResident();
-  const thinking = scrub === null && ['thinking', 'working'].includes(state.agentState);
+  // In live time the active persona moves on the real clock; scrubbing through the day shows the plan.
+  const target = scrub === null ? activeTarget({ live: liveNow(), agentState: state.agentState }) : null;
   const crowd = new Map();
   data.residents.forEach((r, i) => {
-    let place = 'garden';
-    let activity = 'strolling';
-    let from = null;
-    let k = 1;
-    let asleep = false;
-    const plan = r.plan || [];
-    if (l && r === me) {
-      place = l.place;
-      activity = l.label;
-    } else if (scene && scene.who.includes(r.name)) {
-      place = scene.place;
-      activity = scene.title || 'talking';
-    } else if (m < 6 * 60 || m >= 23 * 60) {
-      place = 'hearth';
-      activity = 'asleep';
-      asleep = true;
-    } else if (plan.length) {
-      let idx = -1;
-      plan.forEach((b, j) => minutes(b.start) !== null && minutes(b.start) <= m && (idx = j));
-      if (idx < 0) {
-        place = 'hearth';
-        activity = 'asleep';
-        asleep = true;
-      } else {
-        place = plan[idx].place;
-        activity = plan[idx].activity;
-        const since = m - minutes(plan[idx].start);
-        const prev = idx > 0 ? plan[idx - 1].place : 'hearth';
-        if (since < WALK_MIN && prev !== place) ((from = prev), (k = since / WALK_MIN));
-      }
-    }
-    const list = crowd.get(place) || [];
+    let w;
+    if (r === me && target) w = walker.update({ target, now: Date.now() });
+    else if (scene && scene.who.includes(r.name)) w = { place: scene.place, activity: scene.title || 'talking' };
+    else if (r === me && scrub === null) w = state.agentState === 'sleeping' ? { place: 'hearth', activity: 'asleep', asleep: true } : walker.update({ target: null, order: ring(), now: Date.now() });
+    else if (!r.npc && r !== me) w = offDuty(m, i);
+    else w = byPlan(r.plan, m, minutes, WALK_MIN);
+    const list = crowd.get(w.place) || [];
     list.push(r.name);
-    crowd.set(place, list);
-    out.push({ r, i, name: r.name, place, activity, from, k, asleep, working: Boolean(l && r === me), thinking: thinking && !l && r === me });
+    crowd.set(w.place, list);
+    out.push({ r, i, name: r.name, place: w.place, activity: w.activity, from: w.from || null, k: w.k ?? 1, asleep: Boolean(w.asleep), working: Boolean(w.working), thinking: Boolean(w.thinking) });
   });
   for (const p of out) {
     let g = spot(p.place, crowd.get(p.place).indexOf(p.name));
@@ -972,7 +957,7 @@ function wakeCard() {
   return [
     el('h3', { class: 'display' }, 'The village is asleep'),
     el('p', {}, 'Wake it and your personas start living a small fictional life here: every morning a narrator writes their day (plans, chance meetings, conversations), and each of them remembers it and draws their own insights over time.'),
-    el('p', {}, 'The village mirrors you. The Library grows with what you come to understand, the Café with your vocabulary, the Training Grounds fly a banner for each habit, the Observatory charts your skills, and at night your skill tree shines in the sky. Whatever your assistant is doing right now, you’ll see its persona at work: at the forge when it writes code, up the Lookout when it searches the web.'),
+    el('p', {}, 'The village mirrors you. The Library grows with what you come to understand, the Café with your vocabulary, the Training Grounds fly a banner for each habit, the Observatory charts your skills, and at night your skill tree shines in the sky. Whatever your assistant is doing right now, you’ll see its persona at work: at the forge when it writes code, in the Library when it researches, and out for a walk through the village when it has nothing to do. Your other personas relax at the Hearth.'),
     el('p', { class: 'hint' }, 'It costs one model call a day (plus an occasional one when a resident reflects). Everything stays in your vault under “Inner World/”. Your assistant talks about it only when you ask.'),
     el('button', { class: 'btn primary', onclick: wake }, '🌅 Wake the world'),
   ];

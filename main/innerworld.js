@@ -71,8 +71,8 @@ function noteTool(name) {
   activityLog()
     .then((a) => {
       const day = (a.days[today()] ||= {});
-      day[work.place] = (day[work.place] || 0) + 1;
-      a.total[work.place] = (a.total[work.place] || 0) + 1;
+      day[work.counts] = (day[work.counts] || 0) + 1;
+      a.total[work.counts] = (a.total[work.counts] || 0) + 1;
       clearTimeout(activityTimer);
       activityTimer = setTimeout(() => {
         const keep = Object.keys(a.days).sort().slice(-KEEP_ACTIVITY_DAYS);

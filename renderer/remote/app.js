@@ -511,6 +511,7 @@ function onChat(ev) {
       renderTurn(turn);
       break;
     case 'tool_start':
+      if (ev.work?.place) state.worldWork = { place: String(ev.work.place), label: String(ev.work.label || ''), done: 0 }; // the world screen sends the active persona there
       turn.tools.append(el('span', { class: 'chip', 'data-id': ev.id }, '⚙ ', label(ev.name)));
       turn.running++;
       setFace('working');
@@ -794,7 +795,7 @@ $('#newBtn').addEventListener('click', () => openConversation(null));
 $('#unpairBtn').addEventListener('click', () => unpair('Disconnected. To remove this device completely, remove it in the desktop app’s Settings too.'));
 
 // ------------------------------------------------------------------ approvals
-const KIND = { self_modify: 'Change its own code', settings: 'Change a setting', delete: 'Delete something', command: 'Run a command', calendar: 'Change your calendar', invite: 'Send calendar invitations', voice: 'Change its voice', voice_clone: 'Clone a voice', repo_change: 'Change a repository', github_publish: 'Publish to GitHub', connector: 'Use a connected service', connector_trust: 'Stop asking for a service', browser: 'Act on a website' };
+const KIND = { self_modify: 'Change its own code', settings: 'Change a setting', endpoint: 'Change where it connects', permissions: 'Get more access', delete: 'Delete something', command: 'Run a command', calendar: 'Change your calendar', invite: 'Send calendar invitations', voice: 'Change its voice', voice_clone: 'Clone a voice', repo_change: 'Change a repository', github_publish: 'Publish to GitHub', connector: 'Use a connected service', connector_trust: 'Stop asking for a service', browser: 'Act on a website' };
 
 // The buttons wait a moment before they respond, so a tap meant for something else (the card pops in
 // above the keyboard while typing) can't answer it.
@@ -908,10 +909,10 @@ $('#speakBtn').addEventListener('click', () => {
 });
 
 // ------------------------------------------------------------------ push-to-talk
-// Hold the mic, release to send. The recording (16 kHz mono WAV, at most 60 s) is transcribed on the
+// Hold the mic, release to send. The recording (16 kHz mono WAV, at most two minutes) is transcribed on the
 // computer with its usual speech-to-text, then sent like a typed message. Browsers allow the
 // microphone only on secure pages, so the button shows on the HTTPS address only.
-const MAX_REC_MS = 60000;
+const MAX_REC_MS = 120000; // the server takes as much (main/companion.js MAX_AUDIO_SEC)
 let rec = null;
 
 // toggle: started from the Talk tile or shortcut; it stops on the next tap of the mic, not on release.
@@ -933,7 +934,7 @@ async function startRecording({ toggle = false } = {}) {
     };
     src.connect(node);
     node.connect(ctx.destination);
-    Object.assign(rec, { stream, ctx, node, rate: ctx.sampleRate, started: Date.now(), starting: false, limit: setTimeout(stopRecording, MAX_REC_MS) });
+    Object.assign(rec, { stream, ctx, node, rate: ctx.sampleRate, started: Date.now(), starting: false, limit: setTimeout(() => (toast('That’s the two-minute limit: sending what you said.'), stopRecording()), MAX_REC_MS) });
     $('#micBtn').classList.add('live');
     showRecBar(rec);
     setFace('listening');
@@ -1070,6 +1071,7 @@ state.micLevel = 0;
 
 function setFace(s) {
   state.face = s;
+  if ((s === 'idle' || s === 'happy') && state.worldWork && !state.worldWork.done) state.worldWork.done = Date.now(); // the turn is over: the persona lingers, then is free
   if (s !== 'idle') wake();
   updateFaceLabel();
 }
@@ -1702,7 +1704,7 @@ document.addEventListener('keydown', (e) => {
 
 // The tab bar and the screens beyond the chat (screens.js).
 for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => (navigator.vibrate?.(6), showView(b.dataset.tab)));
-initScreens({ api, el, icon, markdown, cardMarkdown, toast, send, prefill, showView, AuthError, NetError, state });
+initScreens({ api, el, icon, markdown, cardMarkdown, toast, send, prefill, showView, AuthError, NetError, state, agentState });
 
 $('#pairInsecure').classList.toggle('hidden', !insecure);
 // Offline app shell (needs HTTPS or localhost; on the plain local network the browser doesn't allow it).

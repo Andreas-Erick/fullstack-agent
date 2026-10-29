@@ -25,3 +25,18 @@ test('pack and unpack keep every frame, state by state', () => {
   assert.deepStrictEqual(Object.fromEntries(Object.entries(out).map(([s, l]) => [s, l.map(String)])), { idle: ['a', 'bb'], speaking: ['ccc'] });
   assert.throws(() => fc.unpack(Buffer.from('nope')));
 });
+
+test('smooth loops: frames picked at even steps from uneven paints, the seam faded away', () => {
+  // Paints at uneven times (a busy moment around 100 ms): each even 1/24 s step takes the nearest.
+  const times = [0, 40, 85, 160, 170, 210, 250, 290];
+  assert.deepStrictEqual(fc.evenly(times, 24, 7), [0, 1, 2, 3, 4, 5, 6], '125 ms takes 160, the nearer one');
+  assert.deepStrictEqual(fc.evenly([0, 30, 200, 240], 24, 5), [0, 1, 1, 2, 2], 'a gap: each step takes whichever side is nearer');
+  assert.deepStrictEqual(fc.evenly([0], 24, 3), [0, 0, 0], 'a still state holds its one frame');
+  // 6 + 2 frames, one byte each: the first two fade from the frames after the end into their own.
+  const f = [0, 10, 20, 30, 40, 50, 60, 70].map((v) => Buffer.from([v]));
+  const loop = fc.seamless(f, 2).map((b) => b[0]);
+  assert.deepStrictEqual(loop, [60, 40, 20, 30, 40, 50], 'starts as the frame after the last, ends as the loop’s own');
+  assert.strictEqual(fc.seamless(f.slice(0, 3), 2).length, 1, 'too short to blend: just the loop');
+  assert.ok(fc.FPS >= 24, 'fluid on the watch');
+  assert.notStrictEqual(fc.keyOf({ face: 'siren' }), require('crypto').createHash('sha256').update(JSON.stringify({ face: 'siren' })).digest('hex').slice(0, 24), 'packs recorded the old way are recorded again');
+});

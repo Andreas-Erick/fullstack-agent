@@ -56,6 +56,13 @@ const SECRET_PATTERNS = [
   [/\b(github_pat_)[A-Za-z0-9_]{20,}/g, '$1***'],
   [/\b(AIza)[A-Za-z0-9_-]{30,}/g, '$1***'],
   [/\b(ya29\.)[A-Za-z0-9_.-]{20,}/g, '$1***'],
+  // Groq, Perplexity, xAI, OpenRouter, Tailscale auth keys, and JWTs (Cloudflare Access logins).
+  [/\b(gsk_)[A-Za-z0-9]{20,}/g, '$1***'],
+  [/\b(pplx-)[A-Za-z0-9]{20,}/g, '$1***'],
+  [/\b(xai-)[A-Za-z0-9]{20,}/g, '$1***'],
+  [/\b(sk-or-v1-)[A-Za-z0-9]{20,}/g, '$1***'],
+  [/\b(tskey-[a-z]+-)[A-Za-z0-9-]{16,}/g, '$1***'],
+  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, 'eyJ***'],
   [/(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, '$1***'],
   // key: "value" pairs, also when they sit inside an already-JSON-encoded string (\"value\").
   [/(\\?"?(?:api_?key|apiKey|token|access_token|refresh_token|id_token|secret|clientSecret|client_secret|password|remoteKey)\\?"?\s*[:=]\s*\\?")[^"\\]{3,}(\\?")/gi, '$1***$2'],

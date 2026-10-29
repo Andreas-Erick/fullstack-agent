@@ -136,6 +136,8 @@ async function render() {
       ),
       // The one request the app makes on its own (main/updates.js; PRIVACY.md "Update check").
       checkbox(s.updates?.check !== false, 'Tell me about new versions: once a day, ask GitHub whether a newer Siren is out (nothing is downloaded until you click Download; change it in Settings → Memory & history)', (v) => saveSettings({ updates: { check: v } })),
+      // Off unless ticked: nothing is ever sent by the app (main/issues.js; PRIVACY.md "Problem reports").
+      checkbox(s.privacy?.reportIssues === true, 'Help fix bugs: when something breaks, offer me an anonymized problem report for the Siren project on GitHub. I see exactly what it says and send it myself, or not', (v) => saveSettings({ privacy: { reportIssues: v } })),
       checkbox(draft.accepted, 'I have read this and agree to the privacy policy and disclaimers', (v) => {
         draft.accepted = v;
         next()?.toggleAttribute('disabled', !v);

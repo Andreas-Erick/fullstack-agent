@@ -54,6 +54,11 @@ async function run() {
     check('tts', 'Voice output', async () => {
       if (!s.voice.ttsEnabled) return { status: 'off', detail: 'Disabled.' };
       if (s.voice.engine === 'local') return { detail: 'The offline voice (Kokoro, runs in the app; downloaded once on first use).' };
+      if (s.voice.engine === 'cloud') {
+        const openai = s.cloudVoice?.provider === 'openai';
+        if (!(openai ? s.cloudVoice?.apiKey : s.groq?.apiKey)) return { status: 'fail', detail: `The cloud voice (${openai ? 'OpenAI' : 'Groq'}) has no API key.`, fix: 'Add it in Settings → Voice output.' };
+        return { detail: `The cloud voice: ${openai ? 'OpenAI' : 'Groq (Orpheus)'}, voice ${s.cloudVoice?.voice || 'default'}.` };
+      }
       const p = await voice.ping();
       const fallback = { local: 'the offline voice', system: 'the system voice' }[s.voice.fallback];
       if (!p.ok) return { status: fallback ? 'warn' : 'fail', detail: `VoiceStudio is unreachable at ${s.voice.baseUrl}.${fallback ? ` Using ${fallback} as fallback.` : ''}`, fix: require('./helperapps').installedPath('voicestudio', s) ? 'Start it from Settings → Helper apps (or ask me to); Siren starts it by itself when "Start with Siren" is on.' : 'Start VoiceStudio, or correct its URL in Settings → Voice output.' };

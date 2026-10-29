@@ -64,7 +64,7 @@ const LAYOUTS = {
     const topics = (d.topics || []).slice(0, 12);
     const items = topics.length ? topics : [{ name: 'Empty shelf', understood: 0, shaky: 0, empty: true }, { name: 'Empty shelf', understood: 0, shaky: 0, empty: true }, { name: 'Empty shelf', understood: 0, shaky: 0, empty: true }];
     const shelves = grid(items, 6, WALL_TOP + 8, 118, 64, 16, 150, (t, x, y, i) => st('shelf', x, y, 118, 64, { label: short(t.name, 16), info: t.empty ? 'Nothing tracked yet: learn something and a shelf fills.' : `${t.name}: ${t.understood} understood, ${t.shaky} shaky`, fill: t.empty ? 0 : t.understood / Math.max(1, t.understood + t.shaky), books: t.empty ? 0 : Math.min(9, 2 + t.understood), seed: i + 1, verbs: [/read|stud|learn|understand|library|book|shelf/i] }));
-    const table = st('table', RW / 2 - 110, RH - 220, 220, 90, { label: 'Reading table', info: 'Where she reads and takes notes.', verbs: [/read|stud|learn|note|library|book/i] });
+    const table = st('table', RW / 2 - 110, RH - 220, 220, 90, { label: 'Reading table', info: 'Where she reads, researches and takes notes.', verbs: [/research|read|stud|learn|note|library|book/i] });
     return { floor: 'planks', open: false, stations: [...shelves, table, st('lamp', WALL + 40, RH - 150, 30, 30, { info: 'A reading lamp.' }), st('plant', RW - WALL - 70, RH - 150, 40, 56, { info: 'A fern that likes the quiet.' }), st('rug', RW / 2 - 160, RH - 110, 320, 60, { info: 'A worn rug.', noslot: true })] };
   },
   cafe(d) {

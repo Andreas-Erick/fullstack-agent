@@ -516,7 +516,7 @@ async function world() {
   const d = await api('/api/data/world');
   if (!d.vault) return empty('The Inner World needs the vault on the computer.', null, 'world');
   if (!d.enabled) return empty('The village is asleep. Wake it on the computer (World view) and your personas start living there.', null, 'world');
-  const [{ buildMap }, { palette, W, HZ }, scene, { loadSprites, spritesReady }, { seasonOf }, room] = await Promise.all([import('/js/world/map.js'), import('/js/world/art.js'), import('/js/world/scene.js'), import('/js/world/sprites.js'), import('/js/world/season.js'), import('/js/world/room.js')]);
+  const [{ buildMap, route, along }, { palette, W, HZ }, scene, { loadSprites, spritesReady }, { seasonOf }, room, where] = await Promise.all([import('/js/world/map.js'), import('/js/world/art.js'), import('/js/world/scene.js'), import('/js/world/sprites.js'), import('/js/world/season.js'), import('/js/world/room.js'), import('/js/world/whereabouts.js')]);
   if (ctx.state.info?.art !== 'drawn') await loadSprites().catch(() => false);
   const canvas = el('canvas', { class: 'world-canvas', 'aria-label': 'The village' });
   const info = el('div', { class: 'world-info' });
@@ -542,26 +542,39 @@ async function world() {
     const m = String(t || '').match(/^(\d{2}):(\d{2})$/);
     return m ? Number(m[1]) * 60 + Number(m[2]) : null;
   };
+  // Who is where: the same rules as the desktop (world/whereabouts.js). The active persona walks to
+  // the work the chat stream reports (state.worldWork), strolls the village when free.
+  const walker = where.createWalker();
+  const ring = where.strollOrder(map.sites, places.filter((p) => p.level > 0).map((p) => p.id));
+  const LINGER_MS = 6000;
+  const roads = new Map(); // the road between two places, found once
   const people = () => {
     const now = new Date();
     const m = now.getHours() * 60 + now.getMinutes();
+    const ww = ctx.state.worldWork;
+    const live = ww && (!ww.done || Date.now() - ww.done < LINGER_MS) ? ww : null;
+    const agent = ctx.agentState ? ctx.agentState() : 'idle';
     const crowd = new Map();
-    return d.residents.map((r, i) => {
-      let place = 'garden';
-      let activity = 'strolling';
-      let asleep = m < 360 || m >= 1380;
-      const plan = r.plan || [];
-      const idx = plan.reduce((k, b, j) => (minutes(b.start) !== null && minutes(b.start) <= m ? j : k), -1);
-      if (asleep || (plan.length && idx < 0)) ((place = 'hearth'), (activity = 'asleep'), (asleep = true));
-      else if (idx >= 0) ((place = plan[idx].place), (activity = plan[idx].activity));
-      const j = (crowd.get(place) || 0);
-      crowd.set(place, j + 1);
-      const s = map.sites[place] || map.sites.garden;
-      const g = { x: s.gx + s.a + 0.7 + (j % 2) * 0.55, y: s.gy + s.b * 0.45 - Math.floor(j / 2) * 0.62 };
+    const out = d.residents.map((r, i) => {
+      let w;
+      if (r.active) w = agent === 'sleeping' ? { place: 'hearth', activity: 'asleep', asleep: true } : walker.update({ target: where.activeTarget({ live, agentState: agent }), order: ring, now: Date.now() });
+      else if (!r.npc) w = where.offDuty(m, i);
+      else w = where.byPlan(r.plan, m, minutes, 0);
+      const j = (crowd.get(w.place) || 0);
+      crowd.set(w.place, j + 1);
+      const s = map.sites[w.place] || map.sites.garden;
+      let g = { x: s.gx + s.a + 0.7 + (j % 2) * 0.55, y: s.gy + s.b * 0.45 - Math.floor(j / 2) * 0.62 };
+      if (w.from && map.sites[w.from]) {
+        const f = map.sites[w.from];
+        const key = `${w.from}>${w.place}`;
+        if (!roads.has(key)) roads.set(key, route(map, w.from, w.place));
+        g = along([{ x: f.gx + f.a + 0.7, y: f.gy + f.b * 0.45 }, ...roads.get(key), g], w.k) || g;
+      }
       const wp = W(g.x, g.y, map.hgt(Math.floor(g.x), Math.floor(g.y)) * HZ);
       const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(r.color || '');
-      return { r, i, name: r.name, place, activity, asleep, x: wp.x, y: wp.y, color: hex ? [1, 2, 3].map((k) => parseInt(hex[k], 16)) : P[TONES[i % 4]], kind: r.active ? 'active' : r.npc ? 'npc' : 'persona', walking: false, working: false, thinking: false };
-    }).filter((p) => !p.asleep);
+      return { r, i, name: r.name, place: w.place, activity: w.activity, asleep: Boolean(w.asleep), x: wp.x, y: wp.y, color: hex ? [1, 2, 3].map((k) => parseInt(hex[k], 16)) : P[TONES[i % 4]], kind: r.active ? 'active' : r.npc ? 'npc' : 'persona', walking: Boolean(w.from), working: Boolean(w.working), thinking: Boolean(w.thinking) };
+    });
+    return out.filter((p) => !p.asleep);
   };
 
   // The island's bitmap stays within 4 megapixels and 4096 px a side: sharp enough on a phone or tablet,
@@ -685,7 +698,7 @@ async function world() {
       if (!rs.w && !resizeRoom()) return;
       const now = new Date();
       const m = now.getHours() * 60 + now.getMinutes();
-      const here = people().filter((p) => p.place === id).map((p) => ({ name: p.name, color: p.color, active: p.kind === 'active', kind: p.kind, activity: p.activity, working: p.working, thinking: p.thinking, asleep: p.asleep }));
+      const here = people().filter((p) => p.place === id && !p.walking).map((p) => ({ name: p.name, color: p.color, active: p.kind === 'active', kind: p.kind, activity: p.activity, working: p.working, thinking: p.thinking, asleep: p.asleep }));
       actors = sim.update(here, lay.stations, anim ? dt : 0, t / 1000);
       g2.setTransform(rs.dpr, 0, 0, rs.dpr, 0, 0);
       room.draw(g2, { w: rs.w, h: rs.h, P, t: t / 1000, place: id, level: place.level, name: place.name, stations: lay.stations, actors, floor: lay.floor, open: lay.open, night: m < 6 * 60 || m >= 20 * 60, anim, lite: true, hover });

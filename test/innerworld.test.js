@@ -95,7 +95,8 @@ test('the narrator\'s day is validated against residents and places', () => {
 test('the assistant’s work has a place in the village', () => {
   assert.strictEqual(core.workFor('Edit').place, 'workshop');
   assert.strictEqual(core.workFor('mcp__nexus__code_grep').place, 'workshop', 'app tools through Claude Code');
-  assert.strictEqual(core.workFor('WebSearch').place, 'lookout');
+  assert.strictEqual(core.workFor('WebSearch').place, 'library', 'research is read in the Library');
+  assert.strictEqual(core.workFor('WebSearch').counts, 'lookout', 'and grows the Lookout');
   assert.strictEqual(core.workFor('mcp__claude_ai_Todoist__find-tasks').place, 'lookout', 'connectors send a raven');
   assert.strictEqual(core.workFor('memory_save').place, 'archive');
   assert.strictEqual(core.workFor('habit_log').place, 'grounds');

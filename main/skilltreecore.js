@@ -2,7 +2,8 @@
 // where progress comes from. One line per skill, readable in Obsidian, with the data in a JSON comment:
 //   - **Real Analysis** — rigorous calculus <!-- skill {"area":"Math","needs":["Calculus"],"from":[{"type":"learning","name":"Real Analysis"}]} -->
 // Progress is computed, never stored: from the learning tracker (concepts understood), vocabulary decks
-// (mature cards), habits (consistency over four weeks), or a manual estimate. Pure: no I/O.
+// (mature cards), habits (consistency over four weeks), or a manual estimate. A goal ("goal": true) is
+// a broad aim split into steps: its needs are the steps, and its progress adds up from theirs. Pure: no I/O.
 
 const SKILL = /^\s*[-*]\s+\*\*(.+?)\*\*(?:\s*[—–-]\s*(.*?))?\s*(?:<!--\s*skill\s+(\{.*\})\s*-->)?\s*$/;
 const SOURCE_TYPES = ['learning', 'deck', 'habit'];
@@ -46,6 +47,7 @@ function normalizeSkill(s) {
     from: (Array.isArray(s.from) ? s.from : []).filter((x) => x && SOURCE_TYPES.includes(x.type) && clean(x.name)).map((x) => ({ type: x.type, name: clean(x.name, 80), ...(Number(x.target) > 0 ? { target: Math.round(Number(x.target)) } : {}) })),
   };
   if (s.manual !== undefined && s.manual !== null && s.manual !== '') out.manual = clamp01(s.manual);
+  if (s.goal === true) out.goal = true;
   return out;
 }
 
@@ -90,6 +92,7 @@ function upsert(tree, items) {
     const old = find(out, name);
     const next = normalizeSkill({ ...(old || {}), ...raw, name: old?.name || name, needs: raw.needs ?? old?.needs, from: raw.from ?? old?.from });
     if (raw.manual === null) delete next.manual;
+    if (raw.goal === false) delete next.goal;
     next.needs = next.needs.filter((n) => keyOf(n) !== keyOf(name));
     if (createsCycle(out, name, next.needs)) throw new Error(`"${name}" can't need ${next.needs.join(', ')}: that would make a loop.`);
     for (const n of next.needs) if (!find(out, n)) out.skills.push(normalizeSkill({ name: n, area: next.area }));
@@ -140,14 +143,33 @@ function compute(tree, evidence = {}) {
       if (!h) return { ...f, progress: 0, detail: 'not tracked yet' };
       return { ...f, progress: clamp01(h.rate28), detail: `${Math.round(h.rate28 * 100)}% of the target over four weeks${h.streak ? `, streak ${h.streak} ${h.streakUnit}` : ''}${h.paused ? ' (paused)' : ''}` };
     });
-    const measured = parts.length ? parts.reduce((a, p) => a + p.progress, 0) / parts.length : 0;
-    own.set(keyOf(s.name), { parts, progress: s.manual !== undefined ? Math.max(s.manual, measured) : measured });
+    own.set(keyOf(s.name), { parts, measured: parts.length ? parts.reduce((a, p) => a + p.progress, 0) / parts.length : 0 });
   }
+  // A skill's progress: what it measures itself; a goal's also counts each of its steps (a goal inside
+  // a goal adds up in turn). No loops exist (upsert refuses them); the depth guard covers a hand edit.
+  const byKey = new Map(tree.skills.map((s) => [keyOf(s.name), s]));
+  const done = new Map();
+  const progressOf = (k, depth = 0) => {
+    if (done.has(k)) return done.get(k);
+    const s = byKey.get(k);
+    if (!s) return 0;
+    const o = own.get(k);
+    let p = o.measured;
+    if (s.goal && s.needs.length && depth < 50) {
+      const steps = s.needs.map((n) => progressOf(keyOf(n), depth + 1));
+      p = (steps.reduce((a, x) => a + x, 0) + o.measured * o.parts.length) / (steps.length + o.parts.length);
+    }
+    if (s.manual !== undefined) p = Math.max(s.manual, p);
+    done.set(k, p);
+    return p;
+  };
   return tree.skills.map((s) => {
     const o = own.get(keyOf(s.name));
-    const blockers = s.needs.filter((n) => (own.get(keyOf(n))?.progress ?? 0) < UNLOCK_AT);
-    const state = o.progress >= MASTERED_AT ? 'mastered' : blockers.length && o.progress === 0 ? 'locked' : o.progress > 0 ? 'growing' : 'ready';
-    return { ...s, progress: Math.round(o.progress * 100) / 100, state, blockers, sources: o.parts };
+    const progress = progressOf(keyOf(s.name));
+    // A goal is made of its steps, so it is never locked by them: what's left are its open steps.
+    const blockers = s.needs.filter((n) => progressOf(keyOf(n)) < (s.goal ? MASTERED_AT : UNLOCK_AT));
+    const state = progress >= MASTERED_AT ? 'mastered' : !s.goal && blockers.length && progress === 0 ? 'locked' : progress > 0 ? 'growing' : 'ready';
+    return { ...s, progress: Math.round(progress * 100) / 100, state, blockers, sources: o.parts };
   });
 }
 

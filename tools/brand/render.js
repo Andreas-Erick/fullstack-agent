@@ -105,6 +105,7 @@ app.whenReady().then(async () => {
       // The adaptive icon's foreground (108 dp: 2.25 × the legacy icon's size).
       const fg = Math.round(size * 2.25);
       fs.writeFileSync(path.join(res, `mipmap-${dpi}`, 'ic_launcher_foreground.png'), (await render('foreground.svg', fg, fg)).toPNG());
+      fs.writeFileSync(path.join(res, `mipmap-${dpi}`, 'ic_launcher_monochrome.png'), (await render('monochrome.svg', fg, fg)).toPNG());
     }
     // The watch app's launcher icon (round on the watch face; same art).
     const wear = path.join(ROOT, 'android', 'wear', 'src', 'main', 'res');
@@ -113,6 +114,7 @@ app.whenReady().then(async () => {
       fs.writeFileSync(path.join(wear, `mipmap-${dpi}`, 'ic_launcher.png'), (await render('icon.svg', size, size)).toPNG());
       const fg = Math.round(size * 2.25);
       fs.writeFileSync(path.join(wear, `mipmap-${dpi}`, 'ic_launcher_foreground.png'), (await render('foreground.svg', fg, fg)).toPNG());
+      fs.writeFileSync(path.join(wear, `mipmap-${dpi}`, 'ic_launcher_monochrome.png'), (await render('monochrome.svg', fg, fg)).toPNG());
     }
     console.log('rendered icon.ico, icon.png, logo.png, installer-sidebar.bmp and the Android launcher icons (phone and watch)');
   } catch (err) {

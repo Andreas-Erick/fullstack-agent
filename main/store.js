@@ -18,7 +18,7 @@ const DEFAULTS = {
   onboarded: false, // first-run setup wizard completed
   // acceptedAt: when the user accepted the privacy policy and disclaimers in the setup wizard; encryptConversations:
   // conversations sealed with the OS keychain on disk (both user-only, never SETTABLE)
-  privacy: { acceptedAt: 0, encryptConversations: true },
+  privacy: { acceptedAt: 0, encryptConversations: true, reportIssues: false }, // reportIssues: offer anonymized GitHub issues for errors (issues.js), opt-in, user-only
   agent: {
     name: brand.AGENT_NAME,
     personality: brand.MASTER_PROMPT, // the master prompt
@@ -52,6 +52,7 @@ const DEFAULTS = {
     compaction: true, // summarize older turns instead of dropping them
     modelMode: 'default', // default | fast | deep (switchable by voice)
     voiceUsesFast: true, // use the fast model for spoken turns (switched in place, no session restart)
+    compactPrompt: 'auto', // auto | on | off: a short prompt and the everyday tools for small local models (localcore.js)
     autoPace: true, // per message: lookups get the fast model at low effort, explanations more (pace.js; model mode Default only)
     fastModel: '',
     deepModel: '',
@@ -95,10 +96,14 @@ const DEFAULTS = {
   deepseek: { apiKey: '', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', fastModel: '', deepModel: 'deepseek-reasoner' },
   groq: { apiKey: '', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', fastModel: '', deepModel: '' },
   perplexity: { apiKey: '', baseUrl: 'https://api.perplexity.ai', model: 'sonar', fastModel: '', deepModel: 'sonar-pro' },
+  // The cloud voice (voice.engine 'cloud'): Groq's Orpheus (with groq.apiKey) or OpenAI (its own key).
+  cloudVoice: { provider: 'groq', apiKey: '', model: '', voice: '' },
+  // A local brain on this computer (Ollama's address; LM Studio's is http://localhost:1234/v1), in multi-provider mode.
+  local: { apiKey: '', baseUrl: 'http://localhost:11434/v1', model: '', fastModel: '', deepModel: '' },
   voice: {
     ttsEnabled: true,
     autoSpeak: true,
-    engine: 'local', // local = the offline Kokoro voice in the app | voicestudio = VoiceStudio at baseUrl (falls back as below)
+    engine: 'local', // local = the offline Kokoro voice in the app | voicestudio = VoiceStudio at baseUrl | cloud = cloudVoice (falls back as below)
     baseUrl: 'http://localhost:3900',
     apiKey: '',
     model: 'tts-1',
@@ -272,6 +277,8 @@ const SECRET_FIELDS = [
   ['deepseek', 'apiKey'],
   ['groq', 'apiKey'],
   ['perplexity', 'apiKey'],
+  ['local', 'apiKey'],
+  ['cloudVoice', 'apiKey'],
   ['web', 'braveKey'],
   ['web', 'tavilyKey'],
   ['remote', 'tunnelToken'],
