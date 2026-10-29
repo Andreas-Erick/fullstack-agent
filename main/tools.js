@@ -86,6 +86,7 @@ const TOOLS = [
   ...require('./tools/web'),
   ...require('./tools/code'),
   ...require('./tools/mechanic'),
+  ...require('./tools/brain'),
   ...require('./tools/guide'),
   ...require('./tools/browser'),
   ...require('./tools/learning'),

@@ -576,6 +576,9 @@ function learningCard() {
   );
 }
 
+// Brains that can answer on their own besides the four modes above (main/braincore.js).
+const SINGLE_BRAINS = { local: 'A local model', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', perplexity: 'Perplexity' };
+
 function brainCard() {
   const provider = state.settings.llm.provider;
   const seg = el(
@@ -670,6 +673,13 @@ function brainCard() {
       toggle('llm.compaction', 'Summarize older messages instead of dropping them'),
       el('div', { class: 'grid2' }, text('llm.fastModel', 'Fast model', { placeholder: 'same as above' }), text('llm.deepModel', 'Deep model', { placeholder: 'same as above' })),
       compactSelect(),
+    );
+  } else if (SINGLE_BRAINS[provider]) {
+    // One brain of the multi-provider list on its own (switched in the chat: "switch to a local model").
+    body.push(
+      el('div', { class: 'test-result ok' }, `${SINGLE_BRAINS[provider]} answers on its own (switched in the chat). Pick another mode above, or say “switch to the Claude brain”.`),
+      ...(provider === 'local' ? [localFinder('local', () => (render(), emit('status-refresh')))] : []),
+      text(`${provider}.model`, 'Model', { hint: provider === 'local' ? '' : 'Its API key is under Multi-provider.' }),
     );
   } else {
     body.push(

@@ -1175,7 +1175,8 @@ body.agent .aw-frame::before { border-color: rgba(var(--c1), 0.85); box-shadow: 
 .sys-m b { font-weight: 600; letter-spacing: 0.04em; font-size: 9.5px; opacity: 0.8; }
 .sys-pill .sys-m i, .sys-row i { display: inline-block; width: 22px; height: 5px; border-radius: 3px; background: rgba(var(--text-rgb), 0.12); box-shadow: none; overflow: hidden; }
 .sys-m i u, .sys-row i u { display: block; height: 100%; width: 0; background: rgb(var(--c1)); transition: width 0.5s; }
-.sys-m em { font-style: normal; min-width: 26px; text-align: right; }
+/* Wide enough for "100%" in every system font (macOS's is wider): a reading going 99% → 100% → 99% must not shift the title bar. */
+.sys-m em { font-style: normal; min-width: 3em; text-align: right; }
 .sys-m.mid i u, .sys-row.mid i u { background: rgb(var(--warn)); }
 .sys-m.high i u, .sys-row.high i u { background: rgb(var(--err)); }
 .sys-m.high em { color: rgb(var(--err)); }

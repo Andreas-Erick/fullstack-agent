@@ -376,6 +376,8 @@ const TOOL_LABELS = {
   helper_app_start: '🔌 Started a helper app',
   settings_read: '⚙ Read its settings',
   settings_update: '⚙ Changed a setting',
+  brain_options: '🧠 Checked its brains',
+  brain_switch: '🧠 Switched brain',
   Read: '💾 Read file',
   Edit: '🛠 Edited file',
   Write: '🛠 Wrote file',

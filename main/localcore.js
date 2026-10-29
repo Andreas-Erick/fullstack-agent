@@ -74,7 +74,7 @@ function compactWanted(settings, model) {
 const COMPACT_TOOLS = [
   'memory_save', 'memory_search', 'calendar_get_events', 'calendar_add_event', 'habit_log', 'habit_status',
   'vault_search', 'vault_read_note', 'daily_note_log', 'web_search', 'web_fetch', 'history_search', 'app_guide',
-  'priorities_update', 'learning_overview',
+  'priorities_update', 'learning_overview', 'brain_switch',
 ];
 
 module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, compactWanted };

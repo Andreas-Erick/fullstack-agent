@@ -47,9 +47,12 @@ async function run() {
         if (!s.anthropic.apiKey) return { status: 'fail', detail: 'No Anthropic API key.', fix: 'Add it in Settings → AI brain.' };
         return { detail: `API key set · model ${s.anthropic.model}` };
       }
+      // A single cloud or local provider (gemini, local…) keeps its address and model in its own section.
+      const router = require('./router');
+      const n = router.PROVIDERS[s.llm.provider]?.openai ? router.concrete(s, s.llm.provider) : s;
       const models = await llm.listModels(s);
-      if (s.llm.model && !models.some((m) => m.id === s.llm.model)) return { status: 'warn', detail: `Model "${s.llm.model}" is not offered by ${s.llm.baseUrl} (${models.length} models available).`, fix: 'Pick an available model in Settings → AI brain.' };
-      return { detail: `${s.llm.baseUrl} · ${models.length} models · using ${s.llm.model || models[0]?.id}` };
+      if (n.llm.model && !models.some((m) => m.id === n.llm.model)) return { status: 'warn', detail: `Model "${n.llm.model}" is not offered by ${n.llm.baseUrl} (${models.length} models available).`, fix: 'Pick an available model in Settings → AI brain.' };
+      return { detail: `${n.llm.baseUrl} · ${models.length} models · using ${n.llm.model || models[0]?.id}` };
     }),
     check('tts', 'Voice output', async () => {
       if (!s.voice.ttsEnabled) return { status: 'off', detail: 'Disabled.' };

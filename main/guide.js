@@ -157,6 +157,14 @@ const FEATURES = [
     status: (s) => (s.local?.model ? `local model: ${s.local.model}` : s.llm?.provider === 'openai' && s.llm?.model ? `model: ${s.llm.model}` : 'not set up'),
   },
   {
+    id: 'switch-brain',
+    title: 'Switch brains by asking',
+    what: 'Tell me which brain to use and I switch from your next message on: your Claude account, a Claude API key, a local model in Ollama or LM Studio, Gemini, DeepSeek, Groq, Perplexity, FreeLLMAPI, or multi-provider mode. Ask which ones are ready and I list them; a local model I can pick from the ones installed.',
+    say: ['"Switch to a local model"', '"Switch back to the Claude brain"', '"Which brains can I use?"', '"Use Claude Opus"'],
+    where: 'Anywhere in the chat; the same choice is in Settings → AI brain.',
+    status: (s) => `now: ${require('./braincore').choice(s.llm?.provider)?.name || s.llm?.provider}`,
+  },
+  {
     id: 'usage',
     title: 'How much of your Claude plan is left',
     what: "With the Claude account brain, the title bar shows how much of your plan's 5-hour and weekly limits is left, with the reset times in its tooltip.",
