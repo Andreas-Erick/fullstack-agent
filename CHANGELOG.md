@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.7.9 — 2026-10-30
+
+- Your persona comes through with a local brain. Local models used to get only the first 900 characters of the master prompt, about 3% of a long one, and wrote in a generic assistant voice. Now your local model writes a short version of a long master prompt once, on your computer (about 1,100 characters: who the persona is, how it speaks, what it never does, a few typical lines). Every local model reads it, and its rules ask for the persona's voice in every reply. See it in the Persona studio under the master prompt, under "Short version for local models": write it again, or save your own words, which are then kept. Claude still reads the whole master prompt. Measured with a 28,000-character persona on an 8B model: in character, and as accurate as without a persona (26–27 of 28 test cases).
+- Spoken replies on Claude follow the persona's rhythm, instead of "contractions, short conversational sentences".
+- A local brain answers questions about you from your memories more reliably. The memories that match the message now come first in what it reads, so they are no longer cut off behind a long schedule, and it is told plainly when none match, so it doesn't make one up (it once named a dog you never mentioned).
+- A local brain also searches first when it says "I do not recall", "I am not aware" or "Would you like me to look?". Before, only the plain "I don't know" was caught.
+
 ## 2.7.8 — 2026-10-29
 
 - Routines for a connected service work with a local brain. "Sync Google Calendar into Siren", "Check new Plaud recordings" and the like ran on your local model, which can't reach connectors, so they ended with "the connector is not available" every time. A routine that names one of your connected services now runs on your Claude account (or API key), even with "Hand hard messages to Claude" off, and the chat says so. Other routines stay on your computer.
