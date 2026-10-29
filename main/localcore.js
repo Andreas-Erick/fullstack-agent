@@ -166,8 +166,10 @@ function placeNote(messages, note, { asSystem = true } = {}) {
 
 // A short first reply that gives up ("I don't have that information") before any lookup. Small models
 // do this despite the rule (measured: qwen3:8b on "When is the Project Atlas deadline?"); the loop then
-// asks once to look it up (LOOK_FIRST) instead of showing it.
-const GAVE_UP = /\b(I (do not|don['’]t|can['’]t|cannot) (have|know|find|see|access)\b|I have no (information|record|details|notes?)\b|I['’]m not sure (what|when|who|where|which)\b|no information (about|on|regarding)\b)/i;
+// asks once to look it up (LOOK_FIRST) instead of showing it. A persona says it in its own words ("I do
+// not possess that information", "I do not recall") or offers to look instead of looking ("Would you like
+// me to search your notes?", "Let me confirm that"): measured with a 28k-character persona.
+const GAVE_UP = /\b(I (do not|don['’]t|can['’]t|cannot) (have|know|find|see|access|possess|recall|remember)\b|I have no (information|record|details|notes?|recollection)\b|I(['’]m| am) not aware\b|I['’]m not sure (what|when|who|where|which)\b|no information (about|on|regarding)\b|(have|has) not (yet )?(mentioned|told|shared)\b|(would you like me|shall I|let me|I (can|could)) (to )?(look|search|check|confirm)\b)/i;
 const gaveUpUnlooked = (text) => String(text || '').length < 400 && GAVE_UP.test(String(text || ''));
 const LOOK_FIRST = 'Before you say you don’t know: look it up now with memory_search, then vault_search (and calendar_get_events for dates). Answer from what they find; only if both find nothing, say you don’t know.';
 

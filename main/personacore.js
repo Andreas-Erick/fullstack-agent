@@ -9,6 +9,7 @@ const FIELDS = [
   ['agent', 'personality', 'personality'],
   ['agent', 'aesthetic', 'aesthetic'],
   ['agent', 'avatar', 'avatar'],
+  ['agent', 'personaSummary', 'personaSummary'],
   ['appearance', 'theme', 'theme'],
   ['appearance', 'personaNotes', 'personaNotes'],
   ['appearance', 'greeting', 'greeting'],
@@ -138,4 +139,108 @@ function summary(personas) {
   }));
 }
 
-module.exports = { FIELDS, FIRST_ID, MAX_PERSONAS, snapshot, patchFor, ensure, repairScenes, sync, find, create, remove, summary };
+// ------------------------------------------------------------------ the persona, short
+// A small local model gets the master prompt's essence, not its first lines: who it is, how it talks
+// (the style section) and lines it would say (quoted examples). A long prompt cut after 900 characters
+// kept only the opening of "Core identity", and replies came out in a generic assistant voice.
+const STYLE_HEADING = /communicat|style|voice|tone|speech|how (you|to) (talk|speak|write)|manner/i;
+const EXAMPLE_HEADING = /example|sample|dialog/i;
+
+function sectionsOf(text) {
+  return String(text || '')
+    .split(/\n(?=#{1,4}\s)/)
+    .map((s) => {
+      const [first, ...rest] = s.split('\n');
+      const heading = /^#{1,4}\s/.test(first) ? first.replace(/^#+\s*/, '').trim() : '';
+      return { heading, body: (heading ? rest.join('\n') : s).trim() };
+    });
+}
+
+const tidy = (s) => s.replace(/\*\*|__/g, '').replace(/^---+$/gm, '').replace(/\n{2,}/g, '\n').trim();
+
+// At most `max` characters, ending at a sentence or line where possible.
+function clip(s, max) {
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('.\n'), cut.lastIndexOf('\n'));
+  return (end > max * 0.5 ? cut.slice(0, end + 1) : cut).trim();
+}
+
+/** The master prompt in at most `max` characters: identity, style, example lines; as is when it fits. */
+function digest(text, { max = 2400 } = {}) {
+  const all = String(text || '').trim();
+  if (all.length <= max) return all;
+  const parts = sectionsOf(all).filter((p) => p.body);
+  const style = parts.find((p) => STYLE_HEADING.test(p.heading));
+  const examples = parts.find((p) => EXAMPLE_HEADING.test(p.heading));
+  const intro = parts.find((p) => p !== style && p !== examples);
+  if (!style && !examples) return clip(tidy(all), max);
+  const lines = examples ? (examples.body.match(/^\s*["“][^\n]{8,}["”]\s*$/gm) || []).map((l) => `- ${clip(l.trim(), 220)}`) : [];
+  const quotes = [];
+  // Three at most: a small model copied a sample word for word when it had more of them.
+  for (const l of lines) if (quotes.length < 3 && quotes.join('\n').length + l.length < max * 0.25) quotes.push(l);
+  const room = max - (quotes.length ? quotes.join('\n').length + 40 : 0);
+  const out = [
+    intro && clip(tidy(intro.body), Math.round(room * (style ? 0.45 : 0.95))),
+    style && `How you speak:\n${clip(tidy(style.body), Math.round(room * (intro ? 0.5 : 0.95)))}`,
+    quotes.length && `The tone of things you say (samples of the voice only: never reply with one of them, always answer the actual message):\n${quotes.join('\n')}`,
+  ].filter(Boolean);
+  return clip(out.join('\n\n'), max);
+}
+
+// ------------------------------------------------------------------ the summary for small models
+// A long master prompt gets a short version written once by the user's own local model (persona.js
+// ensureSummary), kept with the persona as agent.personaSummary = { text, for, by }: `for` is the
+// master prompt's fingerprint (a changed prompt needs a new one), `by` is 'model' or 'user' (the
+// user's own wording is never replaced). Local models read it instead of the whole prompt.
+const SUMMARY_FROM = 3000; // a master prompt this long or longer gets a summary (shorter ones, like the default Siren, go in whole)
+const SUMMARY_MAX = 1400;
+
+const fingerprint = (text) => require('crypto').createHash('sha256').update(String(text || '').trim()).digest('hex').slice(0, 16);
+
+const needsSummary = (agent) => String(agent?.personality || '').trim().length >= SUMMARY_FROM;
+
+/** The summary is current: written for this master prompt (or by the user, which always stands). */
+function summaryFresh(agent) {
+  const s = agent?.personaSummary;
+  return Boolean(s?.text && (s.by === 'user' || s.for === fingerprint(agent.personality)));
+}
+
+/** What a local model reads as the persona: the master prompt when short, else its summary, else the digest. */
+function forSmallModels(agent) {
+  const text = String(agent?.personality || '').trim();
+  if (!needsSummary(agent)) return text;
+  return summaryFresh(agent) ? agent.personaSummary.text : digest(text);
+}
+
+function summaryPrompt(name, masterPrompt) {
+  return [
+    `Below is the master prompt of "${name}", a persona for a personal AI assistant. A small AI model will play this persona, and it can only read a short version. Write that short version.`,
+    '',
+    'Rules:',
+    `- 800 to ${SUMMARY_MAX - 200} characters, written to the model in the second person ("You are…").`,
+    '- Keep what shapes every reply: who you are in one or two sentences, how you speak (tone, rhythm, word choice, what kind of remarks you make), what you never do or say, and how you treat the user.',
+    '- Then two or three short typical phrases in quotes, as samples of the voice.',
+    '- Leave out lore, backstory details, appearance and long lists, unless one detail is what makes the voice.',
+    '- Keep the persona’s own instructions on being genuinely helpful and honest, in one sentence.',
+    '- Write only the short version: no title, no introduction, no notes, no Markdown headings.',
+    '',
+    'The master prompt:',
+    '"""',
+    String(masterPrompt || '').trim(),
+    '"""',
+  ].join('\n');
+}
+
+/** The model's reply → the summary text, or '' when it is unusable (too short, empty). */
+function cleanSummary(reply) {
+  let t = String(reply || '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/^```\w*\n?|\n?```$/g, '')
+    .trim();
+  t = t.replace(/^(here is|here's)[^\n]*:\s*\n/i, '').replace(/^#+\s.*\n/gm, '').replace(/^"""|"""$/g, '').trim();
+  if (t.length < 200) return '';
+  return clip(t, SUMMARY_MAX);
+}
+
+module.exports = { FIELDS, FIRST_ID, MAX_PERSONAS, snapshot, patchFor, ensure, repairScenes, sync, find, create, remove, summary, digest, SUMMARY_FROM, SUMMARY_MAX, fingerprint, needsSummary, summaryFresh, forSmallModels, summaryPrompt, cleanSummary };

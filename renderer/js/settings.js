@@ -235,6 +235,7 @@ function agentCard() {
     personaBar(),
     el('div', { class: 'row', style: { gap: '14px' } }, preview, el('div', { style: { flex: 1 } }, text('agent.name', 'Agent name', { placeholder: 'Siren' })), pick, clear),
     area('agent.personality', 'Master prompt (persona)', { rows: 9, hint: 'Who the agent is, how it behaves, what it cares about. Memories, vault, calendar and tool instructions are appended automatically.' }),
+    summaryRow(),
     area('agent.aesthetic', 'Aesthetic · style · theme', { rows: 3, hint: 'e.g. “90s cyberpunk terminal, green phosphor”, “warm solarpunk greenhouse, botanical”, “minimal Scandinavian, calm and airy”, “art-deco luxury, gold on black”.' }),
     faceSelect(),
     personaVoice(),
@@ -244,6 +245,47 @@ function agentCard() {
     themeEditor(),
   );
 }
+
+// The short version of a long master prompt that local models read (main/persona.js ensureSummary):
+// written by the user's local model, or by the user. Filled in once its status arrives.
+function summaryRow() {
+  const box = el('div', { class: 'field' });
+  const show = (st) => {
+    if (!box.isConnected && box.childElementCount) return;
+    if (!st.needed) return box.replaceChildren();
+    const textBox = el('textarea', { class: 'input', rows: '6', placeholder: st.writing ? 'Being written by your local model…' : 'Not written yet.' });
+    textBox.value = st.text;
+    const out = result();
+    const who = st.by === 'user' ? 'Your own wording' : st.text ? `Written by ${st.model || 'your local model'} on this computer` : st.writer ? `Your local model (${st.writer}) writes it shortly` : 'Written once a local model is your brain';
+    const regen = el('button', {
+      class: 'btn',
+      disabled: !st.writer || st.writing,
+      onclick: async () => {
+        regen.disabled = true;
+        showResult(out, true, `Writing it with ${st.writer}… (up to a minute)`);
+        try {
+          show(await api.persona.summarize());
+        } catch (err) {
+          showResult(out, false, `✕ ${err.message}`);
+          regen.disabled = false;
+        }
+      },
+    }, st.text ? '↻ Write it again' : '✨ Write it now');
+    const keep = el('button', { class: 'btn', onclick: async () => (show(await api.persona.setSummary(textBox.value)), toast(textBox.value.trim() ? 'Saved: local models read your version.' : 'Back to the written version.')) }, 'Save my version');
+    box.replaceChildren(
+      el('label', {}, 'Short version for local models'),
+      textBox,
+      el('div', { class: 'row' }, el('span', { class: 'hint' }, `${who}${st.stale ? ' · written for an earlier master prompt' : ''} · ${st.text.length} of ${st.chars} characters`), regen, keep),
+      out,
+      el('div', { class: 'hint' }, 'Your master prompt is long, and small local models play a long character badly. They read this instead; Claude always reads the whole master prompt. It is written on your computer, never sent anywhere, and rewritten when the master prompt changes, unless you saved your own.'),
+    );
+  };
+  showSummary = show;
+  api.persona.summaryStatus().then(show, () => {});
+  return box;
+}
+let showSummary = null;
+api.on('persona:summary', (st) => showSummary?.(st));
 
 // The scene behind the face, drawn by the model from the persona and the theme's colors, saved with
 // the persona (appearance.scene) and shown by js/scene.js.

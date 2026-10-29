@@ -24,6 +24,7 @@ const DEFAULTS = {
     personality: brand.MASTER_PROMPT, // the master prompt
     avatar: null,
     aesthetic: '', // the overall aesthetic / style / theme the persona should embody
+    personaSummary: null, // { text, for, by }: a long master prompt, short, for local models (personacore.js; written by persona.ensureSummary or the user)
   },
   appearance: {
     theme: brand.THEME, // generated or edited theme object; null = the "Neon Circuit" theme

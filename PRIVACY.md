@@ -14,6 +14,7 @@ Siren Assistant is a desktop app for Windows and macOS that runs on your own com
 | Conversations | App data folder → `conversations/` | Encrypted with your system keychain (Windows DPAPI, the macOS Keychain, the Linux secret service), so only your user account on this computer can read them; plain JSON if you turn that off (Settings → Memory & history) or the system offers no keychain. Exports are plain JSON. Screenshots from screen sharing are **never** stored in them |
 | Memory, notes, journal, profile, priorities | Your Obsidian vault (default `Documents/Siren Vault`; an existing `Documents/Nexus Vault` stays where it is) | Plain Markdown, versioned with a local git history |
 | Skills | App data folder → `skills/` | Plain Markdown |
+| Short version of a long master prompt | In the settings, with its persona | Written once by your own local model on this computer (never by an online service), for local models to read; you can see and replace it in the Persona studio |
 | Logs and bug reports | App data folder → `logs/` | Known key formats are masked. Bug reports stay local until **you** decide to share one |
 | Speech recognition (default) | Runs locally (Whisper via transformers.js) | Your voice is not sent anywhere in the default "local" mode |
 | PDF exports | Your workspace folder or `Documents/Siren Exports` (`Nexus Exports` if you already had it) | |
