@@ -15,7 +15,7 @@ const { execFile } = require('child_process');
 const { app } = require('electron');
 const store = require('./store');
 const log = require('./logger');
-const { resolveInside, walk, toPosix, scoreText, queryTerms } = require('./files');
+const { resolveInside, hasReservedPart, walk, toPosix, scoreText, queryTerms } = require('./files');
 
 const IGNORE = ['.obsidian', '.trash', 'node_modules', '.git'];
 const FOLDERS = {
@@ -344,7 +344,7 @@ function touchUpdated(text) {
 async function writeNote(ref, content, mode = 'overwrite', { source = 'agent' } = {}) {
   const root = await requireVault();
   const rel = normalizeRef(ref);
-  if (rel.split('/').some((p) => IGNORE.includes(p))) throw new Error('That folder is reserved');
+  if (hasReservedPart(rel, IGNORE)) throw new Error('That folder is reserved');
   const full = resolveInside(root, rel);
   await fsp.mkdir(path.dirname(full), { recursive: true });
   const g = lockedNote(root, full);

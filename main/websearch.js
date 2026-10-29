@@ -3,6 +3,7 @@
 const dns = require('dns').promises;
 const net = require('net');
 const store = require('./store');
+const { isPrivateAddress } = require('./netcore');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36';
 
@@ -113,19 +114,8 @@ async function assertPublic(urlStr) {
  * True for any address that isn't the public internet: loopback, private and link-local ranges, the
  * shared range 100.64/10 (Tailscale and carrier NAT: the user's other devices), multicast and reserved,
  * the unspecified address, and IPv4 written inside IPv6 (::ffff:127.0.0.1, which URLs turn into
- * ::ffff:7f00:1). Anything that doesn't parse counts as private.
+ * ::ffff:7f00:1). Anything that doesn't parse counts as private. In netcore.js, shared with the agent window.
  */
-function isPrivateAddress(addr) {
-  let a = String(addr || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
-  const mapped = /^(?:0{0,4}:){0,4}:?(?:0{0,4}:)?ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(a);
-  if (mapped) a = mapped[1] || [parseInt(mapped[2], 16) >> 8, parseInt(mapped[2], 16) & 255, parseInt(mapped[3], 16) >> 8, parseInt(mapped[3], 16) & 255].join('.');
-  if (net.isIPv4(a)) {
-    const [p, q] = a.split('.').map(Number);
-    return p === 0 || p === 10 || p === 127 || p >= 224 || (p === 100 && q >= 64 && q <= 127) || (p === 169 && q === 254) || (p === 172 && q >= 16 && q <= 31) || (p === 192 && q === 168) || (p === 192 && q === 0) || (p === 198 && (q === 18 || q === 19));
-  }
-  if (net.isIPv6(a)) return a === '::' || a === '::1' || /^(f[cd]|fe[89ab]|fe[c-f]|ff)/.test(a) || /^::(\d|$)/.test(a) || /^64:ff9b:/.test(a);
-  return true;
-}
 
 function htmlToText(html) {
   let h = String(html);
@@ -155,9 +145,19 @@ function htmlToText(html) {
 async function fetchPage(url, maxChars = 20000) {
   const s = await store.getSettings();
   if (!s.web.enabled) throw new Error('Internet access is disabled in Settings.');
-  await assertPublic(url);
-  const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9' }, redirect: 'follow', signal: AbortSignal.timeout(20000) });
-  if (res.url && res.url !== url) await assertPublic(res.url);
+  // Redirects one hop at a time, each checked before it is requested: with redirect 'follow', a public
+  // page could bounce the request to a local address, which was then sent before res.url was checked.
+  let res;
+  let at = url;
+  for (let hop = 0; ; hop++) {
+    await assertPublic(at);
+    res = await fetch(at, { headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9' }, redirect: 'manual', signal: AbortSignal.timeout(20000) });
+    const next = res.status >= 300 && res.status < 400 && res.headers.get('location');
+    if (!next) break;
+    if (hop >= 5) throw new Error(`Too many redirects fetching ${url}`);
+    at = new URL(next, at).href;
+  }
+  url = at;
   const type = res.headers.get('content-type') || '';
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
   if (!/text|json|xml/.test(type)) throw new Error(`Unsupported content type "${type}"`);

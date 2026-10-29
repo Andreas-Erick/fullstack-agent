@@ -815,10 +815,11 @@ function addApproval(a) {
     el('b', {}, a.title || 'Approval needed'),
     a.detail ? el('pre', { class: 'detail' }, String(a.detail).slice(0, 1500)) : null,
     a.tainted ? el('div', { class: 'warn' }, '⚠ This turn read outside content (web pages or documents). Make sure this is what you asked for.', sources.length ? el('ul', { class: 'sources' }, sources.map((s) => el('li', {}, s))) : null) : null,
-    el('div', { class: 'row' }, buttons),
+    // Self-changes and "stop asking for a service" are answered only on the computer (companion.js).
+    a.desktopOnly ? el('div', { class: 'desktop-only' }, 'Approve or deny this one on your computer.') : el('div', { class: 'row' }, buttons),
   );
   $('#approvals').append(card);
-  setTimeout(() => buttons.forEach((b) => b.removeAttribute('disabled')), ARM_MS);
+  if (!a.desktopOnly) setTimeout(() => buttons.forEach((b) => b.removeAttribute('disabled')), ARM_MS);
   // Countdown to the automatic "no" on the computer.
   const ends = Date.now() + (a.expiresIn ?? a.timeoutSec ?? 0) * 1000;
   const tick = () => {

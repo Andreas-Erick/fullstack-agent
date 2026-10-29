@@ -13,6 +13,7 @@ const convs = {
 };
 // The tunnel as tests set it: off, or a connected Tailscale address.
 let tunnelState = { mode: 'off' };
+let slowIo = false; // the store's file access with random delays (the device-list race test)
 const calls = [];
 let share = true; // remote.shareData
 const turns = []; // what hooks.startTurn was asked
@@ -33,6 +34,20 @@ stub({
   electron: { app: { getPath: () => dir, getVersion: () => '0.0.0' }, net: {} },
   './updates': { forDevices: async () => null },
   './store': fileStore(dir, {
+    // Reads and writes with random delays while slowIo is on, like a real disk under load: the window in
+    // which a stale write-back landed after "Remove all devices" (review 2026-10-29).
+    readJson: async (f, fallback) => {
+      if (slowIo) await new Promise((r) => setTimeout(r, Math.random() * 8));
+      try {
+        return JSON.parse(fs.readFileSync(f, 'utf8'));
+      } catch {
+        return fallback;
+      }
+    },
+    writeJsonAtomic: async (f, v) => {
+      if (slowIo) await new Promise((r) => setTimeout(r, Math.random() * 8));
+      fs.writeFileSync(f, JSON.stringify(v));
+    },
     getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: { scene }, voice: {}, calendar: { enabled: true }, remote: { shareData: share }, ui: { face: uiFace } }),
     listConversations: async () => Object.values(convs).map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, ...(c.setup ? { setup: true } : {}) })),
     getConversation: async (id) => convs[id] || null,
@@ -95,9 +110,18 @@ test('pairing code: wrong and malformed codes are refused and counted', async ()
   assert.strictEqual(r.headers.get('cross-origin-opener-policy'), 'same-origin');
   assert.strictEqual(r.headers.get('strict-transport-security'), null, 'no HSTS on plain http');
   for (let i = 0; i < 4; i++) await post('/api/pair', { code: 'abcdef' }); // malformed: a wrong try that can't match by chance
+  // Five wrong tries from one address: that address is refused. The pairing itself goes on, so someone
+  // else's wrong codes can't cancel the user's pairing (review 2026-10-29).
   r = await post('/api/pair', { code: '123456' });
-  assert.strictEqual(r.status, 403);
-  assert.match((await r.json()).error, /No pairing in progress/, 'five wrong tries end the pairing');
+  assert.strictEqual(r.status, 429);
+  assert.match((await r.json()).error, /Too many wrong codes/);
+  companion.cancelPairing?.();
+});
+
+test('pairing: only many wrong tries in all end it; the right code still works after a stranger’s wrong ones', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main', 'companion.js'), 'utf8');
+  assert.match(src, /pairing\.byIp\.set\(ip, \(pairing\.byIp\.get\(ip\) \|\| 0\) \+ 1\)/, 'wrong tries per address');
+  assert.match(src, /if \(\+\+pairing\.tries >= PAIR_TRIES \* 4\) pairing = null;/, 'the pairing ends after 20 wrong tries in all');
 });
 
 test('QR pairing: one-time secret, reachable address only', async () => {
@@ -424,16 +448,86 @@ test('a paired device on a network it never used raises an alert; its usual netw
     const token = await pairDevice('Travel phone');
     const auth = { Authorization: `Bearer ${token}` };
     alerts.length = 0;
-    const from = async (ip) => viaHost('pc.tail1234.ts.net', '/api/info', { headers: { ...auth, 'cf-connecting-ip': ip } });
+    // Tailscale Serve appends the client's address to x-forwarded-for; whatever the client put in front
+    // of it, or in cf-connecting-ip (Tailscale passes headers through), doesn't count.
+    const from = async (ip) => viaHost('pc.tail1234.ts.net', '/api/info', { headers: { ...auth, 'x-forwarded-for': `10.9.9.9, ${ip}`, 'cf-connecting-ip': '10.1.1.1' } });
+    const settle = () => new Promise((r) => setTimeout(r, 50)); // the device list is updated just after the reply
     assert.strictEqual((await from('198.51.100.7')).status, 200);
+    await settle();
     assert.deepStrictEqual(alerts.map((a) => a.type), ['new-network'], 'a network the device never used');
     assert.strictEqual(alerts[0].name, 'Travel phone');
+    assert.strictEqual(alerts[0].ip, '198.51.100.7', 'the address Tailscale appended, not the ones the client sent');
     assert.strictEqual((await from('198.51.22.9')).status, 200);
+    await settle();
     assert.strictEqual(alerts.length, 1, 'the same /16 network: no new alert');
     assert.strictEqual((await fetch(`${base}/api/info`, { headers: auth })).status, 200);
+    await settle();
     assert.strictEqual(alerts.length, 1, 'the network it paired from is known');
     assert.ok(alerts.every((a) => !('token' in a)), 'alerts carry no secrets');
   } finally {
     tunnelState = { mode: 'off' };
   }
+});
+
+// Regression (security review 2026-10-29): a removed device's own requests wrote back the device list
+// they had read just before "Remove all devices" or "View only", so the device came back. Here the
+// stolen token keeps calling from changing addresses (every call used to rewrite the list) while the
+// user removes all devices: afterwards it must be refused, and the list on disk must stay empty.
+test('a device removed while it keeps calling stays removed', async () => {
+  tunnelState = { mode: 'tailscale', connected: true, host: 'pc.tail1234.ts.net', url: 'https://pc.tail1234.ts.net' };
+  slowIo = true;
+  try {
+    for (let trial = 0; trial < 3; trial++) {
+      const token = await pairDevice(`Stolen ${trial}`);
+      const auth = { Authorization: `Bearer ${token}` };
+      let n = 0;
+      const hammer = Promise.all(Array.from({ length: 30 }, () => viaHost('pc.tail1234.ts.net', '/api/info', { headers: { ...auth, 'x-forwarded-for': `203.0.${trial}.${++n}` } }).catch(() => null)));
+      await new Promise((r) => setTimeout(r, 5));
+      await companion.revokeAll();
+      await hammer;
+      await new Promise((r) => setTimeout(r, 100)); // any write the calls queued has landed
+      assert.strictEqual((await viaHost('pc.tail1234.ts.net', '/api/info', { headers: auth })).status, 401, `trial ${trial}: the token is refused`);
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(devicesFile, 'utf8')), [], `trial ${trial}: no device came back on disk`);
+    }
+    // View only, likewise: the device's own calls never undo it.
+    const token = await pairDevice('Reader');
+    const auth = { Authorization: `Bearer ${token}` };
+    const id = JSON.parse(fs.readFileSync(devicesFile, 'utf8')).find((d) => d.name === 'Reader').id;
+    let n = 0;
+    const hammer = Promise.all(Array.from({ length: 30 }, () => viaHost('pc.tail1234.ts.net', '/api/info', { headers: { ...auth, 'x-forwarded-for': `198.18.9.${++n}` } }).catch(() => null)));
+    await companion.setReadOnly(id, true);
+    await hammer;
+    await new Promise((r) => setTimeout(r, 100));
+    assert.strictEqual(JSON.parse(fs.readFileSync(devicesFile, 'utf8')).find((d) => d.id === id).readOnly, true, 'view only stays on');
+    await companion.revokeAll();
+  } finally {
+    tunnelState = { mode: 'off' };
+    slowIo = false;
+  }
+});
+
+test('the tunnel’s name alone does not make a request tunnel traffic: it must come from this computer', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'main', 'companion.js'), 'utf8');
+  assert.match(src, /if \(pub && host === pub\) return isLoopback\(req\?\.socket\?\.remoteAddress\) \? 'tunnel' : null;/);
+  assert.match(src, /const kind = hostKind\(host, req\);/);
+});
+
+// Self-changes and "stop asking for a service" are answered only on the computer: a paired device sees
+// them (marked desktopOnly, so the reply's wait makes sense) but its answer is refused.
+test('approvals for self-changes and connector trust can’t be answered from a device', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Phone')}`, 'Content-Type': 'application/json' };
+  companion.publish('approval:request', { id: 'self1', kind: 'self_modify', title: 'Change its own code (main/x.js)', timeoutSec: 60 });
+  companion.publish('approval:request', { id: 'trust1', kind: 'connector_trust', title: 'TickTick: allow everything', timeoutSec: 60 });
+  companion.publish('approval:request', { id: 'cal1', kind: 'calendar', title: 'Add an event', timeoutSec: 60 });
+  for (const id of ['self1', 'trust1']) {
+    const r = await fetch(`${base}/api/approvals/${id}`, { method: 'POST', headers: auth, body: JSON.stringify({ allow: true }) });
+    assert.strictEqual(r.status, 403, id);
+    assert.match((await r.json()).error, /on your computer/);
+  }
+  const ok = await fetch(`${base}/api/approvals/cal1`, { method: 'POST', headers: auth, body: JSON.stringify({ allow: true }) });
+  assert.strictEqual(ok.status, 200, 'ordinary approvals still work from the phone');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'remote', 'app.js'), 'utf8');
+  assert.match(src, /a\.desktopOnly \? el\('div', \{ class: 'desktop-only' \}/, 'the phone shows no buttons for them');
+  companion.publish('approval:cancel', { id: 'self1' });
+  companion.publish('approval:cancel', { id: 'trust1' });
 });

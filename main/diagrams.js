@@ -11,16 +11,43 @@ const { resolveInside } = require('./files');
 const FOLDER = 'Diagrams';
 const MAX_BYTES = 2000000;
 
-/** The page without anything that could run. */
-function sanitize(html) {
+// The first thing in every saved page: nothing runs and nothing loads from outside, also when the file
+// is opened in a browser ("Open in its default app"), whatever the cleaning below missed (security
+// review 2026-10-29 found handlers and split <script> tags that got through it).
+const PAGE_CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src data:; form-action \'none\'; base-uri \'none\'">';
+
+function sanitizeOnce(html) {
   return String(html || '')
     .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
-    .replace(/<script\b[^>]*\/?>/gi, '')
-    .replace(/<(iframe|frame|frameset|object|embed|applet|base)\b[\s\S]*?(<\/\1\s*>|\/?>)/gi, '')
+    .replace(/<\/?script\b[^>]*>/gi, '')
+    .replace(/<(iframe|frame|frameset|object|embed|applet|base|foreignObject)\b[\s\S]*?(<\/\1\s*>|\/?>)/gi, '')
+    .replace(/<\/?(iframe|frame|frameset|object|embed|applet|base|foreignObject)\b[^>]*>/gi, '')
     .replace(/<meta\b[^>]*http-equiv[^>]*>/gi, '')
     .replace(/<link\b[^>]*>/gi, '') // external stylesheets and preloads; the page carries its own styles
-    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/@import\b[^;]*;?/gi, '')
+    // SVG animation that rewrites a link into javascript:.
+    .replace(/<(animate|set)\b[^>]*attributeName\s*=\s*["']?(xlink:)?href\b[^>]*>(\s*<\/\1\s*>)?/gi, '')
+    // Handlers after a space, a slash or a quote (<svg/onload=…>, src="x"onerror=…).
+    .replace(/(?<=[\s/"'])on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/(href|src|xlink:href|action|formaction)\s*=\s*(["']?)\s*(javascript|vbscript|data:text\/html)[^"'\s>]*\2/gi, '$1="#"');
+}
+
+/** The page without anything that could run: cleaned until nothing changes (a removed tag can't rebuild one). */
+function sanitize(html) {
+  let page = String(html || '');
+  for (let i = 0; i < 6; i++) {
+    const next = sanitizeOnce(page);
+    if (next === page) break;
+    page = next;
+  }
+  return page;
+}
+
+/** The page with PAGE_CSP as the first element of its <head>. */
+function withCsp(doc) {
+  if (/<head\b[^>]*>/i.test(doc)) return doc.replace(/<head\b[^>]*>/i, (h) => `${h}${PAGE_CSP}`);
+  if (/<html\b[^>]*>/i.test(doc)) return doc.replace(/<html\b[^>]*>/i, (h) => `${h}<head>${PAGE_CSP}</head>`);
+  return `${PAGE_CSP}${doc}`;
 }
 
 const fileName = (title) => {
@@ -31,15 +58,16 @@ const fileName = (title) => {
 
 /** Saves the page as Diagrams/<date> <title>.html in the vault; returns its path. */
 async function save(title, html) {
+  // The size first: cleaning a huge page with unclosed tags takes minutes.
+  if (Buffer.byteLength(String(html || '')) > MAX_BYTES) throw new Error('The page is over 2 MB; simplify it.');
   const page = sanitize(html);
   if (!/<(svg|html|body|div)\b/i.test(page)) throw new Error('That is not an HTML page or SVG drawing.');
-  if (Buffer.byteLength(page) > MAX_BYTES) throw new Error('The page is over 2 MB; simplify it.');
   const root = await obsidian.vaultPath();
   if (!root) throw new Error('Diagrams are saved in your vault, and no vault is set up.');
   const rel = `${FOLDER}/${obsidian.ymd()} ${fileName(title)}.html`;
   const full = resolveInside(root, rel);
   await fsp.mkdir(path.dirname(full), { recursive: true });
-  const doc = /<html\b/i.test(page) ? page : `<!doctype html>\n<html><head><meta charset="utf-8"><title>${fileName(title)}</title></head><body>\n${page}\n</body></html>\n`;
+  const doc = withCsp(/<html\b/i.test(page) ? page : `<!doctype html>\n<html><head><meta charset="utf-8"><title>${fileName(title)}</title></head><body>\n${page}\n</body></html>\n`);
   await fsp.writeFile(full, doc, 'utf8');
   return { path: full, vaultPath: rel, bytes: Buffer.byteLength(doc) };
 }

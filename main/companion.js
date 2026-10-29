@@ -167,6 +167,25 @@ async function writeDevices(list) {
   await store.writeJsonAtomic(devicesFile(), list);
 }
 
+// Every change to the device list, one at a time, each reading the file inside its turn. Requests used
+// to write back a list they had read before a "Remove device" or "View only", so a removed device could
+// bring itself back (security review 2026-10-29). change(list) edits the list in place or returns a new
+// one; false = nothing to write.
+let devicesQueue = Promise.resolve();
+function updateDevices(change) {
+  const run = devicesQueue.then(async () => {
+    const list = await readDevices();
+    const out = await change(list);
+    if (out !== false) await writeDevices(Array.isArray(out) ? out : list);
+  });
+  devicesQueue = run.catch(() => {});
+  return run;
+}
+// Removed in this run of the app: refused at once, whatever a file read a moment ago said.
+const removedIds = new Set();
+// One pending "last seen" write per device at a time (a flood of requests can't pile up writes).
+const seenPending = new Set();
+
 function init(h) {
   hooks = h;
 }
@@ -219,11 +238,11 @@ let warming = false;
 // A watch behind this device asked for the face: remember that, and when the face it got was recorded
 // (Settings → Remote access shows "watch face from 09:12").
 async function noteWatchFace(id, at) {
-  const list = await readDevices();
-  const d = list.find((x) => x.id === id);
-  if (!d) return;
-  Object.assign(d, { watch: true, faceAt: at || d.faceAt || null, faceSentAt: Date.now() });
-  await writeDevices(list).catch(() => {});
+  await updateDevices((list) => {
+    const d = list.find((x) => x.id === id);
+    if (!d) return false;
+    Object.assign(d, { watch: true, faceAt: at || d.faceAt || null, faceSentAt: Date.now() });
+  }).catch(() => {});
 }
 
 async function warmFace() {
@@ -302,9 +321,12 @@ function cancelPairing() {
 }
 
 async function revoke(id) {
-  const list = await readDevices();
-  const device = list.find((d) => d.id === id);
-  await writeDevices(list.filter((d) => d.id !== id));
+  removedIds.add(id);
+  let device = null;
+  await updateDevices((list) => {
+    device = list.find((d) => d.id === id) || null;
+    return list.filter((d) => d.id !== id);
+  });
   for (const st of streams) if (st.deviceId === id) (st.res.end(), streams.delete(st));
   presence.forget(id);
   facelinks.revoke(id);
@@ -316,11 +338,13 @@ async function revoke(id) {
 // but not chat, answer approvals, check habits off or use push-to-talk. Its open streams are closed so
 // it reconnects under the new rule (and stops getting approval cards).
 async function setReadOnly(id, on) {
-  const list = await readDevices();
-  const device = list.find((d) => d.id === id);
+  let device = null;
+  await updateDevices((list) => {
+    device = list.find((d) => d.id === id) || null;
+    if (!device) return false;
+    device.readOnly = Boolean(on);
+  });
   if (!device) return false;
-  device.readOnly = Boolean(on);
-  await writeDevices(list);
   for (const st of streams) if (st.deviceId === id) (st.res.end(), streams.delete(st));
   log.info('remote device access changed', { device: device.name, readOnly: device.readOnly });
   return true;
@@ -328,8 +352,12 @@ async function setReadOnly(id, on) {
 
 // "Remove all devices" (e.g. a phone was lost): every token stops working at once.
 async function revokeAll() {
-  const n = (await readDevices()).length;
-  await writeDevices([]);
+  let n = 0;
+  await updateDevices((list) => {
+    n = list.length;
+    for (const d of list) removedIds.add(d.id);
+    return [];
+  });
   for (const st of streams) st.res.end();
   streams.clear();
   presence.reset();
@@ -406,17 +434,26 @@ function messageForDevice(m) {
 }
 
 // expiresIn: seconds left, so a device that connects later shows the right countdown.
+// Approvals only the computer may answer: the assistant changing its own code, and a connected service
+// set to run without asking. Devices see them (so the user knows why the reply waits), without buttons.
+const DESKTOP_ONLY = new Set(['self_modify', 'connector_trust']);
+
 function approvalForDevice(a) {
   const { at, ...rest } = a;
-  return { ...rest, expiresIn: Math.max(0, Math.round((a.timeoutSec || 0) - (Date.now() - at) / 1000)) };
+  return { ...rest, desktopOnly: DESKTOP_ONLY.has(a.kind), expiresIn: Math.max(0, Math.round((a.timeoutSec || 0) - (Date.now() - at) / 1000)) };
 }
 
 // ------------------------------------------------------------- requests
 // Requests arrive as 127.0.0.1 / localhost / a LAN address with our port, or through the tunnel with
 // its public hostname (HTTPS at the edge). Anything else is refused (DNS rebinding).
-function hostKind(host) {
+// cloudflared and Tailscale Serve run on this computer, so tunnel traffic always arrives on a loopback
+// socket. The tunnel's name alone is not enough: anyone on the network could send that Host header
+// and pass for the secure address (redeem a move secret, set forwarding headers; review 2026-10-29).
+const isLoopback = (addr) => /^(127\.|::1$|::ffff:127\.)/.test(String(addr || ''));
+
+function hostKind(host, req) {
   const pub = tunnel.publicHost();
-  if (pub && host === pub) return 'tunnel';
+  if (pub && host === pub) return isLoopback(req?.socket?.remoteAddress) ? 'tunnel' : null;
   const names = ['127.0.0.1', 'localhost', ...(current.lan ? lanAddresses() : [])];
   return names.some((n) => host === `${n}:${current.port}`) ? 'local' : null;
 }
@@ -424,6 +461,13 @@ function hostKind(host) {
 function json(res, code, body) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
   res.end(JSON.stringify(body));
+}
+
+// An error's message for a device, without paths on this computer (a file error names the full path,
+// e.g. C:\Users\…\vault\note.md: EBUSY). The log keeps the whole error.
+function forDevice(err, fallback) {
+  const msg = String(err?.message || '').replace(/(?:[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|var|tmp)\/)[^\s'"`)]*/g, '…').slice(0, 300).trim();
+  return msg && msg !== '…' ? msg : fallback;
 }
 
 function fail(res, code, message, err) {
@@ -463,8 +507,11 @@ function readBody(req, { raw = false, max = MAX_BODY } = {}) {
 
 // Where a request came from, for the device list ("via the secure address, 203.0.113.7"). Through the
 // tunnel the socket is cloudflared or Tailscale on this computer, so their forwarding header is used.
+// The header is the tunnel's own: Cloudflare sets cf-connecting-ip at its edge (a client can't), while
+// Tailscale passes headers through, so there only the entry it appends last to x-forwarded-for counts.
 function clientAddress(req, kind) {
-  const fwd = kind === 'tunnel' ? String(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+  const mode = kind === 'tunnel' ? tunnel.status?.().mode : '';
+  const fwd = mode === 'cloudflare' || mode === 'quick' ? String(req.headers['cf-connecting-ip'] || '').trim() : kind === 'tunnel' ? String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() : '';
   const ip = (fwd || req.socket.remoteAddress || '').replace(/^::ffff:/, '').slice(0, 64);
   return { via: kind === 'tunnel' ? 'secure address' : ip === '127.0.0.1' || ip === '::1' ? 'this computer' : 'local network', ip };
 }
@@ -475,29 +522,36 @@ async function authenticate(req, kind) {
   const want = Buffer.from(hash(m[1]), 'hex');
   const list = await readDevices();
   const device = list.find((d) => /^[0-9a-f]{64}$/.test(d.tokenHash) && crypto.timingSafeEqual(Buffer.from(d.tokenHash, 'hex'), want));
-  if (!device) return null;
+  if (!device || removedIds.has(device.id)) return null;
   // A device unused for months (a lost or forgotten phone) is unpaired instead of let in.
   if (Date.now() - (device.lastSeen || device.createdAt || 0) > DEVICE_IDLE_MS) {
     log.info('remote device expired', { device: device.name });
     await revoke(device.id);
     return null;
   }
-  // lastSeen is coarse (one write per 5 minutes at most), the address is kept current.
+  // lastSeen is coarse (one write per 5 minutes at most), the address is kept current. Written through
+  // the queue, on the entry as it is then (never the list read above), and only if it still exists.
   const from = clientAddress(req, kind);
-  if (!device.lastSeen || Date.now() - device.lastSeen > 5 * 60 * 1000 || device.lastIp !== from.ip) {
-    if (device.lastIp && device.lastIp !== from.ip) log.info('remote device address changed', { device: device.name, via: from.via });
-    // A network this device was never seen on (a stolen token used elsewhere looks like this): tell the user.
-    const net = netOf(from.ip);
-    const known = Array.isArray(device.nets) ? device.nets : [];
-    if (net && !known.includes(net)) {
-      if (known.length) {
-        log.warn('remote device on a new network', { device: device.name, via: from.via });
-        hooks.notify({ type: 'new-network', name: device.name, via: from.via, ip: from.ip });
+  if ((!device.lastSeen || Date.now() - device.lastSeen > 5 * 60 * 1000 || device.lastIp !== from.ip) && !seenPending.has(device.id)) {
+    seenPending.add(device.id);
+    updateDevices((now) => {
+      const d = now.find((x) => x.id === device.id);
+      if (!d || removedIds.has(d.id)) return false;
+      if (d.lastIp && d.lastIp !== from.ip) log.info('remote device address changed', { device: d.name, via: from.via });
+      // A network this device was never seen on (a stolen token used elsewhere looks like this): tell the user.
+      const net = netOf(from.ip);
+      const known = Array.isArray(d.nets) ? d.nets : [];
+      if (net && !known.includes(net)) {
+        if (known.length) {
+          log.warn('remote device on a new network', { device: d.name, via: from.via });
+          hooks.notify({ type: 'new-network', name: d.name, via: from.via, ip: from.ip });
+        }
+        d.nets = [...known, net].slice(-20);
       }
-      device.nets = [...known, net].slice(-20);
-    }
-    Object.assign(device, { lastSeen: Date.now(), lastVia: from.via, lastIp: from.ip });
-    writeDevices(list).catch(() => {});
+      Object.assign(d, { lastSeen: Date.now(), lastVia: from.via, lastIp: from.ip });
+    })
+      .catch(() => {})
+      .finally(() => seenPending.delete(device.id));
   }
   return device;
 }
@@ -619,11 +673,25 @@ async function speak(req, res) {
   res.end(Buffer.from(audio));
 }
 
+// A few log lines per minute for refused requests, so a flood can't fill the log.
+const unknownHostLogs = (() => {
+  let minute = 0;
+  let n = 0;
+  return {
+    allow() {
+      const m = Math.floor(Date.now() / 60000);
+      if (m !== minute) (minute = m), (n = 0);
+      return ++n <= 5;
+    },
+  };
+})();
+
 async function route(req, res) {
   const host = req.headers.host || '';
-  const kind = hostKind(host);
+  const kind = hostKind(host, req);
   if (!kind) {
-    log.warn('remote request for an unknown host', { host: host.slice(0, 100) });
+    // At most a few lines a minute, however many such requests arrive.
+    if (unknownHostLogs.allow()) log.warn('remote request for an unknown host', { host: host.slice(0, 100) });
     return fail(res, 403, 'Unknown host');
   }
   for (const [k, v] of Object.entries(HEADERS)) res.setHeader(k, v);
@@ -735,6 +803,7 @@ async function route(req, res) {
     const body = await readBody(req).catch((e) => e);
     if (body instanceof Error) return fail(res, body.status || 400, body.message);
     if (!openApprovals.has(m[1])) return fail(res, 404, 'No open approval with that id');
+    if (DESKTOP_ONLY.has(openApprovals.get(m[1]).kind)) return fail(res, 403, 'Answer this one on your computer.');
     openApprovals.delete(m[1]);
     const allow = body.allow === true;
     log.info('remote approval', { device: device.name, allow });
@@ -755,7 +824,7 @@ async function transcribe(req, res, device) {
     log.info('remote transcription', { device: device.name, seconds: Math.round((wav.length - 44) / 32000), chars: text.length });
     return json(res, 200, { text });
   } catch (err) {
-    return fail(res, 502, err.message || 'Speech-to-text failed', err);
+    return fail(res, 502, forDevice(err, 'Speech-to-text failed'), err);
   }
 }
 
@@ -773,7 +842,7 @@ async function schedule(url, res) {
     const list = await calendar.events({ start: `${from}T00:00:00`, end: `${to}T00:00:00` });
     return json(res, 200, { events: list.map(({ id, entryId, title, location, notes, allDay, start, end, openEnd, recurring, rule }) => ({ id, entryId, title, location, notes, allDay, start, end, openEnd, recurring, rule })) });
   } catch (err) {
-    return fail(res, 503, err.message);
+    return fail(res, 503, forDevice(err, 'The schedule is not available right now'));
   }
 }
 
@@ -834,7 +903,7 @@ async function dataRoute(req, res, url, device) {
     }
     return fail(res, 404, 'Not found');
   } catch (err) {
-    return fail(res, err.status || (/vault|not found/i.test(err.message) ? 404 : 500), err.message.slice(0, 300), err);
+    return fail(res, err.status || (/vault|not found/i.test(err.message) ? 404 : 500), forDevice(err, 'Something went wrong on the computer'), err);
   }
 }
 
@@ -856,12 +925,14 @@ async function finishMove(res, secret) {
   const m = key && moves.get(key);
   if (m) moves.delete(key);
   if (!m || m.expiresAt < Date.now()) return fail(res, 403, 'This link has expired or was already used. Tap “Switch to the secure address” again.');
-  const list = await readDevices();
-  const device = list.find((d) => d.id === m.deviceId);
-  if (!device) return fail(res, 403, 'This device was removed on the computer. Pair it again.');
   const token = crypto.randomBytes(32).toString('base64url');
-  Object.assign(device, { tokenHash: hash(token), lastSeen: Date.now(), lastVia: 'secure address' });
-  await writeDevices(list);
+  let device = null;
+  await updateDevices((list) => {
+    device = removedIds.has(m.deviceId) ? null : list.find((d) => d.id === m.deviceId) || null;
+    if (!device) return false;
+    Object.assign(device, { tokenHash: hash(token), lastSeen: Date.now(), lastVia: 'secure address' });
+  });
+  if (!device) return fail(res, 403, 'This device was removed on the computer. Pair it again.');
   for (const st of streams) if (st.deviceId === device.id) (st.res.end(), streams.delete(st)); // they used the old token
   log.info('remote device moved to the secure address', { device: device.name });
   hooks.notify({ type: 'moved', name: device.name });
@@ -876,6 +947,12 @@ async function pair(req, res, kind) {
     return finishMove(res, String(body.move));
   }
   if (!pairing || pairing.expiresAt < Date.now()) return fail(res, 403, 'No pairing in progress. Start pairing on the desktop.');
+  // Wrong tries count per address: anyone could otherwise cancel the user's pairing with five bad
+  // codes (review 2026-10-29). An address that got it wrong too often is refused; the pairing itself
+  // ends only after many wrong tries in all, which still keeps guessing a six-digit code hopeless.
+  const ip = clientAddress(req, kind).ip;
+  pairing.byIp ||= new Map();
+  if ((pairing.byIp.get(ip) || 0) >= PAIR_TRIES) return fail(res, 429, 'Too many wrong codes from this device. Start pairing again on the desktop.');
   const code = String(body.code || '').trim();
   const secret = String(body.secret || '');
   // The typed code (six ASCII digits) or the QR code's secret; anything else counts as a wrong try.
@@ -883,7 +960,8 @@ async function pair(req, res, kind) {
     ? /^[A-Za-z0-9_-]{43}$/.test(secret) && crypto.timingSafeEqual(Buffer.from(hash(secret), 'hex'), Buffer.from(pairing.secretHash, 'hex'))
     : /^\d{6}$/.test(code) && crypto.timingSafeEqual(Buffer.from(code), Buffer.from(pairing.code));
   if (!ok) {
-    if (++pairing.tries >= PAIR_TRIES) pairing = null;
+    pairing.byIp.set(ip, (pairing.byIp.get(ip) || 0) + 1);
+    if (++pairing.tries >= PAIR_TRIES * 4) pairing = null;
     log.warn('remote pairing: wrong code');
     return fail(res, 403, 'Wrong code');
   }
@@ -891,7 +969,7 @@ async function pair(req, res, kind) {
   const token = crypto.randomBytes(32).toString('base64url');
   const from = clientAddress(req, kind);
   const device = { id: store.newId('dev'), name: String(body.name || 'Device').replace(/[^\w .()-]/g, '').slice(0, 40) || 'Device', tokenHash: hash(token), createdAt: Date.now(), lastSeen: Date.now(), lastVia: from.via, lastIp: from.ip, nets: netOf(from.ip) ? [netOf(from.ip)] : [] };
-  await writeDevices([...(await readDevices()), device]);
+  await updateDevices((list) => [...list, device]);
   log.info('remote device paired', { device: device.name });
   hooks.notify({ type: 'paired', name: device.name, via: from.via });
   return json(res, 200, { token, deviceId: device.id, name: device.name });

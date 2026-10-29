@@ -3,7 +3,7 @@ const fsp = require('fs').promises;
 const path = require('path');
 const { app } = require('electron');
 const store = require('./store');
-const { resolveInside, walk, toPosix, scoreText, queryTerms } = require('./files');
+const { resolveInside, hasReservedPart, walk, toPosix, scoreText, queryTerms } = require('./files');
 const codemap = require('./codemap');
 
 const IGNORE = ['node_modules', '.git', 'dist', 'out', 'build', '.cache', 'coverage'];
@@ -29,7 +29,7 @@ async function listFiles(dir = '') {
 async function readFile(rel, startLine, endLine) {
   const r = await root();
   const full = resolveInside(r, rel);
-  if (path.relative(r, full).split(path.sep).some((part) => IGNORE.includes(part))) {
+  if (hasReservedPart(path.relative(r, full), IGNORE)) {
     throw new Error('That folder is excluded from code access.');
   }
   const text = await fsp.readFile(full, 'utf8');
@@ -128,7 +128,8 @@ async function writable(rel) {
   const r = await root();
   if (r.includes('.asar')) throw new Error('Self-modification needs the app to run from source.');
   const full = resolveInside(r, rel);
-  if (path.relative(r, full).split(path.sep).some((part) => IGNORE.includes(part) || part === '.git')) throw new Error('That location cannot be modified.');
+  // Compared as the OS compares names: ".GIT/hooks" is .git/hooks on Windows (security review 2026-10-29).
+  if (hasReservedPart(path.relative(r, full), IGNORE)) throw new Error('That location cannot be modified.');
   return { r, full };
 }
 

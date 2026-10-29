@@ -107,7 +107,7 @@ async function notes(q = '') {
 /** One note, by its vault path (obsidian.readNote checks it stays inside the vault). */
 async function note(path) {
   const p = String(path || '');
-  if (!p || p.length > 400 || /(^|\/)\.\.?(\/|$)|^\/|\\|\0/.test(p) || /^\.obsidian\b/i.test(p)) throw Object.assign(new Error('Not a note'), { status: 400 });
+  if (!p || p.length > 400 || /(^|\/)\.\.?(\/|$)|^\/|\\|\0/.test(p) || /(^|\/)\.(obsidian|trash|git)\b/i.test(p)) throw Object.assign(new Error('Not a note'), { status: 400 }); // nor deleted notes (.trash), anywhere in the path
   const n = await require('./obsidian').readNote(p, 60000);
   return { path: n.path, title: n.title, modified: n.modified, content: n.content };
 }

@@ -112,9 +112,10 @@ function registerFacesProtocol() {
     const url = new URL(request.url);
     const name = decodeURIComponent(url.hostname);
     const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
-    if (!/^[\w.-]+$/.test(name) || rel.includes('..')) return new Response('Forbidden', { status: 403 });
+    // Inside that face's own folder only (faces.servedFile: never "." or ".." as the name).
+    let file = faces.servedFile(await facesDir(), name, rel);
+    if (!file) return new Response('Forbidden', { status: 403 });
     const headers = { 'Content-Security-Policy': "default-src 'self' 'unsafe-inline' data: blob:; connect-src 'none'; frame-src 'none'" };
-    let file = path.join(await facesDir(), name, rel);
     if (rel === 'core.js' && !require('fs').existsSync(file)) file = path.join(ROOT, 'renderer', 'faces', 'core.js');
     try {
       const data = await fsp.readFile(file);
@@ -327,8 +328,16 @@ async function registerShortcut() {
 }
 
 // --------------------------------------------------------------- IPC handlers
+// Only the app's own pages may call: every window with the preload loads app://bundle/renderer/…;
+// anything else in a frame (a site, a document) is refused, should it ever reach ipcRenderer.
+const fromApp = (e) => /^app:\/\/bundle\/renderer\//.test(e?.senderFrame?.url || '');
+
 function handle(channel, fn) {
-  ipcMain.handle(channel, async (_e, ...args) => {
+  ipcMain.handle(channel, async (e, ...args) => {
+    if (!fromApp(e)) {
+      log.warn('ipc refused', { channel, from: String(e?.senderFrame?.url || '').slice(0, 80) });
+      return { ok: false, error: 'Not allowed from this page.' };
+    }
     try {
       return { ok: true, data: await fn(...args) };
     } catch (err) {
@@ -583,7 +592,7 @@ function registerIpc() {
   handle('docs:recent', () => documents.recent());
   handle('docs:clearRecent', () => documents.clearRecent());
   handle('docs:roots', () => documents.allowedRoots());
-  handle('docs:showInFolder', (p) => shell.showItemInFolder(p));
+  handle('docs:showInFolder', async (p) => shell.showItemInFolder(await documents.resolveAllowed(p)));
   handle('docs:openExternal', async (p) => shell.openPath(await documents.resolveAllowed(p)));
 
   // Vault (the agent's own Obsidian vault)

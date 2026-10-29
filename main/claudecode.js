@@ -430,7 +430,8 @@ class Session {
       if (inside(codeRoot, file)) {
         if (!allowSelfModify) return { behavior: 'deny', message: 'Self-modification is disabled in Settings.' };
         const rel = path.relative(codeRoot, file).split(path.sep).join('/');
-        if (/^(node_modules|\.git)(\/|$)/.test(rel)) return { behavior: 'deny', message: 'node_modules/ and .git/ must not be modified.' };
+        // Any part, compared as the OS does (".GIT/hooks" is .git/hooks on Windows).
+        if (require('./files').hasReservedPart(rel, ['node_modules', '.git'])) return { behavior: 'deny', message: 'node_modules/ and .git/ must not be modified.' };
         const preview = String(input.new_string ?? input.content ?? '').slice(0, 600);
         const r = await approvals.gate(turnState, 'self_modify', `Change its own code (${rel})`, `${tool} ${rel}${preview ? `\n\n${preview}` : ''}`);
         return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
@@ -496,7 +497,7 @@ class Session {
     const repo = github.repoOf(file);
     if (!repo) return { behavior: 'deny', message: 'Edit files inside a cloned repository (owner/name folder).' };
     const rel = path.relative(github.localPath(repo), file).split(path.sep).join('/');
-    if (/^\.git(\/|$)/.test(rel)) return { behavior: 'deny', message: '.git must not be modified.' };
+    if (require('./files').hasReservedPart(rel, ['.git'])) return { behavior: 'deny', message: '.git must not be modified.' };
     let branch;
     try {
       ({ branch } = await github.requireWorkBranch(repo));

@@ -61,4 +61,18 @@ async function list() {
   return out;
 }
 
-module.exports = { dir, list, placeBundled, ROOT, BUNDLED };
+/**
+ * The file faces://<name>/<rel> serves from the faces folder `root`, or null when it would be outside
+ * that face's folder: a name of "." or ".." read the data folder (faces://../settings.json, security
+ * review 2026-10-29). name and rel are already decoded.
+ */
+function servedFile(root, name, rel) {
+  if (!/^[\w-][\w.-]*$/.test(String(name || '')) || String(rel || '').includes('..')) return null;
+  const base = path.resolve(root);
+  const faceRoot = path.resolve(base, name);
+  const file = path.resolve(faceRoot, rel || 'index.html');
+  if (path.dirname(faceRoot) !== base || !file.startsWith(faceRoot + path.sep)) return null;
+  return file;
+}
+
+module.exports = { dir, list, placeBundled, servedFile, ROOT, BUNDLED };
