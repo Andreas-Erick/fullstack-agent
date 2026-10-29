@@ -66,7 +66,7 @@ async function relevantMemories(query, { always = false, k = 8 } = {}) {
   return top.length ? `## Relevant memories (for this message)\n${top.map((m) => `- [${m.id}] (${m.category}) ${m.title}: ${m.content.replace(/\s*\n\s*/g, ' ').slice(0, 400)}`).join('\n')}` : '';
 }
 
-async function build(settings, activeToolNames = [], { forSession = false, query = '' } = {}) {
+async function build(settings, activeToolNames = [], { forSession = false, query = '', previousPersona = '' } = {}) {
   const { agent, voice, appearance } = settings;
   const viaClaudeCode = settings.llm.provider === 'claude-code';
   const has = (prefix) => activeToolNames.some((n) => n.startsWith(prefix));
@@ -84,7 +84,7 @@ async function build(settings, activeToolNames = [], { forSession = false, query
     learning: has('learning_') ? quiet(() => require('./learning').promptBlock()) : none,
     memory: has('memory_') ? memoryBlock() : none,
   };
-  const contextNow = forSession ? null : turnContext(settings, activeToolNames, null, { query });
+  const contextNow = forSession ? null : turnContext(settings, activeToolNames, null, { query, previousPersona });
 
   parts.push(
     `You are ${agent.name}, the user's personal AI assistant — an operator, not a chatbot. You run as a desktop app on the user's own computer, with a visual "face" that animates while you listen, think and speak. Your continuity comes from your vault: each session starts fresh, so keeping your notes accurate is part of keeping yourself working.`,
@@ -272,7 +272,7 @@ When one of your own parts misbehaves (no voice, the brain unreachable, the cale
   }
 
   const stable = parts.join('\n\n');
-  const context = await (contextNow || turnContext(settings, activeToolNames, memIds, { query }));
+  const context = await (contextNow || turnContext(settings, activeToolNames, memIds, { query, previousPersona }));
   return { stable, context, memIds, system: `${stable}\n\n${context}` };
 }
 
@@ -337,8 +337,16 @@ function coachingBlock(has) {
   return lines.join('\n');
 }
 
+// Who answers this message, every turn: after a persona switch the conversation keeps the earlier
+// persona's replies, and a model continued them ("I am Hastur" from the Ringmaster).
+function identityLine(name, previous = '') {
+  if (!name) return '';
+  const switched = previous && previous !== name ? ` The user just switched personas: the replies above were ${previous}'s, not yours; don't continue them as yours.` : '';
+  return `## Who you are\nYou are ${name}, in character.${switched} If earlier replies in this conversation speak as someone else, that was another of the user's personas, not you. Never call yourself a costume, a role or a persona you play, unless the user asks how the app works.`;
+}
+
 // Per-turn context. When `sessionMemIds` is given (warm session), report memory changes since then.
-async function turnContext(settings, activeToolNames, sessionMemIds, { query = '', relevant = true } = {}) {
+async function turnContext(settings, activeToolNames, sessionMemIds, { query = '', relevant = true, previousPersona = '' } = {}) {
   const has = (prefix) => activeToolNames.some((n) => n.startsWith(prefix));
   const now = new Date();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -356,6 +364,8 @@ async function turnContext(settings, activeToolNames, sessionMemIds, { query = '
   const lines = [
     `## Now\n${now.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })} (${tz}) · today is ${obsidian.ymd(now)}.\nComputer: ${os.type()} ${os.release()} (${process.platform}); user home: ${os.homedir()}.`,
   ];
+  const who = identityLine(settings.agent?.name, previousPersona);
+  if (who) lines.push(who);
   if (has('habit_')) {
     const habitsToday = await reads.habits;
     if (habitsToday) lines.push(habitsToday);
@@ -469,7 +479,7 @@ function comingDays(now = new Date()) {
   return `## Coming days\ntoday ${fmt(days[0])}, tomorrow ${fmt(days[1])}, then ${days.slice(2).map(fmt).join(', ')}.`;
 }
 
-async function buildCompact(settings, activeToolNames = [], { query = '' } = {}) {
+async function buildCompact(settings, activeToolNames = [], { query = '', previousPersona = '' } = {}) {
   const { agent } = settings;
   // A long master prompt as its short version (written by the local model, or the user), else its
   // digest (identity, how it speaks, lines it would say): personacore.forSmallModels.
@@ -496,7 +506,7 @@ async function buildCompact(settings, activeToolNames = [], { query = '' } = {})
   // small model answers from what it is given more reliably than it decides to search.
   // None matching is said too: given matches, a small model stopped searching and made the rest up.
   const memories = activeToolNames.some((n) => n.startsWith('memory_')) && query ? (await relevantMemories(query, { always: true, k: 5 }).catch(() => '')) || '## Relevant memories (for this message)\nNone of your saved memories match this message. Anything about the user not given here: look it up (vault_search) or say you don’t know; never make it up.' : '';
-  const raw = [memories, comingDays(), await turnContext(settings, activeToolNames, null, { query, relevant: false })].filter(Boolean).join('\n\n');
+  const raw = [memories, comingDays(), await turnContext(settings, activeToolNames, null, { query, relevant: false, previousPersona })].filter(Boolean).join('\n\n');
   const context = raw.length > COMPACT_CONTEXT_CHARS ? `${raw.slice(0, COMPACT_CONTEXT_CHARS)}\n…` : raw;
   const reminder = `Remember: ${persona ? `you are ${agent.name}; every reply in your persona’s voice. ` : ''}Short and true; act through tools, never just claim it; ask when unsure.`;
   return { stable, context, reminder, system: `${stable}\n\n${context}\n\n${reminder}` };

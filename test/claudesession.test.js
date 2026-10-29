@@ -90,3 +90,17 @@ test('two callers at once start one process for a conversation, not two', async 
     claudecode.endSession('race-1');
   }
 });
+
+test('a turn reports the session’s size: the biggest single call, not the sum', async () => {
+  const { sess } = session();
+  const turn = sess.send('hi', { emit() {}, signal: new AbortController().signal, ctx: {} });
+  const call = (read, created) => JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '.' }], usage: { input_tokens: 3, cache_read_input_tokens: read, cache_creation_input_tokens: created } } });
+  sess.onLine(call(300000, 1000));
+  sess.onLine(call(301000, 500));
+  sess.onLine(result('done'));
+  const r = await turn;
+  assert.strictEqual(r.contextTokens, 301503);
+  assert.strictEqual(claudecode.needsRollover(r.contextTokens), true);
+  assert.strictEqual(claudecode.needsRollover(40000), false);
+  clearTimeout(sess.idleTimer);
+});

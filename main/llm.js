@@ -289,6 +289,8 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   // logTags: tool calls that arrive later through other channels (the MCP bridge, the Claude Code
   // process's output) are logged under this turn too.
   const lastText = String(history[history.length - 1]?.content || '');
+  // The persona that wrote the latest reply (stored on it since 2.7.10): a switch mid-conversation is named.
+  const previousPersona = [...history].reverse().find((m) => m.role === 'assistant' && m.persona)?.persona || '';
   // Spoken turns stay quick unless they actually start engineering work (upgraded in runTool).
   // A routine's own instructions ("fix the errors in…") are not a request for code work.
   const engineering = !setup && !voice && !routine && isEngineeringTask(lastText);
@@ -309,8 +311,16 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
       opts.configKey = 'first-run-setup';
       opts.buildPrompt = async () => prompt.buildSetup(settings);
     }
-    const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText });
-    return claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
+    const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText, previousPersona });
+    const result = await claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
+    // A session grown too big (claudecode.ROLLOVER_TOKENS) is closed now and a fresh one started in the
+    // background, so the next message is quick; main.js then keeps no session id to resume.
+    if (!setup && claudecode.needsRollover(result.contextTokens)) {
+      claudecode.rollover(conv.id, result.contextTokens);
+      claudecode.prewarm({ id: conv.id, claudeSessionId: null }, opts).catch((error) => log.warn('prewarm failed', { error }));
+      return { ...result, rollover: true };
+    }
+    return result;
   }
   // A small local model gets the compact prompt and the everyday tools only (localcore.js).
   const localcore = require('./localcore');
@@ -339,7 +349,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     ctx.handOver = handOverTo ? { to: handOverTo, requested: '' } : null;
     // The prompt names only the everyday tools, so it stays the same when a group is added.
     const everyday = localcore.compactTools(active).map((t) => t.name);
-    const { system, stable, context, reminder } = await prompt.buildCompact(settings, [...everyday, ...extra.map((t) => t.name)], { query: lastText });
+    const { system, stable, context, reminder } = await prompt.buildCompact(settings, [...everyday, ...extra.map((t) => t.name)], { query: lastText, previousPersona });
     log.info('compact prompt', { model: model || settings.llm.model, tools: toolset.list.length, groups: loaded.join(',') || undefined, chars: system.length });
     // A local server reuses what it already read when the start of the request is unchanged: the
     // rules, the tools (which its template puts after the system text) and the history. So the
@@ -352,7 +362,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     if (ctx.handOver?.requested) result.handOver = ctx.handOver.requested;
     return result;
   }
-  const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText });
+  const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText, previousPersona });
   if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), conv, history, emit, signal, active, system, stable, context, ctx, images });
   return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active, system, ctx, images });
 }

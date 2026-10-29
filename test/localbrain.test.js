@@ -149,3 +149,15 @@ test('local models get the memories that match the message first, and hear when 
   assert.strictEqual(prompt.sharesWord('Wie heißt meine Schwester?', 'Meine Schwester heißt Lena'), true);
   assert.strictEqual(prompt.sharesWord('How are you this evening?', 'My sister lives in Hamburg'), false);
 });
+
+test('every message says who answers; right after a switch, whose the replies above were', async () => {
+  stub({ './logger': quietLog, './store': fileStore(tmpDir('nexus-compact-who-')), './memory': { list: async () => [], search: async () => [] }, './calendar': { promptBlock: async () => '' }, './obsidian': { ymd: () => '2026-10-30', startupContext: async () => '' } });
+  const prompt = load('main/prompt.js');
+  const settings = { agent: { name: 'Ringmaster', personality: 'Showman.' }, llm: {}, code: {} };
+  const same = await prompt.turnContext(settings, [], null, { previousPersona: 'Ringmaster' });
+  assert.ok(same.includes('## Who you are\nYou are Ringmaster, in character.'));
+  assert.doesNotMatch(same, /just switched/);
+  assert.match(same, /never call yourself a costume/i);
+  const after = (await prompt.buildCompact(settings, [], { previousPersona: 'Hastur' })).context;
+  assert.match(after, /just switched personas: the replies above were Hastur's, not yours/);
+});

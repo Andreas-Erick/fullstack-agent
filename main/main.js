@@ -936,12 +936,15 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
         raw: result.raw,
         model: result.model,
         provider: result.provider || settings.llm.provider,
+        persona: settings.agent?.name || undefined, // who answered: a later switch is named in the next turn's context
         createdAt: Date.now(),
       };
       if (deletedConversations.has(conv.id)) return onFinish?.({ ok: false, error: 'The conversation was deleted', conversationId: conv.id });
       const fresh = (await store.getConversation(conv.id)) || conv;
       fresh.messages.push(assistantMsg);
-      if (result.sessionId) fresh.claudeSessionId = result.sessionId;
+      // A session that rolled over (too big, llm.runOn) is not resumed: the next one starts fresh.
+      if (result.rollover) fresh.claudeSessionId = null;
+      else if (result.sessionId) fresh.claudeSessionId = result.sessionId;
       if (result.convPatch) Object.assign(fresh, result.convPatch);
       await store.saveConversation(fresh);
       emit({ type: 'done', message: stripRaw(assistantMsg) });
