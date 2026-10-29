@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.7.6 — 2026-10-29
+
+Security fixes from a review of remote access, file handling and the app's windows:
+- A phone or tablet you remove stays removed. While it kept sending requests, its own requests could write the device list back as it was a moment before "Remove device" or "Remove all devices", and bring it back (or undo "View only"). Changes to the device list now happen one at a time, and a removed device is refused at once.
+- Only traffic that really comes through your secure address (Cloudflare or Tailscale, both running on this computer) counts as such. Someone on your network could claim to be it by sending its name. Their forwarding headers are trusted only as each service sets them.
+- Someone else's wrong pairing codes can no longer cancel your pairing: wrong codes count per device.
+- The agent window no longer reaches this computer or your network through names like "localhost." (with a trailing dot) or public names that point to a local address, and only the globe's own pages may talk to the globe's server. Web pages the assistant fetches can't redirect it to a local address either.
+- Self-changes and vault notes can't reach `.git` or `node_modules` by writing them in another case (`.GIT`), and no file access goes through a link or junction to outside the allowed folders.
+- Diagrams are saved with a rule that stops scripts and outside requests, also when you open one in your browser, and their cleaning is stronger. The scene behind the face is cleaned more thoroughly too.
+- Anki packages can't unpack media past the size limit by understating their sizes.
+- Custom faces are served only from their own folder, the app's windows answer only the app's own pages, the phone can't read deleted notes, and error messages sent to the phone no longer include file paths.
+- During setup, moving the vault to another folder asks you in the app, like choosing the workspace does.
+- Two kinds of approval are answered only on your computer: your assistant changing its own code, and letting a connected service run without asking. Your phone shows them, with "Approve or deny this one on your computer" instead of the buttons.
+
 ## 2.7.5 — 2026-10-29
 
 - A local brain can hand hard messages to Claude. Turn on Settings → AI brain → "Hand hard messages to Claude": your local model still answers what it can, quickly and on your computer, but messages that need code, one of your connected services, several steps or careful reasoning go to your Claude account (or API key) instead, and the chat says so. It never hands over after it already saved or changed something in that message. Off unless you turn it on, because those messages then leave your computer.
