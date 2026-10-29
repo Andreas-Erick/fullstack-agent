@@ -151,7 +151,7 @@ const FEATURES = [
   {
     id: 'local-brain',
     title: 'A brain on your own computer',
-    what: 'A small model running on this computer with Ollama or LM Studio: free, private, and quick for short replies. Small models get a compact prompt and the everyday tools, which they follow much better than the full one. In multi-provider mode it answers quick spoken replies first and the cloud brains take the rest.',
+    what: 'A model running on this computer with Ollama or LM Studio: free, private, and quick. It gets a compact prompt and the everyday tools, and asks for more (learning, documents, routines, habits…) when a task needs them; they stay for the rest of the conversation. Everyday messages are answered without hidden thinking, so the first word comes in well under a second once the model is loaded. In multi-provider mode it answers quick spoken replies first and the cloud brains take the rest.',
     say: ['"Which local model should I use?"'],
     where: 'Settings → AI brain → FreeLLMAPI / local → Find local models, or Multi-provider → Local model.',
     status: (s) => (s.local?.model ? `local model: ${s.local.model}` : s.llm?.provider === 'openai' && s.llm?.model ? `model: ${s.llm.model}` : 'not set up'),

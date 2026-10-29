@@ -62,6 +62,7 @@ const DEFAULTS = {
     model: 'default', // default | opus | sonnet | haiku | fable | full model id
     effort: 'default',
     fastModel: 'haiku',
+    normalModel: 'sonnet', // messages that are neither quick nor deep (pace.js); '' = the model above
     deepModel: 'opus',
     idleMinutes: 20, // keep the warm session alive this long between turns
     warmOnLaunch: true,
@@ -79,6 +80,7 @@ const DEFAULTS = {
     fallbacks: true,
     maxTokens: 64000,
     fastModel: 'claude-haiku-5-5',
+    normalModel: 'claude-sonnet-5-5', // messages that are neither quick nor deep (pace.js); '' = the model above
     deepModel: 'claude-opus-5-5',
   },
   // Multi-provider mode (llm.provider = 'auto'): the user's ranked list of brains. A turn goes to the

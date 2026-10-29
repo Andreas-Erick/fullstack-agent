@@ -16,8 +16,8 @@ const { FACES, obj, str, UNTRUSTED_NOTICE, requireApproval } = require('./tools/
 const ENDPOINTS = new Set(['llm.baseUrl', 'voice.baseUrl']);
 const SETTABLE = {
   llm: ['baseUrl', 'model', 'temperature', 'maxTokens', 'historyLimit', 'modelMode', 'autoPace', 'fastModel', 'deepModel', 'maxToolRounds', 'engineeringToolRounds'],
-  claudeCode: ['model', 'effort', 'fastModel', 'deepModel', 'idleMinutes'],
-  anthropic: ['model', 'effort', 'fastModel', 'deepModel'],
+  claudeCode: ['model', 'effort', 'fastModel', 'normalModel', 'deepModel', 'idleMinutes'],
+  anthropic: ['model', 'effort', 'fastModel', 'normalModel', 'deepModel'],
   voice: ['ttsEnabled', 'autoSpeak', 'baseUrl', 'model', 'voice', 'speed', 'format', 'greetOnLaunch', 'speakLimit', 'thinkingSound', 'thinkingVolume', 'filler', 'fallback', 'localVoice'],
   stt: ['enabled', 'engine', 'localModel', 'language', 'pttKey', 'autoSend', 'micMode', 'micDevice', 'headphones', 'vadSensitivity'],
   calendar: ['daysAhead'],
@@ -87,6 +87,7 @@ const TOOLS = [
   ...require('./tools/code'),
   ...require('./tools/mechanic'),
   ...require('./tools/brain'),
+  ...require('./tools/toolbox'),
   ...require('./tools/guide'),
   ...require('./tools/browser'),
   ...require('./tools/learning'),
@@ -300,7 +301,8 @@ async function activeTools(settings, { setup = false } = {}) {
   const vault = await obsidian.vaultPath().catch(() => null);
   const viaClaudeCode = settings.llm.provider === 'claude-code';
   return TOOLS.filter((t) => {
-    if (t.group === 'setup') return false;
+    // tools_more only exists for the compact prompt, which adds it itself (llm.js runOn).
+    if (t.group === 'setup' || t.group === 'toolbox') return false;
     // Claude Code edits with its own tools, but still states its plan for approval first.
     if (viaClaudeCode && NATIVE_IN_CLAUDE_CODE.includes(t.group) && t.name !== 'self_change_plan') return false;
     if (t.group === 'calendar') return settings.calendar.enabled && Boolean(vault);

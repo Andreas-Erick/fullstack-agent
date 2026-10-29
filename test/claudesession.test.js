@@ -61,3 +61,28 @@ test('a session restart names what changed', () => {
   assert.strictEqual(claudecode.changedParts(before, { config: 'a', tools: ['x', 'z'], effort: 'high' }), 'tools +z -y; effort');
   assert.strictEqual(claudecode.changedParts(before, before), '');
 });
+
+// Regression: the prewarm and the first message both found no live process while the prompt was
+// being built, and each started one (two "claude session started" for one conversation at once).
+test('two callers at once start one process for a conversation, not two', async () => {
+  let spawned = 0;
+  const realSpawn = claudecode.Session.prototype.spawn;
+  claudecode.Session.prototype.spawn = async function (spec) {
+    spawned++;
+    await new Promise((r) => setTimeout(r, 20));
+    this.child = { exitCode: null, stdin: { write() {} }, once() {}, pid: spawned };
+    this.dead = false;
+    this.spec = spec;
+    this.key = spec.key;
+  };
+  try {
+    const settings = { claudeCode: {}, web: { enabled: false }, code: { allowSelfModify: false }, extensions: {}, perf: { mode: 'full' } };
+    const opts = { settings, configKey: 'k', activeTools: [], cwd: process.cwd(), model: 'haiku', buildPrompt: async () => (await new Promise((r) => setTimeout(r, 20)), { stable: 'p', memIds: [] }) };
+    const conv = { id: 'race-1' };
+    await Promise.all([claudecode.prewarm(conv, opts), claudecode.prewarm(conv, opts)]);
+    assert.strictEqual(spawned, 1);
+  } finally {
+    claudecode.Session.prototype.spawn = realSpawn;
+    claudecode.endSession('race-1');
+  }
+});

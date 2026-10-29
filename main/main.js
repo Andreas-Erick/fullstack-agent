@@ -621,6 +621,15 @@ function registerIpc() {
   handle('claude:logout', () => claudecode.openLogin('logout'));
   handle('claude:installHint', () => claudecode.installHint());
   handle('claude:connectors', () => claudecode.listConnectors());
+  // A connector's permission level from Settings: applied to the saved lists here, never rebuilt from
+  // the window's copy, which can miss an "Always allow…" given in an approval meanwhile.
+  handle('claude:setConnectorLevel', async (key, level) => {
+    const connectors = require('./connectors');
+    if (!connectors.LEVELS.includes(level)) throw new Error(`Unknown level "${level}".`);
+    const server = connectors.serverKey(key);
+    if (!server || server === connectors.OWN_SERVER) throw new Error('Unknown connector.');
+    return store.setSettings({ claudeCode: connectors.levelPatch((await store.getSettings()).claudeCode, server, level) });
+  });
   // How much of the Claude plan is left (claudeusage.js); updates arrive as `claude:usage` events.
   handle('claude:usage', () => require('./claudeusage').get());
   // The title-bar system monitor (sysmon.js): samples only while the window watches; the numbers go
@@ -998,6 +1007,13 @@ app.whenReady().then(async () => {
   });
   // A persona switch or a changed look reaches paired phones (and, through them, the watch) at once.
   store.onChange((s, patch) => companion.settingsChanged(patch));
+  // Connector levels also change outside the window (an approval's "Always allow…", the tool
+  // connector_permission): the window gets the saved lists, so Settings shows and keeps them.
+  store.onChange((s, patch) => {
+    if (['connectorsAllowed', 'connectorsReadOnly', 'connectorsWrite'].some((k) => patch?.claudeCode?.[k])) {
+      toWindow('claude:connectorLevels', { connectorsAllowed: s.claudeCode.connectorsAllowed, connectorsReadOnly: s.claudeCode.connectorsReadOnly, connectorsWrite: s.claudeCode.connectorsWrite });
+    }
+  });
   require('./tunnel').setListener((st) => send('remote:event', { type: 'tunnel', tunnel: st }));
   screenshare.setListener((st) => send('screen:state', st));
   docwindows.init({ root: ROOT, preload: path.join(ROOT, 'preload.js'), mainWindow: () => win, agentWindow: () => agentwindow.window(), guard: guardNavigation, captureConsole });

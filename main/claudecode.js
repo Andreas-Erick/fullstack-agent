@@ -685,12 +685,25 @@ function changedParts(before = {}, after = {}) {
   return out.join('; ');
 }
 
-async function ensureSession(conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, folders, model, effort }) {
+// One at a time per conversation: the prewarm and the first message (or two windows' events) used to
+// both find no live process while the prompt was being built, and each started one (two "claude
+// session started" for one conversation in the same millisecond). The second now waits and reuses it.
+async function ensureSession(conv, opts) {
   let session = sessions.get(conv.id);
   if (!session) {
     session = new Session(conv.id);
     sessions.set(conv.id, session);
   }
+  const run = (session.ensuring || Promise.resolve()).catch(() => {}).then(() => startOrReuse(session, conv, opts));
+  session.ensuring = run;
+  try {
+    return await run;
+  } finally {
+    if (session.ensuring === run) session.ensuring = null;
+  }
+}
+
+async function startOrReuse(session, conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, folders, model, effort }) {
   const spec = sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, folders, model });
   if (session.alive() && session.key === spec.key) {
     session.setModel(model);

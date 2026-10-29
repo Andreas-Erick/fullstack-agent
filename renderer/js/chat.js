@@ -378,6 +378,7 @@ const TOOL_LABELS = {
   settings_update: '⚙ Changed a setting',
   brain_options: '🧠 Checked its brains',
   brain_switch: '🧠 Switched brain',
+  tools_more: '🧰 Got more tools',
   Read: '💾 Read file',
   Edit: '🛠 Edited file',
   Write: '🛠 Wrote file',

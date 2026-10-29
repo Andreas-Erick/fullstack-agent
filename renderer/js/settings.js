@@ -416,11 +416,11 @@ const levelOf = (key) => {
   const l = levelLists();
   return l.all.has(key) ? 'all' : l.write.has(key) ? 'write' : l.read.has(key) ? 'read' : 'ask';
 };
+// Saved in the main process on the stored lists (main.js claude:setConnectorLevel): rebuilding all
+// three lists from this window's copy erased "Always allow…" choices made in an approval meanwhile.
 async function setLevel(key, level) {
-  const l = levelLists();
-  for (const set of Object.values(l)) set.delete(key);
-  l[level]?.add(key);
-  await saveSettings({ claudeCode: { connectorsAllowed: [...l.all], connectorsReadOnly: [...l.read], connectorsWrite: [...l.write] } });
+  state.settings = await api.claude.setConnectorLevel(key, level);
+  emit('settings', state.settings);
 }
 function permissionLevel(key, { disabled = false } = {}) {
   const level = levelOf(key);
@@ -646,6 +646,7 @@ function brainCard() {
       ),
       text('claudeCode.cliPath', 'Path to the claude executable', { placeholder: 'auto-detect', hint: 'Uses your Claude subscription through Claude Code — no API key. Claude Code’s own web search and file tools are available to the agent; usage counts toward your plan’s limits.' }),
       el('div', { class: 'grid2' }, text('claudeCode.fastModel', 'Fast model', { placeholder: 'haiku' }), text('claudeCode.deepModel', 'Deep model', { placeholder: 'opus' })),
+      text('claudeCode.normalModel', 'Model for everyday messages', { placeholder: 'same as Model', hint: 'Quick lookups use the fast model, explanations and plans the deep one, everything else this one. Sonnet starts a reply that uses tools in a few seconds; Opus often takes 15. Empty = the model above.' }),
       el('div', { class: 'grid2' }, toggle('claudeCode.warmOnLaunch', 'Keep a warm session (faster replies)'), text('claudeCode.idleMinutes', 'Close idle session after (min)', { type: 'number' })),
       connectorsSection(),
     );
@@ -692,6 +693,7 @@ function brainCard() {
       ),
       toggle('anthropic.fallbacks', 'Server-side fallback when a request is declined by safety classifiers'),
       el('div', { class: 'grid2' }, select('anthropic.fastModel', 'Fast model', CLAUDE_MODELS), select('anthropic.deepModel', 'Deep model', CLAUDE_MODELS)),
+      select('anthropic.normalModel', 'Model for everyday messages', [['', 'Same as Model'], ...CLAUDE_MODELS], { hint: 'Quick lookups use the fast model, explanations and plans the deep one, everything else this one.' }),
     );
   }
   body.push(
@@ -729,8 +731,8 @@ const PROVIDER_HINT = {
 
 // Small local models: a short prompt and the everyday tools (main/localcore.js compactWanted).
 const compactSelect = () =>
-  select('llm.compactPrompt', 'Prompt for small models', [['auto', 'Automatic (compact for small local models)'], ['on', 'Always compact'], ['off', 'Always the full prompt']], {
-    hint: 'A 3–14B model follows a short, plain prompt with a few tools much better than the full one. Automatic uses it for local models up to 14B.',
+  select('llm.compactPrompt', 'Prompt for local models', [['auto', 'Automatic (compact for every local model)'], ['on', 'Always compact'], ['off', 'Always the full prompt']], {
+    hint: 'A local model re-reads the whole prompt with every message. The compact one (the everyday tools, a few hundred words) answers in a second or two; the full one has every tool and is slow on most computers, and can overflow a local model’s memory. Quick and normal messages are answered without hidden thinking; deep questions may think.',
   });
 
 // Finds Ollama and LM Studio on this computer and the models they have; picking one fills in the

@@ -21,6 +21,7 @@ const { isEngineeringTask, toolBudget, upgradeBudget, turnEffort } = require('./
 const pace = require('./pace');
 
 const noToolSupport = new Set(); // `${baseUrl}|${model}` combos that rejected the tools parameter
+const noExtras = new Set(); // combos that rejected localcore.requestExtras (keep_alive, reasoning_effort)
 
 function trimBase(url) {
   return String(url || '').trim().replace(/\/+$/, '');
@@ -142,7 +143,8 @@ async function testAll(settings, started) {
 // `mode` overrides both (the turn's pace, pace.js).
 function effectiveModel(settings, { voice = false, mode: forced } = {}) {
   const mode = forced || (voice && settings.llm.voiceUsesFast ? 'fast' : settings.llm.modelMode || 'default');
-  const pick = (cfg, base) => (mode === 'fast' && cfg.fastModel) || (mode === 'deep' && cfg.deepModel) || base;
+  // 'normal' (pace.js, model mode Default only): the provider's normalModel if it has one, else its model.
+  const pick = (cfg, base) => (mode === 'fast' && cfg.fastModel) || (mode === 'deep' && cfg.deepModel) || (mode === 'normal' && cfg.normalModel) || base;
   if (settings.llm.provider === 'claude-code') return pick(settings.claudeCode, settings.claudeCode.model);
   if (settings.llm.provider === 'anthropic') return pick(settings.anthropic, settings.anthropic.model);
   return pick(settings.llm, settings.llm.model);
@@ -153,7 +155,7 @@ function sessionConfigKey(settings) {
   const { agent, appearance, voice, safety, code, web } = settings;
   return JSON.stringify([agent.name, agent.personality, agent.aesthetic, appearance.personaNotes, voice.ttsEnabled && voice.autoSpeak, safety.permissionMode, code.enabled, code.allowSelfModify, web.enabled, PROMPT_VERSION]);
 }
-const PROMPT_VERSION = 11;
+const PROMPT_VERSION = 12;
 
 async function claudeCodeOptions(settings, active, model) {
   const names = active.map((t) => t.name);
@@ -233,7 +235,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   // How much thinking this message needs (pace.js): a lookup gets the fast model at low effort.
   const base = settings.llm.provider === 'claude-code' ? settings.claudeCode.effort : settings.llm.provider === 'anthropic' ? settings.anthropic.effort : 'default';
   const paced = pace.plan(settings, { text: lastText, voice, setup, engineering, base });
-  const ctx = { emit, turn: approvals.newTurn(), logTags: log.context(), budget: toolBudget(settings, engineering), effort: paced.effort };
+  const ctx = { emit, turn: approvals.newTurn(), logTags: log.context(), budget: toolBudget(settings, engineering), effort: paced.effort, pace: paced.pace };
   // A screenshot can contain anything on screen (web pages, emails): it is external content.
   if (images.length) approvals.markTainted(ctx.turn, 'the shared screen');
   const model = effectiveModel(settings, { voice, mode: paced.mode });
@@ -250,12 +252,39 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   }
   // A small local model gets the compact prompt and the everyday tools only (localcore.js).
   const localcore = require('./localcore');
-  if (!setup && settings.llm.provider === 'openai' && localcore.compactWanted(settings, model)) {
-    const keep = new Set(localcore.COMPACT_TOOLS);
-    const few = active.filter((t) => keep.has(t.name));
-    const { system } = await prompt.buildCompact(settings, few.map((t) => t.name), { query: lastText });
-    log.info('compact prompt', { model: model || settings.llm.model, tools: few.length, chars: system.length });
-    return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active: few, system, ctx, images });
+  if (!setup && settings.llm.provider === 'openai' && localcore.compactWanted(settings)) {
+    // The everyday tools, the groups this conversation loaded before or this message obviously needs,
+    // and tools_more for the rest (localcore.js TOOLBOX).
+    const loaded = [...new Set([...(Array.isArray(conv.toolGroups) ? conv.toolGroups : []), ...localcore.hintGroups(lastText)])].filter((g) => localcore.TOOLBOX[g]);
+    const more = tools.TOOLS.find((t) => t.name === 'tools_more');
+    const toolset = {
+      loaded,
+      changed: loaded.length !== (conv.toolGroups || []).length,
+      list: [...localcore.compactTools(active, loaded), more],
+      add(group) {
+        if (!localcore.TOOLBOX[group] || this.loaded.includes(group)) return [];
+        const before = new Set(this.list.map((t) => t.name));
+        this.loaded.push(group);
+        this.changed = true;
+        this.list = [...localcore.compactTools(active, this.loaded), more];
+        const added = this.list.filter((t) => !before.has(t.name)).map((t) => t.name);
+        log.info('tools loaded', { group, added: added.length });
+        return added;
+      },
+    };
+    ctx.toolset = toolset;
+    // The prompt names only the everyday tools, so it stays the same when a group is added.
+    const everyday = localcore.compactTools(active).map((t) => t.name);
+    const { system, stable, context, reminder } = await prompt.buildCompact(settings, [...everyday, 'tools_more'], { query: lastText });
+    log.info('compact prompt', { model: model || settings.llm.model, tools: toolset.list.length, groups: loaded.join(',') || undefined, chars: system.length });
+    // A local server reuses what it already read when the start of the request is unchanged: the
+    // rules, the tools (which its template puts after the system text) and the history. So the
+    // per-message part (time, calendar, recalled memories) goes in front of the newest message,
+    // and only that and the message are read again: first word in ~0.2 s instead of ~2.5 s.
+    const local = localcore.isLocal(settings);
+    const result = await runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active: toolset.list, system: local ? `${stable}\n\n${reminder}` : system, turnNote: local ? context : '', ctx, images });
+    if (toolset.changed) result.convPatch = { ...(result.convPatch || {}), toolGroups: toolset.loaded };
+    return result;
   }
   const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText });
   if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), conv, history, emit, signal, active, system, stable, context, ctx, images });
@@ -484,7 +513,9 @@ async function compactHistory(settings, conv, history, limit = Math.max(4, setti
   }
 }
 
-async function runOpenAI({ settings, conv, history, emit, signal, active, system, ctx, images = [] }) {
+// turnNote: this message's context, put in front of the newest user message instead of the system
+// prompt (local servers, see runOn), so the unchanged start of the request is reused.
+async function runOpenAI({ settings, conv, history, emit, signal, active, system, turnNote = '', ctx, images = [] }) {
   const base = trimBase(settings.llm.baseUrl);
   const plain = Boolean(settings.llm.plainHistory);
   if (plain) active = [];
@@ -500,10 +531,15 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
   }
   const comboKey = `${base}|${model}`;
   let useTools = active.length > 0 && !noToolSupport.has(comboKey);
-  const fnTools = active.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+  // Built per round: tools_more (a local model's toolset, see runOn) can add tools mid-turn.
+  const fnTools = () => (plain ? [] : ctx.toolset?.list || active).map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
 
   const compacted = await compactHistory(settings, conv, history);
   let messages = [{ role: 'system', content: compacted.summary ? `${system}\n\n## Earlier in this conversation (summary)\n${compacted.summary}` : system }, ...openaiHistory(history, settings.llm.historyLimit, { plain })];
+  const newest = messages[messages.length - 1];
+  if (turnNote && newest?.role === 'user' && typeof newest.content === 'string') {
+    messages = [...messages.slice(0, -1), { ...newest, content: `[Context for this message, not from the user]\n${turnNote}\n[End of context]\n\n${newest.content}` }];
+  }
   const textOnly = messages;
   messages = withImages(messages, images);
   const turnMessages = []; // what we append during this turn (for faithful replay later)
@@ -519,7 +555,8 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       temperature: Number(settings.llm.temperature),
       max_tokens: Number(settings.llm.maxTokens) || undefined,
     };
-    if (useTools && round < ctx.budget.rounds) payload.tools = fnTools;
+    if (useTools && round < ctx.budget.rounds) payload.tools = fnTools();
+    if (!noExtras.has(comboKey)) Object.assign(payload, require('./localcore').requestExtras(settings, ctx.pace));
 
     if (fullText && !fullText.endsWith('\n')) {
       fullText += '\n\n';
@@ -533,6 +570,12 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       if (messages !== textOnly && [400, 404, 415, 422].includes(err.status) && round === 0) {
         messages = textOnly;
         emit({ type: 'notice', message: `Model "${model}" can't see images — continuing without the shared screen.` });
+        round--;
+        continue;
+      }
+      // A server that refuses the local extras (keep_alive, reasoning_effort): retry without them.
+      if ((payload.keep_alive || payload.reasoning_effort) && [400, 422].includes(err.status) && !noExtras.has(comboKey)) {
+        noExtras.add(comboKey);
         round--;
         continue;
       }
