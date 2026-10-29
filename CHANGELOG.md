@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.7.2 — 2026-10-29
+
+- Local brains are fast now. A local model used to get the full prompt with every tool (about 26,000 tokens), which it read again for every message, and a thinking model like Qwen also thought silently before answering: 20–30 seconds to the first word with a 27B model. Every local model now gets the compact prompt with the everyday tools. Quick and normal messages are answered without hidden thinking (deep questions still may think). The parts that change with each message come last, so Ollama reuses everything it already read. Ollama keeps the model loaded for 30 minutes instead of 5. Measured with a 27B model on Ollama: the first word in 0.2–0.5 s instead of 20 s. It also fixes a local model getting the time wrong: the full prompt overflowed its memory and the start, with the time, was cut off.
+- A local brain asks for more tools when it needs them. It starts with the everyday ones (memory, calendar, habits, notes, the web) and gets a group like learning, documents, routines or your persona when a task needs it. An obvious need ("quiz me on my flashcards") loads it from the start. The group stays for the rest of the conversation, so the speed holds.
+- Faster Claude replies: everyday messages now go to Sonnet instead of Opus. Quick ones still go to Haiku, and explanations, plans and deep questions to your main model. Opus took about 15 seconds to start a reply that used tools. Choose another model under Settings → AI brain → "Model for everyday messages", or leave it empty to use your main model for everything.
+- "What's on my TickTick today?" is answered at once. The tasks your assistant last synced from Todoist or TickTick (the ones the Calendar view shows) are in its notes with each message, with when they were fetched. It answers from that copy while it is recent (up to 6 hours), and goes to the service itself to change a task, for other days, when you want it fresh, or when the copy is older.
+- Fewer lookups for connectors: your assistant loads all the tools of a service it needs at once, the first time it uses that service in a conversation, instead of looking up each tool separately.
+- Fixed: a conversation could start two Claude processes at the same moment (the warm-up and the first message both started one). The second now waits and uses the first.
+- "How are you?" is small talk again: it was treated as a deep question.
+- "Always allow…" for a connector stays allowed. The Settings screen kept its own old copy of the permission lists. Changing any connector there afterwards saved that copy and erased what you had allowed in an approval dialog, so the connector asked again after a restart. Levels are now changed on the saved lists, and Settings is updated when you allow something in a dialog.
+
 ## 2.7.1 — 2026-10-29
 
 - Switch brains by asking. "Switch to a local model", "switch back to the Claude brain", "which brains can I use?": your assistant lists the brains that are ready (your Claude account, a Claude API key, a local model in Ollama or LM Studio, Gemini, DeepSeek, Groq, Perplexity, FreeLLMAPI or multi-provider mode), asks which one you want, and switches from your next message on. For a local model it offers the ones installed. A small local brain can switch back too.
