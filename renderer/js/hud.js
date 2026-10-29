@@ -191,7 +191,7 @@ function reticle() {
 // ------------------------------------------------------------ boot screen
 // A short systems check while the app starts. It lists what is actually configured (not invented
 // readings); real connectivity shows in the status pills right after. Click to skip.
-const PROVIDERS = { 'claude-code': 'Claude account', anthropic: 'Claude API', auto: 'Multi-provider', openai: 'OpenAI-compatible' };
+const PROVIDERS = { 'claude-code': 'Claude account', anthropic: 'Claude API', auto: 'Multi-provider', openai: 'OpenAI-compatible', local: 'Local model', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', perplexity: 'Perplexity' };
 
 export function bootScreen() {
   const s = state.settings;

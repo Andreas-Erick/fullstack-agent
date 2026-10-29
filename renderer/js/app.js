@@ -424,6 +424,9 @@ function setPill(id, cls, title) {
   p.title = title;
 }
 
+// Brains that answer on their own with their settings in their own section (main/braincore.js).
+const SINGLE = { local: 'Local model', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', perplexity: 'Perplexity' };
+
 async function refreshStatus() {
   const s = state.settings;
   // Brain
@@ -444,6 +447,14 @@ async function refreshStatus() {
       .catch((e) => setPill('#pillLlm', 'err', e.message));
   } else if (s.llm.provider === 'anthropic') {
     setPill('#pillLlm', s.anthropic.apiKey ? 'ok' : 'err', s.anthropic.apiKey ? `Claude · ${s.anthropic.model}` : 'Claude: API key missing');
+  } else if (SINGLE[s.llm.provider]) {
+    // One multi-provider brain on its own (switched in the chat): its model is in its own section.
+    const name = SINGLE[s.llm.provider];
+    const model = s[s.llm.provider]?.model;
+    api.llm
+      .models()
+      .then(() => setPill('#pillLlm', model ? 'ok' : 'warn', `${name} · ${model || 'no model picked'}`))
+      .catch((e) => setPill('#pillLlm', 'err', `${name} unreachable: ${e.message}`));
   } else {
     api.llm
       .models()
