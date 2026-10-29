@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.7.7 — 2026-10-29
+
+- Importing flashcards from a CSV, TSV or text file: Import now asks first whether to skip the first line, for files whose first line only names the columns ("Spanish word, English meaning"). The choice is remembered. A first line like "Front, Back" is still recognised and skipped on its own. You can also say it to your assistant ("import cards.csv, the first line is just the column names").
+- A local brain no longer says "I don't have that information" before looking. When its first reply gives up without using a tool, that reply is taken back and it searches your memories and notes first (once per message). In the test set, the 8B model on its own now passes all 27 cases.
+- Phones and tablets set to view only can no longer have the computer read text aloud. A device only asks for speech for its own replies, and a view-only device sends no messages.
+- Looking at the village on your phone no longer saves anything. Only the Inner World view on the computer records level-ups and the timelapse.
+- Imported flashcards keep text like `<b>` or `<img …>` as text. Obsidian showed it as real HTML.
+- The agent window checks again where a site's name points within two seconds, instead of reusing the answer for a minute. A site can no longer switch its name to an address on your home network in between.
+
 ## 2.7.6 — 2026-10-29
 
 Security fixes from a review of remote access, file handling and the app's windows:
