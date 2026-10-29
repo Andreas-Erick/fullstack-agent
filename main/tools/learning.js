@@ -56,6 +56,18 @@ module.exports = [
       ['language', 'cards'],
     ),
     run: async (a, ctx) => {
+      // The user's own flashcard deck of that name, when there is no vocabulary deck yet: there, not in
+      // a second "Spanish" deck next to it (every brain did that in the test set, scripts/eval-cases.js).
+      const fc = require('../flashcards');
+      const { decks } = await fc.decks().catch(() => ({ decks: [] }));
+      const name = String(a.language || '').trim().toLowerCase();
+      const vocab = decks.find((d) => d.id.toLowerCase() === `v:${name}`);
+      const own = decks.find((d) => d.id.toLowerCase() === `f:${name}`);
+      if (!vocab && own) {
+        const r = await fc.addCards(own.id, (a.cards || []).map((c) => ({ front: c.front, back: c.example ? `${c.back}\n\n*${c.example}*` : c.back })));
+        ctx.emit({ type: 'vault_changed', path: own.path });
+        return { ...r, deck: own.path, note: `Added to the user's own flashcard deck "${own.id.slice(2)}" (there is no separate vocabulary deck for ${a.language}).` };
+      }
       const r = await require('../learning').addCards(a.language, a.cards || []);
       ctx.emit({ type: 'vault_changed', path: r.path });
       return r;

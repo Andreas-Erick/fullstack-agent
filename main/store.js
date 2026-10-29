@@ -53,6 +53,9 @@ const DEFAULTS = {
     modelMode: 'default', // default | fast | deep (switchable by voice)
     voiceUsesFast: true, // use the fast model for spoken turns (switched in place, no session restart)
     compactPrompt: 'auto', // auto | on | off: a short prompt and the everyday tools for small local models (localcore.js)
+    // A local brain hands messages it can't do well to the Claude brain (llm.js runSingle). Off: a local
+    // brain keeps everything on this computer, and this sends those messages to Claude. User-only.
+    handOver: false,
     autoPace: true, // per message: lookups get the fast model at low effort, explanations more (pace.js; model mode Default only)
     fastModel: '',
     deepModel: '',

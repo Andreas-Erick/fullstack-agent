@@ -20,7 +20,7 @@ const settable = () => {
 // Sections that are the user's alone: never in SETTABLE, not one key of them.
 const USER_ONLY = ['safety', 'code', 'documents', 'remote', 'helperApps', 'extensions', 'privacy', 'agentWindow', 'perf', 'updates', 'github', 'web', 'screen', 'logging', 'personas', 'innerWorld'];
 // Keys that run a program, reach another address with a key, or hold a secret.
-const NEVER = ['cliPath', 'apiKey', 'remoteKey', 'remoteUrl', 'braveKey', 'tavilyKey', 'tunnelToken', 'connectors', 'connectorsAllowed', 'connectorsReadOnly', 'connectorsWrite', 'allowedRoots', 'cloudFallback'];
+const NEVER = ['cliPath', 'apiKey', 'remoteKey', 'remoteUrl', 'braveKey', 'tavilyKey', 'tunnelToken', 'connectors', 'connectorsAllowed', 'connectorsReadOnly', 'connectorsWrite', 'allowedRoots', 'cloudFallback', 'handOver'];
 
 test('the agent can change none of the user-only sections or dangerous keys', () => {
   const s = settable();

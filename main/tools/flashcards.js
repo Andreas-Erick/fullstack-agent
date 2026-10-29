@@ -41,7 +41,7 @@ module.exports = [
   {
     name: 'flashcards_add',
     group: 'learning',
-    description: 'Add flashcards to a deck (created if new). Basic cards: front and back (Markdown, formulas in $…$). Cloze cards: write the text in front with {{c1::hidden part}} (one card per number) and leave back empty or put extra notes there. A front the deck already has is skipped. For words of a language the user practises, vocab_add keeps them in the language deck instead.',
+    description: 'Add flashcards to a deck (created if new). Basic cards: front and back (Markdown, formulas in $…$). Cloze cards: write the text in front with {{c1::hidden part}} (one card per number) and leave back empty or put extra notes there. A front the deck already has is skipped. For words of a language the user practises, vocab_add keeps them in the language deck instead, unless the user already has a flashcard deck for that language: then add them here, to that deck.',
     parameters: obj({ deck: str('Deck id or name'), cards: { type: 'array', items: obj({ front: str('Question, or cloze text'), back: str('Answer (optional for cloze)'), tags: arr('Optional tags') }, ['front']), description: 'The cards' } }, ['deck', 'cards']),
     run: async (a) => {
       const fc = require('../flashcards');

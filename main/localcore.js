@@ -128,7 +128,8 @@ const HINTS = [
   ['skills', /\b(skills?)\b/i],
   ['diagnostics', /\b(diagnos\w*|not working|broken|error|log)\b/i],
   ['notes', /\b(notes?|vault|obsidian|journal|daily note)\b/i],
-  ['calendar', /\b(reschedule|move|cancel|delete|change) (the |my )?(event|meeting|appointment|lecture|class)\b/i],
+  // Up to two words between ("move my dentist appointment"), and the shorter "reschedule/postpone".
+  ['calendar', /\b(reschedule|postpone|move|cancel|delete|remove|change|shift)\b(\s+\S+){0,2}\s+(events?|meetings?|appointments?|lectures?|class(es)?|dates?|party|lunch|dinner)\b|\b(reschedule|postpone)\b/i],
   ['memory', /\b(forget|what do you (know|remember))\b/i],
 ];
 
@@ -163,4 +164,25 @@ function placeNote(messages, note, { asSystem = true } = {}) {
   return [...messages.slice(0, -1), { ...last, content: `(${head}\n${note}\nEnd of notes. The user's message:)\n\n${last.content}` }];
 }
 
-module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, placeNote, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };
+// ------------------------------------------------------------------ hand-over to Claude
+// (llm.handOver, user-only): a local brain passes a message it can't do well to the Claude brain.
+
+// Tools that only look things up. Once a turn ran any other tool (it saved, added, changed
+// something), it is never handed over: the stronger brain would do it again.
+const READ_TOOL = /(^|_)(get|search|read|list|status|overview|decks|browse|options|recall|view|links|history|next)(_|$)|^(tools_more|app_guide|capabilities_for|web_search|web_fetch|look_at_screen)$/;
+const isReadTool = (name) => READ_TOOL.test(String(name || ''));
+
+/**
+ * Why a message should go to Claude without asking the local model, or ''. Only the obvious: code
+ * work, a connected service by name (the local brain has no connectors), a very long text.
+ * services = the names of the user's connectors ("TickTick", "Google Calendar"…).
+ */
+function handOverHint(text, { services = [], engineering = false } = {}) {
+  const t = String(text || '');
+  if (engineering) return 'code work';
+  if (t.length > 4000) return 'a long text';
+  const named = services.find((s) => s.length > 2 && new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*')}\\b`, 'i').test(t));
+  return named ? `it needs ${named}` : '';
+}
+
+module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, placeNote, isReadTool, handOverHint, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };
