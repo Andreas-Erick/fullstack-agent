@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.7.10 — 2026-10-30
+
+- Replies with the Claude brain start sooner and use less of your plan. A conversation's Claude session is resumed across restarts and kept everything it ever read, and one used for a few days had grown to about 370,000 tokens: every reply re-read them first (2–3 seconds before the first word, 6–11 after a restart). Past 100,000 tokens, the session is now closed after a reply and a fresh one starts in the background with the recent messages. Your memories, notes and "where we left off" carry the rest, so the conversation goes on.
+- After switching persona in the middle of a conversation, the new persona speaks as itself. The Ringmaster introduced himself as Hastur, because the replies above were Hastur's and nothing said a switch had happened. Every message now says who is answering, each reply records its persona, and the first message after a switch says whose the earlier replies were.
+- Personas no longer call themselves "a costume" or a role they play, unless you ask how the app works.
+
 ## 2.7.9 — 2026-10-30
 
 - Your persona comes through with a local brain. Local models used to get only the first 900 characters of the master prompt, about 3% of a long one, and wrote in a generic assistant voice. Now your local model writes a short version of a long master prompt once, on your computer (about 1,100 characters: who the persona is, how it speaks, what it never does, a few typical lines). Every local model reads it, and its rules ask for the persona's voice in every reply. See it in the Persona studio under the master prompt, under "Short version for local models": write it again, or save your own words, which are then kept. Claude still reads the whole master prompt. Measured with a 28,000-character persona on an 8B model: in character, and as accurate as without a persona (26–27 of 28 test cases).
