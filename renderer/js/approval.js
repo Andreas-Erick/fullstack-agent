@@ -25,6 +25,11 @@ const KIND_LABEL = {
   browser: 'Act on a website (agent window)',
 };
 let current = null;
+// Requests that arrive while one is open wait here and are shown in turn. They used to decline the open
+// one ("superseded by another request"), so parallel calls (Claude runs several searches at once)
+// cancelled each other and only the last could run.
+const waiting = [];
+const later = (fn, req) => (current ? (waiting.push({ fn, req: { ...req, queuedAt: Date.now() } }), true) : false);
 
 // Spoken alone, these approve. Anything longer is a sentence, so it declines and goes back as the reason.
 const YES = new Set(['yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'go ahead', 'do it', 'approved', 'yes please', 'yeah yes', 'yes do it', 'yes go ahead']);
@@ -36,6 +41,8 @@ export function initApprovals() {
   api.on('secret:request', showSecret);
   api.on('record:request', showRecording);
   api.on('approval:cancel', ({ id }) => {
+    const i = waiting.findIndex((w) => w.req.id === id);
+    if (i >= 0) waiting.splice(i, 1);
     if (current?.id === id) close(false, 'timed out');
   });
 }
@@ -58,10 +65,11 @@ export function handleSpokenAnswer(text) {
 }
 
 function show(req) {
-  if (current) answer(false, 'superseded by another request');
+  if (later(show, req)) return;
   const wrap = document.getElementById('modal');
   const card = document.getElementById('modalCard');
-  let left = req.timeoutSec || 75;
+  // The main process's time limit started when the request was sent, also while it waited in line.
+  let left = Math.max(1, (req.timeoutSec || 75) - Math.round((Date.now() - (req.queuedAt || Date.now())) / 1000));
   const countdown = el('span', { class: 'muted' }, `${left}s`);
   const timer = setInterval(() => {
     left -= 1;
@@ -91,7 +99,7 @@ function show(req) {
 // Masked input for a token/key the agent needs (e.g. during setup). The value goes straight to the
 // encrypted settings in the main process — it is never shown in the chat or sent to the model.
 function showSecret(req) {
-  if (current) answer(false, 'superseded by another request');
+  if (later(showSecret, req)) return;
   const wrap = document.getElementById('modal');
   const card = document.getElementById('modalCard');
   const input = el('input', { class: 'input', type: 'password', placeholder: req.label, autocomplete: 'off' });
@@ -119,7 +127,7 @@ function showSecret(req) {
 // to the main process (and on to VoiceStudio); for calibration ("calibrate") only the transcript and
 // loudness levels do, the audio never leaves this window.
 function showRecording(req) {
-  if (current) answer(false, 'superseded by another request');
+  if (later(showRecording, req)) return;
   const wrap = document.getElementById('modal');
   const card = document.getElementById('modalCard');
   const max = Math.min(60, Math.max(8, Number(req.seconds) || 20));
@@ -207,4 +215,7 @@ function close() {
   current = null;
   state.approvalPending = null;
   document.getElementById('modal').classList.add('hidden');
+  // The next request in line, if any.
+  const next = waiting.shift();
+  if (next) next.fn(next.req);
 }

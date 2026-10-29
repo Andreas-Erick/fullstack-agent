@@ -3,6 +3,8 @@
 ## 2.7.4 — 2026-10-29
 
 - The "Deep model" you set is used for deep questions (explain, why, compare, plans) on its own. Before, it only answered after you switched to deep mode by hand ("switch to the deep model"). Spoken questions still go to the fast model. With no deep model set, deep questions stay with the main model, as before.
+- Approvals no longer cancel each other. When your assistant did several things at once (several Consensus searches, say), each new approval request declined the one on screen, so only the last could run. Requests now wait in line and appear one after another, and calls to the same service at the same moment ask you only once.
+- An event can end at midnight: "19:00–24:00" was rejected as "not a time".
 
 ## 2.7.3 — 2026-10-29
 

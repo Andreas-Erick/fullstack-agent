@@ -265,3 +265,30 @@ test('changing one connector keeps every other connector’s level', () => {
   const p = connectors.levelPatch(cc, 'claude_ai_Plaud', 'all');
   assert.deepStrictEqual(p, { connectorsAllowed: ['claude_ai_TickTick', 'claude_ai_Plaud'], connectorsWrite: ['claude_ai_Consensus', 'claude_ai_Google_Calendar'], connectorsReadOnly: ['claude_ai_Wolfram'] });
 });
+
+// Regression: Claude ran 4 Consensus searches at once; each opened its own approval, each new one
+// declined the open one ("superseded by another request"), so only the last could run. Parallel calls
+// to one service now ask once (here), and the window queues requests instead of declining them.
+test('parallel calls to one service ask once and all follow that answer', async () => {
+  gates.length = 0;
+  answer = true;
+  const sess = session(true);
+  const call = () => sess.approve({ tool_name: 'mcp__claude_ai_Consensus__search', input: { query: 'q' } });
+  const yes = await Promise.all([call(), call(), call()]);
+  assert.deepStrictEqual(yes.map((r) => r.behavior), ['allow', 'allow', 'allow']);
+  assert.strictEqual(gates.length, 1, 'one question for the three searches');
+
+  gates.length = 0;
+  answer = false;
+  const no = await Promise.all([session(true), session(true)].flatMap((s) => [s, s]).map((s) => s.approve({ tool_name: 'mcp__claude_ai_Consensus__search', input: {} })));
+  assert.deepStrictEqual(no.map((r) => r.behavior), ['deny', 'deny', 'deny', 'deny']);
+  assert.strictEqual(gates.length, 2, 'one question per turn');
+  answer = true;
+});
+
+test('the approval dialog queues a request that arrives while one is open', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'renderer', 'js', 'approval.js'), 'utf8');
+  assert.ok(!src.includes("answer(false, 'superseded"), 'a new request never declines the open one');
+  for (const fn of ['show', 'showSecret', 'showRecording']) assert.match(src.replace(/\r\n/g, '\n'), new RegExp(`function ${fn}\\(req\\) \\{\\n  if \\(later\\(${fn}, req\\)\\) return;`));
+  assert.match(src, /const next = waiting\.shift\(\);/);
+});

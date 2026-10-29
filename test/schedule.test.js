@@ -158,3 +158,17 @@ test('calendar.js keeps Schedule.md in the vault, one change at a time', async (
   const st = await calendar.status();
   assert.deepStrictEqual([st.connected, st.recurring, st.events, st.problems], [true, 1, 0, 0]);
 });
+
+// Regression: "Halloween party 19:00-24:00" was rejected ("is not a time"), so the agent could not
+// add an evening that ends at midnight.
+test('an end of 24:00 is midnight', () => {
+  const w = core.parseWhen('2026-10-31 19:00-24:00');
+  assert.strictEqual(w.start, '19:00');
+  assert.strictEqual(w.end, '00:00');
+  const party = core.normalize({ id: 'p1', title: 'Halloween party', when: '2026-10-31 19:00-24:00' });
+  const [o] = core.occurrences([party], at('2026-10-31'), at('2026-11-02'));
+  assert.strictEqual(o.start, '2026-10-31T19:00:00');
+  assert.strictEqual(o.end, '2026-11-01T00:00:00', 'ends exactly at midnight');
+  assert.throws(() => core.parseWhen('2026-10-31 24:00'), /not a time/, 'a start of 24:00 is still wrong');
+  assert.throws(() => core.parseWhen('2026-10-31 19:00-24:30'), /not a time/);
+});
