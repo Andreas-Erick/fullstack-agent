@@ -924,7 +924,7 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
     const before = trackChanges ? await selfchange.fingerprint() : null;
     codeRoot = trackChanges ? await selfchange.root().catch(() => null) : null;
     try {
-      const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images });
+      const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images, routine: Boolean(routine) });
       const assistantMsg = {
         id: store.newId('m'),
         role: 'assistant',

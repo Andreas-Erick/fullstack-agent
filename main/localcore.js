@@ -188,8 +188,14 @@ function handOverHint(text, { services = [], engineering = false } = {}) {
   const t = String(text || '');
   if (engineering) return 'code work';
   if (t.length > 4000) return 'a long text';
-  const named = services.find((s) => s.length > 2 && new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*')}\\b`, 'i').test(t));
+  const named = neededService(t, services);
   return named ? `it needs ${named}` : '';
 }
 
-module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, placeNote, isReadTool, handOverHint, gaveUpUnlooked, LOOK_FIRST, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };
+/** The first of the user's connected services the text names as a whole word ("TickTick"), or ''. */
+function neededService(text, services = []) {
+  const t = String(text || '');
+  return services.find((s) => s.length > 2 && new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*')}\\b`, 'i').test(t)) || '';
+}
+
+module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, placeNote, isReadTool, handOverHint, neededService, gaveUpUnlooked, LOOK_FIRST, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };

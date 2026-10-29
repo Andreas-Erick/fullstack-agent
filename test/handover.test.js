@@ -77,10 +77,10 @@ const settings = (handOver = true) => ({
   claudeCode: { model: 'default', effort: 'default', connectors: true },
   anthropic: {},
 });
-async function turn(text, s = settings()) {
+async function turn(text, s = settings(), { routine = false } = {}) {
   const events = [];
   const conv = { id: 'c1', messages: [{ role: 'user', content: text }] };
-  const r = await llm.runTurn({ settings: s, conv, history: conv.messages, emit: (e) => events.push(e), signal: new AbortController().signal, images: [] });
+  const r = await llm.runTurn({ settings: s, conv, history: conv.messages, emit: (e) => events.push(e), signal: new AbortController().signal, images: [], routine });
   return { r, events };
 }
 const reset = () => Object.assign(calls, { claude: 0, local: 0, lastTools: [] });
@@ -153,4 +153,25 @@ test('a reply that gives up without looking is taken back once, and the model lo
 test('what counts as giving up', () => {
   for (const s of ['I don’t have that information.', "I don't know when that is.", 'I have no information about Project Atlas.', 'I’m not sure when your deadline is.']) assert.ok(core.gaveUpUnlooked(s), s);
   for (const s of ['The deadline is 20 November.', 'Canberra.', `I don't know ${'x'.repeat(400)}`]) assert.ok(!core.gaveUpUnlooked(s), s.slice(0, 30));
+});
+
+test('a routine for a connected service runs on Claude even with the hand-over off; nothing else does', async () => {
+  reset();
+  let t = await turn('⏰ Routine "Sync TickTick": fetch my tasks and save them', settings(false), { routine: true });
+  assert.strictEqual(calls.local, 0, 'the local brain has no connectors');
+  assert.strictEqual(calls.claude, 1);
+  assert.strictEqual(t.r.provider, 'claude-code');
+  assert.match(t.events.find((e) => e.type === 'notice').message, /the routine needs TickTick/);
+
+  reset();
+  localReplies = [[{ content: 'Done locally.' }]];
+  t = await turn('⏰ Routine "Evening review": fix the errors in today’s note', settings(false), { routine: true });
+  assert.strictEqual(calls.claude, 0, 'no service named: stays on this computer');
+  assert.ok(!calls.lastTools.includes('hand_over'), 'and the local model is not offered the hand-over');
+  assert.strictEqual(t.r.text, 'Done locally.');
+
+  reset();
+  localReplies = [[{ content: 'Done locally.' }]];
+  t = await turn('⏰ Routine "Evening review": fix the errors in today’s note', settings(true), { routine: true });
+  assert.strictEqual(calls.claude, 0, 'a routine’s own words are not code work');
 });
