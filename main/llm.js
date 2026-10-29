@@ -22,6 +22,7 @@ const pace = require('./pace');
 
 const noToolSupport = new Set(); // `${baseUrl}|${model}` combos that rejected the tools parameter
 const noExtras = new Set(); // combos that rejected localcore.requestExtras (keep_alive, reasoning_effort)
+const noSystemNote = new Set(); // combos whose template refused a system message after the first (localcore.placeNote)
 
 function trimBase(url) {
   return String(url || '').trim().replace(/\/+$/, '');
@@ -279,8 +280,9 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     log.info('compact prompt', { model: model || settings.llm.model, tools: toolset.list.length, groups: loaded.join(',') || undefined, chars: system.length });
     // A local server reuses what it already read when the start of the request is unchanged: the
     // rules, the tools (which its template puts after the system text) and the history. So the
-    // per-message part (time, calendar, recalled memories) goes in front of the newest message,
-    // and only that and the message are read again: first word in ~0.2 s instead of ~2.5 s.
+    // per-message part (time, calendar, recalled memories) goes just before the newest message
+    // (localcore.placeNote), and only that and the message are read again: first word in ~0.2 s
+    // instead of ~2.5 s.
     const local = localcore.isLocal(settings);
     const result = await runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active: toolset.list, system: local ? `${stable}\n\n${reminder}` : system, turnNote: local ? context : '', ctx, images });
     if (toolset.changed) result.convPatch = { ...(result.convPatch || {}), toolGroups: toolset.loaded };
@@ -513,8 +515,8 @@ async function compactHistory(settings, conv, history, limit = Math.max(4, setti
   }
 }
 
-// turnNote: this message's context, put in front of the newest user message instead of the system
-// prompt (local servers, see runOn), so the unchanged start of the request is reused.
+// turnNote: this message's context, placed just before the newest user message instead of in the
+// system prompt (local servers, see runOn; localcore.placeNote), so the unchanged start is reused.
 async function runOpenAI({ settings, conv, history, emit, signal, active, system, turnNote = '', ctx, images = [] }) {
   const base = trimBase(settings.llm.baseUrl);
   const plain = Boolean(settings.llm.plainHistory);
@@ -535,13 +537,11 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
   const fnTools = () => (plain ? [] : ctx.toolset?.list || active).map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
 
   const compacted = await compactHistory(settings, conv, history);
-  let messages = [{ role: 'system', content: compacted.summary ? `${system}\n\n## Earlier in this conversation (summary)\n${compacted.summary}` : system }, ...openaiHistory(history, settings.llm.historyLimit, { plain })];
-  const newest = messages[messages.length - 1];
-  if (turnNote && newest?.role === 'user' && typeof newest.content === 'string') {
-    messages = [...messages.slice(0, -1), { ...newest, content: `[Context for this message, not from the user]\n${turnNote}\n[End of context]\n\n${newest.content}` }];
-  }
-  const textOnly = messages;
-  messages = withImages(messages, images);
+  const plainMessages = [{ role: 'system', content: compacted.summary ? `${system}\n\n## Earlier in this conversation (summary)\n${compacted.summary}` : system }, ...openaiHistory(history, settings.llm.historyLimit, { plain })];
+  const { placeNote } = require('./localcore');
+  let noteAsSystem = !noSystemNote.has(comboKey);
+  let textOnly = placeNote(plainMessages, turnNote, { asSystem: noteAsSystem });
+  let messages = withImages(textOnly, images);
   const turnMessages = []; // what we append during this turn (for faithful replay later)
   const toolRecords = [];
   let fullText = '';
@@ -570,6 +570,16 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       if (messages !== textOnly && [400, 404, 415, 422].includes(err.status) && round === 0) {
         messages = textOnly;
         emit({ type: 'notice', message: `Model "${model}" can't see images — continuing without the shared screen.` });
+        round--;
+        continue;
+      }
+      // A template that refuses a system message after the first: the notes go into the user's message.
+      if (turnNote && noteAsSystem && [400, 422, 500].includes(err.status) && round === 0) {
+        noSystemNote.add(comboKey);
+        noteAsSystem = false;
+        const imaged = messages !== textOnly;
+        textOnly = placeNote(plainMessages, turnNote, { asSystem: false });
+        messages = imaged ? withImages(textOnly, images) : textOnly;
         round--;
         continue;
       }
