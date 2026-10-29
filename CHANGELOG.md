@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.7.8 — 2026-10-29
+
+- Routines for a connected service work with a local brain. "Sync Google Calendar into Siren", "Check new Plaud recordings" and the like ran on your local model, which can't reach connectors, so they ended with "the connector is not available" every time. A routine that names one of your connected services now runs on your Claude account (or API key), even with "Hand hard messages to Claude" off, and the chat says so. Other routines stay on your computer.
+- A routine is no longer treated as code work because its instructions contain words like "fix" or "errors". It still gets enough steps for a long sync.
+- Your assistant knows which of today's events are over. The schedule it reads now says what time of day it is and splits today into "earlier today" and "still to come", so at 22:18 it no longer says your 19:30 class is "tonight".
+
 ## 2.7.7 — 2026-10-29
 
 - Importing flashcards from a CSV, TSV or text file: Import now asks first whether to skip the first line, for files whose first line only names the columns ("Spanish word, English meaning"). The choice is remembered. A first line like "Front, Back" is still recognised and skipped on its own. You can also say it to your assistant ("import cards.csv, the first line is just the column names").
