@@ -43,6 +43,8 @@ test('writes an AI note for the latest real conversation', async () => {
   assert.ok(block.includes('Where you left off') && block.includes('- Test again'));
 });
 
+
+
 test('nothing new since the last note: kept, no model call', async () => {
   llmCalls = 0;
   const before = await handoff.read();
@@ -77,4 +79,19 @@ test('dismissed and old notes', async () => {
   fs.writeFileSync(f, JSON.stringify({ ...JSON.parse(fs.readFileSync(f, 'utf8')), at: Date.now() - 15 * 24 * 3600000 }));
   assert.strictEqual(await handoff.read(), null);
   assert.strictEqual(await handoff.promptBlock(), '');
+});
+
+// A note that said "who I am … as Siren" went into every persona's prompt, and the Ringmaster then
+// answered "I'm Siren, speaking as myself". The note names no persona; reading it, the active one stays itself.
+test('the note never decides who the next persona is', async () => {
+  let asked = '';
+  llmImpl = async (_s, prompt) => ((asked = prompt), '{"topic":"Persona chat","summary":"We talked about who I am as Siren."}');
+  convs.a.updatedAt = Date.now() + 1000;
+  await handoff.write();
+  assert.match(asked, /call yourself "the assistant", never by a persona's name/);
+  assert.match(asked, /leave out who you are, which persona spoke and any switching/);
+  const block = await handoff.promptBlock('Ringmaster');
+  assert.match(block, /the handoff note the assistant wrote/);
+  assert.match(block, /not who you are: you are Ringmaster, whatever its "I" or any name in it says/);
+  assert.doesNotMatch(await handoff.promptBlock(), /you are Ringmaster/);
 });

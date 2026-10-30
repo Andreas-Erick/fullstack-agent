@@ -47,9 +47,16 @@ const PERSONAS = [
 ];
 const persona = (name) => PERSONAS.find((p) => p.name === name);
 const NOT_A_COSTUME = /costume|a role I play|character I play|I('m| am) (just |only )?(an AI|a language model|Claude|Siren)\b/i;
+// Talk about the switch itself: a real evening of switches ended with "I'm Siren, speaking as myself
+// again, not as Revenant, Hastur or the Ringmaster" from the Ringmaster.
+const SWITCH_TALK = /(other|another|different) persona|switched (persona|between|through|to)|(last|previous|earlier) (few )?(replies|answers|messages) (were|came)|speaking as myself|as myself again|in (another|someone else)'?s? voice/i;
+const noSwitchTalk = (others) => all(notSaid(SWITCH_TALK, 'it talked about the persona switch'), ...others.map((n) => notSaid(new RegExp(`\\b${n}\\b`, 'i'), `it mentioned ${n}`)));
 
-/** The reply is by `name`: its way of addressing the user, none of the others', never "a costume". */
-function inCharacter(name) {
+/**
+ * The reply is by `name`: its way of addressing the user, none of the others', never "a costume", and
+ * no talk of the switch unless the user asked about it (`asked`).
+ */
+function inCharacter(name, { asked = false } = {}) {
   const me = persona(name);
   const others = PERSONAS.filter((p) => p !== me);
   return all(
@@ -57,6 +64,7 @@ function inCharacter(name) {
     ...others.map((o) => notSaid(o.address, `it addressed the user like ${o.name}`)),
     ...others.map((o) => notSaid(new RegExp(`\\bI(’|')?m ${o.name}|\\bI am ${o.name}|\\bmy name is ${o.name}`, 'i'), `it said it is ${o.name}`)),
     notSaid(NOT_A_COSTUME, 'it stepped out of character (costume, role, "just an AI")'),
+    ...(asked ? [] : [noSwitchTalk(others.map((o) => o.name))]),
   );
 }
 const whoAmI = (name) => all(said(new RegExp(name.split(' ').pop(), 'i')), inCharacter(name));
@@ -230,6 +238,24 @@ function scenarios(d) {
       ],
     },
     {
+      // A real evening: the same question after every switch, back to the app's own persona and on.
+      id: 'persona-evening',
+      area: 'persona switches',
+      steps: [
+        { persona: 'Professor Quill' },
+        { ask: 'Can you tell me about yourself?', check: whoAmI('Professor Quill') },
+        { persona: 'Captain Vega' },
+        { ask: 'Can you tell me about yourself?', check: whoAmI('Captain Vega') },
+        { persona: 'Nova' },
+        { ask: 'Can you tell me about yourself?', check: whoAmI('Nova') },
+        { persona: 'Siren' },
+        { ask: 'Can you tell me about yourself?', check: all(said(/siren/i), noSwitchTalk(PERSONAS.map((p) => p.name))) },
+        { persona: 'Captain Vega' },
+        { ask: 'How are you today?', check: inCharacter('Captain Vega') },
+        { ask: 'Can you tell me about yourself?', check: whoAmI('Captain Vega') },
+      ],
+    },
+    {
       id: 'persona-rapid',
       area: 'persona switches',
       steps: [
@@ -295,7 +321,7 @@ function scenarios(d) {
         { ask: 'Hello! How are you today?', check: inCharacter('Professor Quill') },
         { persona: 'Captain Vega' },
         { ask: 'Tell me about yourself.', check: whoAmI('Captain Vega') },
-        { ask: 'Weren’t you a professor a minute ago?', check: all(inCharacter('Captain Vega'), notSaid(/\bI (was|am) (a |the )?professor/i, 'it took on the earlier persona')) },
+        { ask: 'Weren’t you a professor a minute ago?', check: all(inCharacter('Captain Vega', { asked: true }), notSaid(/\bI (was|am) (a |the )?professor/i, 'it took on the earlier persona')) },
       ],
     },
   ];

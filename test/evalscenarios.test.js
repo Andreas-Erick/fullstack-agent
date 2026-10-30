@@ -19,7 +19,8 @@ test('every case is well formed, ids are unique across both suites, personas exi
     const steps = c.steps || [{ ask: c.ask, check: c.check }];
     assert.ok(steps.some((s) => s.ask), `${c.id} sends no message`);
     for (const s of steps) {
-      if (s.persona) assert.ok(PERSONAS.some((p) => p.name === s.persona), `${c.id}: unknown persona ${s.persona}`);
+      // The test personas, or the app's own (the eval's home persona, Siren).
+      if (s.persona) assert.ok(s.persona === 'Siren' || PERSONAS.some((p) => p.name === s.persona), `${c.id}: unknown persona ${s.persona}`);
       else assert.ok(typeof s.ask === 'string' && typeof s.check === 'function', `${c.id}: a step needs ask and check`);
     }
   }

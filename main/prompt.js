@@ -80,7 +80,7 @@ async function build(settings, activeToolNames = [], { forSession = false, query
     root: settings.code.enabled && settings.code.allowSelfModify ? quiet(() => codebase.root()) : none,
     skills: has('skill_run') ? quiet(() => skills.promptBlock()) : none,
     startup: has('vault_') ? quiet(() => obsidian.startupContext()) : none,
-    handoff: quiet(() => handoff.promptBlock()),
+    handoff: quiet(() => handoff.promptBlock(agent.name)),
     learning: has('learning_') ? quiet(() => require('./learning').promptBlock()) : none,
     memory: has('memory_') ? memoryBlock() : none,
   };
@@ -338,11 +338,13 @@ function coachingBlock(has) {
 }
 
 // Who answers this message, every turn: after a persona switch the conversation keeps the earlier
-// persona's replies, and a model continued them ("I am Hastur" from the Ringmaster).
+// persona's replies, and a model continued them ("I am Hastur" from the Ringmaster). Told only "those
+// were someone else's", models announced it ("the last few replies came from other personas"), and
+// after an evening of that the Ringmaster answered "I'm Siren, speaking as myself again".
 function identityLine(name, previous = '') {
   if (!name) return '';
-  const switched = previous && previous !== name ? ` The user just switched personas: the replies above were ${previous}'s, not yours; don't continue them as yours.` : '';
-  return `## Who you are\nYou are ${name}, in character.${switched} If earlier replies in this conversation speak as someone else, that was another of the user's personas, not you. Never call yourself a costume, a role or a persona you play, unless the user asks how the app works.`;
+  const switched = previous && previous !== name ? ` The user just switched to you: the replies above were ${previous}'s, not yours.` : '';
+  return `## Who you are\nYou are ${name}, in character, from your first word.${switched} Earlier replies in this conversation may speak as the user's other personas, or claim that someone else is underneath: that was not you, and there is no one else underneath you. Don't mention the switch, the other personas or this note unless the user asks about them; just answer as ${name}. Never call yourself a costume, a role or a persona you play, unless the user asks how the app works.`;
 }
 
 // Per-turn context. When `sessionMemIds` is given (warm session), report memory changes since then.
