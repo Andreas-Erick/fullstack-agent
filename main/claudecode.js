@@ -186,6 +186,21 @@ function installHint() {
   return process.platform === 'win32' ? 'irm https://claude.ai/install.ps1 | iex   (in PowerShell)' : 'curl -fsSL https://claude.ai/install.sh | bash';
 }
 
+// The app's everyday tools for a Claude session with tools on request: what a local model always has
+// (localcore.COMPACT_TOOLS) and the common changes to the same things. The rest: ToolSearch.
+const CORE_TOOLS = new Set([...require('./localcore').COMPACT_TOOLS, 'calendar_update_event', 'calendar_delete_event', 'calendar_list_entries', 'memory_update', 'memory_delete', 'persona_switch', 'tasks_save', 'open_document', 'vault_write_note']);
+
+/** The MCP servers of a session: the app's (one, or core + more) and the extensions. */
+function mcpServersFor(spec, { url, token, turn }) {
+  const server = (set) => ({ command: process.execPath, args: [MCP_SERVER], env: { ELECTRON_RUN_AS_NODE: '1', NEXUS_BRIDGE_URL: url, NEXUS_BRIDGE_TOKEN: token, NEXUS_TURN: turn, ...(set ? { NEXUS_TOOLSET: set } : {}) } });
+  const searching = spec.coreTools || spec.connectors || Object.keys(spec.extensions || {}).length;
+  return {
+    nexus: { ...server(spec.coreTools ? 'core' : ''), ...(searching ? { alwaysLoad: true } : {}) },
+    ...(spec.coreTools ? { nexus_more: server('more') } : {}),
+    ...(spec.extensions || {}),
+  };
+}
+
 // ------------------------------------------------------------- warm sessions
 // One long-lived Claude Code process per conversation (stream-json in/out), so each turn starts
 // immediately instead of spawning the CLI, the MCP server and reloading the session every time.
@@ -194,7 +209,7 @@ function installHint() {
 const sessions = new Map(); // conversation id -> Session
 const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const WEB_TOOLS = ['WebFetch', 'WebSearch'];
-const shortTool = (name) => String(name || '').replace(/^mcp__nexus__/, '');
+const shortTool = (name) => String(name || '').replace(/^mcp__nexus(_more)?__/, '');
 
 function inside(root, file) {
   if (!root || !file) return false;
@@ -239,6 +254,10 @@ class Session {
     this.child = null;
     this.key = '';
     this.sessionId = null;
+    // The id the CLI has a saved conversation under: the one it was resumed from, or this process's own
+    // once a turn finished. A process that never answered has an id but nothing saved ("No conversation
+    // found with session ID" when resumed).
+    this.resumable = null;
     this.turn = null;
     this.chain = Promise.resolve();
     this.stderr = '';
@@ -296,6 +315,7 @@ class Session {
     const bridgeId = crypto.randomUUID();
     const unregister = bridge.registerSession(bridgeId, {
       allowed: spec.toolNames,
+      core: spec.coreTools,
       getCtx: () => this.turn?.ctx || null,
       approve: (req) => this.inTurn(() => this.approve(req)),
     });
@@ -305,8 +325,9 @@ class Session {
     await fsp.writeFile(sysFile, spec.system, 'utf8');
     await fsp.writeFile(
       mcpFile,
-      // With connectors, their tools are found on demand (ToolSearch); the app's own stay loaded.
-      JSON.stringify({ mcpServers: { nexus: { command: process.execPath, args: [MCP_SERVER], env: { ELECTRON_RUN_AS_NODE: '1', NEXUS_BRIDGE_URL: b.url, NEXUS_BRIDGE_TOKEN: b.token, NEXUS_TURN: bridgeId }, ...(spec.connectors || Object.keys(spec.extensions || {}).length ? { alwaysLoad: true } : {}) }, ...(spec.extensions || {}) } }),
+      // Connector tools are found on demand (ToolSearch); of the app's own, the everyday ones stay
+      // loaded (nexus, with the approval prompt) and the rest are found on demand too (nexus_more).
+      JSON.stringify({ mcpServers: mcpServersFor(spec, { url: b.url, token: b.token, turn: bridgeId }) }),
       'utf8',
     );
     const args = [
@@ -321,9 +342,10 @@ class Session {
     for (const d of spec.addDirs) args.push('--add-dir', d);
     if (spec.model && spec.model !== 'default') args.push('--model', spec.model);
     if (spec.effort && spec.effort !== 'default') args.push('--effort', spec.effort);
-    const resume = spec.resume || this.sessionId;
+    const resume = spec.resume || this.resumable;
     if (resume) args.push('--resume', resume);
     this.resumed = Boolean(resume);
+    this.resumable = resume || null;
 
     const child = spawnCli(cli, args, { cwd: spec.cwd, env: cliEnv() });
     this.child = child;
@@ -583,7 +605,10 @@ class Session {
       }
       // Where the time went: the CLI's own overhead vs. waiting for the model (finding slow turns).
       log.info('claude timing', { totalMs: msg.duration_ms, apiMs: msg.duration_api_ms, firstTokenMs: msg.ttft_ms, toRequestMs: msg.time_to_request_ms, turns: msg.num_turns, contextTokens: t.contextTokens || undefined });
-      t.resolve({ text: t.text.trim() || String(msg.result || '').trim(), toolCalls: t.records, raw: null, model: this.model || this.spec.model, sessionId: this.sessionId, contextTokens: t.contextTokens || 0 });
+      this.resumable = this.sessionId;
+      // A fresh session's first turn: how big a session starts in this setup (rollover is measured from it).
+      const freshTokens = !this.resumed && !this.freshTokens && t.contextTokens ? (this.freshTokens = t.contextTokens) : 0;
+      t.resolve({ text: t.text.trim() || String(msg.result || '').trim(), toolCalls: t.records, raw: null, model: this.model || this.spec.model, sessionId: this.sessionId, contextTokens: t.contextTokens || 0, freshTokens });
       this.resetIdle();
       return;
     }
@@ -654,15 +679,21 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   const extensionKeys = Object.keys(extensionServers);
   // Connector and extension tools are never pre-allowed: every call comes to approve(), which checks
   // the user's permission level for that server live (no session restart when a level changes).
-  if (withConnectors || extensionKeys.length) {
+  // The app's own tools on request (claudeCode.toolsOnRequest, on by default): the everyday ones
+  // (CORE_TOOLS) stay loaded, the rest are a second server whose tools ToolSearch finds when a message
+  // needs them. All 120 sent with every message were ~30k of a ~75k fresh session.
+  const onRequest = cc.toolsOnRequest !== false;
+  if (withConnectors || extensionKeys.length || onRequest) {
     builtins.push('ToolSearch');
     allowed.push('ToolSearch');
   }
+  if (onRequest) allowed.push('mcp__nexus_more');
   if (withConnectors) {
     builtins.push('Skill');
     allowed.push('Skill');
   }
   const toolNames = activeTools.map((t) => t.name);
+  const coreTools = onRequest ? toolNames.filter((n) => CORE_TOOLS.has(n)) : null;
   const spec = {
     connectors: withConnectors,
     extensions: extensionServers,
@@ -670,6 +701,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
     builtins,
     allowed,
     toolNames,
+    coreTools,
     cwd,
     vault,
     codeRoot: cwd,
@@ -685,7 +717,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   // memories change (those reach the agent through the per-turn context) and not for a model switch
   // (Session.setModel changes it in place).
   // Each part named, so a restart can say what changed (see ensureSession).
-  spec.keyParts = { config: configKey, builtins, allowed, tools: toolNames, folders: [cwd, vault, repos, ...readRoots], effort: cc.effort, connectors: withConnectors, extensions: extensionServers };
+  spec.keyParts = { config: configKey, builtins, allowed, tools: toolNames, core: coreTools, folders: [cwd, vault, repos, ...readRoots], effort: cc.effort, connectors: withConnectors, extensions: extensionServers };
   spec.key = crypto.createHash('sha1').update(JSON.stringify(Object.values(spec.keyParts))).digest('hex');
   return spec;
 }
@@ -733,7 +765,7 @@ async function startOrReuse(session, conv, { settings, configKey, buildPrompt, a
   if (session.alive()) log.info('claude session restarts', { conversation: conv.id, changed: changedParts(session.spec?.keyParts, spec.keyParts) });
   const p = await buildPrompt();
   spec.system = p.stable;
-  spec.resume = conv.claudeSessionId || session.sessionId;
+  spec.resume = conv.claudeSessionId || session.resumable;
   session.memIds = p.memIds;
   if (perf.profile(settings) === 'balanced') closeExcessSessions(conv.id);
   await session.spawn(spec);
@@ -792,10 +824,12 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, images 
     try {
       return await first.result;
     } catch (err) {
-      if (signal.aborted || first.session.gotOutput) throw err;
+      // A saved conversation the CLI can't find ("No conversation found with session ID") never started either.
+      if (signal.aborted || (first.session.gotOutput && !NO_SAVED_SESSION.test(err.message))) throw err;
       log.warn('claude session failed to start; retrying with a fresh session', { conversation: conv.id, error: err.message });
       conv.claudeSessionId = null;
       first.session.sessionId = null;
+      first.session.resumable = null;
       first.session.key = '';
       return (await attempt()).result;
     }
@@ -822,7 +856,11 @@ function endSession(convId) {
 // and a fresh one carries on with the recent messages (transcript()); memories, notes and "where we
 // left off" keep the rest.
 const ROLLOVER_TOKENS = Number(process.env.NEXUS_ROLLOVER_TOKENS) || 100000; // the variable: tests only
-const needsRollover = (contextTokens) => Number(contextTokens) > ROLLOVER_TOKENS;
+const GROWTH_TOKENS = Number(process.env.NEXUS_ROLLOVER_GROWTH) || 80000; // the variable: tests only
+// Measured from how big a fresh session is in this setup (its tools, vault notes and persona: ~50k to
+// ~120k): a fresh one of 119k rolled over again after one message when the limit was a flat 100k.
+const needsRollover = (contextTokens, freshTokens = 0) => Number(contextTokens) > Math.max(ROLLOVER_TOKENS, (Number(freshTokens) || 0) + GROWTH_TOKENS);
+const NO_SAVED_SESSION = /No conversation found with session ID/i;
 
 /** Closes the conversation's session so the next one starts fresh (not resumed). */
 function rollover(convId, contextTokens) {
@@ -868,4 +906,4 @@ async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };
+module.exports = { CORE_TOOLS, mcpServersFor, changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };

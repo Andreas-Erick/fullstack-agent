@@ -134,9 +134,12 @@ const HINTS = [
 ];
 
 /** The groups a message obviously needs (word hints, no model call). */
-function hintGroups(text) {
+function hintGroups(text, { personas = [] } = {}) {
   const t = String(text || '');
-  return HINTS.filter(([, re]) => re.test(t)).map(([g]) => g);
+  const groups = HINTS.filter(([, re]) => re.test(t)).map(([g]) => g);
+  // One of the user's personas by name ("switch to Captain Vega"): the persona tools, not the brain switch.
+  if (!groups.includes('looks') && personas.some((n) => n && neededService(t, [n]))) groups.push('looks');
+  return groups;
 }
 
 /**
@@ -173,6 +176,21 @@ const GAVE_UP = /\b(I (do not|don['’]t|can['’]t|cannot) (have|know|find|see|
 const gaveUpUnlooked = (text) => String(text || '').length < 400 && GAVE_UP.test(String(text || ''));
 const LOOK_FIRST = 'Before you say you don’t know: look it up now with memory_search, then vault_search (and calendar_get_events for dates). Answer from what they find; only if both find nothing, say you don’t know.';
 
+// A reply that says it did something ("I've added…", "Icelandic practice done.", "Noted:") in a turn in
+// which no tool changed anything: the scenario suite caught a local model claiming a logged habit and a
+// second calendar entry that were never made. First person or a short "X done/logged" only, so a plain
+// answer like "your dentist is scheduled for 10:00" is not taken for a claim.
+const CLAIM = /\bI(['’]ve| have|['’]ll| will)?\s+(just\s+|also\s+)?(added|logged|saved|scheduled|booked|created|set up|put|marked|checked off|ticked off|updated|moved|rescheduled|deleted|removed|recorded|noted|stored)\b|^\s*(done|logged|noted|saved|added|booked|scheduled)\b|\b(practice|habit|workout|session|it|that|this)\s+(is\s+)?(now\s+)?(done|logged|checked off|ticked off|recorded)\b/im;
+const claimsAction = (text) => CLAIM.test(String(text || ''));
+const CLAIM_CHECK = 'Your reply says you did something (added, logged, saved, scheduled…), but no tool changed anything in this turn. If the user asked for it, do it now with the tool, one call per item; if a tool failed, say so. If the user only asked a question, answer it without claiming any action.';
+
+// A question about the user's own situation ("Can I fit a gym session in on Sunday?", "Do I have time
+// for…?"), not a request ("Can you add…?"): a local model booked the gym session over a brunch instead
+// of answering. Such a turn changes nothing (llm.js refuses its write tools).
+const ASKING = /^\s*(can|could|should|shall|do|does|did|is|are|am|will|would|have|has)\s+(i|we|there|my)\b[^]*\?\s*$/i;
+const questionOnly = (text) => ASKING.test(String(text || '').trim());
+const NOT_FOR_A_QUESTION = 'Not done: the user asked a question, not for a change. Answer it (look things up if you need to) and offer to make the change.';
+
 // ------------------------------------------------------------------ hand-over to Claude
 // (llm.handOver, user-only): a local brain passes a message it can't do well to the Claude brain.
 
@@ -200,4 +218,4 @@ function neededService(text, services = []) {
   return services.find((s) => s.length > 2 && new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*')}\\b`, 'i').test(t)) || '';
 }
 
-module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, placeNote, isReadTool, handOverHint, neededService, gaveUpUnlooked, LOOK_FIRST, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };
+module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, placeNote, isReadTool, handOverHint, neededService, gaveUpUnlooked, LOOK_FIRST, claimsAction, CLAIM_CHECK, questionOnly, NOT_FOR_A_QUESTION, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };

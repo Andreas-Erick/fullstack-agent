@@ -6,6 +6,7 @@ const readline = require('readline');
 const BRIDGE = process.env.NEXUS_BRIDGE_URL;
 const TOKEN = process.env.NEXUS_BRIDGE_TOKEN;
 const TURN = process.env.NEXUS_TURN;
+const SET = process.env.NEXUS_TOOLSET || ''; // core | more | '' (every tool): see claudecode.js
 
 async function bridge(route, payload) {
   const res = await fetch(`${BRIDGE}${route}`, {
@@ -34,7 +35,7 @@ async function handle(msg) {
         serverInfo: { name: 'nexus', version: '1.0.0' },
       };
     } else if (method === 'tools/list') {
-      result = { tools: await bridge('/list', {}) };
+      result = { tools: await bridge('/list', { set: SET }) };
     } else if (method === 'tools/call') {
       const r = await bridge('/call', { name: params?.name, args: params?.arguments || {} });
       const content = [{ type: 'text', text: r.text }];

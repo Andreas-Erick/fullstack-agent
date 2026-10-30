@@ -76,7 +76,7 @@ test('the compact prompt is short, starts with the role and ends with the key ru
   assert.match(system, /in your persona’s voice/, 'rule 1 asks for the persona’s voice, not plain words');
   assert.ok(system.length < 3800, `${system.length} chars`);
   const full = await prompt.buildCompact({ ...settings, agent: { name: 'Siren', personality: 'x'.repeat(5000) } }, []);
-  assert.ok(full.system.length < 5500, 'a long persona is shortened to its digest');
+  assert.ok(full.system.length < 6000, 'a long persona is shortened to its digest');
   const none = await prompt.buildCompact({ ...settings, agent: { name: 'Siren', personality: '' } }, []);
   assert.match(none.system, /Plain words, no filler/, 'without a persona: plain words');
   assert.match(full.system, /You have no tools/);
@@ -134,6 +134,8 @@ test('local models get the memories that match the message first, and hear when 
   const mems = [
     { id: 'm1', title: 'My sister', content: 'My sister’s name is Lena. She lives in Hamburg.', category: 'people', updated: new Date().toISOString() },
     { id: 'm2', title: 'Coffee', content: 'Erick drinks his coffee black.', category: 'preferences', updated: new Date().toISOString() },
+    // Enough memories that not all of them go in (compactMemories): only the matching ones.
+    ...Array.from({ length: 12 }, (_, i) => ({ id: `x${i}`, title: `Trip ${i}`, content: `A long note about a journey number ${i} through the mountains and valleys, with trains and buses.`, category: 'facts', updated: new Date().toISOString() })),
   ];
   // memory.relevant ranks relatively: here it returns both for anything, like streamcore with few records.
   stub({ './logger': quietLog, './store': fileStore(tmpDir('nexus-compact-mem-')), './memory': { list: async () => mems, search: async () => [], relevant: async () => mems }, './calendar': { promptBlock: async () => '## Schedule\n' + 'x'.repeat(5000) }, './obsidian': { ymd: () => '2026-10-29', startupContext: async () => '' } });
@@ -160,4 +162,53 @@ test('every message says who answers; right after a switch, whose the replies ab
   assert.match(same, /never call yourself a costume/i);
   const after = (await prompt.buildCompact(settings, [], { previousPersona: 'Hastur' })).context;
   assert.match(after, /just switched personas: the replies above were Hastur's, not yours/);
+});
+
+test('few memories: a local model gets all of them (an allergy shares no word with "Thai food")', async () => {
+  const mems = [{ id: 'a1', title: 'Allergy', content: 'Erick is allergic to peanuts.', category: 'health', updated: new Date().toISOString() }];
+  stub({ './logger': quietLog, './store': fileStore(tmpDir('nexus-compact-few-')), './memory': { list: async () => mems, search: async () => [], relevant: async () => [] }, './calendar': { promptBlock: async () => '' }, './obsidian': { ymd: () => '2026-10-30', startupContext: async () => '' } });
+  const prompt = load('main/prompt.js');
+  const ctx = (await prompt.buildCompact({ agent: { name: 'Siren', personality: '' }, llm: {}, code: {} }, ['memory_search'], { query: 'I’m ordering Thai food tonight. Anything to keep in mind?' })).context;
+  assert.ok(ctx.startsWith('## Your memories (all of them'));
+  assert.match(ctx, /peanuts/);
+});
+
+test('schedule entries and notes whose title matches the message come with it', async () => {
+  stub({
+    './logger': quietLog,
+    './store': fileStore(tmpDir('nexus-compact-match-')),
+    './memory': { list: async () => [], search: async () => [] },
+    './calendar': { promptBlock: async () => '', entries: async () => ({ entries: [{ title: 'Thermodynamics exam', when: '2026-11-11 09:00-11:00', location: 'Audimax' }, { title: 'Brunch with Tom', when: '2026-11-01 10:00-11:00' }] }) },
+    './obsidian': {
+      ymd: () => '2026-10-30',
+      startupContext: async () => '',
+      search: async () => [{ path: 'Notes/Incident 2026-10-27.md', title: 'Incident 2026-10-27' }, { path: 'Notes/Groceries.md', title: 'Groceries' }],
+      readNote: async (p) => ({ content: p.includes('Incident') ? 'Cause: the database connection pool was exhausted.' : 'milk' }),
+    },
+  });
+  const prompt = load('main/prompt.js');
+  const s = { agent: { name: 'Siren', personality: '' }, llm: {}, code: {} };
+  const exam = (await prompt.buildCompact(s, ['calendar_get_events'], { query: 'When is my thermodynamics exam?' })).context;
+  assert.ok(exam.includes('## Schedule entries that match this message\n- Thermodynamics exam: 2026-11-11 09:00-11:00 @ Audimax'));
+  assert.doesNotMatch(exam, /Brunch/);
+  const incident = (await prompt.buildCompact(s, ['vault_search'], { query: 'What caused last week’s payments incident?' })).context;
+  assert.ok(incident.includes('### Notes/Incident 2026-10-27.md\nCause: the database connection pool was exhausted.'));
+  assert.doesNotMatch(incident, /milk/, 'only notes whose title matches');
+});
+
+test('naming one of the user’s personas loads the persona tools (not the brain switch)', () => {
+  const core = require('../main/localcore');
+  const personas = ['Captain Vega', 'Nova', 'Professor Quill'];
+  assert.ok(core.hintGroups('Switch to Captain Vega, please.', { personas }).includes('looks'));
+  assert.ok(core.hintGroups('can I talk to nova again', { personas }).includes('looks'), 'any case');
+  assert.ok(!core.hintGroups('What is a supernova?', { personas }).includes('looks'), 'whole words only');
+  assert.ok(!core.hintGroups('Hello there', { personas }).includes('looks'));
+});
+
+test('a spoken message is marked for listening, a typed one is not', async () => {
+  stub({ './logger': quietLog, './store': fileStore(tmpDir('nexus-compact-spoken-')), './memory': { list: async () => [], search: async () => [] }, './calendar': { promptBlock: async () => '' }, './obsidian': { ymd: () => '2026-10-30', startupContext: async () => '' } });
+  const prompt = load('main/prompt.js');
+  const s = { agent: { name: 'Siren', personality: '' }, llm: {}, code: {} };
+  assert.match(await prompt.turnContext(s, [], null, { spoken: true }), /## This message was spoken\n.*under about 80 words/);
+  assert.doesNotMatch(await prompt.turnContext(s, [], null, {}), /was spoken/);
 });

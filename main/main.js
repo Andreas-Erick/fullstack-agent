@@ -636,7 +636,7 @@ function registerIpc() {
     const connectors = require('./connectors');
     if (!connectors.LEVELS.includes(level)) throw new Error(`Unknown level "${level}".`);
     const server = connectors.serverKey(key);
-    if (!server || server === connectors.OWN_SERVER) throw new Error('Unknown connector.');
+    if (!server || connectors.isOwnServer(server)) throw new Error('Unknown connector.');
     return store.setSettings({ claudeCode: connectors.levelPatch((await store.getSettings()).claudeCode, server, level) });
   });
   // How much of the Claude plan is left (claudeusage.js); updates arrive as `claude:usage` events.
@@ -945,6 +945,7 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       // A session that rolled over (too big, llm.runOn) is not resumed: the next one starts fresh.
       if (result.rollover) fresh.claudeSessionId = null;
       else if (result.sessionId) fresh.claudeSessionId = result.sessionId;
+      if (result.freshTokens) fresh.claudeFreshTokens = result.freshTokens; // how big a fresh session starts here (rollover)
       if (result.convPatch) Object.assign(fresh, result.convPatch);
       await store.saveConversation(fresh);
       emit({ type: 'done', message: stripRaw(assistantMsg) });

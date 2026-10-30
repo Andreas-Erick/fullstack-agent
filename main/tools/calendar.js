@@ -36,7 +36,7 @@ module.exports = [
   {
     name: 'calendar_add_event',
     group: 'calendar',
-    description: `Add to the user's schedule (Schedule.md in the vault) when they tell you about an appointment or something that repeats ("I have Linear Algebra every Monday at 10 in H1"). when: ${schedule.WHEN_HELP} Work out real dates yourself ("next Friday" → its date). For a rule that only runs for a while (a semester), set from/until. Read back the day and time in plain words when the user said it loosely.`,
+    description: `Add to the user's schedule (Schedule.md in the vault) when they tell you about an appointment or something that repeats ("I have Linear Algebra every Monday at 10 in H1"). One entry per thing at its own time: "remind me to buy flowers at 15:00" is its own entry, never a note on another one (notes remind nobody). when: ${schedule.WHEN_HELP} Work out real dates yourself ("next Friday" → its date). For a rule that only runs for a while (a semester), set from/until. Read back the day and time in plain words when the user said it loosely.`,
     parameters: obj(
       {
         title: str('What it is, e.g. "Linear Algebra lecture"'),

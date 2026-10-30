@@ -42,7 +42,7 @@ const WORK = [
 
 /** Where in the village a tool belongs: { place, label, counts } (counts: the place it grows). Unknown tools are mulled over in the Garden. */
 function workFor(tool) {
-  const name = String(tool || '').replace(/^mcp__nexus__/, '');
+  const name = String(tool || '').replace(/^mcp__nexus(_more)?__/, '');
   for (const [re, place, label, counts = place] of WORK) if (re.test(name)) return { place, label, counts };
   return { place: 'garden', label: 'in the Garden, thinking it over', counts: 'garden' };
 }

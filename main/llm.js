@@ -156,7 +156,7 @@ function sessionConfigKey(settings) {
   const { agent, appearance, voice, safety, code, web } = settings;
   return JSON.stringify([agent.name, agent.personality, agent.aesthetic, appearance.personaNotes, voice.ttsEnabled && voice.autoSpeak, safety.permissionMode, code.enabled, code.allowSelfModify, web.enabled, PROMPT_VERSION]);
 }
-const PROMPT_VERSION = 12;
+const PROMPT_VERSION = 13;
 
 async function claudeCodeOptions(settings, active, model) {
   const names = active.map((t) => t.name);
@@ -311,11 +311,11 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
       opts.configKey = 'first-run-setup';
       opts.buildPrompt = async () => prompt.buildSetup(settings);
     }
-    const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText, previousPersona });
+    const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText, previousPersona, spoken: voice });
     const result = await claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
     // A session grown too big (claudecode.ROLLOVER_TOKENS) is closed now and a fresh one started in the
     // background, so the next message is quick; main.js then keeps no session id to resume.
-    if (!setup && claudecode.needsRollover(result.contextTokens)) {
+    if (!setup && claudecode.needsRollover(result.contextTokens, result.freshTokens || conv.claudeFreshTokens)) {
       claudecode.rollover(conv.id, result.contextTokens);
       claudecode.prewarm({ id: conv.id, claudeSessionId: null }, opts).catch((error) => log.warn('prewarm failed', { error }));
       return { ...result, rollover: true };
@@ -327,7 +327,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   if (!setup && settings.llm.provider === 'openai' && localcore.compactWanted(settings)) {
     // The everyday tools, the groups this conversation loaded before or this message obviously needs,
     // and tools_more for the rest (localcore.js TOOLBOX).
-    const loaded = [...new Set([...(Array.isArray(conv.toolGroups) ? conv.toolGroups : []), ...localcore.hintGroups(lastText)])].filter((g) => localcore.TOOLBOX[g]);
+    const loaded = [...new Set([...(Array.isArray(conv.toolGroups) ? conv.toolGroups : []), ...localcore.hintGroups(lastText, { personas: (settings.personas?.list || []).map((p) => p.name) })])].filter((g) => localcore.TOOLBOX[g]);
     // tools_more, and hand_over when the user lets this brain hand messages to Claude (runTurn).
     const extra = [tools.TOOLS.find((t) => t.name === 'tools_more'), ...(handOverTo ? [tools.TOOLS.find((t) => t.name === 'hand_over')] : [])];
     const toolset = {
@@ -349,7 +349,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     ctx.handOver = handOverTo ? { to: handOverTo, requested: '' } : null;
     // The prompt names only the everyday tools, so it stays the same when a group is added.
     const everyday = localcore.compactTools(active).map((t) => t.name);
-    const { system, stable, context, reminder } = await prompt.buildCompact(settings, [...everyday, ...extra.map((t) => t.name)], { query: lastText, previousPersona });
+    const { system, stable, context, reminder } = await prompt.buildCompact(settings, [...everyday, ...extra.map((t) => t.name)], { query: lastText, previousPersona, spoken: voice });
     log.info('compact prompt', { model: model || settings.llm.model, tools: toolset.list.length, groups: loaded.join(',') || undefined, chars: system.length });
     // A local server reuses what it already read when the start of the request is unchanged: the
     // rules, the tools (which its template puts after the system text) and the history. So the
@@ -362,7 +362,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     if (ctx.handOver?.requested) result.handOver = ctx.handOver.requested;
     return result;
   }
-  const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText, previousPersona });
+  const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText, previousPersona, spoken: voice });
   if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), conv, history, emit, signal, active, system, stable, context, ctx, images });
   return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active, system, ctx, images });
 }
@@ -621,6 +621,8 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
   let fullText = '';
   let servedModel = model;
   let lookNudged = false;
+  let claimNudged = false;
+  const unstored = new WeakSet(); // the claim check (below): in the turn, not in the stored conversation
   const nudges = []; // the taken-back reply and the ask to look: sent, never stored
 
   for (let round = 0; round < ctx.budget.rounds + 1; round++) {
@@ -686,6 +688,18 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       nudges.push({ role: 'assistant', content: result.text }, { role: noteAsSystem ? 'system' : 'user', content: lc.LOOK_FIRST });
       continue;
     }
+    // A local model that says it did something no tool did ("Icelandic practice done." with no habit
+    // logged): take it back and ask once to do it or say it isn't done. Sent, never stored.
+    const changedSomething = toolRecords.some((r) => r.ok && !lc.isReadTool(r.name));
+    if (!result.calls.length && !claimNudged && ctx.toolset && useTools && round < ctx.budget.rounds && !changedSomething && lc.claimsAction(result.text)) {
+      claimNudged = true;
+      if (result.text) emit({ type: 'retract', chars: result.text.length });
+      log.info('local model claimed an action no tool did; asked to do it', { model, failed: toolRecords.filter((r) => !r.ok).map((r) => r.name).join(',') || undefined });
+      const check = [{ role: 'assistant', content: result.text }, { role: noteAsSystem ? 'system' : 'user', content: lc.CLAIM_CHECK }];
+      for (const m of check) unstored.add(m);
+      turnMessages.push(...check);
+      continue;
+    }
     fullText += result.text;
 
     if (!result.calls.length) {
@@ -710,6 +724,13 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
         turnMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: 'Arguments were not valid JSON. Please retry with valid JSON.' }) });
         continue;
       }
+      // A local model asked a question ("Can I fit a gym session in?") changes nothing: it answers.
+      const lc = require('./localcore');
+      if (ctx.toolset && lc.questionOnly(history[history.length - 1]?.content) && !lc.isReadTool(tc.function.name) && tc.function.name !== 'hand_over') {
+        log.info('local model tried to change something for a question; refused', { name: tc.function.name });
+        turnMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: lc.NOT_FOR_A_QUESTION }) });
+        continue;
+      }
       const r = await runTool({ id: tc.id, name: tc.function.name, input }, ctx, emit);
       toolRecords.push(r.record);
       turnMessages.push({ role: 'tool', tool_call_id: tc.id, content: r.content });
@@ -723,7 +744,7 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
     if (ctx.handOver?.requested) break;
   }
 
-  return { text: fullText.trim(), toolCalls: toolRecords, raw: { provider: 'openai', messages: stripImages(turnMessages) }, model: servedModel, convPatch: compacted.patch };
+  return { text: fullText.trim(), toolCalls: toolRecords, raw: { provider: 'openai', messages: stripImages(turnMessages.filter((m) => !unstored.has(m))) }, model: servedModel, convPatch: compacted.patch };
 }
 
 // Screenshots are never kept in the stored conversation (size, privacy): replaced by a note.

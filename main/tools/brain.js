@@ -40,7 +40,7 @@ module.exports = [
     name: 'brain_switch',
     group: 'brain',
     description:
-      'Switch which brain answers, from the next message on: "claude-code" (Claude account), "anthropic" (Claude API key), "local" (Ollama / LM Studio on this computer), "gemini", "deepseek", "groq", "perplexity", "openai" (FreeLLMAPI), or "auto" (multi-provider). model is optional: for local one of the installed models from brain_options (required the first time), for Claude "opus", "sonnet", "haiku", "fable" or "default". Only when the user asked for the switch. Afterwards say in one line which brain answers now.',
+      'Switch which brain (AI model) answers, from the next message on (not a persona: for the user’s personas, such as a character by name, use persona_switch): "claude-code" (Claude account), "anthropic" (Claude API key), "local" (Ollama / LM Studio on this computer), "gemini", "deepseek", "groq", "perplexity", "openai" (FreeLLMAPI), or "auto" (multi-provider). model is optional: for local one of the installed models from brain_options (required the first time), for Claude "opus", "sonnet", "haiku", "fable" or "default". Only when the user asked for the switch. Afterwards say in one line which brain answers now.',
     parameters: obj({ brain: { type: 'string', enum: core.IDS, description: 'Which brain' }, model: str('Model (optional)') }, ['brain']),
     run: async (a, ctx) => {
       const settings = await store.getSettings();

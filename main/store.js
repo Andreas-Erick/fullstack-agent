@@ -62,6 +62,7 @@ const DEFAULTS = {
     deepModel: '',
   },
   claudeCode: {
+    toolsOnRequest: true, // the app's everyday tools loaded, the rest found when needed (claudecode.js CORE_TOOLS): ~25k fewer tokens per message
     cliPath: '', // empty = auto-detect the `claude` CLI
     model: 'default', // default | opus | sonnet | haiku | fable | full model id
     effort: 'default',

@@ -21,6 +21,9 @@ const opt = (name) => args.flatMap((a, i) => (a === `--${name}` ? [args[i + 1]] 
 const brains = opt('brain');
 const only = new Set(opt('only').flatMap((s) => s.split(',')));
 const outFile = opt('out')[0] || '';
+// --suite basic (the single messages, default) | scenarios (six kinds of users, persona switches) | all
+const suite = opt('suite')[0] || 'basic';
+if (!['basic', 'scenarios', 'all'].includes(suite)) throw new Error('--suite basic | scenarios | all');
 // --persona <file> [--name <name>]: run with that master prompt (how well a brain stays in character).
 const personaFile = opt('persona')[0] || '';
 const personaName = opt('name')[0] || 'Siren';
@@ -75,12 +78,33 @@ async function main() {
   }
   await store.setSettings(base);
   const d = dates();
-  // The made-up vault, once; every case gets its own copy.
-  const template = path.join(tmp, 'vault-template');
-  await store.setSettings({ obsidian: { enabled: true, vaultPath: template } });
-  await seed({ calendar, habits, memory, flashcards, vault: template, fs, path }, d);
-
-  const list = cases(d).filter((c) => !only.size || only.has(c.id));
+  const scen = require('./eval-scenarios');
+  const persona = require(path.join(ROOT, 'main/persona'));
+  // The suites' made-up worlds, each seeded once; every case gets its own copy of its vault.
+  const templates = {};
+  if (suite !== 'scenarios') {
+    templates.basic = path.join(tmp, 'vault-basic');
+    await store.setSettings({ obsidian: { enabled: true, vaultPath: templates.basic } });
+    await seed({ calendar, habits, memory, flashcards, vault: templates.basic, fs, path }, d);
+  }
+  const sd = scen.scenarioDates();
+  if (suite !== 'basic') {
+    templates.scenarios = path.join(tmp, 'vault-scenarios');
+    await store.setSettings({ obsidian: { enabled: true, vaultPath: templates.scenarios } });
+    await scen.seedScenarios({ calendar, habits, memory, flashcards, vault: templates.scenarios, fs, path }, sd);
+    // The test personas, made the way the Persona studio makes them; the first persona stays active.
+    const first = (await store.getSettings()).personas.active;
+    for (const p of scen.PERSONAS) {
+      await persona.create({ name: p.name, activate: true });
+      await store.setSettings({ agent: { name: p.name, personality: p.personality } });
+    }
+    await persona.activate(first);
+  }
+  const homePersona = (await store.getSettings()).personas.active;
+  const list = [
+    ...(templates.basic ? cases(d).map((c) => ({ ...c, world: 'basic' })) : []),
+    ...(templates.scenarios ? scen.scenarios(sd).map((c) => ({ ...c, world: 'scenarios' })) : []),
+  ].filter((c) => !only.size || only.has(c.id) || only.has(c.area));
   const results = [];
   for (const brain of brains) {
     const brainPatch = brainSettings(brain);
@@ -88,42 +112,20 @@ async function main() {
     for (const c of list) {
       const vault = path.join(tmp, 'vaults', `${brain.replace(/[^\w.-]+/g, '_')}-${c.id}`);
       // Without the template's note history: it may still be writing it in the background (vaultgit).
-      fs.cpSync(template, vault, { recursive: true, filter: (src) => path.basename(src) !== '.git' });
+      fs.cpSync(templates[c.world], vault, { recursive: true, filter: (src) => path.basename(src) !== '.git' });
       await store.setSettings({ ...brainPatch, obsidian: { enabled: true, vaultPath: vault } });
-      const settings = await store.getSettings();
-      if (personaFile && !personaShown) (personaShown = true), say(`persona: ${settings.agent.name}, ${settings.agent.personality.length} chars; local models get ${require(path.join(ROOT, 'main/personacore')).forSmallModels(settings.agent).length}`);
-      const conv = await store.createConversation();
-      conv.messages.push({ id: store.newId('m'), role: 'user', content: c.ask, createdAt: Date.now() });
-      const tools = [];
-      let first = null;
-      const started = Date.now();
-      const emit = (ev) => {
-        if (ev.type === 'text' && first === null) first = Date.now() - started;
-        if (ev.type === 'tool_start') tools.push({ id: ev.id, name: ev.name, input: ev.input, ok: null });
-        if (ev.type === 'tool_end') {
-          const t = tools.find((x) => x.id === ev.id) || tools.find((x) => x.name === ev.name && x.ok === null);
-          if (t) t.ok = ev.ok;
-        }
-      };
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), TURN_MS);
-      let text = '';
-      let error = '';
-      let handedOver = '';
-      try {
-        const r = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: ac.signal, voice: false, images: [] });
-        text = r.text || '';
-        handedOver = r.handedOver || '';
-        for (const t of r.toolCalls || []) if (!tools.some((x) => x.name === t.name && x.ok !== null)) tools.push({ name: t.name, input: t.input, ok: t.ok });
-      } catch (err) {
-        error = ac.signal.aborted ? `no reply within ${TURN_MS / 1000} s` : err.message;
-      } finally {
-        clearTimeout(timer);
-        claudecode.endSession(conv.id);
+      await persona.activate(homePersona);
+      if (personaFile && !personaShown) {
+        const a = (await store.getSettings()).agent;
+        personaShown = true;
+        say(`persona: ${a.name}, ${a.personality.length} chars; local models get ${require(path.join(ROOT, 'main/personacore')).forSmallModels(a).length}`);
       }
-      const ms = Date.now() - started;
+      const conv = await store.createConversation();
+      const steps = c.steps || [{ ask: c.ask, check: c.check, voice: c.voice }];
       const state = {
         schedule: async () => (await calendar.entries()).entries,
+        // Occurrences, repeat rules expanded: [{ title, start (ISO), end, … }] between two YYYY-MM-DD dates.
+        events: (start, end) => calendar.events({ start, end }),
         habits: async () => (await habits.status()).habits,
         habitDone: async (name) => Boolean((await habits.status()).habits.find((h) => h.name.toLowerCase() === name.toLowerCase())?.doneToday),
         memories: () => memory.list(),
@@ -134,18 +136,72 @@ async function main() {
           return hit ? { path: hit, text: fs.readFileSync(hit, 'utf8') } : null;
         },
       };
-      const used = (...names) => tools.some((t) => names.includes(t.name));
-      let why = error;
-      if (!why) {
+      const allTools = [];
+      let first = null;
+      let why = '';
+      let lastText = '';
+      let handedOver = '';
+      const started = Date.now();
+      let n = 0;
+      for (const step of steps) {
+        if (step.persona) {
+          await persona.activate(step.persona);
+          continue;
+        }
+        n++;
+        // What the app does around a turn (main.js startTurn): the message in, the reply stored with
+        // its persona, the Claude session kept or dropped, loaded tool groups kept.
+        const settings = await store.getSettings();
+        conv.messages.push({ id: store.newId('m'), role: 'user', content: step.ask, createdAt: Date.now() });
+        const tools = [];
+        const emit = (ev) => {
+          if (ev.type === 'text' && first === null) first = Date.now() - started;
+          if (ev.type === 'tool_start') tools.push({ id: ev.id, name: ev.name, input: ev.input, ok: null });
+          if (ev.type === 'tool_end') {
+            const t = tools.find((x) => x.id === ev.id) || tools.find((x) => x.name === ev.name && x.ok === null);
+            if (t) Object.assign(t, { ok: ev.ok, preview: ev.preview });
+          }
+        };
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), TURN_MS);
+        let text = '';
+        let error = '';
         try {
-          why = await c.check({ text, tools, used, state });
+          const r = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: ac.signal, voice: Boolean(step.voice), images: [] });
+          text = r.text || '';
+          handedOver ||= r.handedOver || '';
+          for (const t of r.toolCalls || []) if (!tools.some((x) => x.name === t.name && x.ok !== null)) tools.push({ name: t.name, input: t.input, ok: t.ok });
+          conv.messages.push({ id: store.newId('m'), role: 'assistant', content: text, provider: r.provider || settings.llm.provider, persona: settings.agent.name, model: r.model, createdAt: Date.now() });
+          if (r.rollover) conv.claudeSessionId = null;
+          else if (r.sessionId) conv.claudeSessionId = r.sessionId;
+          if (r.freshTokens) conv.claudeFreshTokens = r.freshTokens;
+          if (r.convPatch) Object.assign(conv, r.convPatch);
         } catch (err) {
-          why = `check failed: ${err.message}`;
+          error = ac.signal.aborted ? `no reply within ${TURN_MS / 1000} s` : err.message;
+        } finally {
+          clearTimeout(timer);
+        }
+        lastText = text;
+        allTools.push(...tools);
+        const used = (...names) => tools.some((t) => names.includes(t.name));
+        let stepWhy = error;
+        if (!stepWhy) {
+          try {
+            stepWhy = await step.check({ text, tools, used, state });
+          } catch (err) {
+            stepWhy = `check failed: ${err.message}`;
+          }
+        }
+        if (stepWhy) {
+          why = steps.length > 1 ? `message ${n} (“${step.ask.slice(0, 50)}”): ${stepWhy}` : stepWhy;
+          break;
         }
       }
-      const row = { brain, id: c.id, area: c.area, pass: !why, why, firstMs: first, ms, handedOver, tools: tools.map((t) => `${t.name}${t.ok === false ? '✗' : ''}`), text: text.slice(0, 400) };
+      claudecode.endSession(conv.id);
+      const ms = Date.now() - started;
+      const row = { brain, id: c.id, area: c.area, pass: !why, why, firstMs: first, ms, messages: n, handedOver, tools: allTools.map((t) => `${t.name}${t.ok === false ? '✗' : ''}`), text: lastText.slice(0, 400) };
       results.push(row);
-      say(`${row.pass ? 'PASS' : 'FAIL'} ${c.id.padEnd(14)} ${String(first ?? '-').padStart(6)} ms first · ${String(ms).padStart(6)} ms · ${row.tools.join(',') || '-'}${handedOver ? ` · → Claude (${handedOver})` : ''}${why ? `\n     ${why}\n     reply: ${JSON.stringify(text.slice(0, 160))}` : ''}`);
+      say(`${row.pass ? 'PASS' : 'FAIL'} ${c.id.padEnd(22)} ${String(first ?? '-').padStart(6)} ms first · ${String(ms).padStart(6)} ms${n > 1 ? ` · ${n} messages` : ''} · ${row.tools.join(',') || '-'}${handedOver ? ` · → Claude (${handedOver})` : ''}${why ? `\n     ${why}\n     reply: ${JSON.stringify(lastText.slice(0, 160))}` : ''}${why ? allTools.map((t) => `\n     ${t.ok === false ? '✗' : '·'} ${t.name} ${JSON.stringify(t.input || {}).slice(0, 150)}${t.ok === false ? ` → ${String(t.preview || '').replace(/\s+/g, ' ').slice(0, 200)}` : ''}`).join('') : ''}`);
     }
   }
   // Summary per brain and area.
