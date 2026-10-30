@@ -54,6 +54,30 @@ test('roads reach every place and walks follow them', () => {
   assert.deepStrictEqual(half, { x: 5, y: 0 });
 });
 
+test('a walk from doorstep to doorstep never crosses a building', () => {
+  const map = M.buildMap(places());
+  const sites = Object.values(map.sites);
+  const door = (s) => ({ x: s.gx + s.a + 0.7, y: s.gy + s.b * 0.45 });
+  const blocks = (s, p) => {
+    const [a, b] = s.id === 'garden' ? [0.8, 0.8] : [s.a, s.b];
+    return Math.abs(p.x - s.gx) < a && Math.abs(p.y - s.gy) < b;
+  };
+  for (const from of sites) {
+    for (const to of sites) {
+      if (from === to) continue;
+      const walk = M.route(map, from.id, to.id, { start: door(from), end: door(to) });
+      assert.ok(walk.length > 1, `a walk from ${from.id} to ${to.id}`);
+      assert.deepStrictEqual(walk[0], door(from));
+      assert.deepStrictEqual(walk[walk.length - 1], door(to));
+      for (let k = 0; k <= 400; k++) {
+        const p = M.along(walk, k / 400);
+        const hit = sites.find((s) => blocks(s, p));
+        assert.ok(!hit, `${from.id} → ${to.id} walks through ${hit?.id} at ${p.x.toFixed(2)},${p.y.toFixed(2)}`);
+      }
+    }
+  }
+});
+
 test('a river with a waterfall, trees off roads and buildings', () => {
   const map = M.buildMap(places());
   let water = 0;

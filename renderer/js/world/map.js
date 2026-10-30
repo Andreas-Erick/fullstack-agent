@@ -278,8 +278,71 @@ export function buildMap(places, seed = 7) {
   return { N, tiles, height, sites, roads, edges, trees, props, fields, river, fall, seed, lots, mills, tile: (x, y) => (at(x, y) < 0 ? 0 : tiles[at(x, y)]), hgt: (x, y) => (at(x, y) < 0 ? 0 : height[at(x, y)]) };
 }
 
-/** The walk between two places along the roads: grid points, start to end. */
-export function route(map, from, to) {
+// What a walker keeps clear of: each building's footprint with a little room, and the Garden's fountain
+// (the plaza around it is open ground).
+const CLEARANCE = 0.5;
+function obstacles(map) {
+  return Object.values(map.sites).map((s) => {
+    const [a, b] = s.id === 'garden' ? [0.85, 0.85] : [s.a + CLEARANCE, s.b + CLEARANCE];
+    return { x0: s.gx - a, x1: s.gx + a, y0: s.gy - b, y1: s.gy + b };
+  });
+}
+
+const inside = (o, p) => p.x > o.x0 && p.x < o.x1 && p.y > o.y0 && p.y < o.y1;
+
+// From p to q (both outside o) along o's edge, the shorter way round.
+function around(o, p, q) {
+  const w = o.x1 - o.x0;
+  const h = o.y1 - o.y0;
+  const L = 2 * (w + h);
+  const onEdge = (pt) => ({ x: Math.min(o.x1, Math.max(o.x0, pt.x)), y: Math.min(o.y1, Math.max(o.y0, pt.y)) });
+  const pos = ({ x, y }) => (y === o.y0 ? x - o.x0 : x === o.x1 ? w + y - o.y0 : y === o.y1 ? w + h + o.x1 - x : 2 * w + h + o.y1 - y);
+  const corners = [
+    { s: 0, x: o.x0, y: o.y0 },
+    { s: w, x: o.x1, y: o.y0 },
+    { s: w + h, x: o.x1, y: o.y1 },
+    { s: 2 * w + h, x: o.x0, y: o.y1 },
+  ];
+  const a = onEdge(p);
+  const b = onEdge(q);
+  const sa = pos(a);
+  const d = (pos(b) - sa + L) % L;
+  const forward = d <= L / 2;
+  const off = (c) => (forward ? c.s - sa : sa - c.s) + L * 2;
+  const span = forward ? d : L - d;
+  const between = corners.filter((c) => off(c) % L > 0 && off(c) % L < span).sort((c1, c2) => (off(c1) % L) - (off(c2) % L));
+  return [a, ...between.map(({ x, y }) => ({ x, y })), b];
+}
+
+// A walk that would cross a building goes round it instead. A stretch that runs to either end of the
+// walk stays (someone heading inside a place walks in).
+function avoid(pts, boxes) {
+  let out = pts;
+  for (const o of boxes) {
+    for (let guard = 0; guard < 8; guard++) {
+      const i = out.findIndex((p, k) => k > 0 && inside(o, p) && !inside(o, out[k - 1]));
+      if (i < 0) break;
+      let j = i;
+      while (j < out.length && inside(o, out[j])) j++;
+      if (j >= out.length) break;
+      out = [...out.slice(0, i), ...around(o, out[i - 1], out[j]), ...out.slice(j)];
+    }
+  }
+  return out;
+}
+
+/**
+ * The walk between two places along the roads: grid points, start to end. With `ends`
+ * ({ start, end }: where the walker stands at each place) the walk starts and ends there and goes
+ * round the buildings on the way, never through them.
+ */
+export function route(map, from, to, ends) {
+  const path = roadPath(map, from, to);
+  if (!path.length || !ends) return path;
+  return avoid([ends.start || path[0], ...path, ends.end || path[path.length - 1]], obstacles(map));
+}
+
+function roadPath(map, from, to) {
   if (from === to || !map.sites[from] || !map.sites[to]) return [];
   const adj = new Map();
   for (const rd of map.roads) {

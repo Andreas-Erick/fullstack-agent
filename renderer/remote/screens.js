@@ -566,9 +566,9 @@ async function world() {
       let g = { x: s.gx + s.a + 0.7 + (j % 2) * 0.55, y: s.gy + s.b * 0.45 - Math.floor(j / 2) * 0.62 };
       if (w.from && map.sites[w.from]) {
         const f = map.sites[w.from];
-        const key = `${w.from}>${w.place}`;
-        if (!roads.has(key)) roads.set(key, route(map, w.from, w.place));
-        g = along([{ x: f.gx + f.a + 0.7, y: f.gy + f.b * 0.45 }, ...roads.get(key), g], w.k) || g;
+        const key = `${w.from}>${w.place}>${j}`;
+        if (!roads.has(key)) roads.set(key, route(map, w.from, w.place, { start: { x: f.gx + f.a + 0.7, y: f.gy + f.b * 0.45 }, end: g }));
+        g = along(roads.get(key), w.k) || g;
       }
       const wp = W(g.x, g.y, map.hgt(Math.floor(g.x), Math.floor(g.y)) * HZ);
       const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(r.color || '');
