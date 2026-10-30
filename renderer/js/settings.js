@@ -792,7 +792,7 @@ const compactSelect = () =>
 
 // Finds Ollama and LM Studio on this computer and the models they have; picking one fills in the
 // server address and the model of `section` (llm, or local in multi-provider mode).
-function localFinder(section, after) {
+export function localFinder(section, after) {
   const out = el('div', { class: 'local-found' });
   const find = async () => {
     out.replaceChildren(el('div', { class: 'hint' }, 'Looking on this computer…'));

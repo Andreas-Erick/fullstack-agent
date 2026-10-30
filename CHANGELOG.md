@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Claude messages carry about half as many tokens again: a fresh session went from about 52,000 to 27,000. Claude Code loaded the app's developer notes (CLAUDE.md, about 22,000 tokens) and its own memory into every chat. The assistant now reads those notes itself when it changes its code, and Claude Code's memory stays off in its sessions.
+- When a Claude session restarts because a setting changed, the log names the setting (for example `config (personality)`), since every restart costs the prompt cache.
+- Claude sessions no longer pick up your own Claude Code permission rules and extra folders (the ones you set for your own coding sessions, such as an allowed `git push` or a whole workspace that is readable). Every action goes through Siren's approvals again. With connectors on, your Claude Code user settings still load, because your plugins are set up there.
+- Setup wizard: "A model on this computer" finds Ollama and LM Studio and the models they have, suggests sizes that fit your computer, and offers to hand hard messages to Claude. The cloud voice (Groq or OpenAI) is a choice in the voice step. The privacy step says conversations are encrypted, and that nothing leaves the computer with a local model.
+- In the Inner World, the assistant walks around buildings instead of straight through them, on the desktop and on the phone.
+
 ## 2.7.11 — 2026-10-30
 
 - Fixes messages failing after a persona switch in 2.7.10 ("No conversation found with session ID…"). A fresh Claude session started ahead of time was resumed before it had answered anything. Only a session with a saved conversation is resumed now, and a missing one starts fresh instead of failing.

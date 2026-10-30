@@ -151,12 +151,24 @@ function effectiveModel(settings, { voice = false, mode: forced } = {}) {
   return pick(settings.llm, settings.llm.model);
 }
 
-// Fields that define a Claude Code session; changing any of them restarts it.
+// Fields that define a Claude Code session; changing any of them restarts it (and costs the prompt
+// cache), so each is named: the restart's log line says which one changed (claudecode.changedParts).
 function sessionConfigKey(settings) {
   const { agent, appearance, voice, safety, code, web } = settings;
-  return JSON.stringify([agent.name, agent.personality, agent.aesthetic, appearance.personaNotes, voice.ttsEnabled && voice.autoSpeak, safety.permissionMode, code.enabled, code.allowSelfModify, web.enabled, PROMPT_VERSION]);
+  return JSON.stringify({
+    name: agent.name,
+    personality: agent.personality,
+    aesthetic: agent.aesthetic,
+    personaNotes: appearance.personaNotes,
+    speaks: voice.ttsEnabled && voice.autoSpeak,
+    permissionMode: safety.permissionMode,
+    code: code.enabled,
+    selfModify: code.allowSelfModify,
+    web: web.enabled,
+    prompt: PROMPT_VERSION,
+  });
 }
-const PROMPT_VERSION = 13;
+const PROMPT_VERSION = 14;
 
 async function claudeCodeOptions(settings, active, model) {
   const names = active.map((t) => t.name);

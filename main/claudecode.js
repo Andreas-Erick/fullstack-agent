@@ -322,7 +322,9 @@ class Session {
     this.unregister = unregister;
     const sysFile = path.join(this.tmp, 'system.md');
     const mcpFile = path.join(this.tmp, 'mcp.json');
+    const settingsFile = path.join(this.tmp, 'settings.json');
     await fsp.writeFile(sysFile, spec.system, 'utf8');
+    await fsp.writeFile(settingsFile, JSON.stringify(SESSION_SETTINGS), 'utf8');
     await fsp.writeFile(
       mcpFile,
       // Connector tools are found on demand (ToolSearch); of the app's own, the everyday ones stay
@@ -330,20 +332,8 @@ class Session {
       JSON.stringify({ mcpServers: mcpServersFor(spec, { url: b.url, token: b.token, turn: bridgeId }) }),
       'utf8',
     );
-    const args = [
-      '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-      '--system-prompt-snapshot', 'off',
-      '--append-system-prompt-file', sysFile,
-      '--mcp-config', mcpFile, ...(spec.connectors ? [] : ['--strict-mcp-config']),
-      '--tools', spec.builtins.join(','),
-      '--allowedTools', spec.allowed.join(','),
-      '--permission-mode', 'default', '--permission-prompts', 'host', '--permission-prompt-tool', 'mcp__nexus__approval_prompt',
-    ];
-    for (const d of spec.addDirs) args.push('--add-dir', d);
-    if (spec.model && spec.model !== 'default') args.push('--model', spec.model);
-    if (spec.effort && spec.effort !== 'default') args.push('--effort', spec.effort);
     const resume = spec.resume || this.resumable;
-    if (resume) args.push('--resume', resume);
+    const args = sessionArgs(spec, { sysFile, mcpFile, settingsFile, resume });
     this.resumed = Boolean(resume);
     this.resumable = resume || null;
 
@@ -660,6 +650,40 @@ class Session {
   }
 }
 
+// Claude Code's own memory (MEMORY.md and how to write it) belongs to whoever develops the app, not to
+// the assistant: off in its sessions (~1.2k tokens per message, and no notes written there).
+const SESSION_SETTINGS = { autoMemoryEnabled: false };
+
+/**
+ * Which of the user's own Claude Code settings a session loads. Never the project's (the repo's
+ * CLAUDE.md, the developer map: ~22k tokens, ~40% of a fresh session; the assistant reads it itself
+ * before changing its code, prompt.js Self-improvement) and never local ones. The user's settings only
+ * with connectors on, where their plugins are set up: otherwise the user's permission rules and extra
+ * folders (written for their own coding sessions, e.g. "git push" allowed, a whole workspace readable)
+ * would let calls skip approve() and the folder policy (documents.userFolders).
+ */
+const settingSources = (spec) => (spec.connectors ? 'user' : '');
+
+/** The CLI's arguments for a session. */
+function sessionArgs(spec, { sysFile, mcpFile, settingsFile, resume }) {
+  const args = [
+    '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+    '--system-prompt-snapshot', 'off',
+    '--append-system-prompt-file', sysFile,
+    '--setting-sources', settingSources(spec),
+    '--settings', settingsFile,
+    '--mcp-config', mcpFile, ...(spec.connectors ? [] : ['--strict-mcp-config']),
+    '--tools', spec.builtins.join(','),
+    '--allowedTools', spec.allowed.join(','),
+    '--permission-mode', 'default', '--permission-prompts', 'host', '--permission-prompt-tool', 'mcp__nexus__approval_prompt',
+  ];
+  for (const d of spec.addDirs) args.push('--add-dir', d);
+  if (spec.model && spec.model !== 'default') args.push('--model', spec.model);
+  if (spec.effort && spec.effort !== 'default') args.push('--effort', spec.effort);
+  if (resume) args.push('--resume', resume);
+  return args;
+}
+
 function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, folders = [], model }) {
   const cc = settings.claudeCode;
   const builtins = ['Read', 'Glob', 'Grep'];
@@ -722,12 +746,27 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   return spec;
 }
 
+// The named fields that differ between two config keys (llm.sessionConfigKey), or null when they
+// can't be compared (an older key format).
+function configFields(before, after) {
+  try {
+    const [a, b] = [JSON.parse(before), JSON.parse(after)];
+    if (!a || !b || Array.isArray(a) || typeof a !== 'object') return null;
+    const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((f) => JSON.stringify(a[f]) !== JSON.stringify(b[f]));
+    return keys.length ? keys.join(', ') : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Which parts of a session's configuration differ (for tools: which were added or removed). */
 function changedParts(before = {}, after = {}) {
   const out = [];
   for (const k of Object.keys(after)) {
     if (JSON.stringify(before[k]) === JSON.stringify(after[k])) continue;
-    if (k === 'tools' && Array.isArray(before[k])) {
+    const fields = k === 'config' ? configFields(before[k], after[k]) : null;
+    if (fields) out.push(`config (${fields})`);
+    else if (k === 'tools' && Array.isArray(before[k])) {
       const added = after[k].filter((t) => !before[k].includes(t));
       const removed = before[k].filter((t) => !after[k].includes(t));
       out.push(`tools${added.length ? ` +${added.join(',')}` : ''}${removed.length ? ` -${removed.join(',')}` : ''}`);
@@ -906,4 +945,4 @@ async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { CORE_TOOLS, mcpServersFor, changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };
+module.exports = { CORE_TOOLS, mcpServersFor, sessionArgs, changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };
