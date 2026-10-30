@@ -10,6 +10,7 @@ import { speaker, listMics, testLocalVoice } from './voice.js';
 import { BUILT_IN, FaceHost } from './faces/host.js';
 import { scanInto } from './hwscan.js';
 import { KOKORO_VOICES } from './kokorotext.js';
+import { localFinder } from './settings.js';
 
 const STEPS = ['welcome', 'privacy', 'hardware', 'brain', 'voice', 'vault', 'goals', 'connect', 'persona', 'tour', 'hello'];
 const STEP_NAMES = { welcome: 'Welcome', privacy: 'Privacy & safety', hardware: 'Your computer', brain: 'Brain', voice: 'Voice', vault: 'Memory', goals: 'What you want', connect: 'Connectors & extras', persona: 'Personality & face', tour: 'What I can do', hello: 'First hello' };
@@ -26,7 +27,7 @@ const GOALS = [
 ];
 
 // Icons for the tour (main/guide.js FEATURES ids).
-const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '🎓', flashcards: '🗂', languages: '🗣', coaching: '🌱', skilltree: '🌳', innerworld: '🏡', routines: '⏰', schedule: '📅', connectors: '🔌', documents: '📄', folders: '📁', 'agent-window': '🌐', architecture: '🏛', performance: '⚡', system: '📊', usage: '⏳', skills: '✨', diagrams: '📐', extensions: '🧩', 'web-code': '💻', remote: '📱', watch: '⌚', keyboard: '⌨', updates: '⬆', safety: '🛡' };
+const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '🎓', flashcards: '🗂', languages: '🗣', coaching: '🌱', skilltree: '🌳', innerworld: '🏡', routines: '⏰', schedule: '📅', connectors: '🔌', documents: '📄', folders: '📁', 'agent-window': '🌐', architecture: '🏛', performance: '⚡', system: '📊', 'local-brain': '💻', 'switch-brain': '🔀', usage: '⏳', skills: '✨', diagrams: '📐', extensions: '🧩', 'web-code': '💻', remote: '📱', watch: '⌚', keyboard: '⌨', updates: '⬆', safety: '🛡' };
 
 let step = 0;
 const draft = {};
@@ -118,8 +119,8 @@ async function render() {
       el(
         'div',
         { class: 'ob-points' },
-        point('🏠', 'Your data stays on this computer', 'Settings, conversations, memories, notes and your schedule live in your data folder and your vault, as plain files you own. There is no account, no server of ours, no analytics. Keys are encrypted with your system’s keychain.'),
-        point('☁', 'What goes to your AI provider', 'Your messages, the conversation, relevant memories and notes, your schedule for the next days, tool results, and screenshots while you share your screen go to the AI brain you choose (for example Anthropic). Their privacy terms apply to it.'),
+        point('🏠', 'Your data stays on this computer', 'Settings, memories, notes and your schedule live in your data folder and your vault, as plain files you own. Conversations and keys are encrypted with your system’s keychain. There is no account, no server of ours, no analytics.'),
+        point('☁', 'What goes to your AI provider', 'Your messages, the conversation, relevant memories and notes, your schedule for the next days, tool results, and screenshots while you share your screen go to the AI brain you choose (for example Anthropic). Their privacy terms apply to it. With a model on this computer, none of it leaves.'),
         point('🛡', 'You stay in control', 'Consequential actions ask you first: changing her own code, settings, deleting, commands, pushing to GitHub, anything in your connected services. Screen sharing only starts from your click. Pages, documents and tool results are treated as data, never as instructions.'),
         point('⚠', 'AI can be wrong', 'Language models make mistakes and can sound sure about false things. Check what matters (medical, legal, financial, safety) with a qualified source. Siren is not a professional adviser, and the app is provided as is, without warranty (MIT License): no software is perfectly secure, and the authors are not liable for damage from its use.'),
         point('💳', 'Services and costs are yours', 'You are responsible for the terms and charges of every service you connect (AI providers, connectors) and for what you approve.'),
@@ -171,9 +172,12 @@ async function render() {
         else area.append(el('div', { class: 'test-result ok' }, `✓ Connected as ${st.email} (${st.subscription || st.authMethod} plan)`));
         area.append(el('button', { class: 'btn', onclick: drawArea }, '⟳ Re-check'));
       } else if (draft.provider === 'openai') {
+        // Ollama / LM Studio found on this computer fill in the address and model (settings.js localFinder).
         area.append(
-          field('FreeLLMAPI URL', input(s.llm.baseUrl, 'http://localhost:3001/v1', (v) => saveSettings({ llm: { baseUrl: v } }))),
-          field('Bearer token', input(s.llm.apiKey, 'optional', (v) => saveSettings({ llm: { apiKey: v } }), 'password')),
+          localFinder('llm', drawArea),
+          field('Server address', input(state.settings.llm.baseUrl, 'http://localhost:11434/v1', (v) => saveSettings({ llm: { baseUrl: v } })), 'Filled in when you pick a model above. Also any OpenAI-compatible server, such as FreeLLMAPI.'),
+          field('Bearer token', input(state.settings.llm.apiKey, 'optional', (v) => saveSettings({ llm: { apiKey: v } }), 'password')),
+          checkbox(state.settings.llm.handOver, 'Hand hard messages to my Claude account (code, connected services, long or careful work). Those messages then leave this computer.', (v) => saveSettings({ llm: { handOver: v } })),
         );
       } else if (draft.provider === 'auto') {
         area.append(
@@ -193,7 +197,7 @@ async function render() {
         [
           { value: 'claude-code', ico: '✦', title: 'My Claude account', desc: 'Recommended. Uses your Claude subscription through Claude Code, with your connectors and plugins.' },
           { value: 'auto', ico: '⇄', title: 'Several providers', desc: 'Claude, Gemini, Groq, DeepSeek, Perplexity… with automatic fallback when one hits a limit.' },
-          { value: 'openai', ico: '⌂', title: 'FreeLLMAPI / local', desc: 'A local OpenAI-compatible server (also Ollama, LM Studio). Keeps everything on this computer.' },
+          { value: 'openai', ico: '⌂', title: 'A model on this computer', desc: 'Ollama or LM Studio (or a FreeLLMAPI server). Private and free; a small model answers everyday things in a second or two.' },
           { value: 'anthropic', ico: '🔑', title: 'Anthropic API key', desc: 'Pay-per-use API.' },
         ],
         draft.provider,
@@ -235,6 +239,28 @@ async function render() {
           el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: async () => { progress.textContent = 'Loading the offline voice…'; try { await testLocalVoice(`Hello, I'm ${state.settings.agent.name}. Lovely to meet you.`); } catch (e) { progress.textContent = `✕ ${e.message}`; } } }, '🔊 Download and play')),
           progress,
         );
+      } else if (draft.engine === 'cloud') {
+        // main/voice.js CLOUD_VOICES; the voice itself is chosen later in Config → Voice output.
+        const cv = state.settings.cloudVoice || {};
+        const openai = cv.provider === 'openai';
+        engineArea.append(
+          field(
+            'Service',
+            choices(
+              [
+                { value: 'groq', title: 'Groq (Orpheus)', desc: 'English. Uses a Groq API key, the same one as for Groq speech recognition.' },
+                { value: 'openai', title: 'OpenAI', desc: 'Many languages. Uses an OpenAI API key.' },
+              ],
+              cv.provider || 'groq',
+              async (v) => (await saveSettings({ cloudVoice: { provider: v, voice: '' } }), drawEngine()),
+            ),
+          ),
+          openai
+            ? field('OpenAI API key', input(cv.apiKey, 'sk-…', (v) => saveSettings({ cloudVoice: { apiKey: v } }), 'password'))
+            : field('Groq API key', input(state.settings.groq.apiKey, 'gsk_…', (v) => saveSettings({ groq: { apiKey: v } }), 'password'), 'Get one at <a href="https://console.groq.com/keys">console.groq.com</a>, and accept Orpheus’s terms once in its Playground.'),
+          el('div', { class: 'hint' }, 'Every reply that is spoken is sent to that service and costs a little (about 1–2 cents a minute). If it fails, the offline voice speaks instead.'),
+          el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => speaker.say(`Hello, I'm ${state.settings.agent.name}.`) }, '🔊 Test voice')),
+        );
       } else {
         engineArea.append(
           field('VoiceStudio URL', input(s.voice.baseUrl, 'http://localhost:3900', (v) => saveSettings({ voice: { baseUrl: v } })), 'VoiceStudio is a separate app with more natural voices and voice cloning. If it isn’t reachable, the offline voice speaks instead.'),
@@ -248,6 +274,7 @@ async function render() {
       choices(
         [
           { value: 'local', ico: '🌊', title: 'Offline voice', desc: 'Recommended. Runs in the app: free, private, no internet once downloaded.' },
+          { value: 'cloud', ico: '☁', title: 'Cloud voice', desc: 'Natural and quick with nothing to install, on slower computers too. Spoken replies go to Groq or OpenAI.' },
           { value: 'voicestudio', ico: '🎚', title: 'VoiceStudio', desc: 'A separate app with more natural and cloneable voices.' },
         ],
         draft.engine,
@@ -503,11 +530,12 @@ async function firstHello(list) {
         off();
       }
     } else {
+      const name = s.voice.engine === 'cloud' ? 'The cloud voice' : 'VoiceStudio';
       speaker.say(greeting);
       const synth = await api.tts.speak('ok').then(() => ({ ok: true }), (e) => ({ ok: false, error: e.message }));
-      if (synth.ok) greet(true, `VoiceStudio · “${greeting}”`);
-      else if (s.voice.fallback !== 'off') greet(null, `VoiceStudio failed (${synth.error}) — speaking with the ${s.voice.fallback === 'system' ? 'system' : 'offline'} voice for now. Fix it in Config → Voice output.`);
-      else greet(false, `VoiceStudio failed: ${synth.error}. Check its URL in Config → Voice output.`);
+      if (synth.ok) greet(true, `${name} · “${greeting}”`);
+      else if (s.voice.fallback !== 'off') greet(null, `${name} failed (${synth.error}) — speaking with the ${s.voice.fallback === 'system' ? 'system' : 'offline'} voice for now. Fix it in Config → Voice output.`);
+      else greet(false, `${name} failed: ${synth.error}. Check it in Config → Voice output.`);
     }
   })();
 

@@ -234,7 +234,7 @@ function scenarios(d) {
       area: 'persona switches',
       steps: [
         { persona: 'Captain Vega' },
-        { ask: 'What is 12 times 12?', check: all(said(/144|hundred and forty-four|gross/i), inCharacter('Captain Vega')) },
+        { ask: 'What is 12 times 12?', check: all(said(/144|hundred (and )?forty-four|gross/i), inCharacter('Captain Vega')) },
         { persona: 'Nova' },
         { ask: 'What is the capital of Canada?', check: all(said(/ottawa/i), inCharacter('Nova')) },
         { persona: 'Professor Quill' },

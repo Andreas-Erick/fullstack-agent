@@ -60,6 +60,27 @@ test('a session restart names what changed', () => {
   const before = { config: 'a', tools: ['x', 'y'], effort: 'default' };
   assert.strictEqual(claudecode.changedParts(before, { config: 'a', tools: ['x', 'z'], effort: 'high' }), 'tools +z -y; effort');
   assert.strictEqual(claudecode.changedParts(before, before), '');
+  // The config key names its fields, so a restart says which setting cost the prompt cache.
+  const cfg = (o) => JSON.stringify({ name: 'Siren', personality: 'p', speaks: true, ...o });
+  assert.strictEqual(claudecode.changedParts({ config: cfg() }, { config: cfg({ personality: 'q', speaks: false }) }), 'config (personality, speaks)');
+  assert.strictEqual(claudecode.changedParts({ config: '["old"]' }, { config: cfg() }), 'config');
+});
+
+test('sessions leave out the repo’s CLAUDE.md and Claude Code’s own memory', () => {
+  const spec = { connectors: false, builtins: ['Read', 'Grep'], allowed: ['mcp__nexus'], addDirs: ['C:/vault'], model: 'haiku', effort: 'default' };
+  const args = claudecode.sessionArgs(spec, { sysFile: 's.md', mcpFile: 'm.json', settingsFile: 'set.json', resume: 'abc' });
+  const value = (flag) => args[args.indexOf(flag) + 1];
+  // No "project" source (the developer's CLAUDE.md, ~22k tokens) and no "local" one; the user's own
+  // settings (their permission rules, extra folders) only where connectors need them for plugins.
+  assert.strictEqual(value('--setting-sources'), '');
+  const withConnectors = claudecode.sessionArgs({ ...spec, connectors: true }, {});
+  assert.strictEqual(withConnectors[withConnectors.indexOf('--setting-sources') + 1], 'user');
+  assert.strictEqual(value('--settings'), 'set.json');
+  assert.strictEqual(value('--append-system-prompt-file'), 's.md');
+  assert.ok(args.includes('--strict-mcp-config'));
+  assert.strictEqual(value('--add-dir'), 'C:/vault');
+  assert.strictEqual(value('--resume'), 'abc');
+  assert.ok(!claudecode.sessionArgs({ ...spec, connectors: true }, {}).includes('--strict-mcp-config'));
 });
 
 // Regression: the prewarm and the first message both found no live process while the prompt was

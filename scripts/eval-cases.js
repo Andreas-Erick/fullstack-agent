@@ -66,6 +66,12 @@ const all = (...checks) => async (r) => {
 const DONT_KNOW = /don.?t (know|have|seem)|do not (know|have|recall|possess|seem)|(have|has)( not|n.?t) (yet )?(told|mentioned|shared|said)|never (told|mentioned)|not (sure|certain)|haven.?t (told|mentioned|said)|no (record|memory|information|note)|can.?t find|couldn.?t find|didn.?t find|not (in|saved|recorded|stored)|isn.?t (explicitly )?(mentioned|listed|recorded|stored|saved|in)|unknown/i;
 const NOTHING = /nothing|no (events?|appointments?|plans?|entries)|free|clear|empty|don.?t have anything|isn.?t anything|aren.?t any/i;
 const weekday = (d) => WEEKDAYS[d.getDay()];
+// A weekday a week or more away is named with its date: run on a Friday, the test Saturday is eight
+// days away, and a plain "Saturday" means tomorrow.
+const dayName = (d, now = new Date()) => {
+  const days = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / DAY);
+  return days >= 7 ? `${weekday(d)}, ${MONTHS[d.getMonth()]} ${d.getDate()}` : weekday(d);
+};
 // The day of the month as a reply may write it: 8, 8th, eighth ("the eighth of November" is right).
 const ORDINALS = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth', 'thirteenth', 'fourteenth', 'fifteenth', 'sixteenth', 'seventeenth', 'eighteenth', 'nineteenth', 'twentieth', 'twenty-first', 'twenty-second', 'twenty-third', 'twenty-fourth', 'twenty-fifth', 'twenty-sixth', 'twenty-seventh', 'twenty-eighth', 'twenty-ninth', 'thirtieth', 'thirty-first'];
 const dateWords = (d) => {
@@ -78,7 +84,7 @@ function cases(d) {
   return [
     // ---- the schedule
     { id: 'cal-tomorrow', area: 'schedule', ask: 'What’s on my calendar tomorrow?', check: all(said(/dentist|dental|Dr\.? Weber/i), said(/10(:00)?|ten/i)) },
-    { id: 'cal-saturday', area: 'schedule', ask: `Do I have anything planned on ${weekday(d.saturday)}?`, check: said(/halloween|party/i) },
+    { id: 'cal-saturday', area: 'schedule', ask: `Do I have anything planned on ${dayName(d.saturday)}?`, check: said(/halloween|party/i) },
     // Free, and no event of another day put on it. Mentioning the party the evening before as a tip is fine.
     {
       id: 'cal-free-day',
@@ -177,7 +183,7 @@ function cases(d) {
     {
       id: 'multi-plan',
       area: 'several steps',
-      ask: `On ${weekday(d.saturday)} I want to go running at 9 in the morning, before the party in the evening. Put the run in my calendar.`,
+      ask: `On ${dayName(d.saturday)} I want to go running at 9 in the morning, before the party in the evening. Put the run in my calendar.`,
       check: async (r) => {
         const e = (await r.state.schedule()).find((x) => /run/i.test(x.title));
         return e && e.date === ymd(d.saturday) && e.start === '09:00' ? '' : `no run at ${ymd(d.saturday)} 09:00 (${e ? `${e.date} ${e.start}` : 'none'})`;
