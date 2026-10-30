@@ -104,3 +104,37 @@ test('a turn reports the session’s size: the biggest single call, not the sum'
   assert.strictEqual(claudecode.needsRollover(40000), false);
   clearTimeout(sess.idleTimer);
 });
+
+test('a session that never answered is not resumed by its id; one that answered is', async () => {
+  const { sess } = session();
+  sess.onLine(JSON.stringify({ type: 'system', subtype: 'init', session_id: 'never-used', model: 'haiku' }));
+  assert.strictEqual(sess.sessionId, 'never-used');
+  assert.strictEqual(sess.resumable, null, 'nothing saved under it: resuming it failed with "No conversation found"');
+  const turn = sess.send('hi', { emit() {}, signal: new AbortController().signal, ctx: {} });
+  sess.onLine(result('hello'));
+  await turn;
+  assert.strictEqual(sess.resumable, 's1', 'after a reply the CLI has it saved');
+  clearTimeout(sess.idleTimer);
+});
+
+test('rollover is measured from how big a fresh session starts in this setup', () => {
+  assert.strictEqual(claudecode.needsRollover(118694, 118694), false, 'a fresh 119k session does not roll over at once');
+  assert.strictEqual(claudecode.needsRollover(180000, 118694), false);
+  assert.strictEqual(claudecode.needsRollover(200000, 118694), true);
+  assert.strictEqual(claudecode.needsRollover(394371), true, 'an old session of unknown start');
+  assert.strictEqual(claudecode.needsRollover(90000), false);
+});
+
+test('a fresh session’s first turn reports its size once', async () => {
+  const { sess } = session();
+  const call = (n) => JSON.stringify({ type: 'assistant', message: { content: [], usage: { input_tokens: 1, cache_read_input_tokens: n, cache_creation_input_tokens: 0 } } });
+  let turn = sess.send('a', { emit() {}, signal: new AbortController().signal, ctx: {} });
+  sess.onLine(call(118693));
+  sess.onLine(result('one'));
+  assert.strictEqual((await turn).freshTokens, 118694);
+  turn = sess.send('b', { emit() {}, signal: new AbortController().signal, ctx: {} });
+  sess.onLine(call(121000));
+  sess.onLine(result('two'));
+  assert.strictEqual((await turn).freshTokens, 0, 'only the first turn');
+  clearTimeout(sess.idleTimer);
+});

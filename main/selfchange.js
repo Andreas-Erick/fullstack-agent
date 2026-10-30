@@ -136,7 +136,7 @@ function impact(files) {
  * made in the repo by someone else while a turn ran are never swept into its commit.
  */
 function touchedBy(tool, input = {}, rootDir) {
-  const name = String(tool || '').replace(/^mcp__nexus__/, '');
+  const name = String(tool || '').replace(/^mcp__nexus(_more)?__/, '');
   if (/^(Bash|PowerShell)$/.test(name)) return '*';
   if (!rootDir) return null;
   const file = /^(code_edit_file|code_write_file)$/.test(name) ? input?.path : /^(Edit|Write|MultiEdit)$/.test(name) ? input?.file_path : name === 'NotebookEdit' ? input?.notebook_path : null;

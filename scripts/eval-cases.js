@@ -63,7 +63,7 @@ const all = (...checks) => async (r) => {
   }
   return '';
 };
-const DONT_KNOW = /don.?t (know|have|seem)|do not (know|have|recall|possess|seem)|(have|has)( not|n.?t) (yet )?(told|mentioned|shared|said)|never (told|mentioned)|not (sure|certain)|haven.?t (told|mentioned|said)|no (record|memory|information|note)|can.?t find|couldn.?t find|didn.?t find|not (in|saved|recorded|stored)|unknown/i;
+const DONT_KNOW = /don.?t (know|have|seem)|do not (know|have|recall|possess|seem)|(have|has)( not|n.?t) (yet )?(told|mentioned|shared|said)|never (told|mentioned)|not (sure|certain)|haven.?t (told|mentioned|said)|no (record|memory|information|note)|can.?t find|couldn.?t find|didn.?t find|not (in|saved|recorded|stored)|isn.?t (explicitly )?(mentioned|listed|recorded|stored|saved|in)|unknown/i;
 const NOTHING = /nothing|no (events?|appointments?|plans?|entries)|free|clear|empty|don.?t have anything|isn.?t anything|aren.?t any/i;
 const weekday = (d) => WEEKDAYS[d.getDay()];
 // The day of the month as a reply may write it: 8, 8th, eighth ("the eighth of November" is right).
@@ -197,4 +197,4 @@ function cases(d) {
   ];
 }
 
-module.exports = { cases, seed, dates, ymd };
+module.exports = { cases, seed, dates, ymd, said, notSaid, usedAny, all, DONT_KNOW, NOTHING, dateWords };

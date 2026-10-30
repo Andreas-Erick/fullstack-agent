@@ -52,7 +52,7 @@ stub({
   './prompt': { buildCompact: async (s, names, opts) => ((calls.promptOpts = opts), { system: 'rules', stable: 'rules', context: 'now', reminder: 'r' }), build: async () => ({ system: 's', stable: 's', context: 'c' }) },
   './claudecode': {
     runTurn: async () => (calls.claude++, { text: 'From Claude', toolCalls: [], contextTokens: calls.contextTokens || 20000 }),
-    needsRollover: (n) => n > 100000,
+    needsRollover: (n, fresh = 0) => n > Math.max(100000, fresh + 80000),
     rollover: (id, n) => calls.rolled.push([id, n]),
     prewarm: async (conv) => calls.prewarmed.push(conv), cachedConnectors: async () => ({ list: [{ name: 'claude.ai TickTick', source: 'connector' }] }) },
   './codebase': { root: async () => '/app' },
@@ -168,14 +168,14 @@ test('a routine for a connected service runs on Claude even with the hand-over o
   assert.match(t.events.find((e) => e.type === 'notice').message, /the routine needs TickTick/);
 
   reset();
-  localReplies = [[{ content: 'Done locally.' }]];
+  localReplies = [[{ content: 'Answered locally.' }]];
   t = await turn('⏰ Routine "Evening review": fix the errors in today’s note', settings(false), { routine: true });
   assert.strictEqual(calls.claude, 0, 'no service named: stays on this computer');
   assert.ok(!calls.lastTools.includes('hand_over'), 'and the local model is not offered the hand-over');
-  assert.strictEqual(t.r.text, 'Done locally.');
+  assert.strictEqual(t.r.text, 'Answered locally.');
 
   reset();
-  localReplies = [[{ content: 'Done locally.' }]];
+  localReplies = [[{ content: 'Answered locally.' }]];
   t = await turn('⏰ Routine "Evening review": fix the errors in today’s note', settings(true), { routine: true });
   assert.strictEqual(calls.claude, 0, 'a routine’s own words are not code work');
 });
@@ -200,4 +200,42 @@ test('a Claude session grown past 100k tokens is closed after the reply and a fr
   calls.contextTokens = 40000;
   assert.strictEqual((await turn('what is on my ticktick today?')).r.rollover, undefined, 'a small session stays');
   assert.strictEqual(calls.rolled.length, 0);
+  reset();
+  calls.contextTokens = 150000;
+  const conv = { id: 'c3', claudeFreshTokens: 118694, messages: [{ role: 'user', content: 'what is on my ticktick today?' }] };
+  const big = await llm.runTurn({ settings: settings(), conv, history: conv.messages, emit: () => {}, signal: new AbortController().signal, images: [] });
+  assert.strictEqual(big.rollover, undefined, 'measured from the fresh size this setup starts at (119k), not a flat 100k');
+});
+
+test('a local reply that claims an action no tool did is taken back once; the model then does it', async () => {
+  reset();
+  const claim = 'Icelandic practice done. Keep it up!';
+  localReplies = [[{ content: claim }], callTool('memory_save', {}), [{ content: 'Logged it for real.' }]];
+  const { r, events } = await turn('I practised Icelandic for 20 minutes today.', settings(false));
+  assert.deepStrictEqual(events.find((e) => e.type === 'retract'), { type: 'retract', chars: claim.length });
+  assert.ok(r.toolCalls.some((c) => c.name === 'memory_save'), 'the tool ran after the check');
+  assert.match(r.text, /Logged it for real\./);
+  assert.ok(!r.text.includes('practice done'), 'the false claim is not kept');
+  assert.ok(!JSON.stringify(r.raw.messages).includes('no tool changed anything'), 'the check is not stored');
+  // A plain answer is not a claim; and once a tool changed something, a claim stands.
+  reset();
+  localReplies = [[{ content: 'Your dentist is scheduled for 10:00 tomorrow.' }]];
+  assert.strictEqual((await turn('When is my dentist?', settings(false))).r.text, 'Your dentist is scheduled for 10:00 tomorrow.');
+  assert.strictEqual(calls.local, 1);
+  reset();
+  localReplies = [callTool('memory_save', {}), [{ content: 'I’ve saved it.' }]];
+  await turn('Remember my coffee order.', settings(false));
+  assert.strictEqual(calls.local, 2, 'a real save: no check');
+});
+
+test('a question about the user’s own plans changes nothing on a local brain; a request does', async () => {
+  reset();
+  localReplies = [callTool('memory_save', {}), [{ content: 'Yes: 11:00 to 13:00 is free. Shall I add it?' }]];
+  const { r } = await turn('Can I fit a 2-hour gym session on Sunday between 9:00 and 13:00?', settings(false));
+  assert.ok(!r.toolCalls.some((c) => c.name === 'memory_save'), 'the write was refused, not run');
+  assert.match(r.text, /Shall I add it\?/);
+  reset();
+  localReplies = [callTool('memory_save', {}), [{ content: 'Saved.' }]];
+  const asked = await turn('Can you remember that I like tea?', settings(false));
+  assert.ok(asked.r.toolCalls.some((c) => c.name === 'memory_save' && c.ok), '"can you…?" is a request');
 });

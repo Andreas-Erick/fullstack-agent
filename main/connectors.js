@@ -3,6 +3,9 @@
 // as Claude Code names them in tool names (mcp__<key>__<tool>), and labels for the UI.
 
 const OWN_SERVER = 'nexus'; // the app's own tool server (mcp-server.js)
+// Both of the app's servers: nexus (everyday tools, always loaded) and nexus_more (the rest, on request).
+const OWN_SERVERS = [OWN_SERVER, 'nexus_more'];
+const isOwnServer = (server) => OWN_SERVERS.includes(server);
 
 /** "claude.ai AccuWeather®" → "claude_ai_AccuWeather", "plugin:productivity:slack" → "plugin_productivity_slack". */
 function serverKey(name) {
@@ -18,7 +21,7 @@ function toolServer(toolName) {
 /** A tool from a connector or plugin (not the app's own server). */
 function isConnectorTool(toolName) {
   const server = toolServer(toolName);
-  return Boolean(server) && server !== OWN_SERVER;
+  return Boolean(server) && !isOwnServer(server);
 }
 
 /** "mcp__claude_ai_Todoist__find-tasks" → { service: "Todoist", action: "find tasks" }. */
@@ -53,7 +56,7 @@ function parseMcpList(text) {
     const status = STATUS_WORDS.find(([re]) => re.test(m[3]))?.[1];
     if (!status) continue;
     const name = m[1].trim();
-    if (serverKey(name) === OWN_SERVER) continue;
+    if (isOwnServer(serverKey(name))) continue;
     out.push({
       name,
       key: serverKey(name),
@@ -94,7 +97,7 @@ function byStatus(list) {
 
 /** Server keys from the setting, cleaned (the user picks them in Settings; never the app's own server). */
 function allowedKeys(list) {
-  return [...new Set((Array.isArray(list) ? list : []).map(serverKey).filter((k) => k && k !== OWN_SERVER))];
+  return [...new Set((Array.isArray(list) ? list : []).map(serverKey).filter((k) => k && !isOwnServer(k)))];
 }
 
 // Permission levels per server (Settings → AI brain, the approval dialog's "Always…" buttons, and the
@@ -146,4 +149,4 @@ function findServers(list, name) {
   return (list || []).filter((c) => clean(c).includes(want) || c.key.toLowerCase() === want.replace(/ /g, '_')).sort((a, b) => rank(a) - rank(b));
 }
 
-module.exports = { OWN_SERVER, LEVELS, LEVEL_LABEL, serverKey, toolServer, isConnectorTool, isReadOnly, isDestructive, describeTool, parseMcpList, byStatus, allowedKeys, levelOf, permits, levelPatch, rememberChoices, findServers };
+module.exports = { OWN_SERVER, LEVELS, LEVEL_LABEL, serverKey, toolServer, isConnectorTool, isReadOnly, isDestructive, describeTool, parseMcpList, byStatus, allowedKeys, levelOf, permits, levelPatch, rememberChoices, findServers, OWN_SERVERS, isOwnServer };

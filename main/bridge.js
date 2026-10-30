@@ -11,7 +11,7 @@ const APPROVAL_TOOL = {
   inputSchema: { type: 'object', properties: { tool_name: { type: 'string' }, input: { type: 'object' }, tool_use_id: { type: 'string' } }, required: ['tool_name', 'input'] },
 };
 
-const sessions = new Map(); // id -> { allowed: Set, getCtx, approve }
+const sessions = new Map(); // id -> { allowed: Set, core: Set | null, getCtx, approve }
 let server = null;
 let info = null;
 
@@ -33,7 +33,11 @@ function start() {
           if (!session) throw new Error('This tool session has ended.');
           let out;
           if (req.url === '/list') {
-            out = [...tools.TOOLS.filter((t) => session.allowed.has(t.name)).map((t) => ({ name: t.name, description: t.description, inputSchema: t.parameters })), APPROVAL_TOOL];
+            // Two servers can share a session (claudecode.js): "core" (always loaded, with the approval
+            // prompt) and "more" (found with ToolSearch when needed); no set = every tool.
+            const list = tools.TOOLS.filter((t) => session.allowed.has(t.name));
+            const picked = !session.core || !msg.set ? list : list.filter((t) => session.core.has(t.name) === (msg.set === 'core'));
+            out = [...picked.map((t) => ({ name: t.name, description: t.description, inputSchema: t.parameters })), ...(msg.set === 'more' ? [] : [APPROVAL_TOOL])];
           } else if (req.url === '/call' && msg.name === APPROVAL_TOOL.name) {
             const decision = await session.approve(msg.args || {});
             out = { ok: true, text: JSON.stringify(decision) };
@@ -60,9 +64,17 @@ function start() {
   });
 }
 
-function registerSession(id, { allowed, getCtx, approve }) {
-  sessions.set(id, { allowed: new Set(allowed), getCtx, approve });
+// core: the tools the always-loaded server lists (the rest go to the deferred one), or null for one server.
+function registerSession(id, { allowed, core = null, getCtx, approve }) {
+  sessions.set(id, { allowed: new Set(allowed), core: core ? new Set(core) : null, getCtx, approve });
   return () => sessions.delete(id);
 }
 
-module.exports = { start, registerSession };
+/** Closes the bridge (tests; the app keeps it for its lifetime). */
+function stop() {
+  server?.close();
+  server = null;
+  info = null;
+}
+
+module.exports = { start, stop, registerSession };

@@ -690,6 +690,8 @@ function brainCard() {
       el('div', { class: 'grid2' }, text('claudeCode.fastModel', 'Fast model', { placeholder: 'haiku' }), text('claudeCode.deepModel', 'Deep model', { placeholder: 'opus' })),
       text('claudeCode.normalModel', 'Model for everyday messages', { placeholder: 'same as Model', hint: 'Quick lookups use the fast model, explanations and plans the deep one, everything else this one. Sonnet starts a reply that uses tools in a few seconds; Opus often takes 15. Empty = the model above.' }),
       el('div', { class: 'grid2' }, toggle('claudeCode.warmOnLaunch', 'Keep a warm session (faster replies)'), text('claudeCode.idleMinutes', 'Close idle session after (min)', { type: 'number' })),
+      toggle('claudeCode.toolsOnRequest', 'Load less-used tools only when a message needs them'),
+      el('div', { class: 'hint' }, 'The everyday tools (calendar, memory, notes, habits, web search…) go with every message; the rest (flashcards, PDFs, GitHub, the agent window…) are looked up when needed. Every message is about 25,000 tokens lighter: quicker to start, less of your plan.'),
       connectorsSection(),
     );
   } else if (provider === 'openai') {
