@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.7.12 — 2026-10-31
 
 - Claude messages carry about half as many tokens again: a fresh session went from about 52,000 to 27,000. Claude Code loaded the app's developer notes (CLAUDE.md, about 22,000 tokens) and its own memory into every chat. The assistant now reads those notes itself when it changes its code, and Claude Code's memory stays off in its sessions.
 - When a Claude session restarts because a setting changed, the log names the setting (for example `config (personality)`), since every restart costs the prompt cache.
