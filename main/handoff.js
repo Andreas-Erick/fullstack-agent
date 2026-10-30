@@ -63,9 +63,11 @@ async function summarize(settings, conv, interrupted) {
     .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${clip(m.display ?? m.content, 1500)}${m.toolCalls?.length ? `\n[tools: ${m.toolCalls.map((t) => t.name).join(', ')}]` : ''}`)
     .join('\n\n')
     .slice(-20000);
+  // The note goes into every persona's prompt next time: "who I am … as Siren" in it made the
+  // Ringmaster answer "I'm Siren". So it names no persona as the writer and records no identity talk.
   const prompt = `The user is closing the app. Write yourself a handoff note so that next time you can pick up exactly where you left off. Respond with ONLY a JSON object:
 {"topic": "3-6 word topic", "summary": "2-4 sentences: what you were doing together and where it stands now", "openThreads": ["unfinished items or open questions"], "nextSteps": ["concrete next steps, in order"]}
-Be concrete (names, files, numbers) and factual; do not invent anything. Lists may be empty (0-5 items each).${interrupted ? '\nYour last reply was still running when the app closed, so it is missing below.' : ''}
+Be concrete (names, files, numbers) and factual; do not invent anything. Lists may be empty (0-5 items each). The user has several personas and the next one may be another: call yourself "the assistant", never by a persona's name, and leave out who you are, which persona spoke and any switching between them; only the work counts.${interrupted ? '\nYour last reply was still running when the app closed, so it is missing below.' : ''}
 
 CONVERSATION ("${clip(conv.title, 80)}"):
 ${transcript}`;
@@ -120,12 +122,14 @@ async function mirrorToVault(settings, note) {
   await obsidian.writeNote(VAULT_NOTE, text, 'overwrite', { source: 'handoff' });
 }
 
-// For the system prompt: the note, framed as the agent's own words from last time.
-async function promptBlock() {
+// For the system prompt: the note from last time. Written by whichever persona was active then, so
+// its "I" is not the reader's identity (an older note said "who I am … as Siren" to every persona).
+async function promptBlock(name = '') {
   const note = await read();
   if (!note) return '';
   const when = new Date(note.at).toLocaleString();
-  const lines = [`## Where you left off (your own handoff note from when the app closed, ${when})`, `Conversation: “${note.title}”${note.interrupted ? ' (your last reply was cut off by the app closing)' : ''}`, note.summary];
+  const self = name ? ` It says what was done, not who you are: you are ${name}, whatever its "I" or any name in it says.` : '';
+  const lines = [`## Where you left off (the handoff note the assistant wrote when the app closed, ${when})`, `Conversation: “${note.title}”${note.interrupted ? ' (the last reply was cut off by the app closing)' : ''}${self}`, note.summary];
   if (note.openThreads?.length) lines.push(`Open threads:\n${note.openThreads.map((x) => `- ${x}`).join('\n')}`);
   if (note.nextSteps?.length) lines.push(`Next steps:\n${note.nextSteps.map((x) => `- ${x}`).join('\n')}`);
   lines.push('If the user wants to continue (or asks what you were doing), pick up from here. Do not bring it up unprompted in an unrelated conversation; it may be out of date, so check the real state before acting on it.');

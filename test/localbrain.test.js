@@ -157,11 +157,15 @@ test('every message says who answers; right after a switch, whose the replies ab
   const prompt = load('main/prompt.js');
   const settings = { agent: { name: 'Ringmaster', personality: 'Showman.' }, llm: {}, code: {} };
   const same = await prompt.turnContext(settings, [], null, { previousPersona: 'Ringmaster' });
-  assert.ok(same.includes('## Who you are\nYou are Ringmaster, in character.'));
+  assert.ok(same.includes('## Who you are\nYou are Ringmaster, in character, from your first word.'));
   assert.doesNotMatch(same, /just switched/);
   assert.match(same, /never call yourself a costume/i);
+  // No one underneath, and no announcing: an evening of switches ended with the Ringmaster saying
+  // "I'm Siren, speaking as myself again, not as Revenant, Hastur or the Ringmaster".
+  assert.match(same, /there is no one else underneath you/);
+  assert.match(same, /Don't mention the switch, the other personas or this note unless the user asks/);
   const after = (await prompt.buildCompact(settings, [], { previousPersona: 'Hastur' })).context;
-  assert.match(after, /just switched personas: the replies above were Hastur's, not yours/);
+  assert.match(after, /just switched to you: the replies above were Hastur's, not yours/);
 });
 
 test('few memories: a local model gets all of them (an allergy shares no word with "Thai food")', async () => {
