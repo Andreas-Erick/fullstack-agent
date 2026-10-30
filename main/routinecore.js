@@ -98,13 +98,18 @@ function describe(s) {
 }
 
 /** The message the agent gets when a routine runs. */
+// A routine often runs in a session started a moment ago, while the user's claude.ai connectors are
+// still loading: their tools aren't listed yet. A run once reported TickTick "disconnected again"
+// without looking (and one wrote a Plaud failure to the daily note, then found Plaud six seconds later).
+const CONNECTOR_CHECK = 'If a service you need (a connector such as TickTick or Plaud) is not among your tools, it may still be loading: look it up with ToolSearch, and search once more if nothing comes back. Call it unreachable only when the searches find nothing or a call to it fails, and write nothing about a failure (daily note, saved tasks) before that. An earlier run that found it down says nothing about now.';
+
 function prompt(routine, now = new Date()) {
   const last = routine.lastRun ? new Date(routine.lastRun).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'never (this is the first run)';
   return `⏰ Routine "${routine.name}" (runs ${describe(routine.schedule)}). Now: ${now.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}. Last run: ${last}.
 
 ${routine.instructions}
 
-This runs on a schedule, so I may not be at the computer. Look only at what is new since the last run when that makes sense. Read, summarize and write notes freely; don't take actions that would need my approval unless the instructions ask for them (an approval nobody answers is declined). End with a short report: what you found or did, in a few lines, or "Nothing new." if there was nothing.`;
+This runs on a schedule, so I may not be at the computer. Look only at what is new since the last run when that makes sense. Read, summarize and write notes freely; don't take actions that would need my approval unless the instructions ask for them (an approval nobody answers is declined). ${CONNECTOR_CHECK} End with a short report: what you found or did, in a few lines, or "Nothing new." if there was nothing.`;
 }
 
-module.exports = { KINDS, normalize, normalizeSchedule, nextRun, check, describe, prompt };
+module.exports = { KINDS, normalize, normalizeSchedule, nextRun, check, describe, prompt, CONNECTOR_CHECK };
