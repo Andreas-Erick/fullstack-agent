@@ -759,10 +759,10 @@ const groundZ = (g) => map.hgt(Math.floor(g.x), Math.floor(g.y)) * HZ;
 // The road from one place to another, found once per pair (it is asked for every frame while someone
 // walks it); emptied when the island is laid out again.
 let routes = new Map();
-function routeBetween(from, to) {
-  const key = `${from}>${to}`;
+function routeBetween(from, to, end) {
+  const key = `${from}>${to}>${end.x.toFixed(2)},${end.y.toFixed(2)}`;
   let path = routes.get(key);
-  if (!path) routes.set(key, (path = route(map, from, to)));
+  if (!path) routes.set(key, (path = route(map, from, to, { start: spot(from, 0), end })));
   return path;
 }
 
@@ -813,8 +813,8 @@ function positions(m) {
   for (const p of out) {
     let g = spot(p.place, crowd.get(p.place).indexOf(p.name));
     if (p.from) {
-      const path = routeBetween(p.from, p.place);
-      g = path.length ? along([spot(p.from, 0), ...path, g], p.k) : g;
+      const path = routeBetween(p.from, p.place, g);
+      g = path.length ? along(path, p.k) : g;
     }
     const wp = W(g.x, g.y, groundZ(g));
     Object.assign(p, { x: wp.x, y: wp.y, walking: Boolean(p.from), color: colorOf(p.r, p.i), kind: p.r === me ? 'active' : p.r.npc ? 'npc' : 'persona' });
