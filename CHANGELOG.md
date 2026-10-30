@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.7.11 — 2026-10-30
+
+- Fixes messages failing after a persona switch in 2.7.10 ("No conversation found with session ID…"). A fresh Claude session started ahead of time was resumed before it had answered anything. Only a session with a saved conversation is resumed now, and a missing one starts fresh instead of failing.
+- Claude messages carry about half as many tokens. The app's 120 tools went with every message (about 30,000 tokens). Now the everyday ones (calendar, memory, notes, habits, web search…) are always there, and the rest (flashcards, PDFs, GitHub, the agent window…) are looked up when a message needs them, as connectors already were. A fresh session in a full setup went from about 119,000 to 48,000 tokens: quicker to start, and less of your plan per message. Settings → AI brain → "Load less-used tools only when a message needs them" (on).
+- The session swap of 2.7.10 is measured from how big a fresh session is in your setup, so it no longer swaps after every message when your tools, notes and persona add up to more than 100,000 tokens.
+- Personas stay in character: never "a costume" or a role they play.
+- A local brain no longer says it did something it didn't. A reply that claims "I've added…" or "Icelandic practice done." when no tool changed anything is taken back, and the model does it or says it isn't done. A question about your own plans ("Can I fit a gym session in on Sunday?") gets an answer, not a booking.
+- A local brain answers from your notes and calendar instead of guessing. Notes and calendar entries whose title matches your message now come with it (the incident note, the lab data, an exam two weeks away), and so do all your memories when there are only a few (a peanut allergy now comes up when you order Thai food).
+- "Switch to Captain Vega" switches the persona on a local brain too, instead of trying to switch the brain.
+- Spoken messages are answered for listening on every brain: an overview stays under about 80 words.
+- A new test suite (`npm run eval -- --suite scenarios`): 41 conversations as a STEM student, an engineering student, a tech worker, a language learner, a lifelong learner and a busy person would have them, plus constant persona switches, each checked on what really happened. Claude passes 41 of 41. A local 8B model with the 27B for deep questions passes 35. Its remaining slips: a reminder written into another entry's notes, one of three study sessions booked, the voice rule now and then, and dates relative to weekdays.
+
 ## 2.7.10 — 2026-10-30
 
 - Replies with the Claude brain start sooner and use less of your plan. A conversation's Claude session is resumed across restarts and kept everything it ever read, and one used for a few days had grown to about 370,000 tokens: every reply re-read them first (2–3 seconds before the first word, 6–11 after a restart). Past 100,000 tokens, the session is now closed after a reply and a fresh one starts in the background with the recent messages. Your memories, notes and "where we left off" carry the rest, so the conversation goes on.
