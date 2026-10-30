@@ -75,3 +75,10 @@ test('labels for people', () => {
   assert.strictEqual(core.describe({ kind: 'weekly', time: '19:00', days: [0, 3] }), 'Sunday, Wednesday at 19:00');
   assert.strictEqual(core.describe({ kind: 'weekly', time: '19:00', days: [5] }), 'every Friday at 19:00');
 });
+
+test('a run is told to look for a connector before calling it down (they load after a session starts)', () => {
+  const text = core.prompt({ name: 'Sync TickTick tasks', schedule: { kind: 'daily', time: '22:30' }, instructions: 'Fetch my TickTick tasks and save them.' });
+  assert.ok(text.includes(core.CONNECTOR_CHECK));
+  assert.match(core.CONNECTOR_CHECK, /ToolSearch/);
+  assert.match(core.CONNECTOR_CHECK, /write nothing about a failure/);
+});
