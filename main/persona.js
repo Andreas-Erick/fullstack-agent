@@ -160,13 +160,18 @@ async function list() {
   return core.summary((await store.getSettings()).personas);
 }
 
-/** Makes a saved persona (id or name) the live one. Returns the new settings. */
+/**
+ * Makes a saved persona (id or name) the live one. Returns the new settings. Decided inside the save
+ * queue (store.setSettings with a function), on the settings as they are then: switches run in the
+ * order they were asked for, and each from the persona as last saved.
+ */
 async function activate(query) {
-  const s = await store.getSettings();
-  const target = core.find(s.personas, query);
-  if (!target) throw new Error(`No persona called "${query}". Personas: ${s.personas.list.map((x) => x.name).join(', ')}`);
-  if (target.id === s.personas.active) return s;
-  return store.setSettings({ ...core.patchFor(target, store.DEFAULTS), personas: { active: target.id } });
+  return store.setSettings((s) => {
+    const target = core.find(s.personas, query);
+    if (!target) throw new Error(`No persona called "${query}". Personas: ${s.personas.list.map((x) => x.name).join(', ')}`);
+    if (target.id === s.personas.active) return null;
+    return { ...core.patchFor(target, store.DEFAULTS), personas: { active: target.id } };
+  }, { replace: core.REPLACE });
 }
 
 /**
@@ -174,22 +179,24 @@ async function activate(query) {
  * added to the list with activate: false (setup adds template personas without changing who is talking).
  */
 async function create(opts = {}) {
-  const s = await store.getSettings();
   let template = null;
   if (opts.template) {
     const t = templates.find(opts.template);
     if (!t) throw new Error(`No persona template "${opts.template}".`);
     template = templates.personaFields(t);
   }
-  const { personas, persona } = core.create(s, { ...opts, template }, { newId: store.newId, defaults: store.DEFAULTS });
-  if (opts.activate === false) return store.setSettings({ personas });
-  return store.setSettings({ ...core.patchFor(persona, store.DEFAULTS), personas: { ...personas, active: persona.id } });
+  return store.setSettings((s) => {
+    const { personas, persona } = core.create(s, { ...opts, template }, { newId: store.newId, defaults: store.DEFAULTS });
+    if (opts.activate === false) return { personas };
+    return { ...core.patchFor(persona, store.DEFAULTS), personas: { ...personas, active: persona.id } };
+  }, { replace: opts.activate === false ? [] : core.REPLACE });
 }
 
 async function remove(id) {
-  const s = await store.getSettings();
-  const { personas, next } = core.remove(s.personas, id);
-  return store.setSettings(next ? { ...core.patchFor(next, store.DEFAULTS), personas } : { personas });
+  return store.setSettings((s) => {
+    const { personas, next } = core.remove(s.personas, id);
+    return next ? { ...core.patchFor(next, store.DEFAULTS), personas } : { personas };
+  }, { replace: core.REPLACE }); // only fields the patch has are replaced: none when the live one stays
 }
 
 // ------------------------------------------------------------ the summary for small models

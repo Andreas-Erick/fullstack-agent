@@ -22,19 +22,40 @@ const MORE = [
   ['skills', 'spark', 'Skills & routines', 'Ready-made workflows to run, and what runs on a schedule'],
 ];
 
-/** Renders screen `view` into `box`. */
-export async function render(view, box) {
+let renderSeq = 0; // only the latest drawing lands (a quiet refresh must not cover a note opened meanwhile)
+let noteOpen = false; // a note is shown in the panel (openNote) instead of the Notes list
+
+/**
+ * Renders screen `view` into `box`. `quiet`: a refresh because the data changed on the computer
+ * (app.js data.changed): no "Loading…", the scroll position and open sections stay, and a failure
+ * keeps what is shown.
+ */
+export async function render(view, box, { quiet = false } = {}) {
   const { el } = ctx;
-  stopWorld();
-  stopArch();
-  box.replaceChildren(el('div', { class: 'panel-loading muted' }, 'Loading…'));
+  const seq = ++renderSeq;
+  if (!quiet) {
+    stopWorld();
+    stopArch();
+    noteOpen = false;
+    box.replaceChildren(el('div', { class: 'panel-loading muted' }, 'Loading…'));
+  }
   try {
     const node = await SCREENS[view]();
-    if (ctx.state.view !== view) return; // moved on meanwhile
+    if (ctx.state.view !== view || seq !== renderSeq) return; // moved on meanwhile
+    if (quiet) {
+      if (busy(view)) return; // started typing or studying while it loaded
+      const open = openSections(box);
+      const top = box.scrollTop;
+      box.replaceChildren(...[node].flat());
+      reopen(box, open);
+      box.scrollTop = top;
+      return;
+    }
     box.replaceChildren(...[node].flat());
     box.scrollTop = 0;
     enter(box);
   } catch (err) {
+    if (quiet || seq !== renderSeq) return;
     if (err instanceof ctx.AuthError || ctx.state.view !== view) return;
     // The computer is out of reach: say so, and offer to try again (it also comes back by itself on reconnect).
     if (err instanceof ctx.NetError) {
@@ -46,6 +67,26 @@ export async function render(view, box) {
 }
 
 const SCREENS = { today, habits, learn, memory, notes, tree, world, arch, skills, cards, more };
+
+/**
+ * The user is in the middle of something on `view`, so a change on the computer must not redraw it:
+ * studying a deck, reading a note, or typing (a search with text in it counts: its results would go).
+ */
+export function busy(view) {
+  if (view === 'cards' && deckOpen) return true;
+  if (view === 'notes' && noteOpen) return true;
+  const panel = document.querySelector('#panel');
+  const a = document.activeElement;
+  if (panel && a && panel.contains(a) && a.matches('input, textarea, select')) return true;
+  return [...(panel?.querySelectorAll('input.search') || [])].some((i) => i.value.trim());
+}
+
+// Open <details> (topics, memories) by their summary's text, so a refresh doesn't fold them up again.
+const openSections = (box) => new Set([...box.querySelectorAll('details[open] > summary')].map((s) => s.textContent));
+function reopen(box, open) {
+  if (!open.size) return;
+  for (const s of box.querySelectorAll('details > summary')) if (open.has(s.textContent)) s.parentElement.open = true;
+}
 
 // The desktop's view opening (renderer/js/hud.js): a beam crosses the screen and its cards cascade in.
 // Only with the HUD on (styles.css .fx-hud .panel.enter); the CSS stops it under reduced motion.
@@ -246,6 +287,8 @@ async function notes() {
 async function openNote(path) {
   const { el, api, markdown } = ctx;
   const box = document.querySelector('#panel');
+  renderSeq++; // a refresh of the list still loading must not cover the note
+  noteOpen = true;
   box.replaceChildren(el('div', { class: 'panel-loading muted' }, 'Opening…'));
   try {
     const n = await api(`/api/data/note?path=${encodeURIComponent(path)}`);

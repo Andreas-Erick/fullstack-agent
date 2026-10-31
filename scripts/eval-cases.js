@@ -189,6 +189,60 @@ function cases(d) {
         return e && e.date === ymd(d.saturday) && e.start === '09:00' ? '' : `no run at ${ymd(d.saturday)} 09:00 (${e ? `${e.date} ${e.start}` : 'none'})`;
       },
     },
+    // ---- typed like on a phone (lower case, ’, no schedule word): the quick path must still look
+    { id: 'phone-what-do-i-have', area: 'phone style', ask: 'what do i have tomorrow', check: all(said(/dentist|dental|Dr\.? Weber/i), said(/10(:00)?|ten/i)) },
+    { id: 'phone-curly', area: 'phone style', ask: `what’s on for ${weekday(d.saturday).toLowerCase()}?`, check: said(/halloween|party|mia/i) },
+    { id: 'phone-plural', area: 'phone style', ask: 'any appointments coming up this week?', check: said(/dentist|dental|Dr\.? Weber/i) },
+    // ---- a question changes nothing; a request does it all (no claim without the tool)
+    {
+      id: 'q-fit-run',
+      area: 'questions',
+      ask: 'Can I fit a run in tomorrow morning?',
+      check: all(said(/dentist|10(:00)?|ten/i), async (r) => ((await r.state.schedule()).some((x) => /run/i.test(x.title)) ? 'it booked a run when asked a question' : '')),
+    },
+    {
+      id: 'q-did-i-read',
+      area: 'questions',
+      ask: 'Did I do my reading yesterday?',
+      check: all(said(/\byes\b|you did|you read|checked off|logged/i), async (r) => ((await r.state.habitDone('Reading')) ? 'it checked reading off for today' : '')),
+    },
+    {
+      id: 'habit-log-two',
+      area: 'habits',
+      ask: 'Did my pull-ups and my reading today.',
+      check: async (r) => {
+        const missing = [];
+        for (const h of ['Pull-ups', 'Reading']) if (!(await r.state.habitDone(h))) missing.push(h);
+        return missing.length ? `not checked off: ${missing.join(', ')}` : '';
+      },
+    },
+    {
+      id: 'mem-allergy',
+      area: 'memory',
+      ask: 'Remember that I’m allergic to peanuts.',
+      check: async (r) => ((await r.state.memories()).some((m) => /peanut/i.test(`${m.title} ${m.content}`)) ? '' : 'nothing about peanuts was saved (a reply that says so is not enough)'),
+    },
+    { id: 'mem-unknown-plural', area: 'memory', ask: 'What are my kids’ names?', check: all(said(DONT_KNOW), notSaid(/\b(are|is) (named|called) [A-Z]|\bnames are [A-Z]/, 'it made names up')) },
+    {
+      id: 'cards-add-two',
+      area: 'learning',
+      ask: 'Add two cards to my Spanish deck: perro means dog, and verde means green.',
+      check: async (r) => {
+        const cards = await r.state.cards('Spanish');
+        const missing = ['perro', 'verde'].filter((w) => !cards.some((c) => new RegExp(w, 'i').test(`${c.front} ${c.back}`)));
+        return missing.length ? `missing: ${missing.join(', ')}` : '';
+      },
+    },
+    {
+      id: 'multi-add-and-ask',
+      area: 'several steps',
+      ask: `Add dinner with Lena on ${MONTHS[d.free.getMonth()]} ${d.free.getDate()} at 7 pm, and tell me when my dentist appointment is.`,
+      check: all(said(/10(:00)?|ten/i), async (r) => {
+        const e = (await r.state.schedule()).find((x) => /dinner/i.test(x.title));
+        return e && e.date === ymd(d.free) && e.start === '19:00' ? '' : `no dinner at ${ymd(d.free)} 19:00 (${e ? `${e.date} ${e.start}` : 'none'})`;
+      }),
+    },
+    { id: 'note-owner', area: 'notes', ask: 'Who owns Project Atlas, and what’s the next step?', check: all(said(/erick|you\b/i), said(/kim|draft/i)) },
     // ---- harder work (with +handover, a local brain should pass these to Claude)
     { id: 'hard-code', area: 'harder work', ask: 'Write me a small Python script that renames every .jpg in a folder to the date it was taken.', check: all(said(/import\s+\w+|def\s+\w+\(/), said(/\.jpg|jpe?g/i)) },
     {

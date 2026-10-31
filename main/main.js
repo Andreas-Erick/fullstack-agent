@@ -258,6 +258,7 @@ function startRoutines() {
       }),
     notify: (ev) => {
       toWindow('routine:event', ev);
+      if (ev.type !== 'open') companion.dataChanged(['skills', 'conversations']); // the phone's routines list (last run) and the run's conversation
       if (ev.type !== 'finished' || (win && !win.isDestroyed() && win.isFocused()) || !Notification.isSupported()) return;
       const n = new Notification({ title: `${ev.ok ? '⏰' : '⚠'} ${ev.name}`, body: ev.summary || (ev.ok ? 'Done.' : 'The routine failed.'), silent: false });
       n.on('click', () => {
@@ -477,20 +478,22 @@ function registerIpc() {
     return c;
   });
   handle('conv:new', () => store.createConversation());
+  // Paired devices hear that their conversation list changed (companion.dataChanged).
+  const convsChanged = (r) => (companion.dataChanged(['conversations']), r);
   handle('conv:delete', (id) => {
     deletedConversations.add(id);
     for (const c of activeRequests.values()) if (c.conversationId === id) c.abort();
     claudecode.endSession(id);
-    return store.deleteConversation(id);
+    return store.deleteConversation(id).then(convsChanged);
   });
-  handle('conv:rename', (id, title) => store.renameConversation(id, title));
+  handle('conv:rename', (id, title) => store.renameConversation(id, title).then(convsChanged));
   handle('conv:clear', async () => {
     for (const c of await store.listConversations()) {
       deletedConversations.add(c.id);
       claudecode.endSession(c.id);
     }
     for (const c of activeRequests.values()) c.abort();
-    return store.clearConversations();
+    return store.clearConversations().then(convsChanged);
   });
   handle('conv:export', async () => {
     const all = (await store.exportConversations()).filter(Boolean).map((c) => ({ ...c, messages: c.messages.map(stripRaw) }));
@@ -663,10 +666,11 @@ function registerIpc() {
 
   // Skills
   handle('skills:list', () => skills.list());
-  handle('skills:save', (skill, oldSlug) => skills.save(skill || {}, { slug: oldSlug }));
-  handle('skills:delete', (slug) => skills.remove(slug));
+  const skillsChanged = (r) => (companion.dataChanged(['skills']), r);
+  handle('skills:save', (skill, oldSlug) => skills.save(skill || {}, { slug: oldSlug }).then(skillsChanged));
+  handle('skills:delete', (slug) => skills.remove(slug).then(skillsChanged));
   handle('skills:scan', (repo) => require('./skillimport').scan(String(repo || '')).then(({ files, ...s }) => s));
-  handle('skills:import', (repo, paths) => require('./skillimport').install(String(repo || ''), Array.isArray(paths) ? paths.map(String) : []));
+  handle('skills:import', (repo, paths) => require('./skillimport').install(String(repo || ''), Array.isArray(paths) ? paths.map(String) : []).then(skillsChanged));
   handle('skills:openFolder', async () => {
     await fsp.mkdir(skills.dir(), { recursive: true });
     return shell.openPath(skills.dir());
@@ -1078,7 +1082,8 @@ app.whenReady().then(async () => {
   journal.start();
   startRoutines();
   startTasks();
-  require('./innerworld').start({ notify: (ev) => toWindow('world:event', ev) });
+  // Live work ('work') reaches devices with the tool's own event; a new day or a level-up is news for their world screen.
+  require('./innerworld').start({ notify: (ev) => (toWindow('world:event', ev), ev?.type !== 'work' && companion.dataChanged(['world'])) });
   // A check's answer goes to the title bar, and to paired phones (they offer the newest APK from /api/info).
   if (!smoke.active) require('./updates').start({ notify: (st) => (toWindow('updates:state', st), companion.infoChanged()) });
   store.sweepStaleTemp().catch(() => {});

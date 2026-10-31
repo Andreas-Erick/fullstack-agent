@@ -18,6 +18,7 @@ const FIELDS = [
   ['voice', 'voice', 'voice'],
   ['voice', 'localVoice', 'localVoice'],
 ];
+const REPLACE = FIELDS.map(([section, key]) => [section, key]);
 const MAX_PERSONAS = 24;
 const FIRST_ID = 'p-main'; // the persona an install already had before personas existed
 
@@ -30,7 +31,7 @@ function snapshot(settings) {
   return out;
 }
 
-/** The settings patch that makes `persona` live; fields it lacks come from `defaults` (store DEFAULTS). */
+/** The settings patch that makes `persona` live; fields it lacks come from `defaults` (store DEFAULTS). Save it with store.setSettings(patch, { replace: REPLACE }), so each field is set whole. */
 function patchFor(persona, defaults) {
   const patch = {};
   for (const [section, key, field] of FIELDS) {
@@ -123,6 +124,11 @@ function remove(personas, id) {
   const list = personas.list.filter((x) => x.id !== id);
   const next = personas.active === id ? list[0] : null;
   return { personas: { active: next ? next.id : personas.active, list }, next };
+}
+
+/** The persona that wrote the latest reply in `history` (stored on it since 2.7.10), or ''. */
+function lastPersona(history) {
+  return [...(Array.isArray(history) ? history : [])].reverse().find((m) => m?.role === 'assistant' && m.persona)?.persona || '';
 }
 
 /** What the agent and the UI list: no images, no full prompts. */
@@ -243,4 +249,4 @@ function cleanSummary(reply) {
   return clip(t, SUMMARY_MAX);
 }
 
-module.exports = { FIELDS, FIRST_ID, MAX_PERSONAS, snapshot, patchFor, ensure, repairScenes, sync, find, create, remove, summary, digest, SUMMARY_FROM, SUMMARY_MAX, fingerprint, needsSummary, summaryFresh, forSmallModels, summaryPrompt, cleanSummary };
+module.exports = { FIELDS, REPLACE, FIRST_ID, MAX_PERSONAS, snapshot, patchFor, ensure, repairScenes, sync, find, create, remove, lastPersona, summary, digest, SUMMARY_FROM, SUMMARY_MAX, fingerprint, needsSummary, summaryFresh, forSmallModels, summaryPrompt, cleanSummary };

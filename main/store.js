@@ -489,15 +489,31 @@ function onChange(fn) {
 // quickly, a tool and the Settings view at once) used to read the same old settings, and the second
 // wrote over the first's change.
 let saving = Promise.resolve();
-function setSettings(patch) {
-  const run = saving.then(() => applySettings(patch));
+// `patch` may be a function of the settings as they are when this save's turn comes (inside the queue),
+// for a change computed from them (a persona switch): computed before, two switches at once ended in
+// any order, and a switch could put back an edit saved in between. It returns the patch, or null for
+// nothing to save (the settings are returned unchanged).
+// opts.replace: [section, key] pairs the patch sets whole (a persona switch, personacore.FIELDS): the
+// patch's value over the defaults, nothing kept of what was there (merged, a key the new persona lacks
+// kept the last one's: its background colour, face shape, or a summary marked as the user's own).
+function setSettings(patch, opts) {
+  const run = saving.then(() => applySettings(patch, opts));
   saving = run.catch(() => {});
   return run;
 }
 
-async function applySettings(patch) {
+async function applySettings(patchOrFn, { replace = [] } = {}) {
   const current = await getSettings();
+  const patch = typeof patchOrFn === 'function' ? patchOrFn(current) : patchOrFn;
+  if (patch == null) return current;
   const next = deepMerge(current, patch);
+  for (const [section, key] of replace) {
+    if (!isPlainObject(patch?.[section]) || !Object.hasOwn(patch[section], key)) continue;
+    const v = patch[section][key];
+    const d = DEFAULTS[section]?.[key];
+    const whole = isPlainObject(v) && isPlainObject(d) ? deepMerge(d, v) : (v ?? d ?? null);
+    next[section] = { ...next[section], [key]: whole == null ? whole : JSON.parse(JSON.stringify(whole)) };
+  }
   // Whatever changed in the live persona (name, prompt, theme, face, voice…) is saved with it.
   next.personas = personas.sync(next);
   settingsCache = next;

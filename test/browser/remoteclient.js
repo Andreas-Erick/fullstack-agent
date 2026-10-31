@@ -118,8 +118,18 @@ async function run() {
   await habits.add({ name: 'Meditate', target: 7, note: '10 minutes after coffee' });
   await habits.add({ name: 'Run', target: 3 });
   await habits.log(['Meditate']);
+  // A turn as main.js starts one, minus the brain: the user's message stored, "start" published. The
+  // staying-in-step check below ends it by hand.
+  let pendingTurn = null;
   companion.init({
-    startTurn: async () => ({ conversationId: null }),
+    startTurn: async ({ conversationId, text, requestId }) => {
+      const conv = (conversationId && (await store.getConversation(conversationId))) || (await store.createConversation('Sync check'));
+      conv.messages.push({ id: store.newId('m'), role: 'user', content: text, createdAt: Date.now() });
+      await store.saveConversation(conv);
+      companion.publish('chat:event', { requestId, conversationId: conv.id, type: 'start', title: conv.title, userMessage: conv.messages.at(-1) });
+      pendingTurn = { conv, requestId };
+      return { conversationId: conv.id };
+    },
     abortTurn() {},
     respondApproval: () => false,
     transcribe: async () => '',
@@ -291,6 +301,57 @@ async function run() {
     await shot(wc, ffLabel);
     await wc.executeJavaScript(`document.querySelector('#faceFull').click()`, true);
     win.destroy();
+  }
+
+  // Staying in step (main/synccore.js, renderer/remote/sync.js). 1: the reply to the phone's message
+  // finishes while the link is down; after reconnecting the phone shows it once and can send again (it
+  // stayed "busy" for good). 2: a habit checked off on the computer shows on the open Habits screen.
+  for (const size of SIZES) {
+    await habits.log(['Run'], { done: false }); // each size starts at 1 of 2 done
+    const sw = new BrowserWindow({ show: false, width: size.width, height: size.height, useContentSize: true, webPreferences: { backgroundThrottling: false } });
+    const sc = sw.webContents;
+    sc.on('console-message', (e) => {
+      if (e.level === 'error' && !/Failed to load resource|ERR_CONNECTION_REFUSED|ERR_EMPTY_RESPONSE/.test(e.message)) problems.push(`sync console: ${String(e.message).slice(0, 300)}`);
+    });
+    await sw.loadURL(`${base}/`);
+    await sc.executeJavaScript(`localStorage.setItem('nexus.token', ${JSON.stringify(token)}); localStorage.removeItem('nexus.conv')`);
+    await sw.loadURL(`${base}/`);
+    await until(sc, `document.querySelector('#conn')?.classList.contains('ok')`);
+    pendingTurn = null;
+    await sc.executeJavaScript(`document.querySelector('#tabs [data-tab="chat"]').click(); document.querySelector('#input').value = 'Are you there?'; document.querySelector('#composer').requestSubmit()`, true);
+    if (!(await until(sc, `document.body.classList.contains('busy')`, 5000))) problems.push(`${size.name} sync: the phone never showed its message as being answered`);
+    for (let i = 0; i < 50 && !pendingTurn; i++) await wait(100);
+    if (!pendingTurn) problems.push(`${size.name} sync: the message never reached the computer`);
+    else {
+      await companion.stop(); // the link drops…
+      const { conv, requestId } = pendingTurn;
+      const reply = { id: store.newId('m'), role: 'assistant', content: 'Yes, here from the computer.', createdAt: Date.now() };
+      conv.messages.push(reply);
+      await store.saveConversation(conv); // …the reply is stored as main.js does, then "done" goes to nobody
+      companion.publish('chat:event', { requestId, conversationId: conv.id, type: 'done', message: reply });
+      await wait(1500);
+      await companion.apply({ remote: { enabled: true, lan: false, port, shareData: true } });
+      if (!(await until(sc, `!document.body.classList.contains('busy') && document.querySelector('#messages').innerText.includes('here from the computer')`, 25000))) {
+        const st = await sc.executeJavaScript(`({ busy: document.body.classList.contains('busy'), text: document.querySelector('#messages').innerText.slice(-200) })`);
+        problems.push(`${size.name} sync: after reconnecting, the finished reply ${st.text.includes('here from the computer') ? 'shows' : 'is missing'} and the phone is ${st.busy ? 'still busy' : 'free'}`);
+      } else {
+        const n = await sc.executeJavaScript(`[...document.querySelectorAll('#messages .msg.assistant')].filter((m) => m.innerText.includes('here from the computer')).length`);
+        if (n !== 1) problems.push(`${size.name} sync: the reply shows ${n} times`);
+        if (await sc.executeJavaScript(`document.querySelector('#sendBtn').classList.contains('hidden')`)) problems.push(`${size.name} sync: no send button after the reply`);
+      }
+      screens[`${size.name}/sync reply`] = await sc.executeJavaScript(`document.querySelector('#messages').innerText.replace(/\\s+/g, ' ').slice(-160)`);
+    }
+    // 2: the vault tells devices what changed (main.js wires this listener; this harness has no main.js).
+    require('../../main/obsidian').setChangeListener((rel) => companion.publish('vault:changed', rel));
+    await until(sc, `document.querySelector('#conn')?.classList.contains('ok')`);
+    await sc.executeJavaScript(`document.querySelector('#tabs [data-tab="habits"]').click()`, true);
+    if (!(await until(sc, `document.querySelector('#panel .day-ring b')?.textContent === '1/2'`))) problems.push(`${size.name} sync: the Habits screen did not show 1/2 done`);
+    else {
+      await habits.log(['Run']); // on the computer
+      if (!(await until(sc, `document.querySelector('#panel .day-ring b')?.textContent === '2/2'`, 8000))) problems.push(`${size.name} sync: a habit checked off on the computer did not show on the open Habits screen`);
+      screens[`${size.name}/sync habits`] = await sc.executeJavaScript(`document.querySelector('#panel .day-ring b')?.textContent`);
+    }
+    sw.destroy();
   }
 
   // The computer goes away (Siren closed, computer asleep): the phone shows what is going on and what
