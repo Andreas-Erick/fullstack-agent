@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- The phone stays in step with the computer. A habit checked off, a note or memory the assistant wrote, a deck studied, a schedule change, a conversation renamed or deleted: the phone's open screen now updates in place, keeping your scroll position and open sections. It never updates while you're studying a card, reading a note or typing a search. Devices are told only which screen to fetch again, never what changed.
+- The phone no longer gets stuck "busy" after a dropped connection. If a reply finished while the link was down, the phone showed it after reconnecting but kept the send button disabled until the app was reloaded. A reply that started on the computer or the watch while the phone was opening the conversation now shows up too, instead of being missed.
+- A connection that died silently (switching from Wi-Fi to mobile data, the phone asleep) is noticed within about a minute, and when the app comes back to the front or the network changes. The phone used to show "connected" and receive nothing.
+- Messages typed on a phone get the quick answer again: "what’s on my schedule tomorrow?" with a phone keyboard's ’ was handled as a slower, normal message. "What do I have tomorrow?" and "is my streak still alive?" are quick lookups too.
+- Everyday trouble is no longer treated as programming: "my bike is broken", "fix my diet" or "an error in my essay" ran as long engineering turns, and with hand-over on a local brain went to Claude as "code work". Trouble with the app ("the phone app doesn’t sync", "the mic isn’t working") still does.
+- A local brain finds your notes and calendar entries by singular or plural: "when are my lectures?" now meets the "Lecture" entry (and dates, classes, houses, studies…).
+- A local brain's reply that only promises an action ("I’ll add that now", "I’ll remember that", "Got it, saved.", "All set") with no tool run is caught and done or corrected, as "I've added…" already was. A reply that gives up without looking ("You haven’t told me", "I couldn’t find anything", "I have no idea") is asked to look first. "log my workout" no longer loads the diagnostic tools.
+- Switching personas no longer carries pieces of the previous one along. A persona whose look lacked a colour, a font or a face shape that the last one had kept the last one's (Captain Vega with Aria's background colour). The short summary local models read could keep the "written by you" mark from the previous persona, and then it was never rewritten. Each part of a persona is now replaced whole on a switch.
+- Switches asked for at the same moment (a voice command and a tap, or two quick taps) happen in the order they were asked, and a switch can no longer put back an older copy of a persona you had just edited.
+- Tests: persona switching in depth (150 random switches between five personas that differ in everything, switches and edits at the same time, settings a switch must leave alone, the phone being told, the switch tool's approval, who is answering), and 5 new real-brain persona conversations: work started by one persona and checked by the next, a habit logged by one and asked about by another, switching by chat and back, "who answered my last question?", and a carousel of six quick switches.
+- Tests: the sync contracts between the computer and the phone, and a corpus of several hundred real-sounding messages and replies for the assistant's judgement without a model (`test/intelligence.test.js`). The real-brain test set has 11 new cases for these mistakes.
+
 ## 2.7.12 — 2026-10-31
 
 - Claude messages carry about half as many tokens again: a fresh session went from about 52,000 to 27,000. Claude Code loaded the app's developer notes (CLAUDE.md, about 22,000 tokens) and its own memory into every chat. The assistant now reads those notes itself when it changes its code, and Claude Code's memory stays off in its sessions.

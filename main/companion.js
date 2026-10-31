@@ -12,7 +12,8 @@
 //    that device's token, so the one that crossed the plain network stops working.
 //  - Scope: chat, conversations (read), approvals and the schedule (read). Never settings, secrets,
 //    setup or screen sharing.
-//  - Streaming: GET /api/events is a Server-Sent Events stream of chat and approval events.
+//  - Streaming: GET /api/events is a Server-Sent Events stream of chat and approval events, "info.changed"
+//    (fetch /api/info again) and "data.changed" { topics } (which screens to fetch again, synccore.js).
 //  - The phone client (step 2) is static files from renderer/remote/, served without a token (they
 //    hold no data) under a strict Content Security Policy.
 const http = require('http');
@@ -29,6 +30,7 @@ const log = require('./logger');
 const faces = require('./faces');
 const facelinks = require('./facelinks');
 const facecapture = require('./facecapture');
+const synccore = require('./synccore');
 
 const ROOT = path.join(__dirname, '..');
 // URL path -> file (relative to the app root). Nothing else is served.
@@ -36,6 +38,7 @@ const STATIC = {
   '/': 'renderer/remote/index.html',
   '/app.js': 'renderer/remote/app.js',
   '/screens.js': 'renderer/remote/screens.js',
+  '/sync.js': 'renderer/remote/sync.js',
   '/styles.css': 'renderer/remote/styles.css',
   '/sw.js': 'renderer/remote/sw.js',
   '/manifest.webmanifest': 'renderer/remote/manifest.webmanifest',
@@ -99,7 +102,7 @@ const TURNS_PER_MIN = 20;
 const STREAMS_PER_DEVICE = 3;
 const MAX_CONNECTIONS = 64;
 const DEVICE_IDLE_MS = 90 * 24 * 60 * 60 * 1000; // a device unused this long is unpaired
-const STREAMED = new Set(['chat:event', 'approval:request', 'approval:cancel', 'info:changed']);
+const STREAMED = new Set(['chat:event', 'approval:request', 'approval:cancel', 'info:changed', 'data:changed']);
 // Settings sections that change what /api/info says (the persona's name, colors, face, effects, voice…).
 const INFO_SECTIONS = ['agent', 'appearance', 'ui', 'voice', 'calendar', 'remote', 'innerWorld', 'personas'];
 const CHAT_TYPES = new Set(['start', 'text', 'retract', 'tool_start', 'tool_end', 'notice', 'done', 'error', 'aborted']);
@@ -114,6 +117,9 @@ const moves = new Map(); // secret hash -> { deviceId, expiresAt }: moving a dev
 const streams = new Set(); // { res, deviceId }
 const openApprovals = new Map(); // approval id -> request; only these can be answered remotely (never secret or recording prompts)
 const turnOwners = new Map(); // requestId -> deviceId
+const running = synccore.runningTurns(); // turns not finished yet, so a device that (re)opens a conversation can follow them
+// What changed on the computer (a note, a habit, a deck…), told to devices as screen names, coalesced.
+const dataTopics = synccore.coalescer((topics) => publish('data:changed', { topics }));
 const rateTimes = new Map(); // `${bucket}:${deviceId}` -> [timestamps]
 
 const devicesFile = () => path.join(store.dataDir(), 'remote-devices.json');
@@ -273,6 +279,7 @@ async function stop() {
   for (const st of streams) st.res.end();
   streams.clear();
   presence.reset();
+  dataTopics.cancel();
   if (!server) return;
   const s = server;
   server = null;
@@ -368,8 +375,11 @@ async function revokeAll() {
   return n;
 }
 
-// Called by main.js for every event sent to the window; devices only get chat and approval events.
+// Called by main.js for every event sent to the window; devices only get chat and approval events, and
+// hear which of their screens to fetch again (data.changed) when an event says something changed.
 function publish(channel, payload) {
+  if (channel === 'chat:event') running.note(payload);
+  if (server) dataTopics.add(synccore.topicsForEvent(channel, payload));
   if (!STREAMED.has(channel)) return;
   if (channel === 'chat:event' && ['done', 'error', 'aborted'].includes(payload.type)) turnOwners.delete(payload.requestId);
   if (channel === 'approval:cancel') openApprovals.delete(payload.id);
@@ -390,6 +400,11 @@ function settingsChanged(patch) {
   if (!patch || typeof patch !== 'object') return;
   if (!Object.keys(patch).some((k) => INFO_SECTIONS.includes(k))) return;
   infoChanged();
+}
+
+/** Something a device's screens show changed outside a vault note or a chat event (topics: synccore.TOPICS). */
+function dataChanged(topics) {
+  if (server) dataTopics.add(topics);
 }
 
 /** Something /api/info says has changed (settings, a new release found): devices fetch it again, coalesced. */
@@ -790,7 +805,8 @@ async function route(req, res) {
   if (req.method === 'GET' && m) {
     const conv = await store.getConversation(m[1]);
     if (!conv || conv.setup) return fail(res, 404, 'Conversation not found');
-    return json(res, 200, { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, messages: conv.messages.filter((x) => !x.hidden).map(messageForDevice) });
+    // running: replies still being written here (the device follows them; one missing from it has ended).
+    return json(res, 200, { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, messages: conv.messages.filter((x) => !x.hidden).map(messageForDevice), running: running.in(conv.id) });
   }
   if (req.method === 'POST' && p === '/api/chat') return chat(req, res, device);
   m = /^\/api\/chat\/([\w-]+)\/abort$/.exec(p);
@@ -1013,4 +1029,4 @@ async function chat(req, res, device) {
   return json(res, 200, { requestId, conversationId: r.conversationId });
 }
 
-module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged, infoChanged, presenceTracker };
+module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged, infoChanged, dataChanged, presenceTracker };

@@ -531,3 +531,79 @@ test('approvals for self-changes and connector trust can’t be answered from a 
   companion.publish('approval:cancel', { id: 'self1' });
   companion.publish('approval:cancel', { id: 'trust1' });
 });
+
+// ------------------------------------------------------------------ staying in step (synccore.js)
+// Reads a device's event stream for `ms` while `act` runs, and returns what came.
+async function listen(auth, act, ms = 900) {
+  const ctl = new AbortController();
+  const res = await fetch(`${base}/api/events`, { headers: auth, signal: ctl.signal });
+  const reader = res.body.getReader();
+  let streamed = '';
+  const pump = (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        streamed += Buffer.from(value).toString();
+      }
+    } catch {
+      /* aborted */
+    }
+  })();
+  await act();
+  await new Promise((r) => setTimeout(r, ms));
+  ctl.abort();
+  await pump;
+  return streamed;
+}
+const dataEvents = (streamed) => [...streamed.matchAll(/event: data\.changed\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]));
+
+test('a change on the computer reaches devices as one data.changed: the screens to fetch again, never the note', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Sync phone')}` };
+  const streamed = await listen(auth, async () => {
+    // A turn that checks a habit off, writes a memory and a note: a burst of vault changes and events.
+    companion.publish('vault:changed', 'Habits.md');
+    companion.publish('vault:changed', 'Memory/my-bank-pin.md');
+    companion.publish('vault:changed', 'Notes/Diary.md');
+    companion.publish('chat:event', { requestId: 'rS', conversationId: 'c1', type: 'habits_changed' });
+    companion.publish('vault:changed', '.obsidian/workspace.json');
+  });
+  const events = dataEvents(streamed);
+  assert.strictEqual(events.length, 1, streamed);
+  assert.deepStrictEqual(events[0], { topics: ['habits', 'memory', 'notes', 'today', 'tree'] });
+  assert.ok(!/bank|Diary|Habits\.md|obsidian/.test(streamed), 'no path or name of a note');
+  assert.ok(!streamed.includes('event: vault.changed'), 'the window’s own event stays with the window');
+});
+
+test('changes main.js reports itself (a routine ran, a conversation was deleted) reach devices; unknown topics do not', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Sync tablet')}` };
+  const streamed = await listen(auth, async () => {
+    companion.dataChanged(['skills', 'conversations']);
+    companion.dataChanged(['settings', 'C:/Users/x/secret.txt']);
+    companion.dataChanged('world');
+  });
+  assert.deepStrictEqual(dataEvents(streamed), [{ topics: ['conversations', 'skills', 'world'] }]);
+});
+
+test('view-only devices hear about changes too (they read the same screens)', async () => {
+  const token = await pairDevice('Sync kiosk');
+  const auth = { Authorization: `Bearer ${token}` };
+  const id = JSON.parse(fs.readFileSync(devicesFile, 'utf8')).find((d) => d.name === 'Sync kiosk').id;
+  await companion.setReadOnly(id, true);
+  const streamed = await listen(auth, async () => companion.publish('vault:changed', 'Schedule.md'));
+  assert.deepStrictEqual(dataEvents(streamed), [{ topics: ['notes', 'sched', 'today'] }]);
+});
+
+test('a conversation says which replies are still running, so a device that missed the end is not stuck', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Sync watch phone')}` };
+  const get = async () => (await (await fetch(`${base}/api/conversations/c1`, { headers: auth })).json()).running;
+  assert.deepStrictEqual(await get(), []);
+  companion.publish('chat:event', { requestId: 'rRun1', conversationId: 'c1', type: 'start', title: 'Normal', userMessage: { role: 'user', content: 'hi' } });
+  companion.publish('chat:event', { requestId: 'rRun2', conversationId: 'c2', type: 'start', title: 'Other', userMessage: { role: 'user', content: 'yo' } });
+  assert.deepStrictEqual(await get(), ['rRun1'], 'only this conversation’s');
+  companion.publish('chat:event', { requestId: 'rRun1', conversationId: 'c1', type: 'text', delta: 'Hel' });
+  assert.deepStrictEqual(await get(), ['rRun1']);
+  companion.publish('chat:event', { requestId: 'rRun1', conversationId: 'c1', type: 'done', message: { role: 'assistant', content: 'Hello' } });
+  assert.deepStrictEqual(await get(), [], 'ended: the stored conversation holds the reply');
+  companion.publish('chat:event', { requestId: 'rRun2', conversationId: 'c2', type: 'aborted' });
+});

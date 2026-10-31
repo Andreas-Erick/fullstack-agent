@@ -126,7 +126,9 @@ const HINTS = [
   ['looks', /\b(persona|theme|colou?rs?|look and feel|appearance)\b/i],
   ['github', /\b(github|repo(sitory)?|pull request|issues?)\b/i],
   ['skills', /\b(skills?)\b/i],
-  ['diagnostics', /\b(diagnos\w*|not working|broken|error|log)\b/i],
+  // A log of the app's, not "log my workout" (habit_log is an everyday tool already).
+  ['diagnostics', /\b(diagnos\w*|not working|broken|errors?|crash\w*|(the|app|error|debug) logs?|logs)\b/i],
+  ['voice', /\b(voices?|accent|calibrat\w*)\b/i],
   ['notes', /\b(notes?|vault|obsidian|journal|daily note)\b/i],
   // Up to two words between ("move my dentist appointment"), and the shorter "reschedule/postpone".
   ['calendar', /\b(reschedule|postpone|move|cancel|delete|remove|change|shift)\b(\s+\S+){0,2}\s+(events?|meetings?|appointments?|lectures?|class(es)?|dates?|party|lunch|dinner)\b|\b(reschedule|postpone)\b/i],
@@ -172,7 +174,7 @@ function placeNote(messages, note, { asSystem = true } = {}) {
 // asks once to look it up (LOOK_FIRST) instead of showing it. A persona says it in its own words ("I do
 // not possess that information", "I do not recall") or offers to look instead of looking ("Would you like
 // me to search your notes?", "Let me confirm that"): measured with a 28k-character persona.
-const GAVE_UP = /\b(I (do not|don['’]t|can['’]t|cannot) (have|know|find|see|access|possess|recall|remember)\b|I have no (information|record|details|notes?|recollection)\b|I(['’]m| am) not aware\b|I['’]m not sure (what|when|who|where|which)\b|no information (about|on|regarding)\b|(have|has) not (yet )?(mentioned|told|shared)\b|(would you like me|shall I|let me|I (can|could)) (to )?(look|search|check|confirm)\b)/i;
+const GAVE_UP = /\b(I (do not|don['’]t|can['’]t|cannot|could not|couldn['’]t) (have|know|find|see|access|possess|recall|remember)\b|I have no (information|record|details|notes?|recollection|idea)\b|I(['’]m| am) not aware\b|I['’]m not sure (what|when|who|where|which)\b|no information (about|on|regarding)\b|not something I know\b|(have|has) not (yet )?(mentioned|told|shared)\b|(haven['’]t|hasn['’]t) (yet )?(mentioned|told|shared)\b|(would you like me|shall I|should I|let me|I (can|could)) (to )?(look|search|check|confirm)\b)/i;
 const gaveUpUnlooked = (text) => String(text || '').length < 400 && GAVE_UP.test(String(text || ''));
 const LOOK_FIRST = 'Before you say you don’t know: look it up now with memory_search, then vault_search (and calendar_get_events for dates). Answer from what they find; only if both find nothing, say you don’t know.';
 
@@ -180,7 +182,9 @@ const LOOK_FIRST = 'Before you say you don’t know: look it up now with memory_
 // which no tool changed anything: the scenario suite caught a local model claiming a logged habit and a
 // second calendar entry that were never made. First person or a short "X done/logged" only, so a plain
 // answer like "your dentist is scheduled for 10:00" is not taken for a claim.
-const CLAIM = /\bI(['’]ve| have|['’]ll| will)?\s+(just\s+|also\s+)?(added|logged|saved|scheduled|booked|created|set up|put|marked|checked off|ticked off|updated|moved|rescheduled|deleted|removed|recorded|noted|stored)\b|^\s*(done|logged|noted|saved|added|booked|scheduled)\b|\b(practice|habit|workout|session|it|that|this)\s+(is\s+)?(now\s+)?(done|logged|checked off|ticked off|recorded)\b/im;
+// Also a promise kept to words alone ("I'll add that now.", "I'll remember that"): with no tool run,
+// the turn ends and nothing is added or remembered. And a bare "Got it, saved." / "All set" / "That's done."
+const CLAIM = /\bI(['’]ve| have|['’]ll| will)?\s+(just\s+|also\s+)?(added|logged|saved|scheduled|booked|created|set up|set|put|marked|checked off|ticked off|updated|moved|rescheduled|deleted|removed|recorded|noted|stored)\b|\bI(['’]ll| will)\s+(now\s+|also\s+|go ahead and\s+)?(add|log|save|schedule|book|create|put|mark|check off|tick off|update|move|reschedule|delete|remove|record|note|store|remember)\b|^\s*(done|logged|noted|saved|added|booked|scheduled|all set)\b|^\s*(got it|okay|ok|sure|alright)[\s,.!—–-]*(done|logged|noted|saved|added|booked|scheduled)\b|\bthat['’]s (now\s+)?(done|logged|saved|sorted)\b|\b(practice|habit|workout|session|it|that|this)\s+(is\s+)?(now\s+)?(done|logged|checked off|ticked off|recorded)\b/im;
 const claimsAction = (text) => CLAIM.test(String(text || ''));
 const CLAIM_CHECK = 'Your reply says you did something (added, logged, saved, scheduled…), but no tool changed anything in this turn. If the user asked for it, do it now with the tool, one call per item; if a tool failed, say so. If the user only asked a question, answer it without claiming any action.';
 
@@ -196,7 +200,8 @@ const NOT_FOR_A_QUESTION = 'Not done: the user asked a question, not for a chang
 
 // Tools that only look things up. Once a turn ran any other tool (it saved, added, changed
 // something), it is never handed over: the stronger brain would do it again.
-const READ_TOOL = /(^|_)(get|search|read|list|status|overview|decks|browse|options|recall|view|links|history|next)(_|$)|^(tools_more|app_guide|capabilities_for|web_search|web_fetch|look_at_screen)$/;
+// By name, never a loose suffix: "_file" would also match code_write_file.
+const READ_TOOL = /(^|_)(get|search|read|list|status|overview|decks|browse|options|recall|view|links|history|next|grep|outline)(_|$)|^(tools_more|app_guide|capabilities_for|web_search|web_fetch|look_at_screen|browser_look|code_map|find_document|skill_file|github_issues|github_pull_requests|diagnose|analyze_errors)$/;
 const isReadTool = (name) => READ_TOOL.test(String(name || ''));
 
 /**

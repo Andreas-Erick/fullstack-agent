@@ -1,6 +1,7 @@
 // Phone client for the companion server (main/companion.js, docs/ROADMAP-mobile.md step 2).
 // Talks only to the server it was loaded from. The device token lives in this browser's storage.
-import { initScreens, render as renderScreen, TITLES } from './screens.js';
+import { initScreens, render as renderScreen, busy as screenBusy, TITLES } from './screens.js';
+import { streamStale, refreshPlan, reconcile, convCheck, batcher } from './sync.js';
 // Served by the desktop from renderer/js/ (companion.js STATIC), so loaded by URL, not by file.
 let mathtext = null;
 import('./js/mathtext.js').then((m) => (mathtext = m)).catch(() => {});
@@ -302,12 +303,14 @@ async function openStream() {
       const res = await fetch('/api/events', { headers: { Authorization: `Bearer ${state.token}` }, signal: ctl.signal });
       if (res.status === 401) return unpair('This device was disconnected from the assistant. Pair it again.');
       if (!res.ok) throw new Error(`Error ${res.status}`);
+      state.lastByte = Date.now();
       setConn(true);
       $('#approvals').innerHTML = ''; // the server replays every approval that is still open
       if (delay > 1000) {
         // Catch up on what happened while away, and on a face or theme changed on the desktop meanwhile.
         loadConversation(state.convId);
         applyInfo();
+        refreshConvs();
       }
       delay = 1000;
       const reader = res.body.getReader();
@@ -316,6 +319,7 @@ async function openStream() {
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        state.lastByte = Date.now(); // pings count: the watchdog below only needs to know the link is alive
         buf += dec.decode(value, { stream: true });
         let i;
         while ((i = buf.indexOf('\n\n')) >= 0) {
@@ -356,7 +360,34 @@ function dispatch(block) {
   else if (event === 'approval.request') addApproval(payload);
   else if (event === 'approval.cancel') removeApproval(payload.id);
   else if (event === 'info.changed') onInfoChanged();
+  else if (event === 'data.changed') onDataChanged(payload.topics);
 }
+
+// A stream can die without closing (a switch from Wi-Fi to mobile data, a radio asleep): nothing arrives,
+// not even the server's pings, while the phone still shows "connected". Dropped here, it reconnects and
+// catches up. Checked now and then, when the app comes back to the front, and when the network changes.
+function checkStream() {
+  if (streamStale(state.lastByte, Date.now(), state.connected)) state.stream?.abort();
+}
+setInterval(checkStream, 10000);
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && checkStream());
+window.addEventListener('online', () => {
+  if (state.connected) state.stream?.abort(); // the old connection belongs to the network that went away
+  else state.wake?.(); // waiting to retry: try at once
+});
+
+// Something the phone shows changed on the computer (a habit checked off there, a note the agent wrote, a
+// deck studied…): the screen on show is drawn again in place, unless the user is busy on it; the schedule's
+// cached weeks are forgotten; the conversation list (and the open conversation's title) is checked.
+const onDataChanged = batcher((topics) => {
+  const plan = refreshPlan(topics, { view: state.view, busy: screenBusy(state.view) });
+  if (plan.schedule) {
+    sched.cache.clear();
+    if (state.view === 'sched') renderSchedule(true);
+  }
+  if (plan.screen) renderScreen(state.view, $('#panel'), { quiet: true });
+  if (plan.conversations) refreshConvs();
+});
 
 // The persona was switched, or its look changed, on the computer: name, colors, face and the rest of
 // /api/info follow here at once; the Android app passes the news on to a paired watch.
@@ -383,6 +414,7 @@ function setConn(ok) {
   if (ok) {
     clearTimeout(connTimer);
     store.set(SEEN_KEY, String(Date.now()));
+    if (was === false) sched.cache.clear(); // the schedule may have changed while the link was down
     if (was === false && state.view !== 'chat') showView(state.view); // the screen behind may show an offline card
     state.offlineDismissed = false;
     renderBanner();
@@ -499,7 +531,12 @@ function onChat(ev) {
     return;
   }
   const turn = state.active?.requestId === ev.requestId ? state.active : state.turns.get(ev.requestId);
-  if (!turn) return;
+  if (!turn) {
+    // A reply here that the phone wasn't following (its start went by while the conversation loaded):
+    // load it again rather than miss the reply. Never under a reply of its own (that view would go).
+    if (ev.type === 'done' && !mine && !state.loadingConv && !state.active) loadConversation(state.convId);
+    return;
+  }
   switch (ev.type) {
     case 'text':
       turn.text += ev.delta;
@@ -673,6 +710,11 @@ async function send(text) {
     const r = await api('/api/chat', { method: 'POST', body: { text, conversationId: state.convId || undefined } });
     turn.requestId = r.requestId;
     state.mine.add(r.requestId);
+    // Known now even if the stream's "start" never arrives (the link dropped): a reconnect loads this one.
+    if (r.conversationId && !state.convId) {
+      state.convId = r.conversationId;
+      store.set(CONV_KEY, r.conversationId);
+    }
   } catch (err) {
     turn.requestId = 'failed';
     turn.bubble.classList.remove('streaming');
@@ -713,27 +755,72 @@ $('#stopBtn').addEventListener('click', () => {
 });
 
 // ------------------------------------------------------------------ conversations
+let convSeq = 0; // only the latest load draws (a reconnect and a tap can overlap)
 async function loadConversation(id) {
+  const seq = ++convSeq;
   $('#messages').innerHTML = '';
   state.turns.clear();
   scrollDown(true);
   $('#empty').classList.add('hidden'); // not while the conversation loads
   if (!id) {
     setConvTitle('New conversation');
+    if (state.active) $('#messages').append(state.active.wrap); // being sent: its reply view stays
     return updateEmpty();
   }
+  state.loadingConv = true;
   try {
     const conv = await api(`/api/conversations/${encodeURIComponent(id)}`);
+    if (seq !== convSeq) return;
     setConvTitle(conv.title || 'Conversation');
     for (const m of conv.messages) addMessage(m);
+    followRunning(conv.running);
     scrollDown(true);
   } catch (err) {
-    if (err instanceof AuthError) return;
+    if (err instanceof AuthError || seq !== convSeq) return;
+    // Out of reach: keep it (the reconnect loads it again). Gone on the computer: start a new one.
+    if (err instanceof NetError) return updateEmpty();
     state.convId = null;
     store.set(CONV_KEY, null);
     setConvTitle('New conversation');
+    if (state.active) endTurn(state.active);
+  } finally {
+    if (seq === convSeq) state.loadingConv = false;
   }
   updateEmpty();
+}
+
+// Replies still being written in the loaded conversation (the server's `running`): the phone's own
+// stays on screen if it is still running, and ends if it finished while the link was down (its reply is
+// among the loaded messages); others get a live view, so their text and end show up here.
+function followRunning(running) {
+  const r = reconcile(state.active, running);
+  if (r.keepActive) $('#messages').append(state.active.wrap);
+  else if (r.endActive) endTurn(state.active);
+  for (const id of r.follow) state.turns.set(id, newTurnView(id));
+}
+
+// The conversation list changed on the computer (a new one, renamed, deleted): the drawer and the title
+// follow; the open conversation, deleted there, gives way to a new one.
+async function refreshConvs() {
+  let list;
+  try {
+    list = await api('/api/conversations');
+  } catch {
+    return;
+  }
+  convs = list;
+  if (!$('#drawer').classList.contains('hidden')) renderConvs();
+  const id = state.convId;
+  const c = convCheck(list, id);
+  if (c.title && c.title !== state.convTitle) setConvTitle(c.title);
+  if (c.listed || state.active || state.loadingConv) return;
+  // Not listed: make sure before letting it go (only "not found" means it really is gone).
+  const gone = await api(`/api/conversations/${encodeURIComponent(id)}`).then(() => false, (err) => !(err instanceof AuthError) && !(err instanceof NetError) && /not found/i.test(err.message));
+  if (!gone || state.convId !== id || state.active) return;
+  state.convId = null;
+  store.set(CONV_KEY, null);
+  loadConversation(null);
+  toast('That conversation was deleted on the computer.');
 }
 
 function openConversation(id) {

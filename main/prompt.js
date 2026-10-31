@@ -44,7 +44,16 @@ async function memoryBlock() {
 
 // Words that say nothing about which memory is meant (question words, pronouns, "name").
 const FILLER = new Set('the and for are was were what whats where when who whom whose which why how does did can could would should will you your yours mine our ours their they them she her hers his him this that these those with from about have has had not any all name names called live lives living tell know remember please today again also just like there here then than into onto over under only very much many some more most other was ist der die das und wer wie wo was mein meine meinen ich du dein'.split(' '));
-const wordsOf = (s) => new Set(String(s).toLowerCase().normalize('NFKD').replace(/[’']s\b/g, '').match(/\p{L}{3,}/gu)?.map((w) => w.replace(/(es|s)$/, '')).filter((w) => w.length >= 3 && !FILLER.has(w)) || []);
+// Singular and plural to one form: "lectures"/"lecture" → "lectur", "classes"/"class" → "class",
+// "studies"/"study" → "study". (Cutting "es" off every plural left "lectur" against "lecture", so "when
+// are my lectures?" never matched the Lecture entry.) Never shorter than three letters ("bus", "yes").
+const stem = (w) => {
+  let s = w.endsWith('ies') && w.length > 4 ? `${w.slice(0, -3)}y` : w;
+  if (s.endsWith('s') && !s.endsWith('ss') && s.length > 3) s = s.slice(0, -1);
+  if (s.endsWith('e') && s.length > 3) s = s.slice(0, -1);
+  return s;
+};
+const wordsOf = (s) => new Set(String(s).toLowerCase().normalize('NFKD').replace(/[’']s\b/g, '').match(/\p{L}{3,}/gu)?.filter((w) => !FILLER.has(w)).map(stem).filter((w) => w.length >= 3 && !FILLER.has(w)) || []);
 function sharesWord(query, text) {
   const q = wordsOf(query);
   for (const w of wordsOf(text)) if (q.has(w)) return true;

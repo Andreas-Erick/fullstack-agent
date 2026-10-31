@@ -12,23 +12,26 @@ const DEEP =
   /\b(explain|teach( me)?|tutor|why|how (does|do|did|would|could|can|is|are)\b(?! (you|u|ya|things|it going|your day)\b)|walk me through|help me (understand|think|decide|plan|write)|understand|compare|comparison|difference between|versus|analy[sz]e|analysis|evaluate|critique|pros and cons|trade-?offs?|strategy|design|derive|derivation|prove|proof|intuition|essay|write (a|an|me|my)|draft|outline|summari[sz]e|brainstorm|think (through|about|it over)|research|in depth|in detail|deep ?dive|step by step|what do you think|should i|plan (a|an|my|the|out)|study plan|quiz me|erkl[aä]r\w*|warum|wieso|vergleich\w*)\b/i;
 // A lookup in the user's own things: an ASK opener, a PERSONAL noun, and "my"/"I" or a day word, so
 // "what is time dilation?" or "what are the events that led to WW1?" are not mistaken for one.
-const ASK = /^(what'?s|what is|what are|what do i|when'?s|when is|when do i|where is|do i have|have i|am i|is there|are there|any|show( me)?|list|check|tell me (my|about my|what)|read (me )?my|how many|wann|was (steht|habe|hab)|hab ich|habe ich)\b/i;
+const ASK = /^(what'?s|what is|what are|what do i|when'?s|when is|when do i|where is|do i have|have i|am i|is (there|my)|are (there|my)|any|show( me)?|list|check|tell me (my|about my|what)|read (me )?my|how many|wann|was (steht|habe|hab)|hab ich|habe ich)\b/i;
 const PERSONAL =
   /\b(schedule|calendar|agenda|plans?|meetings?|appointments?|events?|class(es)?|lectures?|exams?|deadlines?|termine?|kalender|habits?|streaks?|to-?dos?|tasks?|reminders?|routines?|cards|flashcards|recordings?|notes?|inbox|emails?|weather|forecast|on( for)?|free|busy|due|steht|an)\b/i;
 const MINE = /\b(my|mine|i|me|i'm|we|our|mein\w*|ich|today|tonight|tomorrow|yesterday|this (morning|afternoon|evening|week|weekend)|next (week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|on (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|weekend|heute|morgen)\b/i;
 const CLOCK = /^(what time is it|what'?s the (time|date)|what('?s| is) (the )?date today|what day is (it|today))\b/i;
+// "What do I have tomorrow?": a schedule lookup with no schedule word in it.
+const DAY_ASK = /^what do i have (on |for |planned |going on )?(today|tonight|tomorrow|this (morning|afternoon|evening|week|weekend)|next week|on (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i;
 const COMMAND = /^(please )?(add|put|schedule|book|move|reschedule|cancel|remind me|set (a |an )?(timer|alarm|reminder)|start|stop|pause|resume|play|open|close|hide|switch|turn (on|off)|check (off|in)|mark|log|note( down)?|save|remember|forget|delete|remove|rename|(make|create) (a |an )?(note|reminder|event|task|habit)|wake me|trag\w*|erinner\w*|f[uü]g\w*)\b/i;
 // Greetings and thanks. Not a bare "yes"/"ok": that is often the go-ahead for a big task.
 const SOCIAL = /^(hi|hey|hello|hallo|yo|how are (you|u|ya)|how'?s it going|how is it going|how have you been|what'?s up|wie geht'?s|good (morning|afternoon|evening|night)|guten (morgen|tag|abend)|gute nacht|thanks?( you)?|thank you|danke|cool|great|nice|perfect|awesome|bye|see you|tsch[uü]ss)\b/i;
 
 /** 'quick' | 'normal' | 'deep' for one user message. */
 function classify(text) {
-  const t = String(text || '').trim();
+  // Phone keyboards and speech recognition write ’ ("what’s on my schedule?"); the patterns use '.
+  const t = String(text || '').trim().replace(/[‘’ʼ]/g, "'");
   if (!t) return 'normal';
   if (t.length > 1200 || isEngineeringTask(t) || DEEP.test(t)) return 'deep';
   if (t.length <= 60 && SOCIAL.test(t)) return 'quick';
   if (t.length <= 160 && !t.includes('\n')) {
-    if (CLOCK.test(t)) return 'quick';
+    if (CLOCK.test(t) || DAY_ASK.test(t)) return 'quick';
     if (ASK.test(t) && PERSONAL.test(t) && MINE.test(t)) return 'quick';
     if (COMMAND.test(t)) return 'quick';
   }

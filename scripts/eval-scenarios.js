@@ -314,6 +314,73 @@ function scenarios(d) {
       ],
     },
     {
+      // Work started by one persona, checked by the next: done once, not again.
+      id: 'persona-mid-task',
+      area: 'persona switches',
+      steps: [
+        { persona: 'Professor Quill' },
+        {
+          ask: `Please put “Return library books” in my calendar on ${spoken(d.dinner)} at 16:00.`,
+          check: all(inCharacter('Professor Quill'), async (r) => ((await r.state.schedule()).some((x) => /library/i.test(x.title) && x.date === ymd(d.dinner) && x.start === '16:00') ? '' : `no library books at ${ymd(d.dinner)} 16:00`)),
+        },
+        { persona: 'Nova' },
+        {
+          ask: 'Did the library books thing get into my calendar? What time?',
+          check: all(said(/16(:00)?|4(:00)? ?pm|four/i), inCharacter('Nova'), async (r) => {
+            const n = (await r.state.schedule()).filter((x) => /library/i.test(x.title)).length;
+            return n === 1 ? '' : `${n} library entries (expected exactly one)`;
+          }),
+        },
+      ],
+    },
+    {
+      // A habit logged under one persona and asked about under another: shared, and not logged twice.
+      id: 'persona-shared-habit',
+      area: 'persona switches',
+      steps: [
+        { persona: 'Captain Vega' },
+        { ask: 'Done with my Icelandic practice for today.', check: async (r) => ((await r.state.habitDone('Icelandic practice')) ? '' : 'Icelandic practice is not checked off') },
+        { persona: 'Professor Quill' },
+        { ask: 'Have I done my Icelandic practice today?', check: all(said(/\byes\b|you have|already|done|checked off|logged/i), inCharacter('Professor Quill'), (r) => (r.tools.some((t) => t.name === 'habit_log') ? 'it logged the habit again' : '')) },
+      ],
+    },
+    {
+      // Back and forth by chat: the switch tool both ways, each reply by the right one.
+      id: 'persona-by-chat-and-back',
+      area: 'persona switches',
+      steps: [
+        { persona: 'Nova' },
+        { ask: 'Switch to Professor Quill, please.', check: usedAny('persona_switch') },
+        { ask: 'What is a derivative, in one sentence?', check: all(said(/rate|slope|change/i), inCharacter('Professor Quill')) },
+        { ask: 'Thanks. Switch back to Nova now.', check: usedAny('persona_switch') },
+        { ask: 'Give me one tip for staying focused.', check: inCharacter('Nova') },
+      ],
+    },
+    {
+      // Asked straight out who answered before: honest about it, still itself.
+      id: 'persona-asked-who-before',
+      area: 'persona switches',
+      steps: [
+        { persona: 'Professor Quill' },
+        { ask: 'What is the speed of light, roughly?', check: all(said(/300|299|3 ?[x×] ?10/i), inCharacter('Professor Quill')) },
+        { persona: 'Captain Vega' },
+        { ask: 'Who answered my last question?', check: all(said(/quill|professor/i), said(/\bensign\b/i), notSaid(/\bI(’|')?m (Professor )?Quill|\bI am (Professor )?Quill/i, 'it said it is Quill'), notSaid(NOT_A_COSTUME, 'it stepped out of character')) },
+      ],
+    },
+    {
+      // Ten quick switches on facts about the user: always right, always in the voice of the one on duty.
+      id: 'persona-carousel',
+      area: 'persona switches',
+      steps: [
+        ['Captain Vega', 'Where do I study?', /munich|TU\b/i],
+        ['Nova', 'What am I allergic to?', /peanut/i],
+        ['Professor Quill', 'What is my thesis about?', /predictive|MPC|drone|quadcopter/i],
+        ['Nova', 'Who is my manager?', /sarah/i],
+        ['Captain Vega', 'Which language am I learning?', /icelandic/i],
+        ['Professor Quill', 'When is my Thermodynamics exam?', dateWords(d.exam)],
+      ].flatMap(([who, ask, re]) => [{ persona: who }, { ask, check: all(said(re), inCharacter(who)) }]),
+    },
+    {
       id: 'persona-no-costume',
       area: 'persona switches',
       steps: [

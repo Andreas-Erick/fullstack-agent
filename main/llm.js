@@ -302,7 +302,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   // process's output) are logged under this turn too.
   const lastText = String(history[history.length - 1]?.content || '');
   // The persona that wrote the latest reply (stored on it since 2.7.10): a switch mid-conversation is named.
-  const previousPersona = [...history].reverse().find((m) => m.role === 'assistant' && m.persona)?.persona || '';
+  const previousPersona = require('./personacore').lastPersona(history);
   // Spoken turns stay quick unless they actually start engineering work (upgraded in runTool).
   // A routine's own instructions ("fix the errors in…") are not a request for code work.
   const engineering = !setup && !voice && !routine && isEngineeringTask(lastText);
