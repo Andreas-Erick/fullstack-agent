@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.7.13 — 2026-10-31
 
 - The phone stays in step with the computer. A habit checked off, a note or memory the assistant wrote, a deck studied, a schedule change, a conversation renamed or deleted: the phone's open screen now updates in place, keeping your scroll position and open sections. It never updates while you're studying a card, reading a note or typing a search. Devices are told only which screen to fetch again, never what changed.
 - The phone no longer gets stuck "busy" after a dropped connection. If a reply finished while the link was down, the phone showed it after reconnecting but kept the send button disabled until the app was reloaded. A reply that started on the computer or the watch while the phone was opening the conversation now shows up too, instead of being missed.
