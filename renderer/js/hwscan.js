@@ -2,6 +2,7 @@
 // and the brain. Shared by the setup wizard and Settings → Health.
 import { api, el, toast, toastError } from './util.js';
 import { state, saveSettings } from './state.js';
+import { speechPlan } from './perfcore.js';
 
 async function hasWebGpu() {
   try {
@@ -30,7 +31,8 @@ export async function scanInto(box) {
       ),
     );
     const sttLabel = rec.stt.localModel.split('/').pop();
-    const current = state.settings.stt.localModel === rec.stt.localModel && state.settings.stt.engine === 'local';
+    // Automatic (stt.localModel '') counts as in use when it already picks the recommended model.
+    const current = state.settings.stt.engine === 'local' && (state.settings.stt.localModel || speechPlan(state.settings).model) === rec.stt.localModel;
     const apply = el('button', {
       class: 'btn small',
       disabled: current,

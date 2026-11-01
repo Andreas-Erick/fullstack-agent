@@ -130,7 +130,7 @@ const DEFAULTS = {
     engine: 'local', // 'local' = Whisper in-app (transformers.js), 'groq' = Groq's Whisper Large v3 Turbo (cloud, the groq.apiKey), 'remote' = OpenAI-compatible /audio/transcriptions
     cloudFallback: false, // local engine: when local Whisper is still loading or fails, transcribe with Groq (needs groq.apiKey)
     groqModel: 'whisper-large-v3-turbo',
-    localModel: 'onnx-community/whisper-large-v3-turbo', // without WebGPU the worker falls back to base.en
+    localModel: '', // '' = chosen for this computer (renderer/js/perfcore.js speechPlan); or a Whisper model id
     remoteUrl: '',
     remoteKey: '',
     remoteModel: 'whisper-1',

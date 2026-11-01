@@ -6,7 +6,8 @@ import { state, setFlag, setCaption } from './state.js';
 import { KOKORO_SAMPLE_RATE } from './kokorotext.js';
 import { mathOpen } from './mathtext.js';
 import { practiceLanguage, pickVoice, languageName } from './practice.js';
-import { BALANCED, profile, speechPlan } from './perfcore.js';
+import { BALANCED, profile, speechPlan, voiceOnGpu, preloadSpeech } from './perfcore.js';
+import { perfReady } from './perf.js';
 import { onset, segmentEnd, endSilence, createJoiner, HOLD_MS, PTT_MAX_MS } from './utterance.js';
 
 let audioCtx = null;
@@ -45,6 +46,7 @@ const localVoice = {
           this.device = msg.device;
           logEvent('info', 'offline voice ready', { device: msg.device });
           emit('tts-progress', { status: 'ready', device: msg.device });
+          this.keepFor(); // Balanced: the idle clock starts at load, not only after the first sentence
           resolve();
         } else if (msg.id && this.pending.has(msg.id)) {
           const { done, fail } = this.pending.get(msg.id);
@@ -56,7 +58,10 @@ const localVoice = {
       this.worker.onerror = (e) => this.reset(e.message || 'the offline voice failed to load', reject);
     });
     this.ready.catch(() => {});
-    this.worker.postMessage({ type: 'load', gpu: profile(state.settings) !== 'balanced' });
+    // GPU or not is the profile's call, which on a first start is known only after the hardware check:
+    // asked earlier, a lighter computer would load the 310 MB GPU model instead of the 88 MB one.
+    const worker = this.worker;
+    perfReady.then(() => this.worker === worker && worker.postMessage({ type: 'load', gpu: voiceOnGpu(state.settings) }));
     return this.ready;
   },
 
@@ -842,6 +847,27 @@ export function preloadLocalModel() {
   if (s?.enabled && s.engine === 'local') getWorker(currentPlan());
 }
 
+// When voice input was last used, on this computer only (a convenience: lost storage means one
+// launch without the preload). Decides whether the model loads at launch (perfcore.js preloadSpeech).
+const VOICE_USED_KEY = 'siren.voiceInputAt';
+function noteVoiceInput() {
+  try {
+    localStorage.setItem(VOICE_USED_KEY, String(Date.now()));
+  } catch {}
+}
+function voiceInputAt() {
+  try {
+    return Number(localStorage.getItem(VOICE_USED_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** At launch: load the speech model only for someone who used voice input lately. */
+export function preloadSpeechIfUsed() {
+  if (preloadSpeech(state.settings, voiceInputAt())) preloadLocalModel();
+}
+
 function encodeWav(samples, rate = 16000) {
   const buf = new ArrayBuffer(44 + samples.length * 2);
   const v = new DataView(buf);
@@ -868,6 +894,7 @@ export async function transcribe(samples, { raw = false } = {}) {
   const s = state.settings.stt;
   // Cloud: Groq's Whisper Large v3 Turbo ("groq") or a custom endpoint ("remote"), sent by main/voice.js.
   if (s.engine === 'remote' || s.engine === 'groq') return cleanTranscript(await api.stt.transcribe(encodeWav(samples), { raw }), { raw });
+  noteVoiceInput();
   // Local, with Groq as the fallback (stt.cloudFallback): while the model is still loading (the first
   // minutes after a start or after it was unloaded), or if it fails, the cloud answers instead; the
   // local model keeps loading for next time.
@@ -1037,6 +1064,8 @@ export async function startListening() {
     await untilIdle(4000);
     if (mine !== press) return; // released meanwhile
   }
+  // Not preloaded at launch (perfcore.js preloadSpeech): it loads while you speak, not after.
+  preloadLocalModel();
   try {
     await recorder.start();
     setFlag('recording', true);
@@ -1068,6 +1097,7 @@ export function toggleListening() {
 
 export async function setMicMode(mode) {
   if (mode === 'open') {
+    perfReady.then(preloadLocalModel); // always listening: the model is needed soon
     try {
       await handsFree.start();
     } catch (err) {

@@ -29,7 +29,7 @@ async function finishNewVoice(v, a, ctx, extra = {}) {
 function speechRecommendation(stt, accuracy) {
   if (accuracy >= 0.9) return 'None: recognition is accurate.';
   if (stt.engine === 'local' && !/large/.test(stt.localModel)) {
-    return 'Switch stt.localModel to onnx-community/whisper-large-v3-turbo (about 1.6 GB, once; much better with accents, and on a GPU also faster). Ask the user first.';
+    return 'Switch stt.localModel to onnx-community/whisper-large-v3-turbo (about 1.6 GB, once; much better with accents, and on a GPU also faster). It takes several GB of memory while loaded and is used only on a strong computer (32 GB of memory and an 8 GB graphics card) or with Performance set to Full; otherwise a cloud Whisper (stt.engine "groq") is the better step. Ask the user first.';
   }
   if (stt.engine === 'local') return 'The largest local model is already in use. A remote Whisper (stt.engine "remote", e.g. through FreeLLMAPI) is usually more accurate; suggest it.';
   return 'Speak a little slower and closer to the microphone; check the input device in Settings → Voice input.';

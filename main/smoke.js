@@ -24,6 +24,7 @@ function prepare() {
   if (!active) return;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'siren-smoke-'));
   if (!process.env.NEXUS_USER_DATA) seedChat(path.join(dir, 'data'));
+  if (!process.env.NEXUS_USER_DATA && MEM) seedSettings(path.join(dir, 'data'));
   process.env.NEXUS_USER_DATA ||= path.join(dir, 'data');
   process.env.NEXUS_DOCUMENTS ||= path.join(dir, 'documents');
   // The clock starts now, not when the window opens: a main module that fails to load (Electron then
@@ -54,6 +55,59 @@ function seedChat(data) {
     { role: 'assistant', content: reply, at: now - 1000, model: 'claude-opus-5-5', provider: 'claude-code', toolCalls: [{ name: 'mcp__claude_ai_Google_Calendar__list_events', input: { calendarId: 'someone.with.a.very.long.address@example.com' }, ok: true }, { name: 'WebFetch', input: { url }, ok: true }] },
   ];
   fs.writeFileSync(path.join(conv, 'csmoke01.json'), JSON.stringify({ id: 'csmoke01', title: `A conversation with a very long title ${'that goes on '.repeat(8)}`, createdAt: now - 3000, updatedAt: now, messages }));
+}
+
+// NEXUS_SMOKE_MEM=1: a memory profile instead of the layout and text checks. A set-up install (no
+// wizard, the offline voice as the main voice) in the profile NEXUS_SMOKE_PERF names (auto | balanced |
+// full; auto = what this computer's check picks), then the app's memory by process kind after boot,
+// after opening each view, and after going back to the chat (what a view keeps once it is left).
+// The window stays hidden, so screen-sized compositing is smaller than in real use.
+const MEM = process.env.NEXUS_SMOKE_MEM === '1';
+function seedSettings(data) {
+  const mode = process.env.NEXUS_SMOKE_PERF || 'auto';
+  fs.mkdirSync(data, { recursive: true });
+  // NEXUS_SMOKE_SETTINGS: JSON sections merged in, e.g. {"stt":{"engine":"groq"}} to leave Whisper out.
+  const extra = JSON.parse(process.env.NEXUS_SMOKE_SETTINGS || '{}');
+  const s = { onboarded: true, privacy: { acceptedAt: Date.now() }, perf: { mode }, voice: { engine: 'local', greetOnLaunch: false } };
+  for (const [k, v] of Object.entries(extra)) s[k] = v && typeof v === 'object' ? { ...s[k], ...v } : v;
+  fs.writeFileSync(path.join(data, 'settings.json'), JSON.stringify(s));
+}
+
+async function sampleMemory(label) {
+  const kb = { Browser: 0, Tab: 0, GPU: 0, other: 0 };
+  for (const m of app.getAppMetrics()) {
+    const k = m.type in kb ? m.type : 'other';
+    kb[k] += m.memory?.privateBytes || m.memory?.workingSetSize || 0;
+  }
+  const heap = await win.webContents.executeJavaScript('performance.memory ? performance.memory.usedJSHeapSize : 0').catch(() => 0);
+  const mb = (n) => Math.round(n / 1024);
+  return { label, main: mb(kb.Browser), window: mb(kb.Tab), gpu: mb(kb.GPU), helpers: mb(kb.other), total: mb(kb.Browser + kb.Tab + kb.GPU + kb.other), jsHeap: Math.round(heap / 1048576) };
+}
+
+async function memoryTour() {
+  const wc = win.webContents;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const rows = [];
+  // The offline voice loads at launch (and downloads on a fresh data folder): wait for it, up to 3 min.
+  const t0 = Date.now();
+  while (Date.now() - t0 < 180000 && !(await wc.executeJavaScript(`import('./js/voice.js').then((m) => m.offlineVoiceStatus().device)`, true).catch(() => ''))) await wait(1000);
+  const device = await wc.executeJavaScript(`import('./js/voice.js').then((m) => m.offlineVoiceStatus().device || 'not loaded')`, true).catch(() => '?');
+  const profile = await wc.executeJavaScript(`import('./js/perf.js').then((m) => m.isBalanced() ? 'balanced' : 'full')`, true).catch(() => '?');
+  await wait(3000);
+  rows.push(await sampleMemory('boot (chat)'));
+  const views = await wc.executeJavaScript(`[...document.querySelectorAll('.rail-btn')].map((b) => b.dataset.view)`);
+  for (const v of views) {
+    await wc.executeJavaScript(`document.querySelector('.rail-btn[data-view="${v}"]').click()`, true);
+    await wait(4000);
+    rows.push(await sampleMemory(v));
+  }
+  await wc.executeJavaScript(`document.querySelector('.rail-btn[data-view="chat"]').click()`, true);
+  await wait(8000);
+  rows.push(await sampleMemory('back to chat'));
+  const cols = ['label', 'main', 'window', 'gpu', 'helpers', 'total', 'jsHeap'];
+  const line = (r) => cols.map((c, i) => String(r[c]).padStart(i ? 8 : 14)).join('');
+  process.stdout.write(`SMOKE MEM profile ${profile}, offline voice ${device} (MB, private)\n${line(Object.fromEntries(cols.map((c) => [c, c])))}\n${rows.map(line).join('\n')}\n`);
+  return views;
 }
 
 function finish(ok, why) {
@@ -252,9 +306,10 @@ function ready(ms) {
   setTimeout(() => finish(false, `the checks after boot did not finish within ${CHECKS_MS / 60000} min${problems.length ? `; so far: ${problems.slice(0, 5).join(" | ")}` : ""}`), CHECKS_MS).unref?.();
   const done = () => setTimeout(() => (problems.length ? finish(false, `${problems.length} problem${problems.length > 1 ? 's' : ''} after boot`) : finish(true)), SETTLE_MS);
   if (!win || win.isDestroyed()) return done();
-  (SHOTS ? shootTour() : win.webContents.executeJavaScript(TOUR, true))
+  (MEM ? memoryTour() : SHOTS ? shootTour() : win.webContents.executeJavaScript(TOUR, true))
     .then(async (views) => {
       toured = views;
+      if (MEM) return;
       if (!SHOTS) for (const p of await win.webContents.executeJavaScript(STEADY, true)) problems.push(`layout: ${p}`);
       if (!SHOTS) for (const p of await scanText()) problems.push(p);
       if (process.env.NEXUS_SMOKE_FACE === '1') for (const p of await checkFace()) problems.push(p);

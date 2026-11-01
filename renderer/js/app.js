@@ -4,7 +4,7 @@ import { state, loadSettings, saveSettings, ttsActive, raiseAlert, noteActivity 
 import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
 import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
-import { startListening, stopListening, toggleListening, speaker, preloadLocalModel, preloadOfflineVoice, setMicMode, handsFree, warmMic } from './voice.js';
+import { startListening, stopListening, toggleListening, speaker, preloadSpeechIfUsed, preloadOfflineVoice, setMicMode, handsFree, warmMic } from './voice.js';
 import { initChat, newChat, sendVoice, currentConversationId } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
@@ -34,7 +34,7 @@ import { initLayout, applyLayout, setLayout, zoomBy, setZoom, quickNote, toggleA
 import { applyTheme } from './theme.js';
 import { switchPersona } from './personas.js';
 import { practiceLanguage, languageName } from './practice.js';
-import { initPerf, perfReady, isBalanced } from './perf.js';
+import { initPerf, perfReady } from './perf.js';
 
 // Safety net: an unexpected error anywhere in the UI is logged (repeats at most once a minute)
 // instead of disappearing; the app keeps running.
@@ -189,10 +189,11 @@ async function boot() {
   window.addEventListener('focus', refreshStatus);
 
   // Check what this computer can take (once, then every 30 days), then warm up the local speech model
-  // so the first push-to-talk is fast. Balanced performance loads it with the first sentence instead.
+  // for someone who used voice input this week (perfcore.js preloadSpeech); everyone else loads it
+  // with the first press of the talk key, and Balanced never preloads.
   initPerf();
   preloadOfflineVoice();
-  perfReady.then(() => setTimeout(() => !isBalanced() && preloadLocalModel(), 3000));
+  perfReady.then(() => setTimeout(preloadSpeechIfUsed, 3000));
   // The microphone, open before the first push-to-talk press (and again when you come back to the window).
   setTimeout(warmMic, 1500);
   window.addEventListener('focus', warmMic);
