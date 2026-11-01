@@ -11,9 +11,11 @@ import { BUILT_IN, FaceHost } from './faces/host.js';
 import { scanInto } from './hwscan.js';
 import { KOKORO_VOICES } from './kokorotext.js';
 import { localFinder } from './settings.js';
+import { speechPlan } from './perfcore.js';
+import { faceChoices } from './onboardcore.js';
 
 const STEPS = ['welcome', 'privacy', 'hardware', 'brain', 'voice', 'vault', 'goals', 'connect', 'persona', 'tour', 'hello'];
-const STEP_NAMES = { welcome: 'Welcome', privacy: 'Privacy & safety', hardware: 'Your computer', brain: 'Brain', voice: 'Voice', vault: 'Memory', goals: 'What you want', connect: 'Connectors & extras', persona: 'Personality & face', tour: 'What I can do', hello: 'First hello' };
+const STEP_NAMES = { welcome: 'Welcome', privacy: 'Privacy & safety', hardware: 'Your computer', brain: 'Brain', voice: 'Voice', vault: 'Memory & files', goals: 'What you want', connect: 'Connectors & extras', persona: 'Personality & face', tour: 'What I can do', hello: 'First hello' };
 const PRIVACY_URL = 'https://github.com/Andreas-Erick/fullstack-agent/blob/main/PRIVACY.md';
 const CONNECTORS_URL = 'https://claude.ai/settings/connectors';
 
@@ -102,7 +104,7 @@ async function render() {
     draft.name = draft.name || s.agent.name;
     const stage = el('div', { class: 'ob-face' });
     body.append(
-      el('div', { class: 'ob-hero' }, stage, el('div', {}, el('h2', {}, `Meet ${s.agent.name || 'Siren'}`), el('p', { class: 'muted' }, 'Your personal assistant on this computer: she talks and listens, remembers what matters to you, keeps your notes and schedule, teaches, coaches your habits, works on the web and in your documents, and comes along on your phone.'), el('p', { class: 'muted' }, 'This setup takes a few minutes, one topic at a time. You can change everything later in Config, and nothing you already have is overwritten.'))),
+      el('div', { class: 'ob-hero' }, stage, el('div', {}, el('h2', {}, `Meet ${s.agent.name || 'Siren'}`), el('p', { class: 'muted' }, 'Your personal assistant on this computer: she talks and listens, remembers what matters to you, keeps your notes and schedule, teaches, coaches your habits, works on the web and in your documents, and comes along on your phone.'), el('p', { class: 'muted' }, 'This setup takes a few minutes, one topic at a time. You can change everything later in Settings (the gear at the bottom of the left rail, labelled Config), and nothing you already have is overwritten.'))),
       field('What should your assistant be called?', input(draft.name, 'Siren', (v) => (draft.name = v)), 'The name she answers to and uses for herself. Every persona can have its own.'),
     );
     faceHost = new FaceHost(stage, { compact: true });
@@ -181,7 +183,7 @@ async function render() {
         );
       } else if (draft.provider === 'auto') {
         area.append(
-          el('p', { class: 'muted', style: { margin: 0 } }, 'Uses every provider you set up, best one first, and switches automatically when one hits a rate limit or runs out of credits. Add the keys you have (all optional; your Claude account is used if it is connected). You can rank them and add more later in Config → AI brain.'),
+          el('p', { class: 'muted', style: { margin: 0 } }, 'Uses every provider you set up, best one first, and switches automatically when one hits a rate limit or runs out of credits. Add the keys you have (all optional; your Claude account is used if it is connected). You can rank them and add more later in Settings → AI brain.'),
           field('Gemini API key (free tier)', input(s.gemini.apiKey, 'optional', (v) => saveSettings({ gemini: { apiKey: v } }), 'password'), 'Get one at <a href="https://aistudio.google.com/apikey">aistudio.google.com</a>.'),
           field('Groq API key (free tier, very fast)', input(s.groq.apiKey, 'optional', (v) => saveSettings({ groq: { apiKey: v } }), 'password'), 'Get one at <a href="https://console.groq.com/keys">console.groq.com</a>.'),
           field('Anthropic API key', input(s.anthropic.apiKey, 'optional', (v) => saveSettings({ anthropic: { apiKey: v } }), 'password')),
@@ -222,6 +224,22 @@ async function render() {
     });
     mics.addEventListener('change', () => saveSettings({ stt: { micDevice: mics.value } }));
     const engineArea = el('div', { class: 'field' });
+    // How she hears you: Whisper on this computer (the model fits it: perfcore speechPlan) or Groq's.
+    const sttArea = el('div', { class: 'field' });
+    const drawStt = () => {
+      sttArea.innerHTML = '';
+      const now = state.settings;
+      if (now.stt.engine === 'groq') {
+        const shared = draft.engine === 'cloud' && now.cloudVoice?.provider !== 'openai';
+        if (shared) sttArea.append(el('div', { class: 'hint' }, 'Uses the Groq key above.'));
+        else sttArea.append(field('Groq API key', input(now.groq.apiKey, 'gsk_…', (v) => saveSettings({ groq: { apiKey: v } }), 'password'), 'Free, no card: get one at <a href="https://console.groq.com/keys">console.groq.com</a>.'));
+        sttArea.append(el('div', { class: 'hint' }, 'What you say is sent to Groq to be written down (not your conversations or files).'));
+      } else if (now.stt.engine === 'remote') {
+        sttArea.append(el('div', { class: 'hint' }, 'You use your own transcription address (Settings → Voice input).'));
+      } else {
+        sttArea.append(el('div', { class: 'hint' }, `On this computer: ${speechPlan(now).model.split('/').pop()}, chosen to fit it. Downloaded the first time you talk. Change it in Settings → Voice input.`));
+      }
+    };
     const progress = el('div', { class: 'hint' });
     const off = on('tts-progress', (p) => {
       if (p.status === 'progress' && p.file) progress.textContent = `Downloading the voice — ${Math.round(p.progress || 0)}% (${p.file.split('/').pop()})`;
@@ -240,7 +258,7 @@ async function render() {
           progress,
         );
       } else if (draft.engine === 'cloud') {
-        // main/voice.js CLOUD_VOICES; the voice itself is chosen later in Config → Voice output.
+        // main/voice.js CLOUD_VOICES; the voice itself is chosen later in Settings → Voice output.
         const cv = state.settings.cloudVoice || {};
         const openai = cv.provider === 'openai';
         engineArea.append(
@@ -267,6 +285,7 @@ async function render() {
           el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => speaker.say(`Hello, I'm ${state.settings.agent.name}.`) }, '🔊 Test voice')),
         );
       }
+      drawStt();
     };
     body.append(
       el('h2', {}, 'Voice'),
@@ -292,9 +311,26 @@ async function render() {
         s.stt.micMode,
         (v) => saveSettings({ stt: { micMode: v } }),
       ),
+      el('div', {}, el('b', {}, 'Who writes down what you say?')),
+      choices(
+        [
+          { value: 'local', ico: '🔒', title: 'This computer', desc: 'Recommended. Private and free; needs over 1 GB of memory while loaded.' },
+          { value: 'groq', ico: '☁', title: 'Groq, in the cloud', desc: 'Light and fast, on slower computers too. Your speech goes to Groq.' },
+        ],
+        s.stt.engine,
+        async (v) => (await saveSettings({ stt: { engine: v } }), drawStt()),
+      ),
+      sttArea,
     );
     drawEngine();
-    beforeNext = () => saveSettings({ voice: { engine: draft.engine } });
+    beforeNext = async () => {
+      await saveSettings({ voice: { engine: draft.engine } });
+      // Without a key the cloud can't hear anything: stay local rather than leave the mic silently broken.
+      if (state.settings.stt.engine === 'groq' && !state.settings.groq?.apiKey) {
+        await saveSettings({ stt: { engine: 'local' } });
+        toast('No Groq key yet, so speech recognition stays on this computer.');
+      }
+    };
   }
 
   if (id === 'vault') {
@@ -310,6 +346,13 @@ async function render() {
     );
     draft.register ??= true;
     body.append(checkbox(draft.register, 'Also add it to Obsidian’s vault list (Obsidian must be closed; a backup of its list is kept)', (v) => (draft.register = v)));
+    // The one folder of the user's she may use by default (documents.userFolders).
+    const workspace = state.settings.documents?.workspace;
+    body.append(
+      el('div', {}, el('b', {}, 'Where do you keep your files?')),
+      el('p', { class: 'muted' }, 'Optional. Your university, work or projects folder becomes her workspace: she looks there first when you ask for a file. Without one she uses only her vault and the files you open yourself. She can’t use your other folders unless you add them in Settings → Documents & folder access.'),
+      el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => { const d = await api.dialog.pickFolder('Workspace folder'); if (d) { await saveSettings({ documents: { workspace: d } }); render(); } } }, workspace ? 'Choose another workspace…' : 'Choose a workspace folder…'), workspace ? el('span', { class: 'hint' }, workspace) : ''),
+    );
     beforeNext = async () => {
       await saveSettings({ obsidian: { vaultPath: draft.vault, enabled: true } });
       if (draft.register) api.obsidian.register().catch((e) => toast(`Not added to Obsidian: ${e.message}`));
@@ -359,11 +402,12 @@ async function render() {
 
   if (id === 'persona') {
     draft.persona ||= 'keep';
+    const customFaces = await api.faces.list().catch(() => []);
     const custom = el('div', { class: 'field', style: { display: draft.persona === 'custom' ? '' : 'none' } });
     const prompt = el('textarea', { class: 'input', rows: 6, placeholder: 'Who is your assistant? How does she talk, what does she care about, how should she treat you?' });
     prompt.value = s.agent.personality;
     const aesthetic = input(s.agent.aesthetic, 'e.g. 90s cyberpunk terminal, warm solarpunk greenhouse, minimal Scandinavian', () => {});
-    custom.append(field('Master prompt', prompt), field('Aesthetic / style (optional)', aesthetic, 'Later, “Generate look & feel” in Config restyles the whole app to match.'));
+    custom.append(field('Master prompt', prompt), field('Aesthetic / style (optional)', aesthetic, 'Later, “Generate look & feel” in Settings restyles the whole app to match.'));
     body.append(
       el('h2', {}, 'Personality and face'),
       choices(
@@ -376,7 +420,7 @@ async function render() {
       ),
       custom,
       el('div', {}, el('b', {}, 'Her face')),
-      choices(BUILT_IN.map((f) => ({ value: f.id, title: f.title, desc: f.tagline })), s.ui.face, (v) => saveSettings({ ui: { face: v } })),
+      choices(faceChoices(s.ui.face, customFaces, BUILT_IN), s.ui.face, (v) => saveSettings({ ui: { face: v } })),
       el('p', { class: 'hint' }, 'Want a face of your own? Your vault has a note, “Make Your Own Face”, with a prompt you can give any AI app to design one. Custom faces go in the faces folder (Face view → ＋ Custom faces).'),
       el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => { const img = await api.dialog.pickImage(); if (img) { await saveSettings({ agent: { avatar: img } }); toast('Image set'); } } }, '🖼 Choose a picture for her (optional)')),
     );
@@ -438,7 +482,7 @@ async function connectStep(s) {
   ];
   if (claudeBrain) {
     parts.push(
-      point('🔌', 'Your Claude connectors and plugins (optional)', 'With your Claude account, she can use the services you connected on claude.ai (Gmail, Google Calendar, Todoist, Notion, Canva…) and your Claude Code plugins. None come with the app: you choose them on claude.ai. Every call asks you first unless you allow a service in Config → AI brain, and what they return is treated as data.'),
+      point('🔌', 'Your Claude connectors and plugins (optional)', 'With your Claude account, she can use the services you connected on claude.ai (Gmail, Google Calendar, Todoist, Notion, Canva…) and your Claude Code plugins. None come with the app: you choose them on claude.ai. Every call asks you first unless you allow a service in Settings → AI brain, and what they return is treated as data.'),
       checkbox(s.claudeCode.connectors, 'Use my Claude connectors and plugins', (v) => saveSettings({ claudeCode: { connectors: v } })),
       el('div', { class: 'hint' }, `Worth connecting for what you picked: ${ideas.join(', ')}.`),
       el(
@@ -468,11 +512,11 @@ async function connectStep(s) {
       out,
     );
   } else {
-    parts.push(point('🔌', 'Claude connectors and plugins', 'Services like Gmail, Todoist or Notion work through the Claude account brain. If you switch to it later, turn them on in Config → AI brain.'));
+    parts.push(point('🔌', 'Claude connectors and plugins', 'Services like Gmail, Todoist or Notion work through the Claude account brain. If you switch to it later, turn them on in Settings → AI brain.'));
   }
   parts.push(
-    point('🧩', 'Extensions (optional, off)', 'REA explains how apps and websites work; God’s Eye View is a live globe of public world data. Turn them on in Config → Extensions when you want them.'),
-    point('📱', 'Your phone', 'Pair the Android app or your phone’s browser to talk to her away from the desk: Config → Remote access, over Wi-Fi or a secure Tailscale address.'),
+    point('🧩', 'Extensions (optional, off)', 'REA explains how apps and websites work; God’s Eye View is a live globe of public world data. Turn them on in Settings → Extensions when you want them.'),
+    point('📱', 'Your phone', 'Pair the Android app or your phone’s browser to talk to her away from the desk: Settings → Remote access, over Wi-Fi or a secure Tailscale address.'),
   );
   return parts;
 }
@@ -517,7 +561,7 @@ async function firstHello(list) {
   const greeting = s.appearance.greeting || `Hello, I'm ${s.agent.name}. What are we working on today?`;
   // The voice runs alongside the other checks: its first download can take a minute.
   const voiceDone = (async () => {
-    if (!s.voice.ttsEnabled) greet(null, 'Voice is off. Turn it on any time in Config → Voice output.');
+    if (!s.voice.ttsEnabled) greet(null, 'Voice is off. Turn it on any time in Settings → Voice output.');
     else if (s.voice.engine === 'local') {
       greet(null, 'Loading the offline voice…');
       const off = on('tts-progress', (p) => p.status === 'progress' && p.file && greet(null, `Downloading the voice once — ${Math.round(p.progress || 0)}%`));
@@ -534,8 +578,8 @@ async function firstHello(list) {
       speaker.say(greeting);
       const synth = await api.tts.speak('ok').then(() => ({ ok: true }), (e) => ({ ok: false, error: e.message }));
       if (synth.ok) greet(true, `${name} · “${greeting}”`);
-      else if (s.voice.fallback !== 'off') greet(null, `${name} failed (${synth.error}) — speaking with the ${s.voice.fallback === 'system' ? 'system' : 'offline'} voice for now. Fix it in Config → Voice output.`);
-      else greet(false, `${name} failed: ${synth.error}. Check it in Config → Voice output.`);
+      else if (s.voice.fallback !== 'off') greet(null, `${name} failed (${synth.error}) — speaking with the ${s.voice.fallback === 'system' ? 'system' : 'offline'} voice for now. Fix it in Settings → Voice output.`);
+      else greet(false, `${name} failed: ${synth.error}. Check it in Settings → Voice output.`);
     }
   })();
 
@@ -548,7 +592,7 @@ async function firstHello(list) {
   }
   const vault = row('Vault is writable');
   const st = await api.obsidian.status().catch(() => ({}));
-  vault(Boolean(st.ok), st.ok ? `${st.path} · ${st.count} notes` : 'Vault unavailable — choose a folder in Config → Vault.');
+  vault(Boolean(st.ok), st.ok ? `${st.path} · ${st.count} notes` : 'Vault unavailable — choose a folder in Settings → Vault.');
   const mic = row('Microphone available');
   try {
     if (!(await api.mic.request())) throw new Error('access was not granted');

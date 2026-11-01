@@ -9,7 +9,7 @@ entry `keyboard` points here).
 
 | Keys | What it does |
 | --- | --- |
-| Ctrl+1 … Ctrl+8 | Chat, Face, Memory, Calendar, Knowledge, Documents, Evolution, Skills |
+| Ctrl+1 … Ctrl+9 | Chat, Face, Memory, Calendar, Knowledge, Documents, Evolution, Skills, Habits |
 | Ctrl+Shift+1 / 2 / 3 | Chat layout: chat only, split, face |
 | Ctrl+N | New chat |
 | Ctrl+Shift+N | Quick note |

@@ -3,6 +3,12 @@
 ## Unreleased
 
 - Formulas in exported PDFs look properly typeset: real fractions, radicals, matrices and spacing in KaTeX's own fonts, instead of the browser's plain math drawing. The formulas stay selectable and searchable.
+- Setup wizard: the face step shows Siren's own face, selected, instead of nothing. Picking another face used to lose it with no way back in that step; the older built-in face is now "Siren (built-in)".
+- Setup wizard: it now asks for a workspace folder, the one folder of yours the assistant may use by default, and offers Groq as speech recognition for slower computers. Without a key, speech recognition stays on your computer. It says "Settings" throughout, and explains once that the gear in the rail is labelled Config.
+- Setup by conversation catches up: it knows the offline voice is the default (it said you'd otherwise get the computer's built-in voice) and mentions the cloud voice, offers Siren's own face and custom faces, says correctly what still asks in automatic mode, and offers a model on your computer (Ollama or LM Studio) or the form for several providers. Connecting VoiceStudio there now actually switches to it.
+- The feature tour names the cloud voice in use (it said VoiceStudio) and mentions problem reports.
+- Ctrl+9 opens Habits, as the button's tooltip always said. It did nothing.
+- The README catches up: the speech model chosen for your computer, which Claude model answers what, local brains, hand-over, switching brains by asking, the safety table (changes to its own code always ask, in automatic mode too), and more.
 
 ## 2.7.14 — 2026-11-01
 

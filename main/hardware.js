@@ -112,7 +112,7 @@ function recommend(hw, { webgpu = null } = {}) {
     out.brain = { local: 'possible', size: '12–14B', why: `A 12–14B-parameter local model fits in ${Math.round(vram)} GB; good for quick private tasks. Use Claude (or another cloud provider) as the main brain and the local one as a free backup.` };
   } else if (vram >= 6) {
     out.tier = 'ok';
-    out.brain = { local: 'limited', size: '7–8B', why: 'Small 7–8B-parameter local models fit, but tool use and accuracy suffer. A cloud brain is recommended.' };
+    out.brain = { local: 'limited', size: '7–8B', why: 'Small 7–8B-parameter local models fit and handle everyday things well, but long, several-step work suffers. A cloud brain is recommended for that.' };
   } else {
     out.tier = 'basic';
     out.brain = { local: 'no', size: '', why: 'Local models would be slow on this computer. Use a cloud brain: your Claude account, or a free-tier key from Gemini or Groq.' };

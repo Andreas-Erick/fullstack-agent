@@ -12,9 +12,9 @@ Siren can reach other services in four ways: Claude connectors (the services a u
 | --- | --- | --- | --- |
 | Built-in tools (schedule, notes, memory, habits, learning, web search, documents, PDFs, diagrams, routines, GitHub via `gh`) | Yes | Yes | — |
 | Agent Skills (`main/skills/`: /explain, /proof-coach, /study-session, /teach-back, /drill, /converse, /goal, /reflect, /weekly-review, /tour) | Yes | Yes | Skills view: write your own, or import from a GitHub repo (e.g. `anthropics/skills`) |
-| Claude connectors | No | Off | Connect them on claude.ai → Settings → Connectors; turn on "Use my Claude connectors and plugins" (setup step "Connectors & extras" or Config → AI brain) |
+| Claude connectors | No | Off | Connect them on claude.ai → Settings → Connectors; turn on "Use my Claude connectors and plugins" (setup step "Connectors & extras" or Settings → AI brain) |
 | Claude Code plugins | No | Off (same switch) | `/plugin` in Claude Code |
-| Extensions (REA, God's Eye View) | The integration, not the software | Off | Config → Extensions |
+| Extensions (REA, God's Eye View) | The integration, not the software | Off | Settings → Extensions |
 
 ## Why nothing third-party is bundled
 
