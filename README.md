@@ -49,7 +49,7 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 
 ### 🎙️ Voice that feels like a conversation
 - **Push-to-talk or hands-free.** Hands-free uses a **neural voice detector** (Silero VAD), so breathing, coughs and keyboard noise don't trigger it, and a quick "yes" still counts.
-- **Fast, accurate local speech-to-text.** Whisper large-v3 turbo runs **on your GPU** (WebGPU), about 0.4 s for a sentence on a laptop RTX GPU, with an automatic CPU fallback. Prefer the cloud? Groq's Whisper (a free key) can stand in while the local model loads, or replace it.
+- **Fast, accurate local speech-to-text.** Whisper runs on your computer, with a model **chosen to fit it**: large-v3 turbo on the graphics card where there is room (32 GB of memory and an 8 GB graphics card; about 0.4 s for a sentence), Whisper small or base otherwise. Prefer the cloud? Groq's Whisper (a free key) can stand in while the local model loads, or replace it.
 - **A natural voice from the first sentence:** an offline neural voice ([Kokoro](https://huggingface.co/hexgrad/Kokoro-82M)) runs right in the app (free, private, no internet once downloaded), spoken sentence by sentence as the reply streams in. For even more natural and cloneable voices, use [VoiceStudio](https://github.com/debpalash/VoiceStudio), or a **cloud voice** with nothing to install (Groq's Orpheus with the Groq key you may already have, or OpenAI). A long result (a report, a list of papers) is read up to a limit you set, then she says the rest is on screen.
 - **One app to open:** Siren starts its helper apps (VoiceStudio, and FreeLLMAPI if you use it) in the background, minimized, and starts them again when they're needed. Optionally it closes them when you quit (Settings → Helper apps).
 - **Make new voices by asking:** "make me a warm, low British voice", or clone your own by reading a short script.
@@ -59,8 +59,10 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 - A subtle **grandfather-clock tick** while it works on longer tasks (or soft, classic, or off).
 
 ### 🧠 A brain with memory
-- **Your Claude account** through the Claude Code CLI, kept as a warm session. Spoken turns use the fast model, typed ones your default, switched **without restarting** the session. Also works with an Anthropic API key or any OpenAI-compatible server (e.g. FreeLLMAPI, Ollama, LM Studio).
-- **Small, fast local brains:** "Find local models" lists what Ollama or LM Studio has on your computer. A small model (3–14B) gets a short prompt written for small models and the everyday tools, which it follows far better than the full one, and answers in a fraction of a second once loaded.
+- **Your Claude account** through the Claude Code CLI, kept as a warm session. Each message gets the model it needs (quick lookups Haiku, everyday messages Sonnet, explanations and plans your main model), switched **without restarting** the session. Also works with an Anthropic API key or any OpenAI-compatible server (e.g. FreeLLMAPI, Ollama, LM Studio).
+- **Fast local brains:** "Find local models" lists what Ollama or LM Studio has on your computer. Every local model gets a short prompt and the everyday tools, asks for more tools when a task needs them, keeps your persona's voice through a short version of its master prompt, and starts answering in a fraction of a second once loaded.
+- **Hand hard messages to Claude** (optional, off by default): your local model answers what it can, and code, connected services and long or careful work go to your Claude brain instead. The chat says so.
+- **Switch brains by asking:** "switch to a local model", "switch back to the Claude brain", "which brains can I use?"
 - **Multi-provider mode with automatic fallback:** Claude, Gemini, DeepSeek, Groq, Perplexity, FreeLLMAPI and a local model in **your** priority order (drag to rank them). When one hits a rate limit, a usage cap or runs out of credits, the next one answers and the limited one rests for a while. Optional **smart routing** picks the best one per task: code → Claude/DeepSeek, web questions → Perplexity, quick spoken replies → a local model or Groq, very long inputs → Gemini.
 - **Agent Skills:** save a workflow once ("morning briefing", "clean up my meeting notes") and run it with `/name`, a trigger phrase, or one click. Or just say "make that a skill".
 - **Memory in an Obsidian vault:** a living profile, active priorities, daily notes, reusable procedures ("Jobs") and atomic memories. Every note is versioned and restorable.
@@ -101,7 +103,7 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 
 ### 📱 On your phone and your wrist
 - **Chat with the same assistant** from any phone browser or the **Android app**: replies stream live, conversations are shared with the desktop, and spoken replies play on the phone.
-- **Your day on the phone:** tabs for **Today** (schedule, habits, priorities, cards due, where you left off), **Habits** (check them off; the desktop sees it at once), **Learn** (topics and decks), and under More your **flashcards** (studied with the same schedule), memories, notes, skill tree, the **Inner World** (walk the island, step inside its buildings), the map of her own architecture and your skills. Tablets and Samsung DeX put the chat beside the screens.
+- **Your day on the phone:** tabs for **Today** (schedule, habits, priorities, cards due, where you left off), **Habits** (check them off; the desktop sees it at once), **Learn** (topics and decks), and under More your **flashcards** (studied with the same schedule), memories, notes, skill tree, the **Inner World** (walk the island, step inside its buildings), the map of her own architecture and your skills. Tablets and Samsung DeX put the chat beside the screens. What changes on the computer (a habit checked off, a note she wrote, a conversation renamed) shows on the phone's open screen by itself.
 - **A Galaxy Watch** (Wear OS 3+) puts her on your wrist: tap to ask, she listens on her own screen and answers in her voice with her face; Today and your habits; approvals as notifications. It goes through the phone app, nothing to pair.
 - **Approve from anywhere:** approval cards (with a countdown) on the phone, and on Android as **notifications with Allow / Deny**, even with the app closed.
 - **Push-to-talk on the phone,** transcribed on your computer with your own speech-to-text. On Android also a **Quick Settings tile** and **Share → Siren** from any app.
@@ -116,6 +118,7 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 - **Changes are verified, not just saved:** every change must pass a syntax check, **cross-file integrity checks** (IPC channels, imports, settings) and the **automated test suite**. After it goes live, the app checks its log; if the change caused problems, you're told, Evolution offers **Revert**, and the assistant knows so it can fix them.
 - **Diagnostics:** health checks, `analyze_errors` (the log's problems grouped, with counts and the exact place in the code), and a log where every request is traceable end to end (`[turn=…]` tags, timings, error stacks, secrets masked).
 - **One-click bug reports** with everything needed to find a problem, and no secrets.
+- **Problem reports, if you want them** (off unless you tick the box): when something breaks, she offers an anonymized report for the Siren project. You see exactly what it says and send it yourself on GitHub, or not; the app sends nothing.
 - **Crash-resistant:** recovers from a damaged settings file, a crashed window, a lost microphone, a hung speech model or a Claude session that fails to start.
 
 ### 🎨 Yours to shape
@@ -129,19 +132,19 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 
 | | Minimum | Recommended |
 | --- | --- | --- |
-| **OS** | Windows 10 (64-bit), macOS 12, or a recent 64-bit Linux | Windows 11, macOS 14+ |
+| **OS** | Windows 10 (64-bit), macOS 12, or a recent 64-bit Linux (from source; no Linux installer is published) | Windows 11, macOS 14+ |
 | **CPU** | 4 cores / 4 threads, x64 or Apple Silicon | 8+ cores |
 | **RAM** | 8 GB | 16 GB (32 GB+ to also run a local model) |
-| **GPU / VRAM** | Not required (speech recognition falls back to the CPU) | A WebGPU-capable GPU with **4 GB+ VRAM** for fast local speech recognition (Whisper large-v3 turbo) |
+| **GPU / VRAM** | Not required (speech recognition falls back to the CPU) | Any is fine: a smaller Whisper model is chosen. The large model (large-v3 turbo) is used with **32 GB of memory and 8 GB+ VRAM** on a WebGPU-capable GPU, or when you set Performance to Full |
 | **Disk** | 2 GB free (app + speech models) | 5 GB+ (more if you keep several speech models) |
 | **Network** | Internet for cloud brains, web search and model downloads | Broadband; all voice processing can stay local |
 | **Audio** | A microphone for voice input | A headset for hands-free mode |
 
-**Running a local brain** (Ollama, LM Studio or another OpenAI-compatible server, used through FreeLLMAPI / multi-provider mode) needs much more:
+**Running a local brain** (Ollama, LM Studio or another OpenAI-compatible server, on its own or in multi-provider mode) needs much more:
 
 | Local model size | GPU memory (VRAM) | Experience |
 | --- | --- | --- |
-| 7–8B parameters | 6–8 GB | Usable for simple chat; weak at tool use |
+| 7–8B parameters | 6–8 GB | Good for everyday tasks; weaker at long, several-step work |
 | 12–14B | 10–16 GB | Good for quick private tasks |
 | 27–32B | 20–24 GB | Close to cloud quality for everyday tasks |
 | 70B+ | 40 GB+ or a multi-GPU / unified-memory machine | Best local quality |
@@ -189,8 +192,8 @@ A short setup walks you through everything, one topic at a time:
 2. **Privacy and safety:** a short version of the [privacy policy and disclaimers](PRIVACY.md) to read and accept, and how careful she should be (ask first, or just do it).
 3. **Your computer** (optional): a hardware check that recommends the speech model and the kind of brain that fits.
 4. **The brain:** your Claude account (recommended), several providers with automatic fallback, a local server, or an API key, with a test.
-5. **Voice:** the offline voice (downloaded once, with a sample) or VoiceStudio; your microphone; push-to-talk or hands-free.
-6. **Memory:** her own vault, or an existing Obsidian vault.
+5. **Voice:** the offline voice (downloaded once, with a sample), a cloud voice or VoiceStudio; your microphone; push-to-talk or hands-free; speech recognition on this computer or through Groq.
+6. **Memory and files:** her own vault, or an existing Obsidian vault, and optionally the workspace folder where you keep your files.
 7. **What you want help with:** studying, languages, goals and habits, work. It adds the matching personas and a daily briefing.
 8. **Connectors and extras:** what is built in, which Claude connectors fit your goals (none come with the app; [why](docs/CONNECTORS.md)), the extensions and the phone app.
 9. **Personality and face.**
@@ -253,7 +256,7 @@ A paired phone can chat, read conversations, answer approvals sent to it, and (u
 | Enter / Shift+Enter | Send / new line |
 | F8 (hold) | Push-to-talk |
 | Ctrl/Cmd+Alt+Space | Listen from anywhere |
-| Ctrl/Cmd+1…8 | Chat, Face, Memory, Calendar, Vault, Documents, Evolution, Skills |
+| Ctrl/Cmd+1…9 | Chat, Face, Memory, Calendar, Vault, Documents, Evolution, Skills, Habits |
 | Ctrl/Cmd+Shift+1 / 2 / 3 | Chat only / side by side / face layout |
 | Ctrl/Cmd + / − / 0, Ctrl + wheel | Zoom in / out / reset (over a document: zoom the document) |
 | Ctrl/Cmd+, | Settings |
@@ -271,13 +274,16 @@ Choose **Ask** (approve consequential actions) or **Auto**. Approve by clicking 
 
 | Action | Ask mode | Auto mode |
 | --- | --- | --- |
-| Changing its own code, its settings, deleting things | asks | allowed (but code changes after reading a web page or document always ask) |
+| Changing its settings, deleting things | asks | allowed |
 | Removing an entry from your schedule, local commits | asks | allowed |
+| Changing its own code | **always asks** (and warns if it has just read a web page or document) | **always asks** (same) |
 | Shell commands | **always asks** | **always asks** |
+| Using a connected service (a Claude connector) | **asks each time**, unless you allowed that service | same |
+| Changing the address its brain or voice connects to | **always asks, each time** | **always asks, each time** |
 | Pushing to GitHub, opening a pull request | **always asks, each time** | **always asks, each time** |
 | Cloning a voice from an audio file (recording yourself in the app is your consent) | **always asks, each time** | **always asks, each time** |
 | Seeing your screen | only while **you** share it | only while **you** share it |
-| Answering an approval from a paired phone | on the phone's approval card or Android notification (passwords, keys and voice recordings only on the computer) | same |
+| Answering an approval from a paired phone | on the phone's approval card or Android notification (passwords, keys, voice recordings, changes to its own code and letting a connected service run without asking only on the computer) | same |
 
 It can never change its own safety settings, permissions or code access, and it can't read secrets. Web pages, documents, issues and repository files are treated as data, never as instructions. Found a security problem? Please report it privately: [SECURITY.md](SECURITY.md).
 
@@ -329,7 +335,8 @@ renderer/faces/   The custom-face API (core.js), Siren's own face (bundled/) and
 preload.js        The only bridge between the two
 android/          The Android app (app/) and the Galaxy Watch app (wear/): plain Java
 tools/brand/      The icon and installer art (SVG), rendered by render.js
-scripts/          Syntax and integrity checks, the test runner, recovery
+tools/world-art/  The village's rendered art: a Blender script and blueprints
+scripts/          Syntax and integrity checks, the test runner, recovery, the real-brain test set
 test/             Automated tests (Node's built-in runner, no dependencies); test/browser/ drives the real phone client
 docs/             The engineering playbook, keyboard reference, Tailscale and connector guides, the roadmaps
 ```
@@ -339,6 +346,7 @@ npm run check          # syntax of every file + cross-file integrity checks
 npm test               # the test suite (a few seconds, offline)
 npm run smoke          # a real start: every view, window sizes, nothing cut off
 npm run test:browser   # the phone client at phone and tablet sizes, against the real companion server
+npm run eval -- --brain claude:sonnet   # the assistant's test set against a real brain (counts toward your plan)
 ```
 
 See [`CLAUDE.md`](CLAUDE.md) for the architecture and conventions and [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for how to change it well; the agent reads both before changing itself.
@@ -355,6 +363,6 @@ Bump `version` in `package.json`, add a [changelog](CHANGELOG.md) entry, then pu
 
 ## Credits
 
-Built on [Electron](https://www.electronjs.org), [Claude](https://www.anthropic.com/claude) and [Claude Code](https://claude.com/claude-code), [transformers.js](https://github.com/huggingface/transformers.js) (Whisper, Silero VAD, Kokoro; text handling ported from [kokoro-js](https://github.com/hexgrad/kokoro), Apache-2.0, with [phonemizer](https://github.com/xenova/phonemizer.js)), [pdf.js](https://mozilla.github.io/pdf.js/), [marked](https://marked.js.org) and [DOMPurify](https://github.com/cure53/DOMPurify). Secure remote access through [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) or [Tailscale](https://tailscale.com). The QR encoder follows [Project Nayuki's QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (MIT). Voice by [VoiceStudio](https://github.com/debpalash/VoiceStudio). Ideas from [jaredrhod/fullstack-agent](https://github.com/jaredrhod/fullstack-agent).
+Built on [Electron](https://www.electronjs.org), [Claude](https://www.anthropic.com/claude) and [Claude Code](https://claude.com/claude-code), [transformers.js](https://github.com/huggingface/transformers.js) (Whisper, Silero VAD, Kokoro; text handling ported from [kokoro-js](https://github.com/hexgrad/kokoro), Apache-2.0, with [phonemizer](https://github.com/xenova/phonemizer.js)), [pdf.js](https://mozilla.github.io/pdf.js/), [KaTeX](https://katex.org), [marked](https://marked.js.org) and [DOMPurify](https://github.com/cure53/DOMPurify). The village's art is rendered with [Blender](https://www.blender.org) over [Kenney](https://kenney.nl)'s CC0 kits. Secure remote access through [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) or [Tailscale](https://tailscale.com). The QR encoder follows [Project Nayuki's QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (MIT). Voice by [VoiceStudio](https://github.com/debpalash/VoiceStudio). Ideas from [jaredrhod/fullstack-agent](https://github.com/jaredrhod/fullstack-agent).
 
 MIT licensed (see [LICENSE](LICENSE)). Provided as is, without warranty; see the [privacy policy and disclaimers](PRIVACY.md).

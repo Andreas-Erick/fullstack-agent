@@ -1,5 +1,6 @@
 // First-run setup by conversation. The agent asks one question at a time and configures itself.
-// Phase 1 (scripted, needs no model): find or connect a brain — Claude account, FreeLLMAPI or API key.
+// Phase 1 (scripted, needs no model): find or connect a brain — Claude account, a local model, FreeLLMAPI,
+// an API key, or the setup form for several providers.
 // Phase 2 (the agent itself): an interview in a dedicated "setup" conversation, using setup tools to
 // apply each answer (name, persona, look, voice, mic mode, vault, face, permissions, profile…).
 import { $, api, el, renderMarkdown, toast, toastError, on, logEvent } from './util.js';
@@ -141,6 +142,39 @@ async function connectFreeLLMAPI() {
   }
 }
 
+// A model in Ollama or LM Studio on this computer (main/localmodels.js): pick one of those installed.
+async function connectLocal() {
+  for (;;) {
+    say('Let me look for Ollama and LM Studio on this computer…');
+    const servers = await api.llm.localModels().catch(() => []);
+    const models = servers.filter((s) => s.running).flatMap((s) => s.models.map((m) => ({ label: `${m.name} (${s.name})`, value: { baseUrl: s.baseUrl, model: m.id } })));
+    if (!models.length) {
+      const next = await ask('I can’t find a model yet. Install **Ollama** (ollama.com) or **LM Studio** (lmstudio.ai), start it and download a model. A model on your computer is free and private, and nothing you say leaves it.', {
+        choices: [{ label: 'Check again', value: 'again', yes: true }, { label: 'Use something else', value: 'back' }],
+      });
+      if (next === 'back') return false;
+      continue;
+    }
+    const pick = await ask('Which model should I think with?', { choices: [...models.slice(0, 8), { label: 'Use something else', value: 'back' }] });
+    if (pick === 'back') return false;
+    await saveSettings({ llm: { provider: 'openai', baseUrl: pick.baseUrl, model: pick.model } });
+    return testBrain();
+  }
+}
+
+// The form has a place for several providers' keys, which a chat shouldn't ask for one by one.
+async function openForm() {
+  state.setupMode = false;
+  (await import('./onboarding.js')).startOnboarding();
+}
+
+const OTHER_BRAINS = [
+  { label: 'A model on this computer', value: 'local' },
+  { label: 'Several providers (setup form)', value: 'form' },
+  { label: 'FreeLLMAPI (local server)', value: 'openai' },
+  { label: 'Anthropic API key', value: 'anthropic' },
+];
+
 // ------------------------------------------------------------ the brain
 async function testBrain() {
   const line = bubble('Let me check that I can think…');
@@ -160,15 +194,14 @@ async function bootstrapBrain() {
     { choices: [{ label: 'Yes, let’s start', value: 'go', yes: true }, { label: 'I prefer a settings form', value: 'form' }, { label: 'Skip setup', value: 'skip' }] },
   );
   if (first === 'form') {
-    state.setupMode = false;
-    (await import('./onboarding.js')).startOnboarding();
+    await openForm();
     return false;
   }
   if (first === 'skip') {
     state.setupMode = false;
     await api.setup.skip();
     await loadSettings();
-    say('Okay — everything can be configured later in **Config**.');
+    say('Okay — everything can be configured later in **Settings** (the gear in the left rail, labelled Config).');
     return false;
   }
 
@@ -196,15 +229,23 @@ async function bootstrapBrain() {
     } else {
       choice = await ask(
         `I recommend using your **Claude account** through Claude Code, but it isn't installed yet. You can install it with:\n\n\`${await api.claude.installHint()}\`\n\nOr use another brain.`,
-        { choices: [{ label: 'I installed it — check again', value: 'again', yes: true }, { label: 'Use FreeLLMAPI', value: 'openai' }, { label: 'Use an Anthropic API key', value: 'anthropic' }] },
+        { choices: [{ label: 'I installed it — check again', value: 'again', yes: true }, ...OTHER_BRAINS] },
       );
       if (choice === 'again') continue;
     }
     if (choice === 'other') {
       choice = await ask('Which brain should I use instead?', {
-        choices: [{ label: 'FreeLLMAPI (local)', value: 'openai' }, { label: 'Anthropic API key', value: 'anthropic' }, { label: 'Back to Claude account', value: 'again' }],
+        choices: [...OTHER_BRAINS, { label: 'Back to Claude account', value: 'again' }],
       });
       if (choice === 'again') continue;
+    }
+    if (choice === 'form') {
+      await openForm();
+      return false;
+    }
+    if (choice === 'local') {
+      if (await connectLocal()) return true;
+      continue;
     }
     if (choice === 'openai') {
       if (await connectFreeLLMAPI()) return true;

@@ -109,7 +109,7 @@ const TOOLS = [
 // may apply these settings without a separate approval. Secrets are never set through chat.
 const SETUP_SETTABLE = [
   'agent.name', 'agent.personality', 'agent.aesthetic',
-  'llm.baseUrl', 'voice.ttsEnabled', 'voice.autoSpeak', 'voice.baseUrl', 'voice.voice', 'voice.speed', 'voice.greetOnLaunch', 'voice.thinkingSound', 'voice.filler',
+  'llm.baseUrl', 'voice.ttsEnabled', 'voice.autoSpeak', 'voice.engine', 'voice.baseUrl', 'voice.voice', 'voice.speed', 'voice.greetOnLaunch', 'voice.thinkingSound', 'voice.filler',
   'stt.enabled', 'stt.engine', 'stt.localModel', 'stt.micMode', 'stt.pttKey', 'stt.headphones', 'stt.language',
   'obsidian.enabled', 'obsidian.vaultPath', 'ui.face', 'ui.showVisualizerInChat',
   'safety.permissionMode', 'code.allowSelfModify', 'web.enabled', 'journal.enabled', 'llm.modelMode', 'llm.voiceUsesFast', 'calendar.enabled', 'documents.workspace',
@@ -135,7 +135,7 @@ const SETUP_TOOLS = [
       return {
         agent: { name: s.agent.name, usingDefaultPersona: s.agent.personality === store.DEFAULTS.agent.personality, personaPreview: s.agent.personality.slice(0, 300), aesthetic: s.agent.aesthetic, hasImage: Boolean(s.agent.avatar) },
         brain: { provider: s.llm.provider, modelMode: s.llm.modelMode },
-        voiceOutput: { enabled: s.voice.ttsEnabled, url: s.voice.baseUrl, voiceStudioReachable: ping.ok, currentVoice: s.voice.voice || '(default)', availableVoices: voices.slice(0, 60).map((v) => v.id), note: ping.ok ? '' : `VoiceStudio is not reachable; ${{ local: 'the offline voice', system: 'the system voice', off: 'nothing' }[s.voice.fallback] || 'the offline voice'} is used meanwhile.` },
+        voiceOutput: { enabled: s.voice.ttsEnabled, engine: s.voice.engine, url: s.voice.baseUrl, voiceStudioReachable: ping.ok, currentVoice: s.voice.voice || '(default)', availableVoices: voices.slice(0, 60).map((v) => v.id), note: ping.ok || s.voice.engine !== 'voicestudio' ? '' : `VoiceStudio is not reachable; ${{ local: 'the offline voice', system: 'the system voice', off: 'nothing' }[s.voice.fallback] || 'the offline voice'} is used meanwhile.` },
         voiceInput: { enabled: s.stt.enabled, engine: s.stt.engine, micMode: s.stt.micMode, pushToTalkKey: s.stt.pttKey, headphones: s.stt.headphones },
         vault: { current: vaultNow, isDefault: !s.obsidian.vaultPath, defaultPath: obsidian.defaultVaultPath(), existingObsidianVaults: vaults.filter((v) => v.exists).map((v) => v.path) },
         faces: [...FACES, ...faces.map((f) => f.id)],
@@ -168,6 +168,8 @@ const SETUP_TOOLS = [
         if (!st?.isDirectory()) throw new Error(`There is no folder at ${value}. Ask the user for the exact path, or to pick it in Settings → Documents.`);
       }
       if (a.setting === 'ui.face' && !FACES.includes(value) && !String(value).startsWith('custom:')) throw new Error(`Unknown face. Use one of: ${FACES.join(', ')}`);
+      // The cloud voice sends replies to another service and needs a key: only in Settings, by the user.
+      if (a.setting === 'voice.engine' && !['local', 'voicestudio'].includes(value)) throw new Error('voice.engine must be "local" or "voicestudio". The cloud voice is set up by the user in Settings → Voice output.');
       if (a.setting === 'stt.micMode' && !['ptt', 'open'].includes(value)) throw new Error('micMode must be "ptt" or "open"');
       if (a.setting === 'safety.permissionMode' && !['ask', 'auto'].includes(value)) throw new Error('permissionMode must be "ask" or "auto"');
       // What widens the agent's own access is confirmed by the user in the app, not only in the chat.

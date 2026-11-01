@@ -378,7 +378,7 @@ function setupShortcuts() {
       e.preventDefault();
       switchView('chat');
       setLayout(['chat', 'split', 'face'][Number(e.code.slice(5)) - 1]);
-    } else if (mod && /^Digit[1-8]$/.test(e.code)) {
+    } else if (mod && /^Digit[1-9]$/.test(e.code)) {
       e.preventDefault();
       switchView(views[Number(e.code.slice(5)) - 1]);
     } else if (mod && (e.key === '=' || e.key === '+')) {

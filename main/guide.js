@@ -3,14 +3,16 @@
 // computer right now. Keep it current when a feature is added or changed (CLAUDE.md says so).
 const store = require('./store');
 
+const VOICE_NAMES = { local: 'offline voice', cloud: 'cloud voice', voicestudio: 'VoiceStudio' };
+
 const FEATURES = [
   {
     id: 'talk',
     title: 'Talking with me',
-    what: 'Type or talk. Push-to-talk (hold the talk key) or hands-free; I answer in a voice (the offline voice runs right in the app; VoiceStudio is an optional app with more natural, cloneable voices) and my face shows what I am doing (listening, thinking, working, speaking). Speech is recognized on this computer with Whisper by default; Groq in the cloud can stand in while it loads or replace it (Settings → Voice input, free key). Voice calibration teaches me how your names and words come through.',
+    what: 'Type or talk. Push-to-talk (hold the talk key) or hands-free; I answer in a voice (the offline voice runs right in the app; a cloud voice from Groq or OpenAI needs nothing installed; VoiceStudio is an optional app with more natural, cloneable voices) and my face shows what I am doing (listening, thinking, working, speaking). Speech is recognized on this computer with Whisper by default; Groq in the cloud can stand in while it loads or replace it (Settings → Voice input, free key). Voice calibration teaches me how your names and words come through.',
     say: ['"Calibrate my voice"', '"Switch to hands-free"', '"Speak slower"'],
     where: 'Settings → Voice output and Voice input; the face (Ctrl+2); the chat layouts (Ctrl+Shift+1/2/3).',
-    status: (s) => `${s.voice.ttsEnabled ? `voice on (${s.voice.engine === 'local' ? 'offline voice' : 'VoiceStudio'})` : 'voice off'}; ${s.stt.enabled ? (s.stt.micMode === 'open' ? 'hands-free' : `push-to-talk (${s.stt.pttKey})`) : 'voice input off'}`,
+    status: (s) => `${s.voice.ttsEnabled ? `voice on (${VOICE_NAMES[s.voice.engine] || 'VoiceStudio'})` : 'voice off'}; ${s.stt.enabled ? (s.stt.micMode === 'open' ? 'hands-free' : `push-to-talk (${s.stt.pttKey})`) : 'voice input off'}`,
   },
   {
     id: 'personas',
@@ -57,7 +59,7 @@ const FEATURES = [
     title: 'Coaching, goals and habits',
     what: 'A life-coach side: I listen first, help turn intentions into small concrete steps with if-then plans, aiming for 1% better every day rather than big leaps, and follow up without nagging. A habit tracker with streaks and weekly targets; tick habits off in the Habits view or just tell me.',
     say: ['"/goal run a half marathon"', '"I meditated"', '"How are my habits?"', '"/reflect"', '"/weekly-review"'],
-    where: 'Habits view (rail); Habits.md in the vault.',
+    where: 'Habits (Ctrl+9); Habits.md in the vault.',
     status: (_s, f) => (f.vault ? `${f.habits} habit${f.habits === 1 ? '' : 's'} tracked` : 'needs the vault'),
   },
   {
@@ -231,7 +233,7 @@ const FEATURES = [
   {
     id: 'keyboard',
     title: 'Keyboard and screen readers',
-    what: 'Everything works from the keyboard: Ctrl+1 to Ctrl+8 open the views, Tab moves through the window with a visible focus ring, the arrow keys move along the rail, and each view has its own keys (the calendar’s arrows, the village’s WASD and zoom, Space to play a replay, Esc to go back a step). Screen readers hear each finished reply once, in full, instead of every streamed word, and the drawn views (the village, the architecture map, the skill tree) list their content in their side panels.',
+    what: 'Everything works from the keyboard: Ctrl+1 to Ctrl+9 open the views, Tab moves through the window with a visible focus ring, the arrow keys move along the rail, and each view has its own keys (the calendar’s arrows, the village’s WASD and zoom, Space to play a replay, Esc to go back a step). Screen readers hear each finished reply once, in full, instead of every streamed word, and the drawn views (the village, the architecture map, the skill tree) list their content in their side panels.',
     say: ['"Which keyboard shortcuts do you have?"', '"Can I use you with a screen reader?"'],
     where: 'docs/KEYBOARD.md lists every key per view.',
     status: () => 'always on',
@@ -239,9 +241,9 @@ const FEATURES = [
   {
     id: 'safety',
     title: 'Safety, privacy and fixing problems',
-    what: 'Consequential actions ask you first (click or say "yes"); I never widen my own access. Everything stays on this computer except what goes to the AI brain and the services you use. When something breaks I diagnose it from my log and fix the cause.',
+    what: 'Consequential actions ask you first (click or say "yes"); I never widen my own access. Everything stays on this computer except what goes to the AI brain and the services you use; conversations and keys are encrypted at rest. When something breaks I diagnose it from my log and fix the cause. If you opt in, I also offer an anonymized problem report for the Siren project: you see exactly what it says and send it yourself on GitHub, or not.',
     say: ['"Something is wrong with the voice"', '"Run a diagnosis"', '"Write a bug report"'],
-    where: 'Settings → Safety and Health.',
+    where: 'Settings → Safety and Health; problem reports in Settings → Memory & history.',
     status: (s) => `permission mode: ${s.safety.permissionMode}`,
   },
 ];

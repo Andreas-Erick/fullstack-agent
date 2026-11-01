@@ -64,7 +64,7 @@ async function checkVoiceStudio(url, key, voice) {
 // Step-by-step help for each diagnosis. Kept generic on purpose: how each tool is installed and
 // launched depends on the user's setup, so the steps say what to check, not invented commands.
 function help(r) {
-  const settingsPlace = r.service === 'freellmapi' ? 'Config → AI brain → FreeLLMAPI' : 'Config → Voice output';
+  const settingsPlace = r.service === 'freellmapi' ? 'Settings → AI brain → FreeLLMAPI' : 'Settings → Voice output';
   const what = r.service === 'freellmapi'
     ? 'FreeLLMAPI is a small server on your computer that gives me access to free language models through an OpenAI-compatible address (it ends in /v1).'
     : 'VoiceStudio is a program on your computer that turns my replies into speech through an OpenAI-compatible address (/v1/audio/speech).';
