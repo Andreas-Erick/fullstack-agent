@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.7.14 — 2026-11-01
 
 - Siren uses far less memory on everyday computers. A 16 GB laptop with a small graphics card used 7–10 GB right after launch: the large speech model and the offline voice at full precision on the graphics card were loaded at start. It now uses about 1.6–2 GB there, with the same look. The heavy speech models are used only on a computer with 32 GB of memory and an 8 GB graphics card (or when you set Performance to Full yourself); others get Whisper small or base and the 8-bit offline voice.
 - The speech model is chosen for your computer: "Automatic" is the new default in Settings → Voice input, and its hint says which model it picked. A smaller model you chose stays chosen; the large one is used only where it fits (or with Performance set to Full).
