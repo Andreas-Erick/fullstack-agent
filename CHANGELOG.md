@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Siren uses far less memory on everyday computers. A 16 GB laptop with a small graphics card used 7–10 GB right after launch: the large speech model and the offline voice at full precision on the graphics card were loaded at start. It now uses about 1.6–2 GB there, with the same look. The heavy speech models are used only on a computer with 32 GB of memory and an 8 GB graphics card (or when you set Performance to Full yourself); others get Whisper small or base and the 8-bit offline voice.
+- The speech model is chosen for your computer: "Automatic" is the new default in Settings → Voice input, and its hint says which model it picked. A smaller model you chose stays chosen; the large one is used only where it fits (or with Performance set to Full).
+- Local speech recognition loads at launch only if you used voice input in the last week; otherwise it loads when you first press the talk key, while you speak. Hands-free mode loads it as it starts.
+- On the first start, the offline voice waits for the computer check before loading, so a lighter computer no longer loads the large graphics-card version during setup. In Balanced, an offline voice that was loaded but never spoke now also leaves memory after 10 minutes.
+- The log's environment line names the voice engine actually in use (it always said VoiceStudio) and the performance profile.
+- For developers: `NEXUS_SMOKE_MEM=1 npm run smoke` prints the app's memory by process after boot, after each view and after returning to the chat (`NEXUS_SMOKE_PERF`, `NEXUS_SMOKE_SETTINGS` to pick the profile and settings).
+
 ## 2.7.13 — 2026-10-31
 
 - The phone stays in step with the computer. A habit checked off, a note or memory the assistant wrote, a deck studied, a schedule change, a conversation renamed or deleted: the phone's open screen now updates in place, keeping your scroll position and open sections. It never updates while you're studying a card, reading a note or typing a search. Devices are told only which screen to fetch again, never what changed.

@@ -14,6 +14,15 @@ function git(args) {
   return new Promise((resolve) => execFile('git', args, { cwd: ROOT, timeout: 4000, windowsHide: true }, (err, out) => resolve(err ? '' : String(out).trim())));
 }
 
+/** The voice output in words, by the engine actually used (it used to say VoiceStudio whatever it was). */
+function voiceLine(v = {}) {
+  if (!v.ttsEnabled) return 'off';
+  const engine = v.engine || 'voicestudio';
+  if (engine === 'voicestudio') return `VoiceStudio ${v.baseUrl || ''}`.trim();
+  if (engine === 'local') return `offline (Kokoro${v.localVoice ? ` ${v.localVoice}` : ''})`;
+  return engine;
+}
+
 async function environment() {
   const s = await store.getSettings();
   const [commit, changed, gpu] = await Promise.all([git(['rev-parse', '--short', 'HEAD']), git(['status', '--porcelain']), app.getGPUInfo('basic').catch(() => null)]);
@@ -33,9 +42,10 @@ async function environment() {
       model: s.llm.provider === 'claude-code' ? s.claudeCode.model : s.llm.provider === 'anthropic' ? s.anthropic.model : s.llm.model,
       fastForVoice: s.llm.voiceUsesFast,
       permissionMode: s.safety.permissionMode,
-      stt: `${s.stt.enabled ? s.stt.engine : 'off'} ${s.stt.engine === 'local' ? s.stt.localModel : ''}`.trim(),
+      stt: `${s.stt.enabled ? s.stt.engine : 'off'} ${s.stt.engine === 'local' ? s.stt.localModel || 'auto' : ''}`.trim(),
       mic: `${s.stt.micMode}${s.stt.headphones ? ' +headphones' : ''} vad=${s.stt.vadEngine}`,
-      voice: s.voice.ttsEnabled ? `VoiceStudio ${s.voice.baseUrl}` : 'off',
+      voice: voiceLine(s.voice),
+      perf: `${require('./perfcore').profile(s)} (mode ${s.perf?.mode || 'auto'}, detected ${s.perf?.detected || '?'})`,
       calendar: s.calendar.enabled,
       github: s.github?.enabled !== false,
       workspaceSet: Boolean(s.documents.workspace),
@@ -81,4 +91,4 @@ async function bugReport(note = '') {
   return { file, problemsLast24h: problems.length, healthChecks: Array.isArray(diag) ? diag.map((c) => `${c.id}:${c.status}`).join(' ') : undefined };
 }
 
-module.exports = { environment, bugReport };
+module.exports = { environment, bugReport, voiceLine };

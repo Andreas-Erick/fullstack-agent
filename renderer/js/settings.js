@@ -14,7 +14,7 @@ import { qrCanvas } from './qr.js';
 import { switchPersona, createPersona, removePersona } from './personas.js';
 import { LANGUAGE_NAMES } from './practice.js';
 import { detect } from './perf.js';
-import { profile } from './perfcore.js';
+import { profile, speechPlan } from './perfcore.js';
 import { checkNow as checkUpdatesNow } from './updates.js';
 
 const CLAUDE_MODELS = [
@@ -24,7 +24,8 @@ const CLAUDE_MODELS = [
   ['claude-fable-5-1', 'Claude Fable 5.1'],
 ];
 const WHISPER_MODELS = [
-  ['onnx-community/whisper-large-v3-turbo', 'Whisper large-v3 turbo (~1.6 GB, recommended with a GPU: fastest and most accurate there)'],
+  ['', 'Automatic: chosen for this computer (recommended)'],
+  ['onnx-community/whisper-large-v3-turbo', 'Whisper large-v3 turbo (~1.6 GB; needs a strong computer: 32 GB of memory and an 8 GB graphics card, or Performance set to Full)'],
   ['Xenova/whisper-tiny.en', 'Whisper tiny (English, ~40 MB)'],
   ['Xenova/whisper-base.en', 'Whisper base (English, ~80 MB, best without a GPU)'],
   ['Xenova/whisper-small.en', 'Whisper small (English, ~250 MB)'],
@@ -1086,7 +1087,7 @@ function sttCard() {
   const cloudNote = el('div', { class: 'hint' }, 'With the cloud, what you say is sent to Groq to be written down (not your conversations or files). Local Whisper keeps your voice on this computer.');
   if (engine === 'local') {
     children.push(
-      select('stt.localModel', 'Whisper model', WHISPER_MODELS, { hint: 'Downloaded once from Hugging Face, then cached. Runs on GPU (WebGPU) when available.' }),
+      select('stt.localModel', 'Whisper model', WHISPER_MODELS, { hint: `Downloaded once from Hugging Face, then cached. Runs on GPU (WebGPU) when available. On this computer it uses <b>${speechPlan(state.settings).model.split('/').pop()}</b>. It loads at launch only if you used voice input this week, otherwise when you first press the talk key.`, onChange: () => render() }),
       el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => (progress.textContent = 'Loading…', preloadLocalModel()) }, '⬇ Download / load model now')),
       progress,
       toggle('stt.cloudFallback', 'Use Groq in the cloud while local Whisper is loading or if it fails', () => render()),

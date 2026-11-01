@@ -94,11 +94,14 @@ function recommend(hw, { webgpu = null } = {}) {
   // Unified memory is one pool: models on the GPU take it from macOS and the apps, so the large speech
   // model needs a Mac with 16 GB or more.
   const gpuOk = webgpu !== false && vram >= 4 && (!unified || ram >= 16);
+  // The large speech model takes about 4.5–7 GB while loaded (window + graphics): recommended only with
+  // room besides everything else, the same bar as renderer/js/perfcore.js HEAVY.
+  const roomy = gpuOk && ram >= 32 && (unified || vram >= 8);
   const out = { vramGB: vram || null, unified, tier: '', stt: {}, brain: {}, notes: [] };
   const gpuWord = unified ? `Your Apple chip (${ram} GB of unified memory, about ${Math.round(vram)} GB of it usable by the graphics)` : `Your graphics card (${Math.round(vram)} GB)`;
 
-  if (gpuOk) out.stt = { engine: 'local', localModel: 'onnx-community/whisper-large-v3-turbo', why: `${gpuWord} runs the large Whisper model fast and accurately.` };
-  else if (ram >= 16) out.stt = { engine: 'local', localModel: 'Xenova/whisper-small.en', why: 'No suitable graphics card for the large model; Whisper small runs well on your processor.' };
+  if (roomy) out.stt = { engine: 'local', localModel: 'onnx-community/whisper-large-v3-turbo', why: `${gpuWord} runs the large Whisper model fast and accurately.` };
+  else if (ram >= 16) out.stt = { engine: 'local', localModel: 'Xenova/whisper-small.en', why: gpuOk ? `The large Whisper model would take several GB of your ${ram} GB while loaded; Whisper small is accurate and leaves room for your other apps.` : 'No suitable graphics card for the large model; Whisper small runs well on your processor.' };
   else out.stt = { engine: 'local', localModel: 'Xenova/whisper-base.en', why: 'A light speech model keeps voice input quick on this computer.' };
 
   if (vram >= 20) {

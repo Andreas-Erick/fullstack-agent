@@ -77,7 +77,7 @@ async function run() {
       if (!s.stt.enabled) return { status: 'off', detail: 'Disabled.' };
       if (s.stt.engine === 'remote' && !(s.stt.remoteUrl || s.llm.baseUrl)) return { status: 'fail', detail: 'No transcription URL configured.', fix: 'Settings → Voice input.' };
       if ((s.stt.engine === 'groq' || s.stt.cloudFallback) && !s.groq?.apiKey) return { status: s.stt.engine === 'groq' ? 'fail' : 'warn', detail: 'Cloud speech-to-text (Groq) has no API key.', fix: 'Settings → Voice input → Get a free key.' };
-      return { detail: `${s.stt.engine === 'local' ? `Local Whisper (${s.stt.localModel})${s.stt.cloudFallback ? ', Groq as fallback' : ''}` : s.stt.engine === 'groq' ? `Groq Whisper (${s.stt.groqModel || 'whisper-large-v3-turbo'})` : `Remote ${s.stt.remoteUrl || s.llm.baseUrl}`} · ${s.stt.micMode === 'open' ? 'hands-free' : `push-to-talk (${s.stt.pttKey})`}${s.stt.micDevice ? ` · mic "${s.stt.micDevice}"` : ''}` };
+      return { detail: `${s.stt.engine === 'local' ? `Local Whisper (${s.stt.localModel || 'chosen for this computer'})${s.stt.cloudFallback ? ', Groq as fallback' : ''}` : s.stt.engine === 'groq' ? `Groq Whisper (${s.stt.groqModel || 'whisper-large-v3-turbo'})` : `Remote ${s.stt.remoteUrl || s.llm.baseUrl}`} · ${s.stt.micMode === 'open' ? 'hands-free' : `push-to-talk (${s.stt.pttKey})`}${s.stt.micDevice ? ` · mic "${s.stt.micDevice}"` : ''}` };
     }),
     check('vault', 'Vault', async () => {
       if (!s.obsidian.enabled) return { status: 'off', detail: 'Disabled.' };

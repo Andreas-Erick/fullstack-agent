@@ -45,9 +45,11 @@ test('a lighter computer: little memory, or no graphics card with its own memory
 
 test('the speech model fits the computer and the language', () => {
   const large = 'onnx-community/whisper-large-v3-turbo';
-  // Full, not checked yet: as before (the worker still refuses the 2.4 GB fp32 variant).
-  assert.deepStrictEqual(r.speechPlan(settings()), { model: large, fallback: 'Xenova/whisper-base.en', gpu: true });
-  // Full on a strong computer.
+  // Auto, not checked yet: nothing heavy until the computer is known.
+  assert.deepStrictEqual(r.speechPlan(settings()), { model: 'Xenova/whisper-base.en', fallback: 'Xenova/whisper-base.en', gpu: true });
+  // Full chosen by the user, not checked yet: as before.
+  assert.strictEqual(r.speechPlan(settings({ mode: 'full' })).model, large);
+  // A strong computer.
   assert.strictEqual(r.speechPlan(settings({ detected: 'high', hw: { ramGB: 32, vramGB: 8 } })).model, large);
   // A graphics card too small for it, even on Full.
   assert.strictEqual(r.speechPlan(settings({ mode: 'full', detected: 'low', hw: { ramGB: 32, vramGB: 2 } })).model, 'Xenova/whisper-small.en');
@@ -59,7 +61,62 @@ test('the speech model fits the computer and the language', () => {
   assert.strictEqual(r.speechPlan(settings({ detected: 'low', hw: { ramGB: 8 } }), 'es').model, 'Xenova/whisper-base');
   assert.strictEqual(r.speechPlan(settings({ detected: 'low', hw: { ramGB: 8 } }), 'es').fallback, 'Xenova/whisper-base');
   assert.strictEqual(r.speechPlan({ ...settings(), stt: { localModel: 'Xenova/whisper-small.en' } }, 'de').model, 'Xenova/whisper-small');
-  assert.strictEqual(r.speechPlan(settings(), 'fr').model, large, 'the large model is multilingual already');
+  assert.strictEqual(r.speechPlan(settings({ mode: 'full' }), 'fr').model, large, 'the large model is multilingual already');
+});
+
+test('heavy models only where they leave room: 32 GB and an 8 GB card on auto, as before on Full', () => {
+  const large = 'onnx-community/whisper-large-v3-turbo';
+  const hw = (ramGB, vramGB, unified = false) => ({ ramGB, vramGB, unified });
+  // The case that hurt: a 16 GB laptop with a 4 GB card counts as "high" but would give 7–10 GB to speech.
+  const laptop = settings({ detected: 'high', hw: hw(16, 4) });
+  assert.strictEqual(r.profile(laptop), 'full', 'the full look stays');
+  assert.strictEqual(r.heavyModels(laptop), false);
+  assert.strictEqual(r.speechPlan(laptop).model, 'Xenova/whisper-small.en');
+  assert.strictEqual(r.voiceOnGpu(laptop), false, 'the 8-bit voice on the processor');
+  assert.strictEqual(r.heavyModels(settings({ detected: 'high', hw: hw(32, 6) })), false, '6 GB card');
+  assert.strictEqual(r.heavyModels(settings({ detected: 'high', hw: hw(24, 12) })), false, '24 GB of memory');
+  assert.strictEqual(r.heavyModels(settings({ detected: 'high', hw: hw(64, 24) })), true);
+  assert.strictEqual(r.heavyModels(settings({ detected: 'high', hw: hw(36, null, true) })), true, 'a 36 GB Mac');
+  assert.strictEqual(r.heavyModels(settings({ detected: 'high', hw: hw(16, null, true) })), false, 'a 16 GB Mac');
+  // Full chosen by the user decides: the old bar (a 4 GB card, a 16 GB Mac).
+  assert.strictEqual(r.heavyModels(settings({ mode: 'full', detected: 'high', hw: hw(16, 4) })), true);
+  assert.strictEqual(r.heavyModels(settings({ mode: 'full', detected: 'low', hw: hw(32, 2) })), false);
+  assert.strictEqual(r.heavyModels(settings({ mode: 'full', hw: hw(16, null, true) })), true);
+  // Balanced: never.
+  assert.strictEqual(r.heavyModels(settings({ mode: 'balanced', detected: 'high', hw: hw(64, 24) })), false);
+  // Automatic ('' or 'auto') vs a model the user picked.
+  const strong = { detected: 'high', hw: hw(64, 24) };
+  for (const localModel of ['', 'auto', undefined]) {
+    assert.strictEqual(r.speechPlan({ ...settings(strong), stt: { localModel } }).model, large, `auto=${localModel}`);
+    assert.strictEqual(r.speechPlan({ ...settings({ detected: 'high', hw: hw(16, 4) }), stt: { localModel } }).model, 'Xenova/whisper-small.en');
+    assert.strictEqual(r.speechPlan({ ...settings({ detected: 'low', hw: hw(8, null) }), stt: { localModel } }, 'de').model, 'Xenova/whisper-base');
+  }
+  assert.strictEqual(r.speechPlan({ ...settings(strong), stt: { localModel: 'Xenova/whisper-tiny.en' } }).model, 'Xenova/whisper-tiny.en', 'a small pick is kept');
+});
+
+test('the speech model loads at launch only for someone who used voice input this week', () => {
+  const now = Date.UTC(2026, 10, 1);
+  const day = 86400000;
+  const s = (stt, perf = { detected: 'high' }) => settings(perf, { stt: { enabled: true, engine: 'local', ...stt } });
+  assert.strictEqual(r.preloadSpeech(s({}), now - day, now), true);
+  assert.strictEqual(r.preloadSpeech(s({}), now - 8 * day, now), false, 'not lately');
+  assert.strictEqual(r.preloadSpeech(s({}), 0, now), false, 'never');
+  assert.strictEqual(r.preloadSpeech(s({}), NaN, now), false, 'unreadable storage');
+  assert.strictEqual(r.preloadSpeech(s({ engine: 'groq' }), now - day, now), false, 'cloud speech');
+  assert.strictEqual(r.preloadSpeech(s({ enabled: false }), now - day, now), false, 'voice input off');
+  assert.strictEqual(r.preloadSpeech(s({}, { detected: 'low' }), now - day, now), false, 'Balanced never preloads');
+});
+
+test('a fresh install chooses its speech model; the hardware scan suggests large only with room', () => {
+  const store = fs.readFileSync(path.join(ROOT, 'main/store.js'), 'utf8');
+  assert.match(store, /localModel: '',/, 'stt.localModel defaults to automatic');
+  const { stub, load, quietLog } = require('./helpers');
+  stub({ electron: { app: { getGPUInfo: async () => null } }, './logger': quietLog });
+  const hw = load('main/hardware.js');
+  const pc = (ramGB, vramGB) => ({ ramGB, cpuThreads: 16, gpus: [{ name: 'GPU', vendor: 'NVIDIA', vramGB }] });
+  assert.strictEqual(hw.recommend(pc(16, 4), { webgpu: true }).stt.localModel, 'Xenova/whisper-small.en');
+  assert.match(hw.recommend(pc(16, 4), { webgpu: true }).stt.why, /leaves room/);
+  assert.strictEqual(hw.recommend(pc(32, 8), { webgpu: true }).stt.localModel, 'onnx-community/whisper-large-v3-turbo');
 });
 
 test('Balanced keeps the HUD look without motion; the other levels stay', () => {
