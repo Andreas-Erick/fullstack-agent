@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.7.15 — 2026-11-01
 
 - Formulas in exported PDFs look properly typeset: real fractions, radicals, matrices and spacing in KaTeX's own fonts, instead of the browser's plain math drawing. The formulas stay selectable and searchable.
 - Setup wizard: the face step shows Siren's own face, selected, instead of nothing. Picking another face used to lose it with no way back in that step; the older built-in face is now "Siren (built-in)".
