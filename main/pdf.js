@@ -40,14 +40,33 @@ const PRINT_CSS = `
   table { border-collapse: collapse; margin: 8px 0; } th, td { border: 1px solid #d0d5dd; padding: 4px 8px; } th { background: #f5f7fa; }
   blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid #d0d5dd; color: #475467; }
   img { max-width: 100%; }
+  .katex { font-size: 1.08em; } .katex-display { margin: 0.9em 0; page-break-inside: avoid; overflow: hidden; } .katex-display > .katex { max-width: 100%; }
   figure.diagram { margin: 14px 0; text-align: center; page-break-inside: avoid; } figure.diagram img { display: block; margin: 0 auto 6px; max-height: 120mm; } figcaption { font-size: 9pt; color: #475467; }
   .turn { margin: 0 0 14px; page-break-inside: avoid; } .turn .who { font-weight: 600; font-size: 9pt; color: #667085; text-transform: uppercase; letter-spacing: .05em; }
   .turn.user .body { background: #eef4ff; border-radius: 8px; padding: 6px 10px; white-space: pre-wrap; }
 `;
 
-// Markdown → HTML with formulas as MathML, which Chromium draws without scripts or fonts (the PDF
-// window allows neither). The math parsing is the renderer's (renderer/js/mathtext.js): an ES module
-// without imports in a CommonJS package, so it is loaded from its source as a data: module.
+// KaTeX's stylesheet with its fonts inlined as data: URIs: the print window is offline (only data:
+// requests pass), so the usual url(fonts/…) references would not load. Only woff2 is kept.
+let mathCss = null;
+async function katexCss() {
+  mathCss ||= (async () => {
+    const dist = path.join(path.dirname(require.resolve('katex/package.json')), 'dist');
+    const css = await fsp.readFile(path.join(dist, 'katex.min.css'), 'utf8');
+    const fonts = new Map();
+    for (const m of css.matchAll(/url\(fonts\/([\w-]+\.woff2)\)/g)) {
+      if (!fonts.has(m[1])) fonts.set(m[1], (await fsp.readFile(path.join(dist, 'fonts', m[1]))).toString('base64'));
+    }
+    return css
+      .replace(/,url\(fonts\/[\w-]+\.woff\) format\("woff"\),url\(fonts\/[\w-]+\.ttf\) format\("truetype"\)/g, '')
+      .replace(/url\(fonts\/([\w-]+\.woff2)\)/g, (m, f) => `url(data:font/woff2;base64,${fonts.get(f)})`);
+  })().catch((e) => { mathCss = null; log.warn('katex css failed', { error: String(e?.message || e) }); return ''; });
+  return mathCss;
+}
+
+// Markdown → HTML with formulas typeset by KaTeX (HTML + MathML, styled by katexCss). The math parsing
+// is the renderer's (renderer/js/mathtext.js): an ES module without imports in a CommonJS package,
+// so it is loaded from its source as a data: module.
 let mathtext = null;
 async function loadMathtext() {
   const src = await fsp.readFile(path.join(__dirname, '..', 'renderer', 'js', 'mathtext.js'), 'utf8');
@@ -63,7 +82,7 @@ async function markdownHtml(markdown) {
   const html = marked.parse(text, { gfm: true, breaks: true });
   return restoreMath(html, items, (tex, displayMode) => {
     try {
-      return katex.renderToString(tex, { displayMode, output: 'mathml', throwOnError: false, strict: 'ignore', trust: false });
+      return katex.renderToString(tex, { displayMode, output: 'htmlAndMathml', throwOnError: false, strict: 'ignore', trust: false });
     } catch {
       return `<code>${esc(tex)}</code>`;
     }
@@ -76,7 +95,7 @@ async function toHtml({ title, markdown, html, embeds = [] }) {
   // Remote images are never fetched (the page is offline); a note stands in for them.
   const body = withFigures(html ?? (await markdownHtml(markdown))).replace(/<img\b[^>]*\bsrc="(?!data:)[^"]*"[^>]*>/gi, (tag) => `<em>[image${(tag.match(/\balt="([^"]*)"/i) || [])[1] ? `: ${tag.match(/\balt="([^"]*)"/i)[1]}` : ''}]</em>`);
   const when = new Date().toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' });
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}</style></head><body><header><h1>${esc(title)}</h1><div class="meta">${esc(when)}</div></header>${body}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${await katexCss()}</style><style>${PRINT_CSS}</style></head><body><header><h1>${esc(title)}</h1><div class="meta">${esc(when)}</div></header>${body}</body></html>`;
 }
 
 let printSession = null;
@@ -94,6 +113,7 @@ async function create({ title, markdown, html, embeds, dir, file }) {
   const win = new BrowserWindow({ show: false, width: 900, height: 1200, webPreferences: { javascript: false, sandbox: true, session: isolatedSession(), images: true } });
   try {
     await win.loadURL(`data:text/html;charset=utf-8;base64,${Buffer.from(page, 'utf8').toString('base64')}`);
+    await new Promise((r) => setTimeout(r, 250)); // the inlined fonts finish decoding before printing
     const letter = /^en-(US|CA)$|^es-(MX|US)$/i.test(app.getLocale());
     const pdf = await win.webContents.printToPDF({
       pageSize: letter ? 'Letter' : 'A4',
@@ -122,4 +142,4 @@ async function conversationHtml(conv) {
     .join('\n');
 }
 
-module.exports = { create, exportsDir, conversationHtml };
+module.exports = { create, exportsDir, conversationHtml, markdownHtml, katexCss };
