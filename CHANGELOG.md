@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Formulas in exported PDFs look properly typeset: real fractions, radicals, matrices and spacing in KaTeX's own fonts, instead of the browser's plain math drawing. The formulas stay selectable and searchable.
+
 ## 2.7.14 — 2026-11-01
 
 - Siren uses far less memory on everyday computers. A 16 GB laptop with a small graphics card used 7–10 GB right after launch: the large speech model and the offline voice at full precision on the graphics card were loaded at start. It now uses about 1.6–2 GB there, with the same look. The heavy speech models are used only on a computer with 32 GB of memory and an 8 GB graphics card (or when you set Performance to Full yourself); others get Whisper small or base and the 8-bit offline voice.
