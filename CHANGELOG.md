@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.7.19 — 2026-11-16
+
+- **Faster first replies with the Claude brain**: the first message after you start the app, open a chat or switch personas used to wait 5–7 seconds while Claude read the whole conversation from scratch. One tiny hidden message now gets it ready ahead of time, on the model your next message will use (the fast one after you've been talking), so a spoken "How are you?" starts in about 2 seconds. Each one counts toward your plan like a very short message; turn it off with **Settings → AI brain → Get the first reply ready ahead of time**.
+- **Lighter sessions after a pause**: when a chat's session would have to be read from scratch anyway (after a persona switch, a restart or a long break) and has grown well past a fresh one, it starts fresh with your recent messages instead, about half the size.
+- **＋ New chat** at the top of the chat, in every layout (the History panel with its ＋ is hidden in the Face layout). By voice, "start a new chat", "let's start a new conversation", "can we start a fresh chat?" and "new session" work too, not only "new chat".
+
 ## 2.7.18 — 2026-11-16
 
 - **Leaner messages with the Claude brain**: your Claude Code plugins (their skill lists, about 4,000 tokens on every message) no longer load just because connectors are on; your claude.ai connectors still do. Turn them back on with **Settings → AI brain → Also load my Claude Code plugins**. The prompt lists your skills by name and phrases only, drops chart recipes the chart tool already explains, and VoiceStudio's voice tools appear only when VoiceStudio is your voice.
