@@ -230,3 +230,23 @@ test('the user’s version is kept; a changed persona drops a late summary; no l
   await assert.rejects(persona.ensureSummary({ force: true }), /needs a local model/);
   await store.setSettings(localBrain);
 });
+
+// A generated look's whole UI design brief (~4k tokens) went into every chat call.
+test('aestheticGist keeps a short aesthetic whole and a long design brief to its vision', () => {
+  const pc = load('main/personacore.js');
+  assert.strictEqual(pc.aestheticGist('  90s cyberpunk terminal  '), '90s cyberpunk terminal');
+  assert.strictEqual(pc.aestheticGist(''), '');
+  const vision = '# Theme\n\nAn ancient mechanical carnival inside a computer.\n\nElegant, never childish.';
+  const brief = `${vision}\n\n---\n\n## 1. Visual Identity\n\n${'Brass gears and velvet curtains everywhere. '.repeat(200)}`;
+  const gist = pc.aestheticGist(brief);
+  assert.ok(gist.startsWith(vision), gist.slice(0, 200));
+  assert.ok(!gist.includes('Visual Identity'));
+  assert.ok(gist.length < pc.AESTHETIC_MAX + 200);
+  // No rule or numbered section: whole paragraphs up to the limit, never a cut word.
+  const plain = pc.aestheticGist(Array.from({ length: 80 }, (_, i) => `Paragraph ${i} about the look.`).join('\n\n'));
+  assert.ok(plain.length < pc.AESTHETIC_MAX + 200);
+  assert.match(plain, /^Paragraph 0 about the look\.\n\nParagraph 1/);
+  // One huge paragraph: cut at a word.
+  const one = pc.aestheticGist('word '.repeat(1000));
+  assert.match(one, /^(word )*word\n\n\(The rest/);
+});

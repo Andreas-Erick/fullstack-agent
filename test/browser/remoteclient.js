@@ -18,7 +18,7 @@ const SIZES = [
   { name: 'phone', width: 390, height: 844 },
   { name: 'tablet', width: 1180, height: 820 },
 ];
-const TABS = ['chat', 'today', 'habits', 'learn', 'more'];
+const TABS = ['chat', 'today', 'notes', 'learn', 'more'];
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const problems = [];
 const screens = {};
@@ -109,15 +109,6 @@ async function run() {
   // A scene behind the face (appearance.scene): three layers, a sky, a hill, a floor.
   const scene = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900"><g id="far"><rect width="1600" height="900" fill="#1a1030"/><circle cx="1250" cy="150" r="50" fill="#ffe9a8"/></g><g id="mid"><path d="M0 700 Q800 300 1600 700 Z" fill="#2b4a5a"/></g><g id="near"><rect y="720" width="1600" height="180" fill="#120a18"/></g></svg>';
   await store.setSettings({ onboarded: true, remote: { shareData: true }, innerWorld: { enabled: true }, appearance: { scene: { svg: scene, caption: 'Browser test scene' } } });
-  // A flashcard deck to study on the phone (main/flashcards.js, in the throwaway vault).
-  const fc = require('../../main/flashcards');
-  const deck = (await fc.createDeck('Browser deck')).id;
-  await fc.addCards(deck, [{ front: 'What is $2+2$?', back: '**4**' }, { front: 'Capital of Italy', back: 'Rome' }, { front: 'The {{c1::heart}} pumps blood.' }]);
-  // Habits, one done today: the Habits screen's day ring and rows, and Today's habit card.
-  const habits = require('../../main/habits');
-  await habits.add({ name: 'Meditate', target: 7, note: '10 minutes after coffee' });
-  await habits.add({ name: 'Run', target: 3 });
-  await habits.log(['Meditate']);
   // A turn as main.js starts one, minus the brain: the user's message stored, "start" published. The
   // staying-in-step check below ends it by hand.
   let pendingTurn = null;
@@ -222,48 +213,6 @@ async function run() {
       if (!rooms.length) problems.push(`${roomLabel}: no tap found a built building to step into`);
       screens[roomLabel] = rooms;
     }
-    // Studying: open the deck, show the answer, grade it; the computer must have the answer.
-    await wc.executeJavaScript(`document.querySelector('#tabs [data-tab="more"]').click()`, true);
-    await until(wc, `[...document.querySelectorAll('.more-tile b')].some((b) => b.textContent === 'Flashcards')`);
-    await wc.executeJavaScript(`[...document.querySelectorAll('.more-tile')].find((t) => t.textContent.includes('Flashcards')).click()`, true);
-    const label = `${size.name}/flashcards study`;
-    if (!(await until(wc, `!!document.querySelector('#panel .fc-deck')`))) problems.push(`${label}: no deck on the screen`);
-    else {
-      const before = (await fc.next(deck)).studiedToday;
-      await wc.executeJavaScript(`document.querySelector('#panel .fc-deck').click()`, true);
-      if (!(await until(wc, `!!document.querySelector('#panel .fc-show')`))) problems.push(`${label}: no "Show answer"`);
-      await wc.executeJavaScript(`document.querySelector('#panel .fc-show').click()`, true);
-      if (!(await until(wc, `document.querySelectorAll('#panel .fc-grade').length === 4`))) problems.push(`${label}: no grade buttons after showing the answer`);
-      await clipped(wc, label);
-      await shot(wc, label);
-      const previews = await wc.executeJavaScript(`[...document.querySelectorAll('#panel .fc-grade small')].map((s) => s.textContent)`);
-      if (previews.join(' ') !== '1m 6m 10m 4d') problems.push(`${label}: unexpected button intervals ${previews.join(' ')}`);
-      await wc.executeJavaScript(`document.querySelector('#panel .fc-grade.good').click()`, true);
-      await until(wc, `!!document.querySelector('#panel .fc-show') || !document.querySelector('#panel .fc-grade')`);
-      if ((await fc.next(deck)).studiedToday !== before + 1) problems.push(`${label}: the answer did not reach the computer`);
-      screens[label] = await wc.executeJavaScript(`document.querySelector('#panel').innerText.replace(/\\s+/g, ' ').slice(0, 160)`);
-    }
-    // Mixed learning: Shuffle all from the Flashcards screen; a card from a deck, answered "again".
-    const mixLabel = `${size.name}/flashcards mixed`;
-    await wc.executeJavaScript(`document.querySelector('#panel .fc-head .btn')?.click()`, true);
-    if (!(await until(wc, `!!document.querySelector('#panel .fc-today-actions')`))) problems.push(`${mixLabel}: no mixed learning buttons`);
-    else {
-      await wc.executeJavaScript(`document.querySelectorAll('#panel .fc-today-actions .btn')[1].click()`, true);
-      if (!(await until(wc, `!!document.querySelector('#panel .fc-show')`))) problems.push(`${mixLabel}: no card`);
-      else {
-        const from = await wc.executeJavaScript(`document.querySelector('#panel .fc-from')?.textContent || ''`);
-        if (from !== 'Browser deck') problems.push(`${mixLabel}: the card doesn't say its deck (${from})`);
-        await wc.executeJavaScript(`document.querySelector('#panel .fc-show').click()`, true);
-        await until(wc, `document.querySelectorAll('#panel .fc-grade').length === 4`);
-        await clipped(wc, mixLabel);
-        await shot(wc, mixLabel);
-        const left = () => wc.executeJavaScript(`document.querySelector('#panel .fc-pill b')?.textContent`);
-        const before = await left();
-        await wc.executeJavaScript(`document.querySelector('#panel .fc-grade.again').click()`, true);
-        await until(wc, `!!document.querySelector('#panel .fc-show')`);
-        if ((await left()) !== before) problems.push(`${mixLabel}: "again" in practice should keep the card in the round (${before} → ${await left()})`);
-      }
-    }
     // An approval card with a long title and detail: readable, with a heading, nothing cut off.
     const apLabel = `${size.name}/approval`;
     const id = `browser-${size.name}`;
@@ -305,9 +254,8 @@ async function run() {
 
   // Staying in step (main/synccore.js, renderer/remote/sync.js). 1: the reply to the phone's message
   // finishes while the link is down; after reconnecting the phone shows it once and can send again (it
-  // stayed "busy" for good). 2: a habit checked off on the computer shows on the open Habits screen.
+  // stayed "busy" for good). 2: a note written on the computer shows on the open Notes screen.
   for (const size of SIZES) {
-    await habits.log(['Run'], { done: false }); // each size starts at 1 of 2 done
     const sw = new BrowserWindow({ show: false, width: size.width, height: size.height, useContentSize: true, webPreferences: { backgroundThrottling: false } });
     const sc = sw.webContents;
     sc.on('console-message', (e) => {
@@ -344,12 +292,13 @@ async function run() {
     // 2: the vault tells devices what changed (main.js wires this listener; this harness has no main.js).
     require('../../main/obsidian').setChangeListener((rel) => companion.publish('vault:changed', rel));
     await until(sc, `document.querySelector('#conn')?.classList.contains('ok')`);
-    await sc.executeJavaScript(`document.querySelector('#tabs [data-tab="habits"]').click()`, true);
-    if (!(await until(sc, `document.querySelector('#panel .day-ring b')?.textContent === '1/2'`))) problems.push(`${size.name} sync: the Habits screen did not show 1/2 done`);
+    await sc.executeJavaScript(`document.querySelector('#tabs [data-tab="notes"]').click()`, true);
+    if (!(await until(sc, `!!document.querySelector('#panel .note-list')`))) problems.push(`${size.name} sync: the Notes screen did not open`);
     else {
-      await habits.log(['Run']); // on the computer
-      if (!(await until(sc, `document.querySelector('#panel .day-ring b')?.textContent === '2/2'`, 8000))) problems.push(`${size.name} sync: a habit checked off on the computer did not show on the open Habits screen`);
-      screens[`${size.name}/sync habits`] = await sc.executeJavaScript(`document.querySelector('#panel .day-ring b')?.textContent`);
+      const title = `Browser sync ${size.name}`;
+      await require('../../main/obsidian').writeNote(`Notes/${title}.md`, `# ${title}\n\nWritten on the computer.\n`); // on the computer
+      if (!(await until(sc, `document.querySelector('#panel .note-list').innerText.includes(${JSON.stringify(title)})`, 8000))) problems.push(`${size.name} sync: a note written on the computer did not show on the open Notes screen`);
+      screens[`${size.name}/sync notes`] = await sc.executeJavaScript(`document.querySelector('#panel .note-list')?.innerText.slice(0, 160)`);
     }
     sw.destroy();
   }
@@ -376,7 +325,7 @@ async function run() {
     await wc.executeJavaScript(`[...document.querySelectorAll('#offline button')].find((b) => /Try again now/.test(b.textContent)).click()`, true);
     await wc.executeJavaScript(`[...document.querySelectorAll('#offline button')].find((b) => /Continue offline/.test(b.textContent)).click()`, true);
     if (await wc.executeJavaScript(`!!document.querySelector('#offline')`)) problems.push('offline: "Continue offline" did not close the screen');
-    await wc.executeJavaScript(`document.querySelector('#tabs [data-tab="habits"]').click()`, true);
+    await wc.executeJavaScript(`document.querySelector('#tabs [data-tab="learn"]').click()`, true);
     if (!(await until(wc, `!!document.querySelector('#panel .panel-offline')`))) problems.push('offline: a screen opened while offline shows no "out of reach" card');
     else await shot(wc, 'phone/offline screen');
     screens['phone/offline'] = await wc.executeJavaScript(`document.querySelector('#panel').innerText.replace(/\\s+/g, ' ').slice(0, 160)`);

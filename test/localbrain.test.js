@@ -85,17 +85,17 @@ test('the compact prompt is short, starts with the role and ends with the key ru
 // Tools on request: a local model starts with the everyday tools and adds a group with tools_more.
 test('tools on request: everyday tools first, loaded groups after them in load order', () => {
   const t = (name, group) => ({ name, group });
-  const active = [t('flashcards_next', 'learning'), t('memory_save', 'memory'), t('routine_list', 'routines'), t('habit_log', 'habits'), t('habit_add', 'habits'), t('web_search', 'web'), t('vocab_add', 'learning')];
+  const active = [t('vocab_review', 'learning'), t('memory_save', 'memory'), t('routine_list', 'routines'), t('calendar_get_events', 'calendar'), t('create_pdf', 'documents'), t('web_search', 'web'), t('vocab_add', 'learning')];
   const names = (list) => list.map((x) => x.name);
-  assert.deepStrictEqual(names(core.compactTools(active)), ['memory_save', 'habit_log', 'web_search'], 'only the everyday ones, in their fixed order');
-  assert.deepStrictEqual(names(core.compactTools(active, ['learning'])), ['memory_save', 'habit_log', 'web_search', 'flashcards_next', 'vocab_add']);
-  assert.deepStrictEqual(names(core.compactTools(active, ['learning', 'habits', 'routines'])), ['memory_save', 'habit_log', 'web_search', 'flashcards_next', 'vocab_add', 'habit_add', 'routine_list'], 'a later group never moves an earlier one');
-  assert.deepStrictEqual(names(core.compactTools(active, ['nope'])), ['memory_save', 'habit_log', 'web_search']);
+  assert.deepStrictEqual(names(core.compactTools(active)), ['memory_save', 'calendar_get_events', 'web_search'], 'only the everyday ones, in their fixed order');
+  assert.deepStrictEqual(names(core.compactTools(active, ['learning'])), ['memory_save', 'calendar_get_events', 'web_search', 'vocab_review', 'vocab_add']);
+  assert.deepStrictEqual(names(core.compactTools(active, ['learning', 'documents', 'routines'])), ['memory_save', 'calendar_get_events', 'web_search', 'vocab_review', 'vocab_add', 'create_pdf', 'routine_list'], 'a later group never moves an earlier one');
+  assert.deepStrictEqual(names(core.compactTools(active, ['nope'])), ['memory_save', 'calendar_get_events', 'web_search']);
 });
 
 test('tools on request: obvious needs are loaded from the first round, never code or connectors', () => {
-  assert.deepStrictEqual(core.hintGroups('quiz me on my Spanish flashcards'), ['learning']);
-  assert.deepStrictEqual(core.hintGroups('make a PDF of my habits'), ['documents', 'habits']);
+  assert.deepStrictEqual(core.hintGroups('quiz me on my Spanish vocabulary'), ['learning']);
+  assert.deepStrictEqual(core.hintGroups('make a PDF of my lecture summary'), ['documents']);
   assert.deepStrictEqual(core.hintGroups('Every Monday at 8 give me a summary of my week, automatically.'), ['routines']);
   assert.deepStrictEqual(core.hintGroups('how are you?'), []);
   const groups = new Set(Object.values(core.TOOLBOX).flat());
@@ -215,4 +215,16 @@ test('a spoken message is marked for listening, a typed one is not', async () =>
   const s = { agent: { name: 'Siren', personality: '' }, llm: {}, code: {} };
   assert.match(await prompt.turnContext(s, [], null, { spoken: true }), /## This message was spoken\n.*under about 80 words/);
   assert.doesNotMatch(await prompt.turnContext(s, [], null, {}), /was spoken/);
+});
+
+// "fetch failed" said nothing when FreeLLMAPI or Ollama wasn't running.
+test('a server that does not answer is named, with what to do', () => {
+  const lc = require('../main/localcore');
+  const refused = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+  assert.match(lc.unreachableMessage('http://localhost:3001/v1', refused), /^FreeLLMAPI isn't running \(nothing answers at localhost:3001\)/);
+  assert.match(lc.unreachableMessage('http://127.0.0.1:11434/v1', refused), /^Ollama isn't running/);
+  assert.match(lc.unreachableMessage('http://localhost:1234/v1', refused), /^LM Studio isn't running/);
+  assert.match(lc.unreachableMessage('https://api.example.com/v1', refused), /^Nothing answers at api\.example\.com/);
+  assert.strictEqual(lc.unreachableMessage('http://localhost:3001/v1', new Error('GET /models failed: 401')), null, 'it answered');
+  assert.strictEqual(lc.unreachableMessage('not a url', refused), null);
 });

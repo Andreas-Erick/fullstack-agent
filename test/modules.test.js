@@ -45,3 +45,18 @@ test('every agent tool is well-formed', () => {
     for (const r of t.parameters.required || []) assert.ok(t.parameters.properties?.[r], `${t.name}: required "${r}" is not a property`);
   }
 });
+
+// The everyday tools Claude Code keeps loaded (claudecode.CORE_TOOLS) all exist, and each comes with the
+// tool that finds what it acts on: persona_switch without persona_list made the model call
+// mcp__nexus_more__persona_switch, which doesn't exist (a wasted round).
+test('core tools exist and bring the tools that find what they act on', () => {
+  const names = new Set(load('main/tools.js').TOOLS.map((t) => t.name));
+  const { CORE_TOOLS, COMPANIONS } = load('main/claudecode.js');
+  for (const n of CORE_TOOLS) assert.ok(names.has(n), `core tool ${n} does not exist`);
+  for (const [tool, finders] of Object.entries(COMPANIONS)) {
+    assert.ok(CORE_TOOLS.has(tool), `${tool} is not core`);
+    for (const f of finders) assert.ok(CORE_TOOLS.has(f), `${f} (for ${tool}) is not core`);
+  }
+  // Every core tool that switches to or runs something by name has its finder listed.
+  for (const n of CORE_TOOLS) if (/_(switch|run)$/.test(n)) assert.ok(COMPANIONS[n], `${n} needs its finder in COMPANIONS`);
+});

@@ -25,12 +25,11 @@ import { initDocs } from './docs.js';
 import { initSettings } from './settings.js';
 import { initEvolution, refresh as refreshEvolution } from './evolution.js';
 import { initSkills, refresh as refreshSkills } from './skills.js';
-import { initHabits, refresh as refreshHabits } from './habits.js';
-import { initFlashcards, refresh as refreshFlashcards } from './flashcards.js';
-import { initSkillTree, refresh as refreshSkillTree } from './skilltree.js';
+import { initNotes, refresh as refreshNotes, openDump } from './notes.js';
+import { initRoutines, refresh as refreshRoutines } from './routines.js';
 import { initInnerWorld, refresh as refreshInnerWorld } from './innerworld.js';
 import { initArchMap, refresh as refreshArchMap } from './archmap.js';
-import { initLayout, applyLayout, setLayout, zoomBy, setZoom, quickNote, toggleAppFullscreen, setFullscreen, isFullscreen } from './layout.js';
+import { initLayout, applyLayout, setLayout, zoomBy, setZoom, toggleAppFullscreen, setFullscreen, isFullscreen } from './layout.js';
 import { applyTheme } from './theme.js';
 import { switchPersona } from './personas.js';
 import { practiceLanguage, languageName } from './practice.js';
@@ -86,9 +85,8 @@ async function boot() {
   initDocs();
   initEvolution();
   initSkills();
-  initHabits();
-  initFlashcards();
-  initSkillTree();
+  initNotes();
+  initRoutines();
   initInnerWorld();
   initArchMap();
   initLayout({ miniFace });
@@ -121,10 +119,8 @@ async function boot() {
     if (name === 'calendar') refreshCalendar();
     if (name === 'knowledge') refreshKnowledge();
     if (name === 'evolution') refreshEvolution();
-    if (name === 'skills') refreshSkills();
-    if (name === 'habits') refreshHabits();
-    if (name === 'cards') refreshFlashcards();
-    if (name === 'tree') refreshSkillTree();
+    if (name === 'skills') (refreshSkills(), refreshRoutines());
+    if (name === 'notes') refreshNotes();
     if (name === 'world') requestAnimationFrame(() => refreshInnerWorld());
     if (name === 'arch') requestAnimationFrame(() => refreshArchMap());
     if (name === 'chat') requestAnimationFrame(() => miniFace.resize());
@@ -371,7 +367,7 @@ function setupPushToTalk() {
 
 // --------------------------------------------------------------- shortcuts
 function setupShortcuts() {
-  const views = ['chat', 'face', 'memory', 'calendar', 'knowledge', 'docs', 'evolution', 'skills', 'habits'];
+  const views = ['chat', 'face', 'memory', 'calendar', 'knowledge', 'docs', 'evolution', 'skills', 'notes'];
   window.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.shiftKey && /^Digit[1-3]$/.test(e.code)) {
@@ -391,8 +387,9 @@ function setupShortcuts() {
       e.preventDefault();
       setZoom(1);
     } else if (mod && e.shiftKey && e.key.toLowerCase() === 'n') {
+      // Capture from anywhere: the Notes view's brain-dump page.
       e.preventDefault();
-      quickNote();
+      openDump();
     } else if (mod && e.key === ',') {
       e.preventDefault();
       switchView('settings');

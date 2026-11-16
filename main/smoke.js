@@ -211,6 +211,11 @@ async function shootTour() {
     await wc.executeJavaScript(`document.querySelector('.rail-btn[data-view="${v}"]').click()`, true);
     await wait(2600);
     await snap(v);
+    for (const tab of v === 'settings' ? await settingsTabs(wc) : []) {
+      await wc.executeJavaScript(`document.querySelector('#settingsTabs [data-tab="${tab}"]').click()`, true);
+      await wait(800);
+      await snap(`settings-${tab}`);
+    }
   }
   const scenes = process.env.NEXUS_SHOTS_SCENES ? JSON.parse(fs.readFileSync(process.env.NEXUS_SHOTS_SCENES, 'utf8')) : [];
   for (const s of scenes) {
@@ -223,14 +228,18 @@ async function shootTour() {
   return views;
 }
 
+// The Settings screen's tabs, in order (renderer/js/settingstabs.js).
+const settingsTabs = (wc) => wc.executeJavaScript(`[...document.querySelectorAll('#settingsTabs [data-tab]')].map((b) => b.dataset.tab)`);
+
 // Text cut off or spilling out of its box (renderer/js/cliptest.js): every view at a large and a small
 // window size, then the prompts the main process opens (approvals of every shape, a secret, a voice
 // recording), with long titles, long commands and long labels. Returns the problems found.
+const namesJs = (label) => `import('./js/a11ytest.js').then((m) => m.findUnnamed(document.querySelector('.view.active') || document.body).map((c) => ${JSON.stringify(label)} + ': a control without a name for screen readers: ' + c.where + ' ' + c.html))`;
 const scanJs = (label) => `import('./js/cliptest.js').then((m) => m.findClippedText().map((c) => ${JSON.stringify(label)} + ': text cut off (' + c.how + ') at ' + c.where + ': "' + c.text + '"'))`;
 const PROMPTS = [
   ['approval:request', { kind: 'connector', title: 'Use Google Calendar: create event', detail: '{\n  "summary": "Machine Learning Q&A",\n  "calendarId": "someone.with.a.long.address@example.com"\n}', remember: [{ level: 'read', label: 'Always allow reading Google Calendar' }, { level: 'write', label: 'Always allow Google Calendar (except deleting)' }] }],
   ['approval:request', { kind: 'command', title: 'Run a command on your computer', detail: `powershell -NoProfile -Command "Get-ChildItem -Recurse ${'C:\\Users\\someone\\Documents\\a-folder-with-a-long-name'.repeat(3)} | Sort-Object Length -Descending"` }],
-  ['approval:request', { kind: 'self_modify', title: 'Change its own code (renderer/js/flashcards.js)', tainted: true, sources: [`WebFetch https://example.com/${'segment/'.repeat(30)}?q=${'x'.repeat(80)}`], detail: 'x'.repeat(3000) }],
+  ['approval:request', { kind: 'self_modify', title: 'Change its own code (renderer/js/notes.js)', tainted: true, sources: [`WebFetch https://example.com/${'segment/'.repeat(30)}?q=${'x'.repeat(80)}`], detail: 'x'.repeat(3000) }],
   ['approval:request', { kind: 'connector_trust', title: `Google Calendar (claude.ai connector for someone.with.a.long.address@example.com): ${'allow everything, deleting included, '.repeat(3)}`, detail: '' }],
   ['secret:request', { label: 'Anthropic API key', hint: 'Paste the key from console.anthropic.com → API keys. It starts with sk-ant-.' }],
   ['record:request', { script: 'The quick brown fox jumps over the lazy dog. '.repeat(8), seconds: 20, title: 'Record a voice sample for your cloned voice', intro: 'This becomes a cloned voice in VoiceStudio. Read this aloud:' }],
@@ -247,6 +256,15 @@ async function scanText() {
       await wc.executeJavaScript(`document.querySelector('.rail-btn[data-view="${v}"]').click()`, true);
       await wait(900);
       for (const p of await wc.executeJavaScript(scanJs(`${v} @${w}`), true)) found.add(p);
+      // Controls a screen reader can't name (a11ytest.js): once, at the first size.
+      if (w === 1600) for (const p of await wc.executeJavaScript(namesJs(v), true)) found.add(p);
+      // Settings shows one tab of cards at a time (settingstabs.js): every tab is checked.
+      for (const tab of v === 'settings' ? await settingsTabs(wc) : []) {
+        await wc.executeJavaScript(`document.querySelector('#settingsTabs [data-tab="${tab}"]').click()`, true);
+        await wait(400);
+        for (const p of await wc.executeJavaScript(scanJs(`settings/${tab} @${w}`), true)) found.add(p);
+        if (w === 1600) for (const p of await wc.executeJavaScript(namesJs(`settings/${tab}`), true)) found.add(p);
+      }
     }
     for (const [i, [channel, payload]] of PROMPTS.entries()) {
       const id = `smoke-${w}-${i}`;

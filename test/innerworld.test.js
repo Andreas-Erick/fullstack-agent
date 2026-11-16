@@ -13,7 +13,7 @@ test('buildings grow with the evidence', () => {
   assert.strictEqual(level(none, 'library'), 0);
   assert.strictEqual(level(none, 'garden'), 1, 'the commons always exists');
   assert.match(none.find((p) => p.id === 'library').hint, /learning topic/);
-  const some = core.places({ topics: 2, understood: 12, decks: 1, mature: 250, habits: 1, streak: 6, skills: 3, mastered: 1, memories: 0 });
+  const some = core.places({ topics: 2, understood: 12, decks: 1, mature: 250, notes: 1, charting: 30, memories: 0 });
   assert.strictEqual(level(some, 'library'), 2);
   assert.strictEqual(level(some, 'cafe'), 3);
   assert.strictEqual(level(some, 'grounds'), 1);
@@ -25,7 +25,7 @@ test('buildings grow with the evidence', () => {
 
 test('news lists only what was built or grew', () => {
   const before = core.places({ topics: 1, understood: 3 });
-  const after = core.places({ topics: 1, understood: 11, habits: 1 });
+  const after = core.places({ topics: 1, understood: 11, notes: 1 });
   const lines = core.news(before, after);
   assert.deepStrictEqual(lines.length, 2);
   assert.ok(lines.some((l) => /Library grew/.test(l)));
@@ -99,10 +99,9 @@ test('the assistant’s work has a place in the village', () => {
   assert.strictEqual(core.workFor('WebSearch').counts, 'lookout', 'and grows the Lookout');
   assert.strictEqual(core.workFor('mcp__claude_ai_Todoist__find-tasks').place, 'lookout', 'connectors send a raven');
   assert.strictEqual(core.workFor('memory_save').place, 'archive');
-  assert.strictEqual(core.workFor('habit_log').place, 'grounds');
   assert.strictEqual(core.workFor('rehearsal_run').place, 'stage');
   assert.strictEqual(core.workFor('something_new').place, 'garden');
-  for (const t of ['Edit', 'WebSearch', 'memory_save', 'habit_log']) assert.ok(core.PLACE_IDS.includes(core.workFor(t).place));
+  for (const t of ['Edit', 'WebSearch', 'memory_save', 'vault_write_note']) assert.ok(core.PLACE_IDS.includes(core.workFor(t).place));
   assert.deepStrictEqual(core.workLines({}, 'Ada'), []);
   assert.match(core.workLines({ workshop: 12, archive: 3, nowhere: 9 }, 'Ada')[0], /Ada worked with the Keeper mostly in The Workshop \(12×\), The Archive \(3×\)\./);
 });
@@ -112,6 +111,20 @@ test('the Workshop and the Lookout grow with the work', () => {
   assert.strictEqual(level(none, 'workshop'), 1);
   assert.strictEqual(level(core.places({ crafting: 60, scouting: 200 }), 'workshop'), 2);
   assert.strictEqual(level(core.places({ crafting: 60, scouting: 200 }), 'lookout'), 3);
+});
+
+test('the Observatory is built and grows with planning ahead', () => {
+  const none = core.places({}).find((p) => p.id === 'observatory');
+  assert.strictEqual(none.level, 0, 'not built before anything was planned');
+  assert.match(none.hint, /schedule or a routine/);
+  assert.strictEqual(level(core.places({ charting: 1 }), 'observatory'), 1);
+  assert.strictEqual(level(core.places({ charting: 24 }), 'observatory'), 1);
+  assert.strictEqual(level(core.places({ charting: 25 }), 'observatory'), 2);
+  assert.strictEqual(level(core.places({ charting: 99 }), 'observatory'), 2);
+  assert.strictEqual(level(core.places({ charting: 100 }), 'observatory'), 3);
+  assert.match(core.places({ charting: 3 }).find((p) => p.id === 'observatory').hint, /3 times you planned ahead together · 25 for the next level/);
+  for (const t of ['calendar_add', 'routine_save', 'mcp__nexus__calendar_list']) assert.deepStrictEqual([core.workFor(t).place, core.workFor(t).counts], ['observatory', 'observatory'], t);
+  assert.strictEqual(core.workFor('skilltree_update').place, 'garden', 'a name the app no longer has is like any unknown tool');
 });
 
 test('where a resident is at a time of day', () => {
@@ -126,7 +139,7 @@ test('where a resident is at a time of day', () => {
 
 test('level-ups: only places that rose since the last look, nothing the first time', () => {
   const before = core.places({ topics: 1, understood: 3 });
-  const after = core.places({ topics: 1, understood: 11, habits: 1 });
+  const after = core.places({ topics: 1, understood: 11, notes: 1 });
   const seen = Object.fromEntries(before.map((p) => [p.id, p.level]));
   assert.deepStrictEqual(core.levelUps(null, after), []);
   const ups = core.levelUps(seen, after);
@@ -143,7 +156,7 @@ test('one snapshot a day, unchanged history kept as is, replayed as growth steps
   assert.strictEqual(core.snapshot(h, '2026-10-01', a), h, 'same day, same levels: no write');
   h = core.snapshot(h, '2026-10-01', b);
   assert.strictEqual(h.length, 1, 'a day keeps its last state');
-  h = core.snapshot(core.snapshot(h, '2026-10-02', b), '2026-10-05', core.places({ topics: 3, understood: 40, habits: 2, streak: 8 }));
+  h = core.snapshot(core.snapshot(h, '2026-10-02', b), '2026-10-05', core.places({ topics: 3, understood: 40, notes: 20 }));
   assert.deepStrictEqual(h.map((x) => x.date), ['2026-10-01', '2026-10-02', '2026-10-05']);
   assert.strictEqual(core.snapshot(h, '2026-10-06', b, 2).length, 2, 'capped');
   const steps = core.timelapse(h, { library: 'The Library' });
@@ -186,10 +199,9 @@ stub({
       return '{"insights":[]}';
     },
   },
-  './persona': { extractJson: (t) => JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)) },
+  './persona': { extractJson: (t) => require('../main/jsonrepair').parseLoose(t), jsonWithRetry: (t, ask) => require('../main/jsonrepair').withRetry(t, ask) },
   './learning': { topics: async () => [{ topic: 'Linear algebra', understood }], deckSummaries: async () => [] },
-  './habits': { status: async () => ({ habits: [] }) },
-  './skilltree': { view: async () => ({ skills: [] }) },
+  './notebook': { summary: async () => ({ count: 2, today: ['Arm idea'], notebooks: [{ name: 'Robotics', count: 2, done: true }] }) },
   './memory': { list: async () => [{ id: 'm1' }] },
 });
 const world = load('main/innerworld.js');
@@ -249,6 +261,36 @@ test('the view keeps a daily snapshot and announces a place that rose, once', as
   assert.strictEqual(st.history[0].levels.library, 3);
   assert.ok(st.days.length >= 1, 'the days written before are kept');
   assert.ok(Array.isArray(v.timelapse) && v.timelapse[0].kind === 'baseline');
+});
+
+test('an Observatory remembered at a higher level than it has now drops quietly, and its next rise is celebrated once', async () => {
+  const file = require('path').join(dir, 'innerworld.json');
+  const events = [];
+  world.start({ notify: (ev) => events.push(ev) });
+  await world.view();
+  const st = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.strictEqual(st.seen.observatory, 0, 'nothing planned yet');
+  st.history = [{ date: '2026-10-20', levels: { ...st.seen, observatory: 2 } }, ...st.history];
+  st.seen.observatory = 2;
+  st.levels = st.levels.map((l) => (l.id === 'observatory' ? { ...l, level: 2 } : l));
+  fs.writeFileSync(file, JSON.stringify(st));
+
+  const down = await world.view();
+  assert.strictEqual(level(down.places, 'observatory'), 0);
+  assert.ok(!down.levelups.some((l) => l.id === 'observatory'), 'a drop is not celebrated');
+  assert.ok(!events.some((e) => e.type === 'levelup'));
+  assert.strictEqual(JSON.parse(fs.readFileSync(file, 'utf8')).seen.observatory, 0, 'the lower level is what was seen last');
+  const fell = down.timelapse.find((s) => s.files.some((f) => f.path === 'observatory' && f.removed === 2));
+  assert.ok(fell && fell.subject === 'A quieter village', 'the timelapse replays the drop without a celebration');
+
+  world.noteTool('calendar_add');
+  await new Promise((r) => setTimeout(r, 20));
+  const up = await world.view();
+  assert.strictEqual(up.details.work.total.observatory, 1);
+  assert.ok(!('skills' in up.details));
+  assert.deepStrictEqual(up.levelups.filter((l) => l.id === 'observatory').map((l) => [l.from, l.to]), [[0, 1]], 'built by the first plan');
+  assert.strictEqual(events.filter((e) => e.type === 'levelup').length, 1);
+  assert.strictEqual((await world.view()).levelups.length, 0, 'celebrated once');
 });
 
 test('a read-only view (the phone) writes nothing and announces nothing', async () => {

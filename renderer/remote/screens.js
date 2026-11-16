@@ -1,6 +1,6 @@
-// The phone's screens beyond the chat (renderer/remote/app.js shows them): Today, Habits, Learn,
-// Memory, Notes, Skill tree, Inner World, Skills & routines, and the "More" menu. The data comes from
-// the computer (main/companiondata.js, /api/data/*): read-only, except checking a habit off. The page's
+// The phone's screens beyond the chat (renderer/remote/app.js shows them): Today, Learn,
+// Memory, Notes, Inner World, Architecture, Skills & routines, and the "More" menu. The data comes from
+// the computer (main/companiondata.js, /api/data/*): read-only. The page's
 // CSP allows no inline styles, so dynamic values go through CSSOM (style.setProperty).
 let ctx = null; // { api, el, icon, markdown, toast, send, prefill, showView, AuthError, state }
 
@@ -8,15 +8,12 @@ export function initScreens(c) {
   ctx = c;
 }
 
-export const TITLES = { today: 'Today', habits: 'Habits', learn: 'Learning', memory: 'Memory', notes: 'Notes', tree: 'Skill tree', world: 'Inner World', arch: 'Architecture', skills: 'Skills & routines', cards: 'Flashcards', more: 'More' };
+export const TITLES = { today: 'Today', learn: 'Learning', memory: 'Memory', notes: 'Notes', world: 'Inner World', arch: 'Architecture', skills: 'Skills & routines', more: 'More' };
 
-// The "More" menu: every screen, with what it shows.
+// The "More" menu: every screen that isn't a tab, with what it shows (Notes is a tab).
 const MORE = [
   ['sched', 'calendar', 'Schedule', 'Your week, from Schedule.md'],
-  ['cards', 'cards', 'Flashcards', 'Study your decks: the same cards and schedule as on the computer'],
   ['memory', 'brain', 'Memory', 'What she remembers about you, and her stream of observations'],
-  ['notes', 'note', 'Notes', 'Your vault: read and search every note'],
-  ['tree', 'tree', 'Skill tree', 'What you are growing, and how far along'],
   ['world', 'world', 'Inner World', 'The village where your personas live'],
   ['arch', 'arch', 'Architecture', 'How she is built: a map of her own code, to explore and learn from'],
   ['skills', 'spark', 'Skills & routines', 'Ready-made workflows to run, and what runs on a schedule'],
@@ -43,7 +40,7 @@ export async function render(view, box, { quiet = false } = {}) {
     const node = await SCREENS[view]();
     if (ctx.state.view !== view || seq !== renderSeq) return; // moved on meanwhile
     if (quiet) {
-      if (busy(view)) return; // started typing or studying while it loaded
+      if (busy(view)) return; // started typing or opened a note while it loaded
       const open = openSections(box);
       const top = box.scrollTop;
       box.replaceChildren(...[node].flat());
@@ -66,14 +63,13 @@ export async function render(view, box, { quiet = false } = {}) {
   }
 }
 
-const SCREENS = { today, habits, learn, memory, notes, tree, world, arch, skills, cards, more };
+const SCREENS = { today, learn, memory, notes, world, arch, skills, more };
 
 /**
  * The user is in the middle of something on `view`, so a change on the computer must not redraw it:
- * studying a deck, reading a note, or typing (a search with text in it counts: its results would go).
+ * reading a note, or typing (a search with text in it counts: its results would go).
  */
 export function busy(view) {
-  if (view === 'cards' && deckOpen) return true;
   if (view === 'notes' && noteOpen) return true;
   const panel = document.querySelector('#panel');
   const a = document.activeElement;
@@ -113,26 +109,23 @@ async function today() {
   const now = new Date();
   const hello = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
   const upcoming = d.events.filter((e) => e.allDay || new Date(e.end) > now);
-  const active = d.habits.filter((h) => !h.paused);
-  const doneHabits = active.filter((h) => h.doneToday).length;
-  const due = (d.cards || []).filter((x) => x.dueNow);
-  const dueCards = due.reduce((n, x) => n + x.dueNow, 0);
+  const vocab = (d.decks || []).map((x) => ({ language: x.language, due: (x.dueCount || 0) + (x.newCount || 0) })).filter((x) => x.due);
+  const words = vocab.reduce((n, x) => n + x.due, 0);
   // At a glance: three tiles, each opening where that number lives.
   const glance = (ico, value, label, view, cls) => el('button', { class: `glance ${cls}`, type: 'button', onclick: () => ctx.showView(view) }, ctx.icon(ico), el('b', {}, value), el('small', {}, label));
   const out = [
     el('div', { class: 'today-head' }, el('small', {}, now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })), el('h2', {}, hello)),
     el('div', { class: 'glance-row' },
       glance('calendar', String(upcoming.length), upcoming.length === 1 ? 'event left' : 'events left', ctx.state.calendar ? 'sched' : 'today', 't1'),
-      glance('check', active.length ? `${doneHabits}/${active.length}` : '–', 'habits done', 'habits', 't2'),
-      glance('cards', String(dueCards), dueCards === 1 ? 'card to study' : 'cards to study', 'cards', 't3'),
+      glance('note', String(d.notesToday || 0), d.notesToday === 1 ? 'note today' : 'notes today', 'notes', 't2'),
+      glance('learn', String(words), words === 1 ? 'word to review' : 'words to review', 'learn', 't3'),
     ),
   ];
   if (d.handoff) {
     out.push(card('Where we left off', el('p', {}, el('b', {}, d.handoff.topic)), d.handoff.summary ? el('p', { class: 'muted' }, d.handoff.summary) : null, ...(d.handoff.nextSteps || []).map((s) => el('div', { class: 'li' }, '→ ', s)), el('div', { class: 'row' }, ask('Continue', 'Let’s continue where we left off.'))));
   }
   out.push(card('Schedule', ...(upcoming.length ? upcoming.map((e) => el('div', { class: 'today-ev' }, el('b', {}, e.allDay ? 'all day' : timeOf(e.start)), el('span', {}, e.title, e.location ? el('small', {}, ` · ${e.location}`) : null))) : [el('p', { class: 'muted' }, d.events.length ? 'Nothing more today.' : 'Nothing scheduled today.')])));
-  if (active.length) out.push(card(`Habits · ${doneHabits} of ${active.length} done`, habitRows(active, () => render('today', document.querySelector('#panel')))));
-  if (due.length) out.push(card('Cards to study', ...due.map((x) => el('button', { class: 'study-row', type: 'button', onclick: () => openDeck(x.id) }, el('span', { class: 'what' }, el('b', {}, x.name), el('small', {}, `${x.dueNow} to study`)), el('span', { class: 'go' }, 'Study ›')))));
+  if (vocab.length) out.push(card('Vocabulary to review', ...vocab.map((x) => el('button', { class: 'study-row', type: 'button', onclick: () => (ctx.showView('chat'), ctx.send(`Let’s review my ${x.language} vocabulary.`)) }, el('span', { class: 'what' }, el('b', {}, x.language), el('small', {}, `${x.due} to review`)), el('span', { class: 'go' }, 'Review ›')))));
   if (d.shaky.length) out.push(card('Still shaky', ...d.shaky.map((s) => el('div', { class: 'li' }, el('b', {}, `${s.topic}: `), s.text)), el('div', { class: 'row' }, ask('Go over them', 'Help me go over what is still shaky in what I am learning.'))));
   const priorities = filledSections(d.priorities || '');
   if (priorities) out.push(card('Active priorities', el('div', { class: 'md' }, ...htmlOf(markdown(priorities)))));
@@ -167,61 +160,12 @@ function htmlOf(html) {
   return [...t.content.childNodes];
 }
 
-// --------------------------------------------------------------- Habits
-function habitRows(list, after) {
-  const { el, api, toast } = ctx;
-  return el('div', { class: 'habits' }, ...list.map((h) => {
-    const box = el('button', { class: `habit ${h.doneToday ? 'done' : ''}`, type: 'button', disabled: ctx.state.info?.readOnly === true, 'aria-pressed': String(h.doneToday), 'aria-label': `${h.name}: ${h.doneToday ? 'done today' : 'not done yet'}` },
-      el('span', { class: 'tick' }, h.doneToday ? '✓' : ''),
-      el('span', { class: 'what' }, el('b', {}, h.name), el('small', {}, `${h.frequency || ''}${h.streak ? ` · 🔥 ${h.streak} ${h.streakUnit === 'weeks' ? 'wk' : 'd'}` : ''}`)),
-      el('span', { class: 'week' }, ...(h.last7 || []).map((on) => el('i', { class: on ? 'on' : '' }))),
-    );
-    box.addEventListener('click', async () => {
-      box.disabled = true;
-      navigator.vibrate?.(12);
-      try {
-        const r = await api('/api/data/habits/log', { method: 'POST', body: { name: h.name, done: !h.doneToday } });
-        if (!h.doneToday) toast(`✓ ${h.name}`);
-        after(r.habits);
-      } catch (err) {
-        if (!(err instanceof ctx.AuthError)) toast(err.message);
-        box.disabled = false;
-      }
-    });
-    return box;
-  }));
-}
-
-async function habits() {
-  const { el, api } = ctx;
-  const { habits: list } = await api('/api/data/habits');
-  if (!list.length) return empty('No habits yet. Pick one small thing to do most days, and check it off here.', ask('Start one', 'Help me start a new habit.'), 'check');
-  const box = el('div', { class: 'stack' });
-  const draw = (l) => {
-    const active = l.filter((h) => !h.paused);
-    const paused = l.filter((h) => h.paused);
-    const done = active.filter((h) => h.doneToday).length;
-    const best = Math.max(0, ...active.map((h) => h.streak || 0));
-    // The day's ring: conic-gradient through --p (set by pct, the CSP allows no style attributes).
-    const ring = pct(el('div', { class: 'day-ring', role: 'img', 'aria-label': `${done} of ${active.length} done today` }, el('b', {}, `${done}/${active.length}`)), active.length ? done / active.length : 0);
-    box.replaceChildren(
-      el('section', { class: 'card habit-sum' }, ring, el('div', { class: 'what' }, el('b', {}, done === active.length && active.length ? 'All done today' : `${active.length - done} to go today`), el('small', {}, best ? `Best streak right now: 🔥 ${best}` : 'Check one off to start a streak.'))),
-      card('Today', habitRows(active, draw)),
-      card('This week', ...active.map((h) => el('div', { class: 'bar-row' }, el('span', {}, h.name), pct(el('div', { class: 'bar' }, el('i')), h.rate28), el('small', {}, `${Math.round(h.rate28 * 100)}% of 4 weeks`)))),
-      paused.length ? card('Paused', ...paused.map((h) => el('div', { class: 'li muted' }, h.name))) : '',
-      el('div', { class: 'row center' }, ask('Weekly review', 'Let’s do a weekly review of my habits.'), ask('Add a habit', 'I want to add a habit.')),
-    );
-  };
-  draw(list);
-  return box;
-}
 
 // --------------------------------------------------------------- Learn
 async function learn() {
   const { el, api } = ctx;
   const d = await api('/api/data/learn');
   const out = [];
-  out.push(card('Flashcards', el('p', { class: 'muted' }, 'Your decks, studied with the same schedule as on the computer.'), el('div', { class: 'row' }, el('button', { class: 'btn small', type: 'button', onclick: () => ctx.showView('cards') }, 'Open flashcards'))));
   if (d.decks.length) {
     out.push(card('Vocabulary', ...d.decks.map((x) => el('div', { class: 'deck' },
       el('div', {}, el('b', {}, x.language), el('small', {}, `${x.total} cards · ${x.mature} known`)),
@@ -276,7 +220,8 @@ async function notes() {
   const load = async () => {
     const q = search.value.trim();
     const { notes: items } = await api(`/api/data/notes${q ? `?q=${encodeURIComponent(q)}` : ''}`);
-    list.replaceChildren(...(items.length ? items.map((n) => el('button', { class: 'note-row', type: 'button', onclick: () => openNote(n.path) }, el('b', {}, n.title), el('small', {}, n.snippet || `${n.folder === '/' ? '' : `${n.folder} · `}${n.modified ? new Date(n.modified).toLocaleDateString() : ''}`))) : [el('p', { class: 'muted' }, q ? 'No match.' : 'The vault is empty.')]));
+    const meta = (n) => [n.modified ? new Date(n.modified).toLocaleDateString() : '', n.folder && n.folder !== '/' && n.folder !== 'Notes' ? n.folder : '', ...(n.tags || []).map((t) => `#${t}`)].filter(Boolean).join(' · ');
+    list.replaceChildren(...(items.length ? items.map((n) => el('button', { class: 'note-row', type: 'button', onclick: () => openNote(n.path) }, el('b', {}, n.pinned ? '📌 ' : '', n.title), n.snippet ? el('span', { class: 'note-snip' }, n.snippet) : null, el('small', {}, meta(n)))) : [el('p', { class: 'muted' }, q ? 'No match.' : 'No notes yet. Write one in the Notes view on your computer.')]));
   };
   let t;
   search.addEventListener('input', () => (clearTimeout(t), (t = setTimeout(load, 300))));
@@ -295,84 +240,24 @@ async function openNote(path) {
     const body = n.content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
     box.replaceChildren(
       el('button', { class: 'btn ghost small back', type: 'button', onclick: () => ctx.showView('notes') }, '‹ All notes'),
-      el('article', { class: 'note md' }, el('h2', {}, n.title), el('small', { class: 'muted' }, `${n.path} · ${new Date(n.modified).toLocaleString()}`), ...htmlOf(markdown(body.replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_m, a, b) => `**${b || a}**`)))),
+      el('article', { class: 'note md' }, el('h2', {}, n.title), el('small', { class: 'muted' }, `${n.path} · ${new Date(n.modified).toLocaleString()}`), ...htmlOf(markdown(body.replace(/^#\s+(.+)\r?\n/, (m, t) => (t.trim().toLowerCase() === n.title.trim().toLowerCase() ? '' : m)).replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]/g, (_m, a, b) => `[${b || a}](#note:${encodeURIComponent(a.trim())})`)))),
       el('div', { class: 'row center' }, ask('Ask about this note', `About my note "${n.title}": `)),
     );
     box.scrollTop = 0;
+    // [[Links]] open the note they name (found by its title).
+    box.querySelector('article.note')?.addEventListener('click', async (e) => {
+      const a = e.target.closest('a[href^="#note:"]');
+      if (!a) return;
+      e.preventDefault();
+      const name = decodeURIComponent(a.getAttribute('href').slice(6)).split('/').pop();
+      const { notes: hits } = await api(`/api/data/notes?q=${encodeURIComponent(name)}`).catch(() => ({ notes: [] }));
+      const hit = hits.find((x) => x.title.toLowerCase() === name.toLowerCase());
+      if (hit) openNote(hit.path);
+      else ctx.toast(`No note called “${name}” yet`);
+    });
   } catch (err) {
     if (!(err instanceof ctx.AuthError)) box.replaceChildren(empty(err.message));
   }
-}
-
-// --------------------------------------------------------------- Skill tree
-async function tree() {
-  const { el, api } = ctx;
-  const { skills: list, layout, thresholds } = await api('/api/data/tree');
-  if (!list.length) return empty('Your skill tree is empty. Plant the skills you want to grow and watch them light up as you practise.', ask('Plant it', 'Help me set up my skill tree.'), 'tree');
-  const sky = layout?.pos ? constellation(list, layout, thresholds) : null;
-  const areas = new Map();
-  for (const s of list) areas.set(s.area || 'Other', [...(areas.get(s.area || 'Other') || []), s]);
-  const STATE = { mastered: '★ mastered', growing: 'growing', unlocked: 'ready', locked: '🔒 locked' };
-  return [sky, ...[...areas].map(([area, items]) => card(area, ...items.map((s) => el('div', { class: `skill ${s.state}`, id: `skill-${slug(s.name)}` },
-    el('div', {}, el('b', {}, s.name), el('small', {}, `${STATE[s.state] || s.state}${s.needs.length ? ` · needs ${s.needs.join(', ')}` : ''}`)),
-    pct(el('div', { class: 'bar' }, el('i')), s.progress),
-  ))))].filter(Boolean);
-}
-
-const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-');
-
-// The desktop's constellation (renderer/js/skilltree.js): skills by depth from left to right, links lit
-// once the earlier skill is unlocked, a progress ring per skill. Scrolls sideways when wide; a tap jumps
-// to the skill in the list below.
-function constellation(list, layout, thresholds = {}) {
-  const NS = 'http://www.w3.org/2000/svg';
-  const svg = (tag, attrs = {}, ...kids) => {
-    const n = document.createElementNS(NS, tag);
-    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-    n.append(...kids);
-    return n;
-  };
-  const COL = 150;
-  const ROW = 84;
-  const { pos, edges, depth, areas } = layout;
-  const columns = new Map();
-  for (const p of Object.values(pos)) columns.set(p.depth, (columns.get(p.depth) || 0) + 1);
-  const height = Math.max(1, ...columns.values()) * ROW;
-  const width = depth * COL + 180;
-  const at = (name) => ({ x: 90 + (pos[name]?.x || 0) * depth * COL, y: 50 + (pos[name]?.y || 0) * Math.max(0, height - ROW) });
-  const byName = new Map(list.map((s) => [s.name, s]));
-  const root = svg('svg', { class: 'sky', viewBox: `0 0 ${width} ${height + 60}`, role: 'img', 'aria-label': 'Skill tree' });
-  root.style.setProperty('--w', `${width}px`);
-  for (const e of edges) {
-    const a = at(e.from);
-    const b = at(e.to);
-    const mx = (a.x + b.x) / 2;
-    const lit = (byName.get(e.from)?.progress || 0) >= (thresholds.unlock ?? 0.6);
-    root.append(svg('path', { d: `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`, class: `sky-edge ${lit ? 'lit' : ''}` }));
-  }
-  for (const s of list) {
-    if (!pos[s.name]) continue;
-    const p = at(s.name);
-    const r = 14;
-    const circ = 2 * Math.PI * (r + 5);
-    const g = svg('g', { class: `sky-node ${s.state} area-${Math.max(0, areas.indexOf(s.area || '')) % 5}`, transform: `translate(${p.x},${p.y})`, tabindex: '0', role: 'button', 'aria-label': `${s.name}: ${Math.round(s.progress * 100)}%` },
-      svg('circle', { class: 'ring-bg', r: r + 5 }),
-      svg('circle', { class: 'ring', r: r + 5, 'stroke-dasharray': `${circ * s.progress} ${circ}`, transform: 'rotate(-90)' }),
-      svg('circle', { class: 'core', r }),
-      svg('text', { class: 'glyph', 'text-anchor': 'middle', dy: '0.35em' }, s.state === 'locked' ? '🔒' : s.state === 'mastered' ? '✓' : `${Math.round(s.progress * 100)}`),
-      svg('text', { class: 'label', 'text-anchor': 'middle', y: r + 22 }, s.name.length > 18 ? `${s.name.slice(0, 17)}…` : s.name),
-    );
-    const go = () => {
-      const row = document.getElementById(`skill-${slug(s.name)}`);
-      row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      row?.classList.add('flash');
-      setTimeout(() => row?.classList.remove('flash'), 1200);
-    };
-    g.addEventListener('click', go);
-    g.addEventListener('keydown', (ev) => ev.key === 'Enter' && go());
-    root.append(g);
-  }
-  return card('', ctx.el('div', { class: 'sky-wrap' }, root));
 }
 
 // --------------------------------------------------------------- Skills & routines
@@ -392,135 +277,6 @@ function describe(s) {
   if (s.kind === 'interval') return `every ${s.minutes || s.every} min`;
   return s.kind || '';
 }
-
-// --------------------------------------------------------------- Flashcards
-// The decks (main/flashcards.js through /api/data/flashcards), and studying: one deck, or mixed
-// learning across all of them (mixed review of today's due cards, or every card shuffled as practice;
-// /api/data/flashcards/mix). The front, "Show answer", then Again / Hard / Good / Easy with what each
-// would do, as in Anki. A keyboard works too (tablets): Space shows the answer, 1–4 grade it, U undoes.
-let deckOpen = null; // what is being studied: { mode: 'deck' | 'mix', id (deck or session), data, shown, start }
-const openDeck = (id) => ((deckOpen = { mode: 'deck', id, data: null, shown: false }), ctx.showView('cards'));
-const openMix = (start) => ((deckOpen = { mode: 'mix', id: null, data: null, shown: false, start }), ctx.showView('cards'));
-const fcNum = (n, cls) => ctx.el('span', { class: `fc-num ${cls}${n ? '' : ' zero'}` }, String(n));
-const fcPill = (n, label, cls) => ctx.el('span', { class: `fc-pill ${cls}${n ? '' : ' zero'}` }, ctx.el('b', {}, String(n)), ` ${label}`);
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-
-async function cards() {
-  const { el, api } = ctx;
-  if (deckOpen) {
-    // Fresh from the computer, unless this is the redraw after showing the answer or grading a card.
-    if (!deckOpen.keep || !deckOpen.data) {
-      if (deckOpen.mode === 'deck') deckOpen.data = await api(`/api/data/flashcards/next?deck=${encodeURIComponent(deckOpen.id)}`);
-      else if (!deckOpen.id) {
-        deckOpen.data = await api('/api/data/flashcards/mix', { method: 'POST', body: { mode: deckOpen.start } });
-        deckOpen.id = deckOpen.data.session;
-      } else deckOpen.data = await api(`/api/data/flashcards/mix?session=${encodeURIComponent(deckOpen.id)}`);
-    }
-    deckOpen.keep = false;
-    return studyScreen();
-  }
-  const d = await api('/api/data/flashcards');
-  if (!d.vault) return empty('Flashcards live in the vault on your computer; set one up there first.', null, 'cards');
-  if (!d.decks.length) return empty('No decks yet. Ask her to make some, or to import a CSV or an Anki deck from your workspace folder.', ask('Make flashcards', 'Make me flashcards about what I am learning.'), 'cards');
-  const sum = (k) => d.decks.reduce((n, x) => n + (x[k] || 0), 0);
-  const due = sum('dueNow');
-  const today = el(
-    'section',
-    { class: 'card fc-today' },
-    el('div', { class: 'fc-today-top' }, el('div', { class: 'fc-big' }, el('b', {}, due ? String(due) : '✓'), el('small', {}, due ? 'to study today' : 'all done today')), el('div', { class: 'fc-pills' }, fcPill(sum('new'), 'new', 'n'), fcPill(sum('learn'), 'learning', 'l'), fcPill(sum('review'), 'due', 'r'))),
-    el('div', { class: 'fc-today-actions' }, el('button', { class: 'btn primary', type: 'button', disabled: !due, onclick: () => openMix('due') }, '🔀 Mixed review'), el('button', { class: 'btn', type: 'button', onclick: () => openMix('all') }, '🎲 Shuffle all')),
-    el('small', { class: 'muted' }, due ? 'Every deck at once: each card comes from another deck than the last.' : 'Shuffle all practises every card; it changes no schedule.'),
-  );
-  return [
-    today,
-    ...d.decks.map((x) =>
-      el(
-        'button',
-        { class: `card fc-deck${x.dueNow ? ' due' : ''}`, type: 'button', onclick: () => openDeck(x.id), 'aria-label': `${x.name}: ${x.new} new, ${x.learn} learning, ${x.review} due` },
-        el('div', { class: 'fc-deck-main' }, el('b', {}, x.name), el('small', { class: 'muted' }, `${x.kind === 'vocab' ? 'Vocabulary · ' : ''}${plural(x.total, 'card')} · ${x.mature} mature${!x.dueNow && x.nextDue ? ` · next ${x.nextDue}` : ''}`)),
-        el('span', { class: 'fc-nums' }, fcNum(x.new, 'n'), fcNum(x.learn, 'l'), fcNum(x.review, 'r')),
-      ),
-    ),
-    el('p', { class: 'muted fc-legend' }, el('span', { class: 'fc-num n' }, 'new'), ' · ', el('span', { class: 'fc-num l' }, 'learning'), ' · ', el('span', { class: 'fc-num r' }, 'due')),
-  ];
-}
-
-function studyScreen() {
-  const { el, cardMarkdown } = ctx;
-  const d = deckOpen.data;
-  const c = d.counts || {};
-  const mix = deckOpen.mode === 'mix';
-  const practice = mix && d.mode === 'all';
-  const left = practice ? c.left || 0 : (c.new || 0) + (c.learn || 0) + (c.review || 0);
-  const answered = mix ? d.stats?.answered || 0 : deckOpen.answered || 0;
-  const title = mix ? (practice ? 'Shuffle all' : 'Mixed review') : d.name;
-  const head = el(
-    'div',
-    { class: 'fc-head' },
-    el('button', { class: 'btn ghost small', type: 'button', onclick: () => ((deckOpen = null), render('cards', document.querySelector('#panel'))) }, '← Decks'),
-    el('b', {}, title),
-    practice ? el('span', { class: 'fc-pills' }, fcPill(left, 'left', 'r')) : el('span', { class: 'fc-nums' }, fcNum(c.new || 0, 'n'), fcNum(c.learn || 0, 'l'), fcNum(c.review || 0, 'r')),
-    d.canUndo ? el('button', { class: 'btn ghost small', type: 'button', onclick: () => act('undo') }, '↶ Undo') : null,
-  );
-  // Width through the CSSOM: the page's CSP forbids style attributes.
-  const bar = el('i');
-  bar.style.width = `${answered + left ? (answered / (answered + left)) * 100 : 100}%`;
-  const progress = el('div', { class: 'fc-progress', role: 'progressbar', 'aria-label': 'Session progress' }, bar);
-  if (!d.card) {
-    const later = d.laterAt ? new Date(d.laterAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-    const right = d.stats?.answered ? ` ${Math.round((d.stats.right / d.stats.answered) * 100)}% right.` : '';
-    const text = practice ? `You went through every card.${right} Your schedules are unchanged.` : later ? `Done for now. A card in its learning steps comes back at ${later}.` : mix ? 'Every deck is done for today.' : 'You have finished this deck for today.';
-    return [head, progress, el('section', { class: 'card fc-done' }, el('div', { class: 'fc-done-icon', 'aria-hidden': 'true' }, '✦'), el('h3', {}, answered ? 'Well done' : 'All caught up'), el('p', {}, text), el('button', { class: 'btn primary', type: 'button', onclick: () => ((deckOpen = null), render('cards', document.querySelector('#panel'))) }, 'Back to the decks'))];
-  }
-  const side = (md) => el('div', { class: 'fc-side' }, cardMarkdown(md));
-  const body = [side(d.card.front)];
-  if (deckOpen.shown && d.card.back) body.push(el('div', { class: 'fc-divider' }, el('span', {}, 'Answer')), side(d.card.back));
-  const tags = [d.card.leech ? 'leech' : '', d.card.status === 'new' ? 'new' : d.card.status === 'learn' ? 'learning' : ''].filter(Boolean);
-  const top = el('div', { class: 'fc-card-top' }, mix && d.deck ? el('span', { class: 'fc-from' }, d.deck.name) : el('span'), tags.length ? el('div', { class: 'fc-tags' }, ...tags.map((t) => chip(t))) : null);
-  const buttons = deckOpen.shown
-    ? el('div', { class: 'fc-grades' }, ...[['again', 'Again'], ['hard', 'Hard'], ['good', 'Good'], ['easy', 'Easy']].map(([g, label]) => el('button', { class: `btn fc-grade ${g}`, type: 'button', onclick: () => act(g) }, el('span', {}, label), el('small', {}, d.card.preview[g]))))
-    : el('div', { class: 'fc-grades' }, el('button', { class: 'btn fc-show', type: 'button', onclick: showAnswer }, 'Show answer'));
-  return [head, progress, el('section', { class: `card fc-card${deckOpen.shown ? ' revealed' : ''}`, 'aria-live': 'polite' }, top, el('div', { class: 'fc-sides' }, ...body)), buttons];
-}
-
-async function showAnswer() {
-  if (!deckOpen?.data?.card) return;
-  deckOpen.shown = true;
-  deckOpen.keep = true;
-  await render('cards', document.querySelector('#panel'));
-  document.querySelector('#panel .fc-side:last-child audio')?.play?.().catch(() => {});
-}
-
-let acting = false;
-async function act(what) {
-  if (acting || !deckOpen) return;
-  acting = true;
-  try {
-    if (deckOpen.mode === 'mix') deckOpen.data = await ctx.api(`/api/data/flashcards/mix/${what === 'undo' ? 'undo' : 'answer'}`, { method: 'POST', body: { session: deckOpen.id, grade: what, card: deckOpen.data.card?.id } });
-    else {
-      const body = what === 'undo' ? { deck: deckOpen.id } : { deck: deckOpen.id, card: deckOpen.data.card.id, grade: what };
-      deckOpen.data = await ctx.api(`/api/data/flashcards/${what === 'undo' ? 'undo' : 'answer'}`, { method: 'POST', body });
-      deckOpen.answered = Math.max(0, (deckOpen.answered || 0) + (what === 'undo' ? -1 : 1));
-    }
-    deckOpen.shown = false;
-    deckOpen.keep = true;
-    await render('cards', document.querySelector('#panel'));
-  } catch (err) {
-    ctx.toast(err.message);
-  } finally {
-    acting = false;
-  }
-}
-
-document.addEventListener('keydown', (e) => {
-  if (ctx?.state.view !== 'cards' || !deckOpen?.data?.card || e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')) return;
-  const k = e.key.toLowerCase();
-  if ((k === ' ' || k === 'enter') && !deckOpen.shown) showAnswer();
-  else if (deckOpen.shown && ['1', '2', '3', '4'].includes(k)) act(['again', 'hard', 'good', 'easy'][Number(k) - 1]);
-  else if (k === 'u' && deckOpen.data.canUndo) act('undo');
-  else return;
-  e.preventDefault();
-});
 
 // --------------------------------------------------------------- More
 // In the Android app: a newer APK than this one is out (the computer checks GitHub, /api/info `update`).
@@ -656,7 +412,7 @@ async function world() {
     if (!size.w && !resize()) return;
     g.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
     const now = new Date();
-    const f = { w: size.w, h: size.h, dpr: size.dpr, cam, island, P, t, anim: !matchMedia('(prefers-reduced-motion: reduce)').matches, lite: true, minute: now.getHours() * 60 + now.getMinutes(), weather: scene.weatherOf(d.day?.weather), skills: d.details?.skills || [], residents: people(), live: null, busy: d.details?.work?.today };
+    const f = { w: size.w, h: size.h, dpr: size.dpr, cam, island, P, t, anim: !matchMedia('(prefers-reduced-motion: reduce)').matches, lite: true, minute: now.getHours() * 60 + now.getMinutes(), weather: scene.weatherOf(d.day?.weather), residents: people(), live: null, busy: d.details?.work?.today };
     scene.frame(g, f);
     scene.labels(g, f, island, { selected });
   };

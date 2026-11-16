@@ -40,7 +40,7 @@ const state = {
   held: [], // events that arrived while our own send was in flight
   face: 'idle',
   name: 'Siren',
-  view: 'chat', // chat | sched | a screen from screens.js (today, habits, learn, memory, notes, tree, world, skills, more)
+  view: 'chat', // chat | sched | a screen from screens.js (today, learn, memory, notes, world, arch, skills, more)
   info: null, // the computer's /api/info
   calendar: false,
   convTitle: '',
@@ -87,33 +87,6 @@ function markdown(text) {
   let html = window.marked.parse(math.text, { breaks: true, gfm: true });
   if (math.items.length) html = mathtext.restoreMath(html, math.items, renderTex);
   return window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input', 'img'], FORBID_ATTR: ['style'], ADD_ATTR: ['target'] });
-}
-
-// A flashcard (screens.js): Markdown like a reply, plus the card's own pictures and sounds, which the
-// computer sends inside the card as data: URLs. Nothing is loaded from anywhere else: any other image
-// or audio source is dropped. Sounds become blob: URLs (this page's CSP allows media only from those).
-function cardMarkdown(text) {
-  const math = window.katex && mathtext ? mathtext.extractMath(String(text ?? '')) : { text: String(text ?? ''), items: [] };
-  let html = window.marked.parse(math.text, { breaks: true, gfm: true });
-  if (math.items.length) html = mathtext.restoreMath(html, math.items, renderTex);
-  const frag = window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input'], FORBID_ATTR: ['style'], ADD_ATTR: ['target', 'controls'], RETURN_DOM_FRAGMENT: true });
-  for (const n of frag.querySelectorAll('img, audio, video, source')) {
-    const src = n.getAttribute('src') || '';
-    if (n.tagName === 'IMG' && /^data:image\/(png|jpe?g|gif|webp|bmp);base64,/i.test(src)) continue;
-    if (n.tagName === 'AUDIO' && /^data:audio\/[\w.+-]+;base64,/i.test(src)) {
-      try {
-        const [head, b64] = src.split(',');
-        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-        n.setAttribute('src', URL.createObjectURL(new Blob([bytes], { type: head.slice(5, head.indexOf(';')) })));
-        n.setAttribute('controls', '');
-        continue;
-      } catch {
-        /* a broken sound: dropped below */
-      }
-    }
-    n.remove();
-  }
-  return frag;
 }
 
 function renderTex(tex, display) {
@@ -376,9 +349,9 @@ window.addEventListener('online', () => {
   else state.wake?.(); // waiting to retry: try at once
 });
 
-// Something the phone shows changed on the computer (a habit checked off there, a note the agent wrote, a
-// deck studied…): the screen on show is drawn again in place, unless the user is busy on it; the schedule's
-// cached weeks are forgotten; the conversation list (and the open conversation's title) is checked.
+// Something the phone shows changed on the computer (a note the agent wrote, the schedule…):
+// the screen on show is drawn again in place, unless the user is busy on it; the schedule's cached weeks
+// are forgotten; the conversation list (and the open conversation's title) is checked.
 const onDataChanged = batcher((topics) => {
   const plan = refreshPlan(topics, { view: state.view, busy: screenBusy(state.view) });
   if (plan.schedule) {
@@ -1419,7 +1392,7 @@ function tint(node, id) {
 }
 
 // The tab bar's highlight: More covers every screen that has no tab of its own.
-const TABS = ['chat', 'today', 'habits', 'learn', 'more'];
+const TABS = ['chat', 'today', 'notes', 'learn', 'more'];
 function showView(v) {
   // Wide (tablet, DeX): the chat is always on screen, so the side shows Today instead of nothing.
   if (v === 'chat' && wide.matches && state.info?.share) v = 'today';
@@ -1792,7 +1765,7 @@ document.addEventListener('keydown', (e) => {
 
 // The tab bar and the screens beyond the chat (screens.js).
 for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => (navigator.vibrate?.(6), showView(b.dataset.tab)));
-initScreens({ api, el, icon, markdown, cardMarkdown, toast, send, prefill, showView, AuthError, NetError, state, agentState });
+initScreens({ api, el, icon, markdown, toast, send, prefill, showView, AuthError, NetError, state, agentState });
 
 $('#pairInsecure').classList.toggle('hidden', !insecure);
 // Offline app shell (needs HTTPS or localhost; on the plain local network the browser doesn't allow it).

@@ -16,6 +16,7 @@ import { LANGUAGE_NAMES } from './practice.js';
 import { detect } from './perf.js';
 import { profile, speechPlan } from './perfcore.js';
 import { checkNow as checkUpdatesNow } from './updates.js';
+import { TABS, tabFor, validTab, stepTab, matches } from './settingstabs.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -103,8 +104,16 @@ function fillSelect(s, options, value) {
   for (const [v, l] of list) s.append(el('option', { value: v, selected: v === value }, l));
 }
 
+// The label is tied to its control (for/id), so a screen reader names the field: it used to sit next to
+// it unconnected ("combo box", no name). A control in a row (a dropdown and its button) ties the first
+// input in it; the hint describes it.
+let fieldSeq = 0;
 function field(label, control, hint) {
-  return el('div', { class: 'field' }, el('label', {}, label), control, hint ? el('div', { class: 'hint', html: hint }) : '');
+  const input = control?.matches?.('input, select, textarea') ? control : control?.querySelector?.('input, select, textarea');
+  const id = input ? input.id || (input.id = `set-field-${++fieldSeq}`) : null;
+  const hintEl = hint ? el('div', { class: 'hint', html: hint, id: id ? `${id}-hint` : null }) : '';
+  if (input && hint) input.setAttribute('aria-describedby', `${id}-hint`);
+  return el('div', { class: 'field' }, el('label', id ? { for: id } : {}, label), control, hintEl);
 }
 
 function folder(p, label, { hint = '', placeholder = '', onChange } = {}) {
@@ -168,16 +177,122 @@ export function initSettings() {
   });
   on('view', ({ name, section }) => {
     if (name !== 'settings') return;
-    // Scroll once the cards exist (several of them load data first).
+    // A link to one card ("brain" from the title bar's pill) opens its tab, then scrolls to it once
+    // the cards exist (several of them load data first).
+    if (section) (activeTab = tabFor(section)), (query = '');
     render().then(() => section && $(`#set-${section}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   });
+}
+
+// ------------------------------------------------------------------- tabs
+// One group of cards at a time (settingstabs.js), and a search across all of them. The tab is
+// remembered in this window only (a convenience: without storage it opens on the first tab).
+function storedTab() {
+  try {
+    return localStorage.getItem('settings.tab');
+  } catch {
+    return null;
+  }
+}
+let activeTab = validTab(storedTab());
+let query = '';
+
+function chooseTab(id, { focus = false } = {}) {
+  activeTab = validTab(id);
+  query = '';
+  try {
+    localStorage.setItem('settings.tab', activeTab);
+  } catch {
+    /* private window: not remembered */
+  }
+  drawTabs();
+  showCards();
+  const view = $('#settingsRoot').parentElement;
+  view.scrollTop = 0;
+  if (focus) $(`#settingsTabs [data-tab="${activeTab}"]`)?.focus();
+}
+
+function drawTabs() {
+  const bar = $('#settingsTabs');
+  if (!bar) return;
+  const searching = Boolean(query.trim());
+  const tabs = TABS.map((t) => {
+    const on = !searching && t.id === activeTab;
+    return el('button', { class: `settings-tab${on ? ' active' : ''}`, role: 'tab', type: 'button', 'data-tab': t.id, id: `settings-tab-${t.id}`, 'aria-selected': String(on), 'aria-controls': 'settingsRoot', tabindex: on || (searching && t === TABS[0]) ? '0' : '-1', onclick: () => chooseTab(t.id) }, t.label);
+  });
+  const list = el('div', { class: 'settings-tablist', role: 'tablist', 'aria-label': 'Settings sections' }, ...tabs);
+  // ← / → between tabs, Home / End to the first and last (docs/KEYBOARD.md).
+  list.addEventListener('keydown', (e) => {
+    const current = e.target.closest?.('[data-tab]')?.dataset.tab;
+    if (!current) return;
+    const to = e.key === 'ArrowRight' ? stepTab(current, 1) : e.key === 'ArrowLeft' ? stepTab(current, -1) : e.key === 'Home' ? TABS[0].id : e.key === 'End' ? TABS[TABS.length - 1].id : null;
+    if (!to) return;
+    e.preventDefault();
+    chooseTab(to, { focus: true });
+  });
+  const search = el('input', { type: 'search', class: 'settings-search', placeholder: 'Search settings', 'aria-label': 'Search all settings', value: query });
+  search.addEventListener('input', () => {
+    query = search.value;
+    drawTabsKeepingSearch();
+    showCards();
+  });
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && search.value) (e.preventDefault(), (search.value = ''), (query = ''), drawTabsKeepingSearch(), showCards());
+  });
+  bar.replaceChildren(list, search);
+}
+
+// Redraws the tabs' state while the search field keeps its focus and caret.
+function drawTabsKeepingSearch() {
+  const searching = Boolean(query.trim());
+  const search = document.querySelector('#settingsTabs .settings-search');
+  if (search && document.activeElement !== search && search.value !== query) search.value = query; // a link cleared it
+  for (const b of document.querySelectorAll('#settingsTabs .settings-tab')) {
+    const on = !searching && b.dataset.tab === activeTab;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on || (searching && b.dataset.tab === TABS[0].id) ? 0 : -1;
+  }
+}
+
+// What a card says and what is set in it ("localhost" finds the VoiceStudio address): labels and
+// descriptions, typed values and chosen options. Never a password field's value.
+function cardText(card) {
+  const values = [...card.querySelectorAll('input, textarea, select')].map((f) => {
+    if (f.type === 'password' || f.type === 'hidden' || f.type === 'checkbox' || f.type === 'range') return '';
+    return f.tagName === 'SELECT' ? f.selectedOptions[0]?.textContent || '' : f.value || '';
+  });
+  return `${card.textContent} ${values.join(' ')}`;
+}
+
+function showCards() {
+  const root = $('#settingsRoot');
+  if (!root) return;
+  const searching = Boolean(query.trim());
+  let shown = 0;
+  for (const card of root.querySelectorAll(':scope > .card')) {
+    const show = searching ? matches(cardText(card), query) : tabFor(card.id.replace(/^set-/, '')) === activeTab;
+    card.classList.toggle('tab-hidden', !show);
+    if (show) shown++;
+  }
+  if (searching) root.removeAttribute('aria-labelledby');
+  else root.setAttribute('aria-labelledby', `settings-tab-${activeTab}`);
+  let empty = root.querySelector(':scope > .settings-empty');
+  if (searching && !shown) {
+    if (!empty) root.append((empty = el('p', { class: 'settings-empty muted' })));
+    empty.textContent = `No setting matches “${query.trim()}”.`;
+  } else empty?.remove();
 }
 
 async function render() {
   const root = $('#settingsRoot');
   const scroll = root.parentElement.scrollTop;
   root.innerHTML = '';
+  root.setAttribute('role', 'tabpanel');
   root.append(agentCard(), brainCard(), extensionsCard(), voiceCard(), sttCard(), learningCard(), helperAppsCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), worldCard(), uiCard());
+  if (!document.querySelector('#settingsTabs .settings-tablist')) drawTabs();
+  else drawTabsKeepingSearch();
+  showCards();
   root.parentElement.scrollTop = scroll;
 }
 
@@ -465,9 +580,9 @@ async function setLevel(key, level) {
   state.settings = await api.claude.setConnectorLevel(key, level);
   emit('settings', state.settings);
 }
-function permissionLevel(key, { disabled = false } = {}) {
+function permissionLevel(key, { disabled = false, name = key } = {}) {
   const level = levelOf(key);
-  const box = el('select', { class: 'input allow-level', disabled }, ...[['ask', 'Ask every time'], ['read', 'Allow reading'], ['write', 'Allow all but deleting'], ['all', 'Allow everything']].map(([v, l]) => el('option', { value: v, selected: v === level }, l)));
+  const box = el('select', { class: 'input allow-level', disabled, 'aria-label': `Permission for ${name}` }, ...[['ask', 'Ask every time'], ['read', 'Allow reading'], ['write', 'Allow all but deleting'], ['all', 'Allow everything']].map(([v, l]) => el('option', { value: v, selected: v === level }, l)));
   box.addEventListener('change', () => setLevel(key, box.value));
   return box;
 }
@@ -490,7 +605,7 @@ function extensionsCard() {
         draw();
       });
       const rows = [
-        el('div', { class: 'row' }, el('label', { class: 'toggle' }, on, el('span', { class: 'sw' }), el('b', {}, x.name)), el('span', { style: { flex: 1 } }), el('span', { class: 'hint' }, 'Permission'), permissionLevel(x.key)),
+        el('div', { class: 'row' }, el('label', { class: 'toggle' }, on, el('span', { class: 'sw' }), el('b', {}, x.name)), el('span', { style: { flex: 1 } }), el('span', { class: 'hint' }, 'Permission'), permissionLevel(x.key, { name: x.name })),
         el('div', { class: 'hint' }, `${x.about} Source: ${x.source}.`),
       ];
       if (x.id === 'godseye') {
@@ -554,6 +669,18 @@ function extensionsCard() {
 
 // The user's claude.ai connectors and Claude Code plugins, used through the Claude account brain.
 const CONNECTOR_STATUS = { connected: ['ok', 'connected'], 'needs-auth': ['warn', 'needs sign-in'], failed: ['err', 'not connecting'], 'not-configured': ['muted', 'not set up'] };
+function formatConnector(c) {
+  const raw = String(c.name || '');
+  const pm = /^plugin:([^:]+):(.+)$/i.exec(raw);
+  if (pm) {
+    const cat = pm[1].replace(/[-_]+/g, ' ').trim();
+    const title = pm[2].replace(/[-_]+/g, ' ').trim().replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+    return { title, source: `${cat} plugin` };
+  }
+  const title = raw.replace(/^claude\.ai\s+/i, '').trim();
+  const source = c.source === 'plugin' ? 'plugin' : c.source === 'connector' ? 'connector' : 'MCP server';
+  return { title, source };
+}
 function connectorsSection() {
   const list = el('div', { class: 'connector-list' });
   const out = result();
@@ -564,15 +691,17 @@ function connectorsSection() {
     const sorted = [...items].sort((a, b) => (RANK[a.status] ?? 4) - (RANK[b.status] ?? 4) || (a.source === 'connector' ? 0 : 1) - (b.source === 'connector' ? 0 : 1) || a.name.localeCompare(b.name));
     for (const c of sorted) {
       const [cls, label] = CONNECTOR_STATUS[c.status] || ['muted', c.status];
+      const { title, source } = formatConnector(c);
       // Always changeable: a level set before a service is connected applies once it is (a greyed-out
       // list looked broken).
-      const box = permissionLevel(c.key);
+      const box = permissionLevel(c.key, { name: title });
       list.append(
         el(
           'div',
           { class: 'connector' },
           el('span', { class: `dot ${cls}` }),
-          el('span', { class: 'name' }, c.name.replace(/^claude\.ai /, ''), el('small', { class: 'muted' }, ` · ${c.source === 'plugin' ? 'plugin' : c.source === 'connector' ? 'connector' : 'your MCP server'} · ${label}`)),
+          el('span', { class: 'name', title: c.name }, title),
+          el('span', { class: `meta ${cls}` }, `${source} · ${label}`),
           el('label', { class: 'allow', title: 'Allow reading: tools that only look things up (list, get, search…) run without asking; anything that creates, sends, changes or deletes still asks. Allow all but deleting: creating and changing run on their own, deleting, removing or archiving still asks. Allow everything: no questions at all, so only for services where nothing can go wrong.' }, box),
         ),
       );
@@ -586,7 +715,9 @@ function connectorsSection() {
       try {
         const items = await api.claude.connectors();
         const ok = items.filter((c) => c.status === 'connected').length;
-        showResult(out, true, `✓ ${ok} of ${items.length} connected. To sign in to one marked “needs sign-in”, run /mcp in Claude Code or connect it on claude.ai → Settings → Connectors.`);
+        const msg = `${ok ? '✓' : '•'} ${ok} of ${items.length} connected. To sign in to one marked “needs sign-in”, run /mcp in Claude Code or connect it on claude.ai → Settings → Connectors.`;
+        out.className = `test-result ${ok ? 'ok' : ''}`.trim();
+        out.textContent = msg;
         draw(items);
       } catch (err) {
         showResult(out, false, `✕ ${err.message}`);
@@ -691,21 +822,42 @@ function brainCard() {
       el('div', { class: 'grid2' }, text('claudeCode.fastModel', 'Fast model', { placeholder: 'haiku' }), text('claudeCode.deepModel', 'Deep model', { placeholder: 'opus' })),
       text('claudeCode.normalModel', 'Model for everyday messages', { placeholder: 'same as Model', hint: 'Quick lookups use the fast model, explanations and plans the deep one, everything else this one. Sonnet starts a reply that uses tools in a few seconds; Opus often takes 15. Empty = the model above.' }),
       el('div', { class: 'grid2' }, toggle('claudeCode.warmOnLaunch', 'Keep a warm session (faster replies)'), text('claudeCode.idleMinutes', 'Close idle session after (min)', { type: 'number' })),
+      toggle('claudeCode.keepModelWarm', 'Stay on the warm model instead of switching to a faster one'),
+      el('div', { class: 'hint' }, 'Each model keeps its own copy of the conversation ready. Switching to the fast model for a quick message makes it read the whole conversation from scratch, which is slower than letting the model that is already warm answer. Routines never change the chat’s model.'),
       toggle('claudeCode.toolsOnRequest', 'Load less-used tools only when a message needs them'),
-      el('div', { class: 'hint' }, 'The everyday tools (calendar, memory, notes, habits, web search…) go with every message; the rest (flashcards, PDFs, GitHub, the agent window…) are looked up when needed. Every message is about 25,000 tokens lighter: quicker to start, less of your plan.'),
+      el('div', { class: 'hint' }, 'The everyday tools (calendar, memory, notes, web search…) go with every message; the rest (PDFs, GitHub, the agent window…) are looked up when needed. Every message is about 25,000 tokens lighter: quicker to start, less of your plan.'),
       connectorsSection(),
     );
   } else if (provider === 'openai') {
     const modelSel = el('select', { class: 'input' });
     fillSelect(modelSel, [['', '(server default / first available)']], state.settings.llm.model);
     modelSel.addEventListener('change', () => save('llm.model', modelSel.value));
+    // Why the models didn't load, in words, with a Start button when it's FreeLLMAPI that isn't running.
+    const modelNote = el('div', { class: 'hint hidden', role: 'status' });
     const loadModels = async (quiet) => {
       try {
         const models = await api.llm.models();
         fillSelect(modelSel, [['', '(server default / first available)'], ...models.map((m) => [m.id, m.name])], state.settings.llm.model);
+        modelNote.classList.add('hidden');
         if (!quiet) toast(`${models.length} models loaded`);
       } catch (err) {
-        if (!quiet) toastError(err);
+        const msg = String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+        const startable = /FreeLLMAPI isn't running/.test(msg) && !/Starting it now/.test(msg);
+        const start = el('button', { class: 'btn small', onclick: async () => {
+          start.disabled = true;
+          start.textContent = 'Starting…';
+          try {
+            await api.helperApps.start('freellmapi');
+            await loadModels(false);
+          } catch (e) {
+            toastError(e);
+            start.disabled = false;
+            start.textContent = '▶ Start FreeLLMAPI';
+          }
+        } }, '▶ Start FreeLLMAPI');
+        modelNote.replaceChildren(el('span', {}, `✕ ${msg} `), startable ? start : '');
+        modelNote.classList.remove('hidden');
+        if (!quiet && !startable) toastError(new Error(msg));
       }
     };
     loadModels(true);
@@ -714,6 +866,7 @@ function brainCard() {
       text('llm.baseUrl', 'FreeLLMAPI base URL', { placeholder: 'http://localhost:3001/v1', hint: 'OpenAI-compatible endpoint. Uses <code>/chat/completions</code> (streaming) and <code>/models</code>.' }),
       text('llm.apiKey', 'Bearer token', { type: 'password', placeholder: 'optional' }),
       field('Model', el('div', { class: 'row' }, modelSel, el('button', { class: 'btn', onclick: () => loadModels(false) }, '⟳ Load models'))),
+      modelNote,
       el('div', { class: 'grid2' }, text('llm.temperature', 'Temperature', { type: 'number' }), text('llm.maxTokens', 'Max output tokens', { type: 'number' })),
       text('llm.historyLimit', 'Messages of history sent per request', { type: 'number', hint: 'Keeps prompts within the context window of free models.' }),
       toggle('llm.compaction', 'Summarize older messages instead of dropping them'),
@@ -1604,7 +1757,7 @@ function remoteCard() {
         el('div', { class: 'row device-actions' },
           el('button', {
             class: 'btn small',
-            title: d.readOnly ? 'Let this device chat, answer approvals and check habits off again' : 'This device can only read: no chatting, approvals, push-to-talk or checking habits off (a shared tablet, a display)',
+            title: d.readOnly ? 'Let this device chat and answer approvals again' : 'This device can only read: no chatting, approvals or push-to-talk (a shared tablet, a display)',
             onclick: async () => {
               await api.remote.setReadOnly(d.id, !d.readOnly).catch(toastError);
               refresh();
@@ -1695,7 +1848,7 @@ function remoteCard() {
     'Talk to the assistant from your phone (the Android app or any browser) or another computer. The brain, memory and keys stay on this computer; paired devices can chat, read conversations and answer approvals, never change settings. Remote messages never include a screenshot of this desktop. While it is on, a “Remote” badge shows at the top; click it to turn everything off.',
     toggle('remote.enabled', 'Turn on remote access', refresh),
     toggle('remote.lan', 'Reachable from other devices on my network (otherwise only from this computer)', refresh),
-    toggle('remote.shareData', 'Show my notes, memories, habits, learning, skill tree and Inner World on paired devices (read-only; habits can be checked off)'),
+    toggle('remote.shareData', 'Show my notes, memories, learning and Inner World on paired devices (read-only)'),
     text('remote.port', 'Port', { type: 'number', onChange: debounceAfter(refresh) }),
     ...tunnelFields(),
     statusBox,

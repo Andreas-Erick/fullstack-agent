@@ -233,3 +233,13 @@ test('who wrote the latest reply: the persona stored on it, skipping the user an
   assert.strictEqual(core.lastPersona([]), '');
   assert.strictEqual(core.lastPersona(undefined), '');
 });
+
+test('a persona with scene: null (new, template or removed scene) never inherits Siren’s default scene on switch', async () => {
+  const fresh = await persona.create({ name: 'Ringmaster' });
+  assert.strictEqual(fresh.appearance.scene, null, 'a fresh persona starts with no scene');
+  await persona.activate('Aria');
+  assert.strictEqual((await store.getSettings()).appearance.scene?.svg, '<svg>A</svg>', 'Aria has her scene');
+  const back = await persona.activate('Ringmaster');
+  assert.strictEqual(back.appearance.scene, null, 'switching back to Ringmaster keeps scene null');
+  await persona.remove(fresh.personas.active);
+});

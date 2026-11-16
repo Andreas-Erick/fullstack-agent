@@ -32,16 +32,13 @@ function dates(now = new Date()) {
 }
 
 /** Fills a fresh vault through the app's own modules, so every format is what the app writes. */
-async function seed({ calendar, habits, memory, flashcards, vault, fs, path }, d) {
+async function seed({ calendar, memory, learning, vault, fs, path }, d) {
   await calendar.add({ title: 'Dentist (Dr. Weber)', when: `${ymd(d.tomorrow)} 10:00-11:00`, location: 'Lindenstraße 4' });
   await calendar.add({ title: 'Halloween party at Mia’s', when: `${ymd(d.saturday)} 19:00-24:00` });
   await calendar.add({ title: 'Team meeting', when: `${ymd(d.team)} 14:00-15:00` });
-  await habits.add({ name: 'Pull-ups', target: 3 });
-  await habits.add({ name: 'Reading', target: 7, note: '15 minutes' });
-  await habits.log(['Reading'], { date: ymd(d.yesterday) });
   await memory.save({ title: 'My sister', content: 'My sister’s name is Lena. She lives in Hamburg.', category: 'people' });
   await memory.save({ title: 'Coffee', content: 'Erick drinks his coffee black, no sugar.', category: 'preferences' });
-  await flashcards.addCards('Spanish', [
+  await learning.addCards('Spanish', [
     { front: 'casa', back: 'house' },
     { front: 'gato', back: 'cat' },
     { front: 'libro', back: 'book' },
@@ -121,23 +118,6 @@ function cases(d) {
         return e && e.date === ymd(d.free) && e.start === '21:00' ? '' : `no movie night at ${ymd(d.free)} 21:00 (${e ? `${e.date} ${e.start}` : 'none'})`;
       },
     },
-    // ---- habits
-    {
-      id: 'habit-log',
-      area: 'habits',
-      ask: 'I did my pull-ups today.',
-      check: async (r) => ((await r.state.habitDone('Pull-ups')) ? '' : 'pull-ups are not checked off for today'),
-    },
-    { id: 'habit-status', area: 'habits', ask: 'How am I doing with my habits this week?', check: all(said(/pull.?ups/i), said(/reading/i)) },
-    {
-      id: 'habit-add',
-      area: 'habits',
-      ask: 'Add a new habit: meditate, 5 times a week.',
-      check: async (r) => {
-        const h = (await r.state.habits()).find((x) => /meditat/i.test(x.name));
-        return h ? (h.target === 5 ? '' : `the habit's target is ${h.target}, not 5`) : 'no meditation habit';
-      },
-    },
     // ---- memory
     {
       id: 'mem-save',
@@ -147,13 +127,20 @@ function cases(d) {
     },
     { id: 'mem-recall', area: 'memory', ask: 'What’s my sister’s name, and where does she live?', check: all(said(/lena/i), said(/hamburg/i)) },
     { id: 'mem-unknown', area: 'memory', ask: 'What’s my dog’s name?', check: all(said(DONT_KNOW)) },
-    // ---- flashcards and notes (tools beyond the everyday ones for a local model)
-    { id: 'cards-due', area: 'learning', ask: 'How many cards are in my Spanish flashcard deck?', check: said(/\b6\b|six/i) },
+    // ---- vocabulary and notes (tools beyond the everyday ones for a local model)
+    { id: 'vocab-count', area: 'learning', ask: 'How many words are in my Spanish vocabulary deck?', check: said(/\b6\b|six/i) },
     {
-      id: 'cards-add',
+      id: 'vocab-add',
       area: 'learning',
-      ask: 'Add a flashcard to my Spanish deck: perro means dog.',
-      check: async (r) => ((await r.state.cards('Spanish')).some((c) => /perro/i.test(`${c.front} ${c.back}`)) ? '' : 'no card with perro in the deck'),
+      ask: 'Add a word to my Spanish deck: perro means dog.',
+      check: async (r) => ((await r.state.vocab('Spanish')).some((c) => /perro/i.test(`${c.front} ${c.back}`)) ? '' : 'no card with perro in the deck'),
+    },
+    // A word that is in the deck, asked by its meaning, without giving the answer away.
+    {
+      id: 'vocab-quiz',
+      area: 'learning',
+      ask: 'Quiz me on one word from my Spanish deck: give me the English and I’ll answer in Spanish. Just the question.',
+      check: all(said(/\b(house|cat|book|water|red|happy)\b/i), notSaid(/\b(casa|gato|libro|agua|rojo|feliz)\b/i, 'it gave the answer away')),
     },
     { id: 'note-read', area: 'notes', ask: 'When is the Project Atlas deadline?', check: all(said(/20/), said(/nov|11/i)) },
     {
@@ -201,22 +188,6 @@ function cases(d) {
       check: all(said(/dentist|10(:00)?|ten/i), async (r) => ((await r.state.schedule()).some((x) => /run/i.test(x.title)) ? 'it booked a run when asked a question' : '')),
     },
     {
-      id: 'q-did-i-read',
-      area: 'questions',
-      ask: 'Did I do my reading yesterday?',
-      check: all(said(/\byes\b|you did|you read|checked off|logged/i), async (r) => ((await r.state.habitDone('Reading')) ? 'it checked reading off for today' : '')),
-    },
-    {
-      id: 'habit-log-two',
-      area: 'habits',
-      ask: 'Did my pull-ups and my reading today.',
-      check: async (r) => {
-        const missing = [];
-        for (const h of ['Pull-ups', 'Reading']) if (!(await r.state.habitDone(h))) missing.push(h);
-        return missing.length ? `not checked off: ${missing.join(', ')}` : '';
-      },
-    },
-    {
       id: 'mem-allergy',
       area: 'memory',
       ask: 'Remember that I’m allergic to peanuts.',
@@ -224,11 +195,11 @@ function cases(d) {
     },
     { id: 'mem-unknown-plural', area: 'memory', ask: 'What are my kids’ names?', check: all(said(DONT_KNOW), notSaid(/\b(are|is) (named|called) [A-Z]|\bnames are [A-Z]/, 'it made names up')) },
     {
-      id: 'cards-add-two',
+      id: 'vocab-add-two',
       area: 'learning',
-      ask: 'Add two cards to my Spanish deck: perro means dog, and verde means green.',
+      ask: 'Add two words to my Spanish deck: perro means dog, and verde means green.',
       check: async (r) => {
-        const cards = await r.state.cards('Spanish');
+        const cards = await r.state.vocab('Spanish');
         const missing = ['perro', 'verde'].filter((w) => !cards.some((c) => new RegExp(w, 'i').test(`${c.front} ${c.back}`)));
         return missing.length ? `missing: ${missing.join(', ')}` : '';
       },

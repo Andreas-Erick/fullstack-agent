@@ -242,14 +242,6 @@ function toolChip(t) {
 const TOOL_LABELS = {
   create_pdf: '📄 Created a PDF',
   vault_links: '🔗 Looked at a note’s links',
-  flashcards_decks: '🗂 Looked at your flashcard decks',
-  flashcards_import: '📥 Imported flashcards',
-  flashcards_add: '🗂 Added flashcards',
-  flashcards_next: '🗂 Next flashcard',
-  flashcards_answer: '🗂 Graded a flashcard',
-  flashcards_mixed: '🔀 Mixed review',
-  flashcards_browse: '🗂 Browsed a deck',
-  flashcards_options: '⚙ Changed deck options',
   quick_note: '📝 Jotted a note',
   skill_list: '⚡ Listed skills',
   skill_run: '⚡ Ran a skill',
@@ -272,13 +264,6 @@ const TOOL_LABELS = {
   vocab_review: '🗂 Picked cards to review',
   vocab_grade: '🗂 Graded a card',
   language_practice: '🗣 Language practice',
-  habit_status: '✅ Checked your habits',
-  habit_log: '✅ Ticked off a habit',
-  habit_add: '✅ Started tracking a habit',
-  habit_pause: '✅ Paused a habit',
-  skilltree_view: '🌌 Looked at your skill tree',
-  skilltree_update: '🌌 Updated your skill tree',
-  skilltree_remove: '🌌 Removed a skill',
   stream_observe: '🧠 Noted an observation',
   stream_recall: '🧠 Searched the memory stream',
   stream_reflect: '✨ Reflected on recent observations',
@@ -493,6 +478,15 @@ export async function send(text, { voice = false, hidden = false } = {}) {
   setFlag('generating', true);
   setFlag('streamingText', false);
   setCaption(text, 'user');
+  // A spoken message hears something within a moment, even when the reply starts with tools or thinking.
+  if (voice && ttsActive() && state.settings.voice.filler) {
+    const turn = active;
+    turn.fillerTimer = setTimeout(() => {
+      if (active !== turn || turn.muted || turn.text.trim() || state.toolsRunning) return;
+      const line = chatcore.earlyFiller(text);
+      if (line) speaker.filler(line);
+    }, chatcore.EARLY_FILLER_MS);
+  }
   $('#sendBtn').classList.add('hidden');
   $('#stopBtn').classList.remove('hidden');
 
@@ -585,17 +579,14 @@ function handleEvent(ev) {
     case 'settings_changed':
       loadSettings();
       break;
+    case 'persona_switched':
+      active.greeting = ev.greeting; // spoken in the new voice after this reply (done)
+      break;
     case 'calendar_changed':
       emit('calendar-changed');
       break;
     case 'skills_changed':
       emit('skills-changed');
-      break;
-    case 'habits_changed':
-      emit('habits-changed');
-      break;
-    case 'skilltree_changed':
-      emit('skilltree-changed');
       break;
     case 'world_changed':
       emit('world-changed');
@@ -611,6 +602,11 @@ function handleEvent(ev) {
       active.bubble.dataset.stamp = stamp(m);
       active.body.append(metaNode(m));
       if (ttsActive() && !active.muted) speaker.flush();
+      // A switch by voice: the new persona greets the user in its own voice, after the reply.
+      if (active.greeting) {
+        const greeting = active.greeting;
+        loadSettings().then(() => ttsActive() && speaker.enqueue(greeting)).catch(() => {});
+      }
       finish();
       if (!ttsActive()) celebrate();
       refreshList();
@@ -638,13 +634,16 @@ function handleEvent(ev) {
 function announce(text) {
   const live = $('#chatLive');
   if (!live) return;
-  const t = String(text || '').replace(/s+/g, ' ').trim();
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
   live.textContent = '';
   setTimeout(() => (live.textContent = t.length > 1500 ? `${t.slice(0, 1500)}… (continued in the conversation)` : t), 50);
 }
 
 function finish() {
+  clearTimeout(active?.fillerTimer);
   active = null;
+  // The filler lines' audio, made in the quiet after a reply (speaker.filler plays only what is ready).
+  if (ttsActive() && state.settings.voice.filler) speaker.warmFillers(chatcore.allFillers(), () => !active && !state.recording);
   state.toolsRunning = 0;
   if (queued) {
     const q = queued;

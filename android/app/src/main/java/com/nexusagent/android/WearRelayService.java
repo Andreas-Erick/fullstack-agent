@@ -31,7 +31,6 @@ import java.util.ArrayDeque;
  *   /siren/ask   {id, text}           → a turn in the watch's conversation, spoken style; answers
  *                                        /siren/reply {id, text} or {id, error} when it is done
  *   /siren/today {}                   → /siren/today with the desktop's /api/data/today
- *   /siren/habit {name, done}         → checks a habit off; answers /siren/today
  *   /siren/new   {}                   → the next question starts a new conversation
  *   /siren/face  {}                   → the persona's look for the watch: data items /siren/look
  *                                        {name, colors} and /siren/face {pack, etag} (the face recorded
@@ -95,10 +94,6 @@ public class WearRelayService extends WearableListenerService {
                     reply(node, "/siren/reply", ask(server, token, in), "ok");
                     break;
                 case "/siren/today":
-                    reply(node, "/siren/today", get(server + "/api/data/today", token), "ok");
-                    break;
-                case "/siren/habit":
-                    post(server + "/api/data/habits/log", token, new JSONObject().put("name", in.optString("name")).put("done", in.optBoolean("done", true)));
                     reply(node, "/siren/today", get(server + "/api/data/today", token), "ok");
                     break;
                 case "/siren/new":

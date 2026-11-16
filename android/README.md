@@ -2,7 +2,7 @@
 
 The Android app for Siren Assistant (formerly Nexus Agent; the package id stays `com.nexusagent.android` so updates install over it) (see `docs/ROADMAP-mobile.md`, step 4). It is a thin native shell
 around the phone app your desktop already serves (`renderer/remote/`), so it always matches the
-desktop version: the chat with the face and voice, and tabs for **Today** (schedule, habits, priorities, cards due, where you left off), **Habits** (check them off), **Learn** (topics and decks), and under **More** the schedule, memory and the memory stream, your notes, the skill tree, the Inner World (the same village, drag and pinch, tap a building), and skills and routines. Plus what a web page can't do on Android:
+desktop version: the chat with the face and voice, and tabs for **Today** (schedule, how many notes you wrote today, priorities, where you left off), **Notes** (read and search your vault's notes), **Learn** (topics and vocabulary decks), and under **More** the schedule, memory and the memory stream, the Inner World (the same village, drag and pinch, tap a building), and skills and routines. Plus what a web page can't do on Android:
 
 - **Notifications while the app is closed** (switch in the app's menu): approvals with **Allow / Deny**
   buttons right in the notification, and replies to messages you sent from the phone. A small
@@ -20,11 +20,11 @@ the Android Keystore and app backups are off. The only library is Google's Wear 
 
 ## Galaxy tablets and Samsung DeX
 
-The same app, laid out for big screens: on a tablet (upright or sideways), in DeX and in large split-screen or pop-up windows, the chat and Siren's face sit on the left and the screen you pick (Today, Habits, Learn, the Inner World…) on the right, both at once. It follows rotation, split screen and window resizing. With a keyboard (Book Cover, DeX): Enter sends, Shift+Enter makes a new line, Ctrl+1–4 switch the tabs, Ctrl+K starts a new chat. Phones turned sideways keep the one-column layout.
+The same app, laid out for big screens: on a tablet (upright or sideways), in DeX and in large split-screen or pop-up windows, the chat and Siren's face sit on the left and the screen you pick (Today, Notes, Learn, the Inner World…) on the right, both at once. It follows rotation, split screen and window resizing. With a keyboard (Book Cover, DeX): Enter sends, Shift+Enter makes a new line, Ctrl+1–4 switch the tabs, Ctrl+K starts a new chat. Phones turned sideways keep the one-column layout.
 
 ## Galaxy Watch (Wear OS)
 
-`android/wear` is a small watch app for the Galaxy Watch 4 and newer (Wear OS 3+; the older Tizen watches can't run it). Tap Siren to ask by voice: she listens right on her own screen (the watch's speech recognition service; the first time it asks for the microphone), so her face stays in view instead of the system's speech screen covering the app (that screen is only the fallback when no speech service answers). A second tap ends the listening early. The question goes **through the Siren app on your phone** (Bluetooth, Google's Wear Data Layer) to your computer, and the answer is spoken by the watch and shown on it. **Today** shows what's still coming on your schedule and your habits; tap one to check it off. **New chat** starts a fresh conversation (the watch keeps its own, apart from the phone's).
+`android/wear` is a small watch app for the Galaxy Watch 4 and newer (Wear OS 3+; the older Tizen watches can't run it). Tap Siren to ask by voice: she listens right on her own screen (the watch's speech recognition service; the first time it asks for the microphone), so her face stays in view instead of the system's speech screen covering the app (that screen is only the fallback when no speech service answers). A second tap ends the listening early. The question goes **through the Siren app on your phone** (Bluetooth, Google's Wear Data Layer) to your computer, and the answer is spoken by the watch and shown on it. **Today** shows what's still coming on your schedule. **New chat** starts a fresh conversation (the watch keeps its own, apart from the phone's).
 
 - **Install walkthrough** in the app too: Settings → Remote access → Install Siren on a Galaxy Watch, and the vault note "Install on your Galaxy Watch" (`main/guides/`).
 - **Nothing to pair on the watch:** it uses the phone's pairing. The phone app must be installed and connected to your computer. It works wherever the phone works, including over the phone's Tailscale.

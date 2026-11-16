@@ -82,3 +82,68 @@ test('a run is told to look for a connector before calling it down (they load af
   assert.match(core.CONNECTOR_CHECK, /ToolSearch/);
   assert.match(core.CONNECTOR_CHECK, /write nothing about a failure/);
 });
+
+// The TickTick sync's first run made the conversation the user then chatted in: every sync ran in
+// their chat, moved its model and added its tool results to every later message's context.
+test('a routine whose conversation became the user’s chat starts its own; replies to a briefing don’t count', () => {
+  const run = { role: 'user', routine: 'r1', content: '⏰' };
+  const own = { role: 'user', content: 'hi' };
+  const reply = { role: 'assistant', content: 'ok' };
+  const conv = (...m) => ({ messages: m });
+  assert.strictEqual(core.takenOver(conv(run, reply, ...Array(12).fill(own)), 'r1'), true);
+  assert.strictEqual(core.takenOver(conv(run, reply, own, run, own, run, own, run, own, own, own), 'r1'), false, 'follow-ups to each briefing');
+  assert.strictEqual(core.takenOver(conv(run, ...Array(5).fill(own)), 'r1'), false, 'a few messages');
+  assert.strictEqual(core.takenOver(conv(run, run, run), 'r1'), false);
+  assert.strictEqual(core.takenOver(null, 'r1'), false);
+  // Another routine's runs are not the user's own messages.
+  assert.strictEqual(core.takenOver(conv(run, ...Array(8).fill({ role: 'user', routine: 'r2' })), 'r1'), false);
+});
+
+// "No model selected" failed the daily briefing and the recordings check, and nothing tried again.
+test('a routine whose brain is not ready waits and tries again, says so once, then gives up', async () => {
+  const { stub, load, tmpDir, quietLog, fileStore } = require('./helpers');
+  const dir = tmpDir('nexus-routine-retry-');
+  stub({ './store': fileStore(dir), './logger': quietLog });
+  const routines = load('main/routines.js');
+  const notes = [];
+  let answer = { ok: false, error: 'No model selected. Choose a model in Settings → AI Brain.' };
+  let runs = 0;
+  routines.start({ run: async () => (runs++, answer), notify: (e) => notes.push(e) });
+  const r = await routines.save({ name: 'Daily briefing', instructions: 'Brief me', schedule: { kind: 'daily', time: '07:45' } });
+  const res = await routines.runNow(r.id);
+  assert.strictEqual(res.waiting, true);
+  let saved = (await routines.list()).find((x) => x.id === r.id);
+  assert.strictEqual(saved.lastStatus, 'waiting');
+  assert.strictEqual(saved.retries, 1);
+  assert.ok(saved.retryAt > Date.now() + 9 * 60000);
+  assert.strictEqual(notes.filter((n) => n.type === 'finished').length, 1, 'told once');
+  assert.match(notes.find((n) => n.type === 'finished').summary, /Waiting for the AI brain \(No model selected/);
+
+  // Not yet due: the tick leaves it alone.
+  await routines.tick();
+  assert.strictEqual(runs, 1);
+  // Due: it runs again; a second wait is not announced again.
+  const fs = require('fs');
+  const file = require('path').join(dir, 'routines.json');
+  const due = () => fs.writeFileSync(file, JSON.stringify(JSON.parse(fs.readFileSync(file, 'utf8')).map((x) => ({ ...x, retryAt: Date.now() - 1 }))));
+  due();
+  await routines.tick();
+  assert.strictEqual(runs, 2);
+  assert.strictEqual(notes.filter((n) => n.type === 'finished').length, 1);
+  // The brain is back: done, the wait is over.
+  answer = { ok: true, text: 'Briefing done.' };
+  due();
+  await routines.tick();
+  saved = (await routines.list()).find((x) => x.id === r.id);
+  assert.strictEqual(saved.lastStatus, 'ok');
+  assert.strictEqual(saved.retryAt, null);
+  assert.strictEqual(saved.retries, 0);
+});
+
+test('retries only for a brain that is not ready, at most three times', () => {
+  assert.ok(core.retryPlan({}, new Error('fetch failed')));
+  assert.ok(core.retryPlan({ retries: 2 }, 'connect ECONNREFUSED 127.0.0.1:11434'));
+  assert.strictEqual(core.retryPlan({ retries: 3 }, 'No model selected'), null, 'gives up after three');
+  assert.strictEqual(core.retryPlan({}, 'TickTick returned 500'), null, 'a real failure fails as before');
+  assert.strictEqual(core.retryPlan({}, 'Stopped after 15 minutes.'), null);
+});

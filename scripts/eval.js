@@ -63,9 +63,9 @@ async function main() {
   const store = require(path.join(ROOT, 'main/store'));
   const llm = require(path.join(ROOT, 'main/llm'));
   const calendar = require(path.join(ROOT, 'main/calendar'));
-  const habits = require(path.join(ROOT, 'main/habits'));
   const memory = require(path.join(ROOT, 'main/memory'));
-  const flashcards = require(path.join(ROOT, 'main/flashcards'));
+  const learning = require(path.join(ROOT, 'main/learning'));
+  const srs = require(path.join(ROOT, 'main/srs'));
   const claudecode = require(path.join(ROOT, 'main/claudecode'));
   const { cases, seed, dates } = require('./eval-cases');
 
@@ -85,13 +85,13 @@ async function main() {
   if (suite !== 'scenarios') {
     templates.basic = path.join(tmp, 'vault-basic');
     await store.setSettings({ obsidian: { enabled: true, vaultPath: templates.basic } });
-    await seed({ calendar, habits, memory, flashcards, vault: templates.basic, fs, path }, d);
+    await seed({ calendar, memory, learning, vault: templates.basic, fs, path }, d);
   }
   const sd = scen.scenarioDates();
   if (suite !== 'basic') {
     templates.scenarios = path.join(tmp, 'vault-scenarios');
     await store.setSettings({ obsidian: { enabled: true, vaultPath: templates.scenarios } });
-    await scen.seedScenarios({ calendar, habits, memory, flashcards, vault: templates.scenarios, fs, path }, sd);
+    await scen.seedScenarios({ calendar, memory, learning, vault: templates.scenarios, fs, path }, sd);
     // The test personas, made the way the Persona studio makes them; the first persona stays active.
     const first = (await store.getSettings()).personas.active;
     for (const p of scen.PERSONAS) {
@@ -126,10 +126,13 @@ async function main() {
         schedule: async () => (await calendar.entries()).entries,
         // Occurrences, repeat rules expanded: [{ title, start (ISO), end, … }] between two YYYY-MM-DD dates.
         events: (start, end) => calendar.events({ start, end }),
-        habits: async () => (await habits.status()).habits,
-        habitDone: async (name) => Boolean((await habits.status()).habits.find((h) => h.name.toLowerCase() === name.toLowerCase())?.doneToday),
         memories: () => memory.list(),
-        cards: async (deck) => (await flashcards.browse(`f:${deck}`)).cards,
+        // A vocabulary deck's cards ([{ front, back, example, … }]), whatever case the brain wrote the language in.
+        vocab: async (language) => {
+          const dir = path.join(vault, learning.LANGUAGES);
+          const file = fs.existsSync(dir) && fs.readdirSync(dir).find((f) => f.toLowerCase() === `${language}.md`.toLowerCase());
+          return file ? srs.parseDeck(fs.readFileSync(path.join(dir, file), 'utf8')).cards : [];
+        },
         findNote: async (re) => {
           const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name.startsWith('.') ? [] : walk(path.join(dir, e.name))) : [path.join(dir, e.name)]));
           const hit = walk(vault).find((f) => f.endsWith('.md') && re.test(path.basename(f)));

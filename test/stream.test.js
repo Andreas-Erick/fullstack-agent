@@ -97,7 +97,7 @@ stub({
     writeNote: async (rel, text) => notes.set(rel, text),
   },
   './llm': { complete: (...a) => llmImpl(...a) },
-  './persona': { extractJson: (t) => JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)) },
+  './persona': { extractJson: (t) => require('../main/jsonrepair').parseLoose(t), jsonWithRetry: (t, ask) => require('../main/jsonrepair').withRetry(t, ask) },
 });
 const stream = load('main/stream.js');
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));

@@ -24,7 +24,7 @@ module.exports = [
     name: 'diagram_save',
     group: 'documents',
     description:
-      'Save a diagram or another self-contained HTML page you made (e.g. following the diagram-design skill: one HTML file with inline SVG and its own styles) to the vault’s Diagrams/ folder and show it in a document window. Scripts and anything that could run are removed, so draw with SVG and CSS only. Returns the saved path.',
+      'Save a diagram or another self-contained HTML page you made (e.g. following the diagram-design skill: one HTML file with inline SVG and its own styles) to the vault’s Diagrams/ folder and show it in a document window. Scripts and anything that could run are removed, so draw with SVG and CSS only. Parts marked data-step="1", "2"… are shown a step at a time in the app (Back / Next / Play; all at once elsewhere); CSS @keyframes animation works. Returns the saved path.',
     parameters: obj({ title: str('Short title, becomes the file name'), html: str('The complete HTML page (or an SVG)'), open: bool('Show it now (default true)'), monitor: { ...MONITOR, description: `${MONITOR.description} Optional.` } }, ['title', 'html']),
     run: async (a, ctx) => {
       const r = await require('../diagrams').save(a.title, a.html);
@@ -37,31 +37,63 @@ module.exports = [
     name: 'chart_create',
     group: 'documents',
     description:
-      'Draw an exact chart for study material or an explanation, computed by the app (never sketch a function plot by hand): kind line (formulas in x such as "x^2 - 3x + 2", "sin(x)/x", "e^(-x^2)", "ln(x)", and/or data points), scatter (points) or bar (labels and values). Up to 7 series, labelled, in print-friendly colours. Saved in the vault\'s Diagrams/ folder and shown; put it into a PDF with the returned embedInPdf line. Formulas: x, pi, e, + - * / ^, parentheses, sin cos tan asin acos atan sinh cosh tanh exp ln log (base 10) log2 sqrt cbrt abs floor ceil round sign; "2x" and "3(x+1)" work.',
+      'Draw an exact, often interactive chart, computed by the app (never sketch a plot by hand), saved in the vault\'s Diagrams/ folder and shown; put it into a PDF with the returned embedInPdf line. Kinds: line (formulas in x and/or points; discrete: true = stems, for pmfs), scatter, bar, histogram (data → bins; density + a pdf series on top), parametric (x, y in t), polar (r in theta), field (vector field dx, dy: phase portraits, gradients), heatmap (fn in x and y with contours and colorScale "log": loss landscapes, decision functions; or matrix: attention, confusion), geometry (shapes only, equal axes: robot arms, vectors, projections), simulate (sim over time: dynamics, control loops, optimizers), 3d (surface z = f(x, y) and items: points, segments, polylines, polygons, curves: camera frustums, point clouds, 3D arms; the user drags it to turn it). Interactive: params are sliders any formula can use, and play animates one; defs are named values computed from them in order (e.g. x1 = l1 cos(q1); inverse kinematics with atan2 and acos), usable in every formula and in shapes/items points. shapes (any 2D kind): point, segment, polyline (joints: true draws a robot arm), polygon, circle (r), arrow, text, with points [[x, y], …] as numbers or formulas. sim: { vars: [{ name, init }], ode: { var: rate } (RK4; tEnd, steps) or map: { var: next value } (iterations: gradient descent, momentum, Adam) }; on a simulate chart series are formulas of t and the vars, and path: [var, var] draws the trajectory on any 2D chart (a descent path over a heatmap, a phase portrait); a blow-up is marked "diverged". xScale/yScale "log" (Bode plots, learning curves). Use params whenever how something changes is the point. Formulas: x (y, z, t, theta where the kind has them), params, defs, pi, e, + - * / ^, sin cos tan asin acos atan sinh cosh tanh exp ln log (base 10) log2 sqrt cbrt abs floor ceil round sign fact, normpdf(x, mu, sigma) normcdf exppdf(x, lambda) unifpdf(x, a, b) binompmf(k, n, p) poissonpmf(k, lambda) choose min max mod atan2(y, x); "2x" and "a sin(bx)" work.',
     parameters: obj(
       {
         title: str('Chart title (also the file name)'),
-        kind: { type: 'string', enum: ['line', 'scatter', 'bar'], description: 'line (default) | scatter | bar' },
+        kind: { type: 'string', enum: ['line', 'scatter', 'bar', 'histogram', 'parametric', 'polar', 'field', 'heatmap', 'geometry', 'simulate', '3d'], description: 'Default line' },
         series: {
           type: 'array',
-          description: 'line/scatter: [{ label, fn } or { label, points: [[x, y], …] }]; bar: [{ label, values: [one number per label] }]',
-          items: { type: 'object', properties: { label: str('Legend label'), fn: str('A formula in x (line charts)'), points: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: '[[x, y], …]' }, values: { type: 'array', items: { type: 'number' }, description: 'Bar heights, one per label' } }, additionalProperties: false },
+          description: 'line/scatter: [{ label, fn } or { label, points }]; bar: [{ label, values }]; parametric: [{ label, x, y }] (in t); polar: [{ label, r }] (in theta); simulate: [{ label, fn }] (in t and the sim vars; default every var); others: optional fn curves on top',
+          items: { type: 'object', properties: { label: str('Legend label'), fn: str('A formula'), discrete: bool('Stems at whole numbers'), x: str('Parametric x(t)'), y: str('Parametric y(t)'), r: str('Polar r(theta)'), color: str('blue | orange | green | pink | yellow | sky | black'), points: { type: 'array', items: { type: 'array', items: { type: 'number' } } }, values: { type: 'array', items: { type: 'number' } } }, additionalProperties: false },
         },
+        params: {
+          type: 'array',
+          description: 'Sliders: [{ name, label?, min, max, value?, step? }] (up to 6; short names such as a, k, q1, mu; not x, y, z, t, theta, pi, e or a function name)',
+          items: { type: 'object', properties: { name: str('Short name used in the formulas'), label: str('What it means'), min: { type: 'number' }, max: { type: 'number' }, value: { type: 'number' }, step: { type: 'number' } }, required: ['name', 'min', 'max'], additionalProperties: false },
+        },
+        play: str('A parameter to animate when the chart opens'),
+        defs: { type: 'array', description: 'Named values from the params, in order: [{ name, fn }] (up to 16)', items: { type: 'object', properties: { name: str('Short name'), fn: str('Formula of params and earlier defs') }, required: ['name', 'fn'], additionalProperties: false } },
+        shapes: { type: 'array', description: '2D geometry: [{ type, points: [[x, y], …], r?, text?, label?, color?, joints?, fill? }]', items: { type: 'object', properties: { type: { type: 'string', enum: ['point', 'segment', 'polyline', 'polygon', 'circle', 'arrow', 'text'] }, points: { type: 'array', items: { type: 'array', items: { type: ['number', 'string'] } } }, r: { type: ['number', 'string'] }, text: str('Caption'), label: str('Legend label'), color: str('Colour name'), joints: bool('Draw as a robot arm'), fill: bool('Fill (polygon, circle)') }, additionalProperties: false } },
+        sim: { type: 'object', description: '{ vars: [{ name, init }], ode: { var: rate } or map: { var: next }, tEnd?, steps?, dt? }', properties: { vars: { type: 'array', items: { type: 'object', properties: { name: str('Variable'), init: { type: ['number', 'string'] } }, required: ['name'], additionalProperties: false } }, ode: { type: 'object', additionalProperties: { type: 'string' } }, map: { type: 'object', additionalProperties: { type: 'string' } }, tEnd: { type: ['number', 'string'] }, steps: { type: 'number' }, dt: { type: 'number' } }, additionalProperties: false },
+        path: { type: 'array', items: { type: 'string' }, description: 'Two sim vars to draw as a trajectory, e.g. ["x", "y"]' },
+        pathLabel: str('Legend label of the path'),
+        fn: str('Heatmap: f(x, y)'),
+        contours: { type: ['number', 'boolean'], description: 'Heatmap: contour lines (default 8; false for none)' },
+        colorScale: { type: 'string', enum: ['linear', 'log'], description: 'Heatmap colours (log for steep functions)' },
+        zRange: { type: 'array', items: { type: 'number' }, description: 'Heatmap: colour range' },
+        matrix: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Heatmap of a matrix (rows)' },
+        rowLabels: { type: 'array', items: { type: 'string' } },
+        colLabels: { type: 'array', items: { type: 'string' } },
+        surface: { type: 'object', properties: { fn: str('z as a formula in x and y'), xRange: { type: 'array', items: { type: 'number' } }, yRange: { type: 'array', items: { type: 'number' } }, grid: { type: 'number' }, label: str('Legend label') }, additionalProperties: false, description: '3d: a surface' },
+        items: { type: 'array', description: '3d: [{ type: points | segment | polyline | polygon | arrow | curve, points: [[x, y, z], …] (numbers or formulas), or x, y, z in t with tRange (curve); label?, text? (label written at its end), color?, width? }]', items: { type: 'object', properties: { type: { type: 'string', enum: ['points', 'segment', 'polyline', 'polygon', 'arrow', 'curve'] }, points: { type: 'array', items: { type: 'array', items: { type: ['number', 'string'] } } }, x: str('Curve x(t)'), y: str('Curve y(t)'), z: str('Curve z(t)'), tRange: { type: 'array', items: { type: 'number' } }, label: str('Label'), text: bool('Write the label at the item'), color: str('Colour name'), width: { type: 'number' } }, additionalProperties: false } },
+        view: { type: 'object', properties: { azimuth: { type: 'number' }, elevation: { type: 'number' } }, additionalProperties: false, description: '3d: starting view in degrees (default -55, 25)' },
         labels: { type: 'array', items: { type: 'string' }, description: 'Bar charts: the category names' },
-        xRange: { type: 'array', items: { type: 'number' }, description: '[from, to]; required with formulas' },
-        yRange: { type: 'array', items: { type: 'number' }, description: 'Optional [from, to]; chosen automatically otherwise (asymptotes are cut off)' },
-        xLabel: str('Optional x-axis label'),
-        yLabel: str('Optional y-axis label'),
+        data: { type: 'array', items: { type: 'number' }, description: 'Histogram: the values' },
+        bins: { type: 'number', description: 'Histogram: number of bins' },
+        density: bool('Histogram: scale bars to a density'),
+        field: { type: 'object', properties: { dx: str('x component (x, y)'), dy: str('y component (x, y)'), label: str('Legend label') }, additionalProperties: false, description: 'Vector field' },
+        xRange: { type: 'array', items: { type: 'number' }, description: '[from, to]; needed with formulas in x, fields and heatmaps' },
+        yRange: { type: 'array', items: { type: 'number' }, description: '[from, to]; needed for fields and heatmaps, else automatic' },
+        xScale: { type: 'string', enum: ['linear', 'log'] },
+        yScale: { type: 'string', enum: ['linear', 'log'] },
+        tRange: { type: 'array', items: { type: 'number' }, description: 'Parametric: t range (default [0, 2pi])' },
+        thetaRange: { type: 'array', items: { type: 'number' }, description: 'Polar: theta range (default [0, 2pi])' },
+        xLabel: str('x-axis label'),
+        yLabel: str('y-axis label'),
         open: bool('Show it now (default true)'),
       },
-      ['title', 'series'],
+      ['title'],
     ),
     run: async (a, ctx) => {
-      const svg = require('../chartcore').render(a);
-      const r = await require('../diagrams').save(a.title, svg);
+      const core = require('../chartcore');
+      const svg = core.render(a);
+      const live = core.params(a).length > 0 || a.kind === '3d'; // sliders, or a 3D scene to turn
+      const diagrams = require('../diagrams');
+      const r = await diagrams.save(a.title, live ? diagrams.chartPage(a, svg) : svg);
       ctx.emit({ type: 'vault_changed', path: r.vaultPath });
       const shown = a.open === false ? null : documents.popup().open(r.path);
-      return { saved: r.vaultPath, opened: Boolean(shown), embedInPdf: `![[${r.vaultPath}]]` };
+      return { saved: r.vaultPath, opened: Boolean(shown), interactive: live ? `${core.params(a).length ? `sliders for ${core.params(a).map((p) => p.name).join(', ')}${a.play ? `, ${a.play} playing` : ''}` : ''}${a.kind === '3d' ? `${core.params(a).length ? '; ' : ''}drag it to turn it` : ''}: tell the user` : undefined, embedInPdf: `![[${r.vaultPath}]]` };
     },
   },
   {

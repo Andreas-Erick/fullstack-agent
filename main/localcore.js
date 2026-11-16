@@ -89,7 +89,7 @@ function requestExtras(settings, pace) {
 // The tools a small model gets: the everyday ones, each easy to call right. (A model this size
 // calling a tool wrongly is worse than not having it; the user can switch to the full prompt.)
 const COMPACT_TOOLS = [
-  'memory_save', 'memory_search', 'calendar_get_events', 'calendar_add_event', 'habit_log', 'habit_status',
+  'memory_save', 'memory_search', 'calendar_get_events', 'calendar_add_event',
   'vault_search', 'vault_read_note', 'daily_note_log', 'web_search', 'web_fetch', 'history_search', 'app_guide',
   'priorities_update', 'learning_overview', 'brain_switch',
 ];
@@ -104,7 +104,6 @@ const TOOLBOX = {
   calendar: ['calendar'],
   notes: ['vault'],
   learning: ['learning', 'practice'],
-  habits: ['habits', 'skilltree'],
   routines: ['routines'],
   documents: ['documents'],
   browser: ['browser'],
@@ -118,15 +117,14 @@ const TOOLBOX = {
 
 // Words that make a group's need obvious, so it is there from the first round (it only ever adds).
 const HINTS = [
-  ['learning', /\b(flash ?cards?|decks?|vocab\w*|study|studying|quiz|anki|learn(ing)?|lernen|karteikarten)\b/i],
+  ['learning', /\b(flash ?cards?|decks?|vocab\w*|study|studying|quiz|learn(ing)?|lernen|karteikarten)\b/i],
   ['routines', /\b(routines?|automatically|every (morning|evening|night|day|week|weekday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|each (morning|evening|day|week))\b/i],
   ['documents', /\b(pdf|documents?|diagrams?|charts?|graph|plot|monitors?|windows?|full ?screen)\b/i],
-  ['habits', /\b(habits?|streaks?|skill ?tree|goals?)\b/i],
   ['browser', /\b(website|web ?page|browser|open (the )?(site|page))\b/i],
   ['looks', /\b(persona|theme|colou?rs?|look and feel|appearance)\b/i],
   ['github', /\b(github|repo(sitory)?|pull request|issues?)\b/i],
   ['skills', /\b(skills?)\b/i],
-  // A log of the app's, not "log my workout" (habit_log is an everyday tool already).
+  // A log of the app's, not "log my workout" (not a request for a tool).
   ['diagnostics', /\b(diagnos\w*|not working|broken|errors?|crash\w*|(the|app|error|debug) logs?|logs)\b/i],
   ['voice', /\b(voices?|accent|calibrat\w*)\b/i],
   ['notes', /\b(notes?|vault|obsidian|journal|daily note)\b/i],
@@ -201,7 +199,7 @@ const NOT_FOR_A_QUESTION = 'Not done: the user asked a question, not for a chang
 // Tools that only look things up. Once a turn ran any other tool (it saved, added, changed
 // something), it is never handed over: the stronger brain would do it again.
 // By name, never a loose suffix: "_file" would also match code_write_file.
-const READ_TOOL = /(^|_)(get|search|read|list|status|overview|decks|browse|options|recall|view|links|history|next|grep|outline)(_|$)|^(tools_more|app_guide|capabilities_for|web_search|web_fetch|look_at_screen|browser_look|code_map|find_document|skill_file|github_issues|github_pull_requests|diagnose|analyze_errors)$/;
+const READ_TOOL = /(^|_)(get|search|read|list|status|overview|options|recall|links|history|grep|outline)(_|$)|^(tools_more|app_guide|capabilities_for|web_search|web_fetch|look_at_screen|browser_look|code_map|find_document|skill_file|github_issues|github_pull_requests|diagnose|analyze_errors)$/;
 const isReadTool = (name) => READ_TOOL.test(String(name || ''));
 
 /**
@@ -223,4 +221,23 @@ function neededService(text, services = []) {
   return services.find((s) => s.length > 2 && new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*')}\\b`, 'i').test(t)) || '';
 }
 
-module.exports = { SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, placeNote, isReadTool, handOverHint, neededService, gaveUpUnlooked, LOOK_FIRST, claimsAction, CLAIM_CHECK, questionOnly, NOT_FOR_A_QUESTION, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };
+// "fetch failed" when the brain's server doesn't answer said nothing useful (Settings tried to load
+// FreeLLMAPI's models six times while it wasn't running). Names the server and what to do, or null
+// when the error isn't "nothing answered" or the address isn't on this computer.
+const UNREACHABLE = /ECONNREFUSED|fetch failed|ECONNRESET|socket hang up|EHOSTUNREACH/i;
+function unreachableMessage(baseUrl, err) {
+  if (!UNREACHABLE.test(`${err?.message || ''} ${err?.cause?.code || ''} ${err?.cause?.message || ''}`)) return null;
+  let url;
+  try {
+    url = new URL(String(baseUrl || ''));
+  } catch {
+    return null;
+  }
+  if (!/^(localhost|127\.0\.0\.1|\[::1\])$/i.test(url.hostname)) return `Nothing answers at ${url.host}: check that the server is running and the address is right.`;
+  const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+  const known = SERVERS.find((x) => new URL(x.baseUrl).port === port);
+  if (known) return `${known.name} isn't running (nothing answers at ${url.host}). Start ${known.name}, then try again.`;
+  return `FreeLLMAPI isn't running (nothing answers at ${url.host}). Start it here, or check the address.`;
+}
+
+module.exports = { unreachableMessage, SERVERS, SMALL_B, SUGGESTED, COMPACT_TOOLS, TOOLBOX, hintGroups, compactTools, placeNote, isReadTool, handOverHint, neededService, gaveUpUnlooked, LOOK_FIRST, claimsAction, CLAIM_CHECK, questionOnly, NOT_FOR_A_QUESTION, paramsOf, isSmall, parseOllama, parseOpenAIModels, suggest, isLocal, compactWanted, requestExtras };

@@ -30,7 +30,7 @@ const TOOLS = fs
 test('pace: lookups in the user’s own things, small commands and small talk are quick', () => {
   each([
     'whats on my calendar today', 'any meetings this afternoon?', 'when is my dentist appointment?', 'do I have class on Monday?',
-    'how many cards are due today?', 'show me my habits', 'what are my plans for the weekend?', 'do I have anything due this week?',
+    'how many cards are due today?', 'what are my plans for the weekend?', 'do I have anything due this week?',
     'what time is it', 'what day is it', 'add gym tomorrow at 7', 'remind me to call mum at 6', 'log my run', 'check off reading',
     'mark meditation done', 'move my dentist appointment to Friday', 'delete the meeting on Tuesday', 'cancel lunch with Sam',
     'remember that I like oat milk', 'set a timer for 10 minutes', 'open the calendar', 'Remind me to water the plants every Sunday',
@@ -39,7 +39,7 @@ test('pace: lookups in the user’s own things, small commands and small talk ar
     // Regressions: a phone keyboard's ’ made these "normal" (the patterns only knew ').
     'what’s on my schedule tomorrow?', 'What’s my next lecture?', 'how’s it going', 'When’s my exam?',
     // Regressions: a lookup with no schedule word, and "is my …".
-    'what do I have tomorrow?', 'What do I have on Friday?', 'what do I have this afternoon', 'is my streak still alive?', 'are my cards due?',
+    'what do I have tomorrow?', 'What do I have on Friday?', 'what do I have this afternoon', 'is my exam on Friday?', 'are my cards due?',
   ], pace.classify, 'quick');
 });
 
@@ -152,9 +152,10 @@ test('tool hints: the obvious group from the first round', () => {
   const personas = ['Captain Vega', 'Ada'];
   const cases = {
     'quiz me on my Spanish vocab': ['learning'],
+    // What many people call their vocabulary cards.
+    'test me on my Spanish flash cards': ['learning'],
     'every morning give me a briefing': ['routines'],
     'make a PDF of my notes': ['documents', 'notes'],
-    'how is my reading streak?': ['habits'],
     'open the website of my university': ['browser'],
     'change your theme to purple': ['looks'],
     'open a pull request': ['github'],
@@ -166,7 +167,7 @@ test('tool hints: the obvious group from the first round', () => {
     'what do you remember about my sister?': ['memory'],
     'switch to Captain Vega': ['looks'],
     'can you change your voice to something deeper?': ['voice'],
-    // Regression: "log" loaded the diagnostics tools for a workout (habit_log is an everyday tool).
+    // Regression: "log" loaded the diagnostics tools for a workout.
     'log my workout': [],
     'log my run and my reading': [],
     'turn the volume down': [],
@@ -179,7 +180,7 @@ test('the toolbox and the hints name real tool groups; the everyday tools exist'
   assert.ok(TOOLS.length > 100, `read ${TOOLS.length} tools`);
   const groups = new Set(TOOLS.map((t) => t.group));
   for (const [box, list] of Object.entries(core.TOOLBOX)) for (const g of list) assert.ok(groups.has(g), `TOOLBOX.${box}: no tool group ${g}`);
-  for (const box of ['learning', 'routines', 'documents', 'habits', 'browser', 'looks', 'github', 'skills', 'diagnostics', 'notes', 'calendar', 'memory', 'voice']) {
+  for (const box of ['learning', 'routines', 'documents', 'browser', 'looks', 'github', 'skills', 'diagnostics', 'notes', 'calendar', 'memory', 'voice']) {
     assert.ok(core.TOOLBOX[box], `a hint names ${box}, which the toolbox does not have`);
   }
   const names = new Set(TOOLS.map((t) => t.name));
@@ -191,13 +192,13 @@ test('the toolbox and the hints name real tool groups; the everyday tools exist'
 test('read-only tools: no tool that changes anything counts as one (a hand-over would run it twice)', () => {
   // Verbs that change something ("log" and "note" are also nouns: read_app_log, vault_read_note; those
   // writes are named below).
-  const WRITE = /(^|_)(write|save|add|update|delete|remove|commit|push|change|edit|answer|switch|run|create|import|clone|set|start|open|close|move|grade|review|observe|reflect|simulate|pause|calibrate|design|permission|complete|configure|register|request|profile|lesson|practice|mixed|resident|act|restore|branch|pick|generate|check|scan|identify|hand)(_|$)/;
-  const misread = TOOLS.filter((t) => (WRITE.test(t.name) || ['habit_log', 'daily_note_log', 'quick_note'].includes(t.name)) && core.isReadTool(t.name)).map((t) => t.name);
+  const WRITE = /(^|_)(write|save|add|update|delete|remove|commit|push|change|edit|answer|switch|run|create|import|clone|set|start|open|close|move|grade|review|observe|reflect|simulate|pause|calibrate|design|permission|complete|configure|register|request|profile|lesson|practice|resident|act|restore|branch|pick|generate|check|scan|identify|hand)(_|$)/;
+  const misread = TOOLS.filter((t) => (WRITE.test(t.name) || ['daily_note_log', 'quick_note'].includes(t.name)) && core.isReadTool(t.name)).map((t) => t.name);
   assert.deepStrictEqual(misread, []);
   // …and the lookups are read-only, so a turn that only looked can still be handed over.
   const lookups = ['memory_search', 'memory_get', 'calendar_get_events', 'calendar_list_entries', 'vault_read_note', 'vault_search', 'vault_list_notes', 'vault_links',
-    'habit_status', 'flashcards_decks', 'flashcards_next', 'flashcards_browse', 'web_search', 'web_fetch', 'app_guide', 'learning_overview', 'history_search', 'stream_recall',
-    'skilltree_view', 'routine_list', 'persona_list', 'code_read_file', 'code_search', 'code_grep', 'code_map', 'code_outline', 'find_document', 'browser_read', 'browser_look',
+    'web_search', 'web_fetch', 'app_guide', 'learning_overview', 'history_search', 'stream_recall',
+    'brain_options', 'routine_list', 'persona_list', 'code_read_file', 'code_search', 'code_grep', 'code_map', 'code_outline', 'find_document', 'browser_read', 'browser_look',
     'skill_file', 'github_issues', 'github_pull_requests', 'github_read_file', 'diagnose', 'analyze_errors', 'look_at_screen', 'tools_more'];
   for (const n of lookups) {
     assert.ok(TOOLS.some((t) => t.name === n), `${n} is not a tool any more`);

@@ -1,7 +1,7 @@
 // Anki's spaced repetition, pure (no I/O): the SM-2 scheduler as Anki's v3 scheduler runs it (learning
 // steps, graduating and easy intervals, ease factors, Hard/Good/Easy multipliers, lapses with
-// relearning steps, interval fuzz, leeches) and FSRS-5 (Anki's newer scheduler) as a per-deck option,
-// with Anki's default parameters. flashcore.js keeps the cards; this decides when each comes back.
+// relearning steps, interval fuzz, leeches) and FSRS-5 (Anki's newer scheduler) as an option, with
+// Anki's default parameters. srs.js keeps the vocabulary cards; this decides when each comes back.
 //
 // A card's schedule: { type: 'new' | 'learn' | 'review' | 'relearn', step, dueAt (ms, learning),
 // due ('YYYY-MM-DD', review), ivl (days), ease (2.5 = 250 %), reps, lapses, last ('YYYY-MM-DD'),

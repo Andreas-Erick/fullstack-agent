@@ -57,7 +57,7 @@ async function run(args, { onTurn = () => {} } = {}) {
   let debrief = null;
   try {
     const text = await withLimit(llm.complete(settings, core.debriefPrompt(spec, lines)), CALL_LIMIT_MS, 'The debrief took too long.');
-    debrief = core.parseDebrief(require('./persona').extractJson(text));
+    debrief = core.parseDebrief(await require('./persona').jsonWithRetry(text, (fix) => withLimit(llm.complete(settings, fix), CALL_LIMIT_MS, 'The debrief took too long.')));
   } catch (err) {
     log.warn('rehearsal debrief failed', { error: err });
   }

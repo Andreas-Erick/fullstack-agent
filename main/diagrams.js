@@ -56,6 +56,17 @@ const fileName = (title) => {
   return t;
 };
 
+// A chart with parameters: the static picture (for Obsidian, PDFs, a browser) plus its description, which
+// the app's viewer turns into sliders and redraws with its own engine (renderer/js/livedoc.js). Data,
+// never code: base64 JSON of the known fields only, so the cleaning above can't cut into it.
+const CHART_FIELDS = ['title', 'kind', 'series', 'params', 'play', 'defs', 'shapes', 'sim', 'path', 'pathLabel', 'fn', 'fnLabel', 'matrix', 'rowLabels', 'colLabels', 'contours', 'colorScale', 'zRange', 'xScale', 'yScale', 'surface', 'items', 'view', 'axes', 'labels', 'data', 'bins', 'density', 'field', 'xRange', 'yRange', 'tRange', 'thetaRange', 'xLabel', 'yLabel'];
+function chartPage(spec, svg) {
+  const keep = Object.fromEntries(CHART_FIELDS.filter((k) => spec[k] !== undefined).map((k) => [k, spec[k]]));
+  if (Array.isArray(keep.data)) keep.data = keep.data.slice(0, 20000);
+  const b64 = Buffer.from(JSON.stringify(keep), 'utf8').toString('base64');
+  return `<div class="nexus-chart" data-nexus-chart="${b64}">${svg}</div>`;
+}
+
 /** Saves the page as Diagrams/<date> <title>.html in the vault; returns its path. */
 async function save(title, html) {
   // The size first: cleaning a huge page with unclosed tags takes minutes.
@@ -120,4 +131,4 @@ async function embedDiagrams(markdown, read) {
   return { markdown: parts.join(''), embeds };
 }
 
-module.exports = { FOLDER, sanitize, save, svgsOf, embedDiagrams };
+module.exports = { FOLDER, sanitize, save, svgsOf, embedDiagrams, chartPage };

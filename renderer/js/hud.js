@@ -22,9 +22,9 @@ function applyFx() {
   rest();
 }
 
-// Animations pause while the window is in the background or the agent is asleep (Balanced only).
+// Animations pause while the window is in the background or the agent is asleep.
 function rest() {
-  document.body.classList.toggle('fx-rest', balanced() && (!document.hasFocus() || document.body.dataset.agent === 'sleeping'));
+  document.body.classList.toggle('fx-rest', !document.hasFocus() || document.hidden || document.body.dataset.agent === 'sleeping');
 }
 
 export function initHud() {
@@ -34,6 +34,7 @@ export function initHud() {
   on('agent-state', (s) => ((document.body.dataset.agent = s), rest()));
   window.addEventListener('focus', rest);
   window.addEventListener('blur', rest);
+  document.addEventListener('visibilitychange', rest);
 
   // Command bar, in the middle: the date, local time and how long this session has been running.
   const clock = el('span', { class: 'hud-clock', 'aria-hidden': 'true' }, el('i', {}), el('b', {}), el('span', {}));
@@ -57,7 +58,7 @@ export function initHud() {
     }).observe(toasts, { childList: true });
   }
 
-  // Views materialize instead of just appearing: a beam sweeps down, the title decodes, cards cascade in.
+  // Views materialize smoothly when opened, with a quick card entrance.
   on('view', ({ name }) => {
     const v = document.getElementById(`view-${name}`);
     if (!v || fxLevel() !== 'hud') return;
@@ -66,9 +67,6 @@ export function initHud() {
     v.classList.add('materialize');
     v.addEventListener('animationend', () => v.classList.remove('materialize'), { once: true });
     if (reduceMotion.matches) return;
-    beam(v);
-    const title = viewTitle(v);
-    if (title) decode(title);
     cascade(v);
   });
 
@@ -78,9 +76,9 @@ export function initHud() {
 }
 
 // ------------------------------------------------------------ cinematic view entrances
-const CASCADE = '.mem-card, .skill-card, .habit-row, .fc-deck, .routine-row, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *, .tree-node, .world-scene, .world-res, .stream-row';
+const CASCADE = '.mem-card, .skill-card, .routine-row, .note-item, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *, .world-scene, .world-res, .stream-row';
 const GLYPHS = '#%&@$*+=<>/\\|[]{}01ΔΣΞΛ';
-const viewTitle = (v) => v.querySelector('.view-head h2, .tree-head h2, .arch-head h2, .world-head h2');
+const viewTitle = (v) => v.querySelector('.view-head h2, .arch-head h2, .world-head h2');
 
 // Each view's title gets a system code from its place in the rail: "SYS.03 // MEMORY VAULT".
 function systemCodes() {
@@ -128,7 +126,7 @@ function cascade(v) {
   const prev = cascades.get(v);
   if (prev) (prev.mo.disconnect(), clearTimeout(prev.timer));
   let i = 0;
-  const mark = (n) => i < 40 && n.style.setProperty('--hud-i', i++);
+  const mark = (n) => i < 16 && n.style.setProperty('--hud-i', i++);
   v.querySelectorAll(CASCADE).forEach(mark);
   v.classList.add('hud-cascade');
   const mo = new MutationObserver((list) => {
@@ -140,7 +138,7 @@ function cascade(v) {
     v.classList.remove('hud-cascade');
     v.querySelectorAll(CASCADE).forEach((n) => n.style.removeProperty('--hud-i'));
     cascades.delete(v);
-  }, 2400);
+  }, 450);
   cascades.set(v, { mo, timer });
 }
 
@@ -193,9 +191,9 @@ function reticle() {
 // readings); real connectivity shows in the status pills right after. Click to skip.
 const PROVIDERS = { 'claude-code': 'Claude account', anthropic: 'Claude API', auto: 'Multi-provider', openai: 'OpenAI-compatible', local: 'Local model', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', perplexity: 'Perplexity' };
 
-export function bootScreen() {
+export function bootScreen({ show = false } = {}) {
   const s = state.settings;
-  if (!s?.onboarded || fxLevel() !== 'hud' || reduceMotion.matches) return { done() {} };
+  if (!show || !s?.onboarded || fxLevel() !== 'hud' || reduceMotion.matches) return { done() {} };
   const on_ = (v, yes = 'ENABLED') => [v ? yes : 'OFF', !v];
   const lines = [
     ['NEURAL CORE', [PROVIDERS[s.llm.provider] || s.llm.provider, false]],

@@ -254,7 +254,14 @@ function startRoutines() {
           clearTimeout(timer);
           resolve(r);
         };
-        startTurn({ conversationId: routine.conversationId, text, requestId, display: `⏰ ${routine.name}`, routine: routine.id, onFinish: done }).catch((err) => done({ ok: false, error: err.message }));
+        // The user's own chat (routinecore.takenOver) isn't the routine's any more: a new conversation.
+        const startIn = async () => {
+          const conv = routine.conversationId ? await store.getConversation(routine.conversationId).catch(() => null) : null;
+          if (!conv || !require('./routinecore').takenOver(conv, routine.id)) return routine.conversationId;
+          log.info('routine gets its own conversation', { routine: routine.name, was: routine.conversationId });
+          return '';
+        };
+        startIn().then((conversationId) => startTurn({ conversationId, text, requestId, display: `⏰ ${routine.name}`, routine: routine.id, onFinish: done })).catch((err) => done({ ok: false, error: err.message }));
       }),
     notify: (ev) => {
       toWindow('routine:event', ev);
@@ -546,34 +553,6 @@ function registerIpc() {
   handle('obsidian:list', (folder) => obsidian.listNotes(folder));
   handle('obsidian:read', (p) => obsidian.readNote(p));
   handle('obsidian:search', (q) => obsidian.search(q, 30));
-  // Flashcards (flashcards.js): decks, studying, editing, importing (a file the user picks is allowed).
-  const fc = () => require('./flashcards');
-  handle('flashcards:decks', () => fc().decks());
-  handle('flashcards:browse', (id, opts) => fc().browse(String(id), opts || {}));
-  handle('flashcards:next', (id) => fc().next(String(id)));
-  handle('flashcards:card', (id, cardId) => fc().card(String(id), String(cardId)));
-  handle('flashcards:answer', (id, cardId, grade) => fc().answer(String(id), String(cardId), String(grade)));
-  handle('flashcards:undo', (id) => fc().undoLast(String(id)));
-  handle('flashcards:mixStart', (opts) => fc().mixStart({ mode: opts?.mode, decks: Array.isArray(opts?.decks) ? opts.decks.map(String) : null }));
-  handle('flashcards:mixNext', (sid) => fc().mixNext(String(sid)));
-  handle('flashcards:mixAnswer', (sid, grade, cardId) => fc().mixAnswer(String(sid), String(grade), cardId ? String(cardId) : ''));
-  handle('flashcards:mixUndo', (sid) => fc().mixUndo(String(sid)));
-  handle('flashcards:create', (name, opts) => fc().createDeck(String(name || ''), opts || {}));
-  handle('flashcards:add', (id, cards) => fc().addCards(String(id), Array.isArray(cards) ? cards.slice(0, 2000) : []));
-  handle('flashcards:edit', (id, cardId, patch) => fc().editCard(String(id), String(cardId), patch || {}));
-  handle('flashcards:options', (id, opts) => fc().setOptions(String(id), opts || {}));
-  handle('flashcards:delete', (id) => fc().deleteDeck(String(id)));
-  handle('flashcards:importable', () => fc().importable());
-  handle('flashcards:import', async (file, deck, opts) => {
-    // No path: the user picks one; a picked file may be anywhere (it is the user's choice).
-    let p = file;
-    if (!p) {
-      const r = await dialog.showOpenDialog(win, { title: 'Import flashcards', properties: ['openFile'], filters: [{ name: 'Flashcards', extensions: ['csv', 'tsv', 'txt', 'apkg', 'colpkg'] }] });
-      if (r.canceled || !r.filePaths[0]) return null;
-      p = r.filePaths[0];
-    }
-    return fc().importFile(p, { deck: deck || '', fromUser: !file, skipFirst: opts?.skipFirst === true });
-  });
   handle('obsidian:links', async (rel) => require('./linkindex').forNote(await obsidian.vaultPath(), String(rel || '')));
 
   // Documents
@@ -690,6 +669,14 @@ function registerIpc() {
     return openPdf(await pdf.create({ title: conv.title || 'Conversation', html: await pdf.conversationHtml(conv) }));
   });
   handle('notes:quick', (text, title) => obsidian.quickNote(text, title, { source: 'user' }));
+  // The Notes view (renderer/js/notes.js): the user's own notes in Notes/ and Inbox/ (main/notebook.js).
+  const notebook = () => require('./notebook');
+  handle('notebook:list', () => notebook().list());
+  handle('notebook:read', (rel) => notebook().read(String(rel || '')));
+  handle('notebook:create', (note) => notebook().create(note && typeof note === 'object' ? { title: String(note.title || ''), body: String(note.body || ''), folder: String(note.folder || '') } : {}));
+  handle('notebook:save', (rel, note) => notebook().save(String(rel || ''), { ...(note?.title !== undefined ? { title: String(note.title) } : {}), ...(note?.body !== undefined ? { body: String(note.body) } : {}) }));
+  handle('notebook:remove', (rel) => notebook().remove(String(rel || '')));
+  handle('notebook:pin', (rel, on) => notebook().pin(String(rel || ''), Boolean(on)));
 
   // Hardware scan (setup wizard)
   handle('hardware:scan', (opts) => require('./hardware').scan(opts || {}));
@@ -705,14 +692,7 @@ function registerIpc() {
   handle('persona:create', (opts) => persona.create({ name: String(opts?.name || ''), copy: opts?.copy === true, template: typeof opts?.template === 'string' ? opts.template : null, activate: opts?.activate !== false }));
   handle('persona:templates', () => persona.templates());
 
-  // Habits (Habits.md in the vault) and routines (scheduled agent runs)
-  handle('habits:status', () => require('./habits').status());
-  handle('habits:log', (name, done, date) => require('./habits').log([String(name)], { done: done !== false, date: date ? String(date) : undefined }));
-  handle('habits:add', (h) => require('./habits').add({ name: String(h?.name || ''), target: Number(h?.target) || 7, note: String(h?.note || '') }));
-  handle('habits:pause', (name, paused) => require('./habits').setPaused(String(name), paused !== false));
-  handle('skilltree:view', () => require('./skilltree').view());
-  handle('skilltree:upsert', (skill) => require('./skilltree').upsert([skill && typeof skill === 'object' ? skill : {}]));
-  handle('skilltree:remove', (name) => require('./skilltree').remove(String(name)));
+  // Routines (scheduled agent runs)
   // The memory stream (stream.js) and the Inner World (innerworld.js); window only, never to devices.
   handle('stream:recent', async () => {
     const stream = require('./stream');
@@ -955,6 +935,10 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       emit({ type: 'done', message: stripRaw(assistantMsg) });
       onFinish?.({ ok: true, text: assistantMsg.content, conversationId: conv.id });
       log.info('reply', { model: result.model, voice: viaVoice, remote: Boolean(remote), firstTextMs, totalMs: Date.now() - startedAt, chars: assistantMsg.content.length, tools: (result.toolCalls || []).map((t) => t.name).join(','), text: assistantMsg.content.slice(0, 160) });
+      // The turn switched persona (or another setting that defines the session): the next session
+      // starts now, while the reply is read or heard, not when the user speaks again.
+      const after = await store.getSettings();
+      if (!fresh.setup && after.claudeCode?.warmOnLaunch && llm.sessionConfigKey(after) !== llm.sessionConfigKey(settings)) llm.prewarm(after, fresh).catch((error) => log.warn('prewarm failed', { error }));
     } catch (err) {
       const aborted = controller.signal.aborted || err?.name === 'AbortError';
       if (aborted) log.info('turn interrupted', { conversation: conv.id });

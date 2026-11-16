@@ -14,14 +14,16 @@ module.exports = [
   {
     name: 'persona_switch',
     group: 'appearance',
-    description: 'Become another of the user\'s personas when they ask ("switch to Aria", "be my study coach"). Changes your master prompt, look, face and voice; your memory, vault and conversations stay the same. It takes effect from your next reply, so finish this one briefly in your current voice. You cannot create personas or edit their master prompts; the user does that in Settings → Persona studio.',
+    description: 'Become another of the user\'s personas when they ask ("switch to Aria", "be my study coach"). Changes your master prompt, look, face and voice; your memory, vault and conversations stay the same. Right after this reply the new persona greets the user in its own voice, so end your reply with a few words only (e.g. "Here is Aria."), nothing about voices or replies. You cannot create personas or edit their master prompts; the user does that in Settings → Persona studio.',
     parameters: obj({ persona: str('The persona\'s name or id (persona_list)') }, ['persona']),
     run: async (a, ctx) => {
       const persona = require('../persona');
       if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', `Switch to the persona "${a.persona}"`, 'Asked after reading external content.');
       const s = await persona.activate(a.persona);
       ctx.emit({ type: 'settings_changed' });
-      return { switched: true, now: s.agent.name, note: 'From your next reply on you are this persona.' };
+      // The new persona says hello in its own voice once this reply is done (renderer chat.js).
+      ctx.emit({ type: 'persona_switched', name: s.agent.name, greeting: s.appearance?.greeting || `Hi, ${s.agent.name} here.` });
+      return { switched: true, now: s.agent.name, note: `${s.agent.name} greets the user in its own voice right after this reply: end it with a few words, e.g. "Here is ${s.agent.name}."` };
     },
   },
   {

@@ -1,6 +1,6 @@
 // Inside a place (zoomed in): the roof and the front walls are cut away and the room shows what the
 // place holds of you, like a floor plan: a shelf per learning topic, a table per vocabulary deck,
-// cabinets of memories, the skill chart, a bed per resident. Names are returned as labels, which
+// cabinets of memories, a bed per resident. Names are returned as labels, which
 // scene.js writes crisply on top. Open-air places draw as usual, with their name tags.
 import { W, HZ, box, poly, rgba, mix, shadowAt, prop, windowOn } from './art.js';
 import { drawPlace } from './places.js';
@@ -204,9 +204,9 @@ const ROOMS = {
     candle(c, P, l.x + 12, l.y - 18, lights);
   },
 
-  observatory(c, r, { P, details, lights, labels }) {
-    const { gx, gy, a, b, z } = r;
-    // The great telescope, and the chart of your skills on a table.
+  observatory(c, r, { P, lights }) {
+    const { gx, gy, z } = r;
+    // The great telescope, and a star chart on a table.
     const t = W(gx - 0.3, gy - 0.3, z);
     shadowAt(c, t.x + 6, t.y + 2, 16, 6);
     poly(c, [{ x: t.x - 6, y: t.y }, { x: t.x + 6, y: t.y }, { x: t.x + 2, y: t.y - 20 }, { x: t.x - 2, y: t.y - 20 }], rgba(P.timberDark));
@@ -214,14 +214,12 @@ const ROOMS = {
     poly(c, [{ x: t.x + 32, y: t.y - 54 }, { x: t.x + 42, y: t.y - 52 }, { x: t.x + 40, y: t.y - 42 }, { x: t.x + 30, y: t.y - 44 }], rgba(P.lamp, 0.8));
     table(c, P, gx + 0.5, gy + 0.4, z, false, [38, 46, 80]);
     const chart = W(gx + 0.5, gy + 0.4, z + 12);
-    const skills = (details.skills || []).slice(0, 6);
-    skills.forEach((s, i) => {
+    for (let i = 0; i < 6; i++) {
       c.beginPath();
-      c.arc(chart.x - 10 + (i % 3) * 10, chart.y - 3 + Math.floor(i / 3) * 4, s.state === 'mastered' ? 2.2 : 1.3, 0, Math.PI * 2);
-      c.fillStyle = rgba(s.state === 'mastered' ? P.lamp : [220, 230, 255]);
+      c.arc(chart.x - 10 + (i % 3) * 10, chart.y - 3 + Math.floor(i / 3) * 4, i % 4 ? 1.3 : 2.2, 0, Math.PI * 2);
+      c.fillStyle = rgba(i % 4 ? [220, 230, 255] : P.lamp);
       c.fill();
-    });
-    skills.slice(0, 4).forEach((s, i) => labels.push({ ...W(gx - a + 0.6 + i * 0.6, gy - b + 0.3, z + 40 + (i % 2) * 14), text: `${s.state === 'mastered' ? '✦' : '✧'} ${s.name} ${Math.round(s.progress * 100)}%` }));
+    }
     candle(c, P, chart.x + 14, chart.y, lights);
   },
 
@@ -256,17 +254,17 @@ function openLabels(id, s, z, ctx) {
   const { gx, gy, a, b } = s;
   const d = ctx.details || {};
   if (id === 'grounds') {
-    const habits = d.habits || [];
-    habits.slice(0, 8).forEach((h, i, all) => {
+    const books = d.notebooks || [];
+    books.slice(0, 8).forEach((h, i, all) => {
       const t = (i + 0.5) / all.length;
-      ctx.labels.push({ ...W(gx - a + 0.4 + t * (2 * a - 0.8), gy - b + 0.4, z + 62 + (i % 2) * 14), text: `${h.name}${h.streak ? ` · ${h.streak}${h.unit}` : ''}${h.done ? ' ✓' : ''}` });
+      ctx.labels.push({ ...W(gx - a + 0.4 + t * (2 * a - 0.8), gy - b + 0.4, z + 62 + (i % 2) * 14), text: `${h.name} · ${h.count} note${h.count === 1 ? '' : 's'}${h.done ? ' ✓' : ''}` });
     });
   } else if (id === 'garden') {
-    const habits = d.habits || [];
-    const beds = Math.max(4, Math.min(8, habits.length || 4));
-    habits.slice(0, beds).forEach((h, i) => {
+    const today = d.notesToday || [];
+    const beds = Math.max(4, Math.min(8, today.length || 4));
+    today.slice(0, beds).forEach((name, i) => {
       const ang = (i / beds) * Math.PI * 2 + 0.4;
-      ctx.labels.push({ ...W(gx + Math.cos(ang) * 2.3, gy + Math.sin(ang) * 2.3, z + 18), text: `${h.done ? '🌸' : '🌱'} ${h.name}` });
+      ctx.labels.push({ ...W(gx + Math.cos(ang) * 2.3, gy + Math.sin(ang) * 2.3, z + 18), text: `🌸 ${name}` });
     });
   } else if (id === 'lookout') {
     const w = d.work || {};

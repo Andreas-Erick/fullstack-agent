@@ -14,7 +14,7 @@ const DEEP =
 // "what is time dilation?" or "what are the events that led to WW1?" are not mistaken for one.
 const ASK = /^(what'?s|what is|what are|what do i|when'?s|when is|when do i|where is|do i have|have i|am i|is (there|my)|are (there|my)|any|show( me)?|list|check|tell me (my|about my|what)|read (me )?my|how many|wann|was (steht|habe|hab)|hab ich|habe ich)\b/i;
 const PERSONAL =
-  /\b(schedule|calendar|agenda|plans?|meetings?|appointments?|events?|class(es)?|lectures?|exams?|deadlines?|termine?|kalender|habits?|streaks?|to-?dos?|tasks?|reminders?|routines?|cards|flashcards|recordings?|notes?|inbox|emails?|weather|forecast|on( for)?|free|busy|due|steht|an)\b/i;
+  /\b(schedule|calendar|agenda|plans?|meetings?|appointments?|events?|class(es)?|lectures?|exams?|deadlines?|termine?|kalender|to-?dos?|tasks?|reminders?|routines?|cards|flashcards|recordings?|notes?|inbox|emails?|weather|forecast|on( for)?|free|busy|due|steht|an)\b/i;
 const MINE = /\b(my|mine|i|me|i'm|we|our|mein\w*|ich|today|tonight|tomorrow|yesterday|this (morning|afternoon|evening|week|weekend)|next (week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|on (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|weekend|heute|morgen)\b/i;
 const CLOCK = /^(what time is it|what'?s the (time|date)|what('?s| is) (the )?date today|what day is (it|today))\b/i;
 // "What do I have tomorrow?": a schedule lookup with no schedule word in it.
@@ -60,4 +60,32 @@ function plan(settings, { text = '', voice = false, setup = false, engineering =
   return { pace, mode: fastVoice ? 'fast' : 'normal', effort: base };
 }
 
-module.exports = { classify, plan };
+// ------------------------------------------------------------------ warm model
+// Each model has its own prompt cache. A Claude Code session is big (~85k tokens fresh, more as it
+// grows), so moving it to a smaller model "to be quick" made that model read everything cold: a
+// "how are you?" on Haiku took 3.4–7.4 s to its first word after Opus or Sonnet had the session,
+// ~1.8 s when Haiku was already warm. A warm read on the model the session is on starts sooner.
+const TIER = (m) => (/haiku/i.test(m) ? 1 : /sonnet/i.test(m) ? 2 : /opus|fable/i.test(m) ? 3 : 0);
+// Below this a cold read takes about a second: switching is fine.
+const WARM_MIN_TOKENS = 30000;
+
+/**
+ * The model for this turn, given the one the pace wants and the session's last call
+ * (`last` = { model, at, tokens, key }, `key` = the session configuration now; another key means
+ * the system prompt changed, so nothing is cached anyway). Returns { model, kept } where kept says
+ * why the warm model was kept instead.
+ *  - a routine (background work) never moves the chat's model: the user's next message would pay;
+ *  - a move to a smaller model waits until the cache has gone cold (`ttlMs`);
+ *  - a move to a bigger model (deep work) happens: the user asked for the thinking.
+ */
+function warmModel({ want, last, key, now = Date.now(), ttlMs, routine = false }) {
+  const model = want || 'default';
+  if (!last?.model || last.key !== key || last.model === model) return { model };
+  if (!(now - last.at < ttlMs) || !((last.tokens || 0) >= WARM_MIN_TOKENS)) return { model };
+  if (routine) return { model: last.model, kept: 'routine' };
+  const [to, from] = [TIER(model), TIER(last.model)];
+  if (to && from && to < from) return { model: last.model, kept: 'warm' };
+  return { model };
+}
+
+module.exports = { classify, plan, warmModel, WARM_MIN_TOKENS };

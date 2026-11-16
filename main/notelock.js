@@ -1,5 +1,5 @@
-// One read-modify-write at a time per note. Two quick check-offs in the Habits view, or a routine and a
-// click at the same moment, must not both read the old Habits.md and overwrite each other's change.
+// One read-modify-write at a time per note. Two quick changes to one note (a vocabulary deck, a learning
+// topic) at the same moment must not both read the old note and overwrite each other's change.
 // (store.writeJsonAtomic orders the writes; this orders the whole read → change → write.)
 //
 // It also guards against edits made outside the app (Obsidian, a text editor) between the read and the

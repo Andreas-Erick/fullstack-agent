@@ -1,5 +1,5 @@
 // Language practice (renderer/js/practice.js), persona templates (main/personatemplates.js) and the
-// one-time install of the bundled skills (main/skills.js).
+// install of the bundled skills (main/skills.js; refreshing them: test/bundledskills.test.js).
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -47,7 +47,7 @@ test('persona templates are complete personas', () => {
   }
 });
 
-test('bundled skills are installed once; a deleted one stays deleted', async () => {
+test('bundled skills are installed; a deleted one stays deleted', async () => {
   const data = tmpDir('nexus-skills-');
   stub({ './store': fileStore(data) });
   let skills = load('main/skills.js');

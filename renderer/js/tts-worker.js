@@ -65,12 +65,24 @@ async function style(voice) {
   return data;
 }
 
+// Where a sentence's time goes (voice.js logs the first ones after a load): a short sentence took
+// as long as a long one (0.8–2 s), which looks like per-input-length GPU work, not text length.
+const seenLengths = new Set();
+let timing = null;
+
 async function generate({ model, tokenizer, phonemize }, text, voice, speed) {
+  const t0 = performance.now();
   const phonemes = await toPhonemes(text, voice, phonemize);
+  const t1 = performance.now();
   const { input_ids } = tokenizer(phonemes, { truncation: true });
-  const offset = styleOffset(input_ids.dims.at(-1));
+  const tokens = input_ids.dims.at(-1);
+  const offset = styleOffset(tokens);
   const s = (await style(voice)).slice(offset, offset + 256);
+  const t2 = performance.now();
   const { waveform } = await model({ input_ids, style: new Tensor('float32', s, [1, 256]), speed: new Tensor('float32', [speed], [1]) });
+  const t3 = performance.now();
+  timing = { tokens, newLength: !seenLengths.has(tokens), phonemeMs: Math.round(t1 - t0), modelMs: Math.round(t3 - t2), audioSec: +(waveform.data.length / 24000).toFixed(2) };
+  seenLengths.add(tokens);
   return waveform.data;
 }
 
@@ -83,7 +95,7 @@ async function speak(msg) {
     const samples = await generate(engine, msg.text, kokoroVoice(msg.voice), Number(msg.speed) || 1);
     // The model's output buffer may be shared with its tensor; send a copy we can transfer.
     const out = new Float32Array(samples);
-    self.postMessage({ type: 'audio', id: msg.id, samples: out }, [out.buffer]);
+    self.postMessage({ type: 'audio', id: msg.id, samples: out, timing }, [out.buffer]);
   } catch (err) {
     self.postMessage({ type: 'error', id: msg.id, message: err.message });
   }

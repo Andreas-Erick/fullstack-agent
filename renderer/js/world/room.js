@@ -106,14 +106,16 @@ const LAYOUTS = {
       st('rug', RW / 2 - 140, RH - 120, 280, 60, { info: 'A rug by the door.', noslot: true }),
     ] };
   },
-  observatory(d) {
-    const skills = d.skills || [];
-    const areas = [...new Set(skills.map((s) => s.area || 'Other'))].slice(0, 5);
-    const charts = row(areas.length ? areas : ['The sky'], WALL_TOP + 6, 150, 96, 24, (area, x, y, i) => {
-      const list = skills.filter((s) => (s.area || 'Other') === area);
-      return st('chart', x, y, 150, 96, { label: short(area, 14), info: list.length ? `${area}: ${list.filter((s) => s.state === 'mastered').length} of ${list.length} mastered` : 'No skills charted yet.', stars: list.slice(0, 12).map((s) => ({ lit: s.state === 'mastered', warm: s.state === 'growing' || s.state === 'unlocked', seed: hash(s.name) })), seed: i + 8, verbs: [/chart|skill|star|plan|calendar|schedule|routine|next/i] });
+  observatory() {
+    // The star charts are decoration: the same skies every time, from seeds.
+    const charts = row(['Evening sky', 'Midnight sky', 'Morning sky'], WALL_TOP + 6, 150, 96, 24, (name, x, y, i) => {
+      const stars = Array.from({ length: 6 + i * 2 }, (_, j) => {
+        const seed = hash(`chart${i}star${j}`);
+        return { lit: seed % 4 === 0, warm: seed % 3 === 0, seed };
+      });
+      return st('chart', x, y, 150, 96, { label: name, info: `Star chart of the ${name.toLowerCase()}: for reading what comes next.`, stars, seed: i + 8, verbs: [/chart|star|plan|calendar|schedule|routine|next/i] });
     });
-    return { floor: 'stone', open: false, stations: [...charts, st('telescope', RW / 2 - 90, RH / 2 - 60, 180, 150, { label: 'Telescope', info: 'Pointed at your skill constellations.', verbs: [/chart|skill|star|look|observ|plan|calendar|schedule|routine|next/i] }), st('desk', WALL + 40, RH - 200, 180, 80, { label: 'Almanac', info: 'The calendar and the routines, written up.', verbs: [/calendar|schedule|routine|plan|write/i] }), st('globe', RW - WALL - 110, RH - 190, 70, 90, { info: 'A globe of the known world.' })] };
+    return { floor: 'stone', open: false, stations: [...charts, st('astrolabe', RW / 2 - 170, RH / 2 - 76, 340, 176, { info: 'The brass meridian dial set into the observatory floor.', noslot: true }), st('telescope', RW / 2 - 90, RH / 2 - 60, 180, 150, { label: 'Telescope', info: 'For a long look at what lies ahead.', verbs: [/chart|star|look|observ|plan|calendar|schedule|routine|next/i] }), st('desk', WALL + 40, RH - 200, 180, 80, { label: 'Almanac', info: 'The calendar and the routines, written up.', verbs: [/calendar|schedule|routine|plan|write/i] }), st('globe', RW - WALL - 110, RH - 190, 70, 90, { info: 'A globe of the known world.' })] };
   },
   stage(d, data) {
     const rehearsals = (data.rehearsals || []).slice(0, 3);
@@ -134,13 +136,13 @@ const LAYOUTS = {
     ] };
   },
   garden(d) {
-    const habits = (d.habits || []).slice(0, 10);
-    const beds = habits.length ? grid(habits, 5, WALL_TOP + 30, 120, 70, 40, 230, (h, x, y, i) => st('flowerbed', x, y, 120, 70, { label: short(h.name, 12), info: `${h.name}: ${h.done ? 'kept today' : 'not yet today'}${h.streak ? ` · streak ${h.streak}${h.unit}` : ''}`, bloom: h.done, seed: i + 12, verbs: [/habit|garden|water|flower|walk|stroll|think|rest/i] })) : [st('flowerbed', RW / 2 - 60, WALL_TOP + 30, 120, 70, { label: 'Bare bed', info: 'A flower blooms here for every habit you keep today.', bloom: false, seed: 12 })];
+    const today = (d.notesToday || []).slice(0, 10).map((name) => ({ name }));
+    const beds = today.length ? grid(today, 5, WALL_TOP + 30, 120, 70, 40, 230, (h, x, y, i) => st('flowerbed', x, y, 120, 70, { label: short(h.name, 12), info: `${h.name}: written today`, bloom: true, seed: i + 12, verbs: [/note|garden|water|flower|walk|stroll|think|rest/i] })) : [st('flowerbed', RW / 2 - 60, WALL_TOP + 30, 120, 70, { label: 'Bare bed', info: 'A flower blooms here for every note you write today.', bloom: false, seed: 12 })];
     return { floor: 'grass', open: true, stations: [...beds, st('fountain', RW / 2 - 70, RH / 2 - 40, 140, 110, { label: 'Fountain', info: 'The village fountain.', verbs: [/think|stroll|walk|rest|wonder|wander|muse|sit/i] }), st('seat', WALL + 60, RH - 150, 110, 48, { info: 'A bench in the sun.', verbs: [/sit|rest|read|think|stroll/i] }), st('seat', RW - WALL - 170, RH - 150, 110, 48, { info: 'A bench in the shade.', verbs: [/sit|rest|read|think|stroll/i] })] };
   },
   grounds(d) {
-    const habits = (d.habits || []).slice(0, 10);
-    const banners = habits.length ? row(habits, WALL_TOP + 6, 70, 120, 24, (h, x, y, i) => st('banner', x, y, 70, 120, { label: short(h.name, 10), info: `${h.name}: ${h.done ? 'raised today' : 'lowered until you keep it today'}`, up: h.done, seed: i + 13, verbs: [/habit|train|run|exercis|practi|work ?out|stretch|sport/i] })) : [st('banner', RW / 2 - 35, WALL_TOP + 6, 70, 120, { label: 'No banners', info: 'A banner is raised here for every habit you keep.', up: false, seed: 13 })];
+    const books = (d.notebooks || []).slice(0, 10);
+    const banners = books.length ? row(books, WALL_TOP + 6, 70, 120, 24, (h, x, y, i) => st('banner', x, y, 70, 120, { label: short(h.name, 10), info: `${h.name}: ${h.count} note${h.count === 1 ? '' : 's'}, ${h.done ? 'raised: written in today' : 'lowered until you write in it today'}`, up: h.done, seed: i + 13, verbs: [/note|writ|train|run|exercis|practi|work ?out|stretch|sport/i] })) : [st('banner', RW / 2 - 35, WALL_TOP + 6, 70, 120, { label: 'No banners', info: 'A banner is raised here for every notebook you write in.', up: false, seed: 13 })];
     return { floor: 'grass', open: true, stations: [...banners, st('track', WALL + 60, RH - 240, RW - 2 * WALL - 120, 150, { label: 'Track', info: 'Laps for the body, rhythm for the mind.', verbs: [/run|train|exercis|lap|jog|sprint|work ?out/i], noslot: true }), st('dummy', RW - WALL - 110, WALL_TOP + 150, 60, 90, { info: 'A training dummy.', verbs: [/train|fight|practi|spar/i] })] };
   },
 };
@@ -352,15 +354,35 @@ function floor(c, f) {
 function walls(c, f) {
   const P = f.P;
   if (f.open) {
-    // Open air: a low parapet or hedge instead of a back wall.
+    // Open air: distant rolling hills under the sky, then a sculpted hedge or stone parapet.
+    const skyH = WALL_TOP - 34;
+    c.fillStyle = rgba(f.night ? [16, 20, 44] : [138, 192, 232]);
+    c.fillRect(0, 0, RW, skyH);
+    c.fillStyle = rgba(f.night ? [26, 32, 64] : [178, 218, 245], 0.55);
+    c.fillRect(0, skyH - 14, RW, 14);
+    if (f.night) stars(c, 0, 0, RW, skyH, 40, f);
+    else clouds(c, f);
+    // Distant hills silhouette along the horizon.
+    c.fillStyle = rgba(f.night ? [22, 34, 48] : mix(P.leafDark, [120, 160, 190], 0.35), 0.85);
+    c.beginPath();
+    c.moveTo(0, skyH + 4);
+    for (const [hx, hy] of [[160, skyH - 12], [340, skyH - 4], [540, skyH - 14], [760, skyH - 5], [RW, skyH - 10]]) c.quadraticCurveTo(hx - 80, hy, hx, skyH + 2);
+    c.lineTo(RW, skyH + 6);
+    c.closePath();
+    c.fill();
     c.fillStyle = rgba(f.floor === 'grass' ? P.leafDark : P.stoneShade);
     c.fillRect(0, WALL_TOP - 30, RW, 30);
     c.fillStyle = rgba(f.floor === 'grass' ? P.leaf : P.stone);
     c.fillRect(0, WALL_TOP - 36, RW, 10);
-    c.fillStyle = rgba(f.night ? [18, 22, 48] : [150, 200, 236]);
-    c.fillRect(0, 0, RW, WALL_TOP - 36);
-    if (f.night) stars(c, 0, 0, RW, WALL_TOP - 36, 40, f);
-    else clouds(c, f);
+    if (f.floor === 'grass') {
+      // Scalloped hedge crowns so the greenery looks organic instead of a flat bar.
+      c.fillStyle = rgba(P.leaf);
+      for (let hx = 28; hx < RW - 20; hx += 48) {
+        c.beginPath();
+        c.ellipse(hx, WALL_TOP - 35, 22, 7, 0, Math.PI, 0);
+        c.fill();
+      }
+    }
   } else {
     c.fillStyle = rgba(f.floor === 'stone' ? P.stoneShade : P.plasterShade);
     c.fillRect(0, 0, RW, WALL_TOP);
@@ -605,14 +627,40 @@ function station(c, f, s) {
     case 'poster': {
       block(c, P, x, y, w, h, s.kind === 'chart' ? [24, 30, 64] : s.kind === 'poster' ? P.cloth : [40, 52, 44], P.timberDark, { r: 4, depth: 8 });
       if (s.kind === 'chart') {
-        for (const star of s.stars || []) {
-          const sx = x + 10 + (star.seed % 100) * ((w - 20) / 100);
-          const sy = y + 8 + ((star.seed >>> 7) % 100) * ((h - 26) / 100);
-          c.fillStyle = rgba(star.lit ? P.warn : star.warm ? P.c1 : [120, 130, 170], star.lit ? 1 : 0.7);
+        c.save();
+        rr(c, x + 5, y + 5, w - 10, h - 18, 3);
+        c.clip();
+        // Faint celestial coordinate ring inside the chart.
+        c.strokeStyle = rgba([90, 115, 165], 0.22);
+        c.lineWidth = 1;
+        c.beginPath();
+        c.arc(x + w / 2, y + (h - 10) / 2, Math.min(w, h) * 0.34, 0, Math.PI * 2);
+        c.stroke();
+        const pts = (s.stars || []).map((star) => ({
+          ...star,
+          sx: x + 14 + ((star.seed >>> 0) % 100) * ((w - 28) / 100),
+          sy: y + 10 + ((star.seed >>> 7) % 100) * ((h - 30) / 100),
+        }));
+        if (pts.length > 1) {
+          c.strokeStyle = rgba(P.c1, 0.28);
+          c.lineWidth = 1.2;
           c.beginPath();
-          c.arc(sx, sy, star.lit ? 4 : 2.5, 0, Math.PI * 2);
+          pts.forEach((p, i) => (i ? c.lineTo(p.sx, p.sy) : c.moveTo(p.sx, p.sy)));
+          c.stroke();
+        }
+        for (const star of pts) {
+          if (star.lit) {
+            c.fillStyle = rgba(P.warn, 0.22);
+            c.beginPath();
+            c.arc(star.sx, star.sy, 7.5, 0, Math.PI * 2);
+            c.fill();
+          }
+          c.fillStyle = rgba(star.lit ? P.warn : star.warm ? P.c1 : [135, 148, 190], star.lit ? 1 : 0.78);
+          c.beginPath();
+          c.arc(star.sx, star.sy, star.lit ? 3.8 : 2.5, 0, Math.PI * 2);
           c.fill();
         }
+        c.restore();
       } else if (s.kind === 'board') {
         c.fillStyle = rgba([235, 235, 225], 0.9);
         c.font = `12px ${P.body || 'sans-serif'}`;
@@ -786,22 +834,88 @@ function station(c, f, s) {
       c.stroke();
       break;
     }
-    case 'telescope': {
-      block(c, P, x + w / 2 - 40, y + h - 40, 80, 40, [70, 74, 84], [44, 46, 54], { r: 6, depth: 14 });
+    case 'astrolabe': {
+      const cx = x + w / 2;
+      const cy = y + h / 2 + 10;
       c.save();
-      c.translate(x + w / 2, y + h - 40);
-      c.rotate(-0.9);
+      c.strokeStyle = rgba(P.copper, 0.35);
+      c.lineWidth = 2;
+      for (const [rx, ry] of [[w * 0.46, h * 0.42], [w * 0.32, h * 0.29], [w * 0.16, h * 0.15]]) {
+        c.beginPath();
+        c.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        c.stroke();
+      }
+      c.beginPath();
+      c.moveTo(cx - w * 0.46, cy);
+      c.lineTo(cx + w * 0.46, cy);
+      c.moveTo(cx, cy - h * 0.42);
+      c.lineTo(cx, cy + h * 0.42);
+      c.stroke();
+      c.restore();
+      break;
+    }
+    case 'telescope': {
+      const cx = x + w / 2;
+      const baseY = y + h - 22;
+      // Circular stone dais + dark iron pedestal.
+      c.fillStyle = rgba([0, 0, 0], 0.2);
+      c.beginPath();
+      c.ellipse(cx, baseY + 8, 56, 16, 0, 0, Math.PI * 2);
+      c.fill();
+      block(c, P, cx - 42, y + h - 42, 84, 36, [76, 82, 94], [46, 50, 60], { r: 8, depth: 14 });
+      // Brass fork yoke rising from the pedestal to the pivot.
+      const pivY = y + h - 68;
+      c.strokeStyle = rgba(P.outline);
+      c.lineWidth = 7;
+      c.beginPath();
+      c.moveTo(cx - 16, y + h - 38);
+      c.lineTo(cx, pivY);
+      c.lineTo(cx + 16, y + h - 38);
+      c.stroke();
+      c.strokeStyle = rgba(P.copper);
+      c.lineWidth = 4;
+      c.stroke();
+      // Main optical tube + brass rings + eyepiece, centered on the pivot.
+      c.save();
+      c.translate(cx, pivY);
+      c.rotate(-0.78);
+      // Eyepiece drawtube at the back.
+      c.fillStyle = rgba([50, 54, 64]);
+      rr(c, -8, 18, 16, 22, 4);
+      c.fill();
+      c.strokeStyle = rgba(P.outline);
+      c.lineWidth = 2.5;
+      c.stroke();
+      // Main brass/teal barrel.
       c.fillStyle = rgba(P.copper);
-      rr(c, -16, -h + 20, 32, h - 20, 8);
+      rr(c, -15, -78, 30, 100, 7);
       c.fill();
       c.strokeStyle = rgba(P.outline);
       c.lineWidth = 3;
       c.stroke();
-      c.fillStyle = rgba([120, 180, 220]);
+      // Brass cradle bands.
+      c.fillStyle = rgba(mix(P.copper, [255, 230, 160], 0.45));
+      c.fillRect(-16, -24, 32, 6);
+      c.fillRect(-16, 4, 32, 6);
+      c.fillRect(-16, -74, 32, 7);
+      // Objective lens with starlight reflection.
+      c.fillStyle = rgba([130, 200, 240]);
       c.beginPath();
-      c.ellipse(0, -h + 22, 15, 6, 0, 0, Math.PI * 2);
+      c.ellipse(0, -76, 13, 5.5, 0, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = rgba([255, 255, 255], 0.75);
+      c.beginPath();
+      c.ellipse(-4, -77, 4, 2, 0, 0, Math.PI * 2);
       c.fill();
       c.restore();
+      // Setting circle hub on the yoke pivot.
+      c.fillStyle = rgba(mix(P.copper, [255, 220, 140], 0.35));
+      c.beginPath();
+      c.arc(cx, pivY, 8, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = rgba(P.outline);
+      c.lineWidth = 2.5;
+      c.stroke();
       label(c, f, s, s.label, y + h + 12);
       break;
     }
@@ -968,17 +1082,27 @@ function station(c, f, s) {
       break;
     }
     case 'banner': {
+      const px = x + w / 2;
+      // Stone plinth at base + timber pole + brass finial orb at top.
+      block(c, P, px - 12, y + h - 14, 24, 14, P.stoneLight, P.stoneShade, { r: 4, depth: 6 });
       c.fillStyle = rgba(P.timberDark);
-      c.fillRect(x + w / 2 - 3, y, 6, h);
-      const top = s.up ? y + 6 : y + h * 0.55;
-      c.fillStyle = rgba(acc[s.seed % acc.length], s.up ? 1 : 0.55);
+      c.fillRect(px - 3, y + 6, 6, h - 18);
+      c.fillStyle = rgba(P.warn);
+      c.beginPath();
+      c.arc(px, y + 6, 5, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = rgba(P.outline, 0.8);
+      c.lineWidth = 2;
+      c.stroke();
+      const top = s.up ? y + 12 : y + h * 0.5;
+      c.fillStyle = rgba(acc[s.seed % acc.length], s.up ? 1 : 0.6);
       const wave = f.anim && s.up ? Math.sin(f.t * 3 + s.seed) * 4 : 0;
       c.beginPath();
-      c.moveTo(x + w / 2 + 3, top);
+      c.moveTo(px + 3, top);
       c.lineTo(x + w - 6, top + 4 + wave);
       c.lineTo(x + w - 14, top + 22 + wave);
       c.lineTo(x + w - 6, top + 40 + wave);
-      c.lineTo(x + w / 2 + 3, top + 44);
+      c.lineTo(px + 3, top + 44);
       c.closePath();
       c.fill();
       c.strokeStyle = rgba(P.outline, 0.7);

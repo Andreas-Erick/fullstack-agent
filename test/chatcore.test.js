@@ -58,6 +58,17 @@ test('the spoken filler fits the tool', () => {
   assert.strictEqual(c.fillerGroup('calendar_add'), 'calendar');
   assert.strictEqual(c.fillerGroup('daily_note_log'), 'vault');
   assert.strictEqual(c.fillerGroup('Grep'), 'code');
-  assert.strictEqual(c.fillerGroup('habit_status'), 'other');
+  assert.strictEqual(c.fillerGroup('routine_list'), 'other');
   assert.strictEqual(c.fillerFor('web_search', () => 0), 'Let me look that up.');
+});
+
+// A spoken message heard nothing for 4–11 s when the reply started with tools or long thinking.
+test('an early filler for spoken requests, never for small talk or a word or two', () => {
+  for (const t of ['When is my last Icelandic course before Christmas?', 'Can you switch to Ringmaster please?', 'Now can you create a master summary for the lecture?']) assert.ok(c.FILLERS.think.includes(c.earlyFiller(t, () => 0)), t);
+  for (const t of ['How are you my friend?', 'Thanks a lot, that helps', 'Hey there Siren', 'Yes, please.', 'ok', 'Good morning!', 'thank’s so much']) assert.strictEqual(c.earlyFiller(t), null, t);
+  // Every line, once, to make its audio ahead of time.
+  const all = c.allFillers();
+  assert.strictEqual(new Set(all).size, all.length);
+  for (const list of Object.values(c.FILLERS)) for (const line of list) assert.ok(all.includes(line));
+  assert.ok(c.EARLY_FILLER_MS >= 1000 && c.EARLY_FILLER_MS <= 3000);
 });

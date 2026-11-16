@@ -1,6 +1,6 @@
 # Install {{name}} on your Galaxy Watch
 
-{{name}} runs on the Galaxy Watch 4 and newer (Wear OS). On the watch you tap her and ask; the answer is spoken and shown on your wrist, with her face and colors. Today shows your schedule and habits, checked off with a tap. The watch asks **through the Siren app on your phone**, so the phone needs to be set up first.
+{{name}} runs on the Galaxy Watch 4 and newer (Wear OS). On the watch you tap her and ask; the answer is spoken and shown on your wrist, with her face and colors. Today shows what's still coming on your schedule. The watch asks **through the Siren app on your phone**, so the phone needs to be set up first.
 
 The watch app isn't in the Play Store yet, so it is installed from your computer over Wi-Fi. It takes about five minutes, once.
 

@@ -10,7 +10,7 @@ Siren can reach other services in four ways: Claude connectors (the services a u
 
 | Kind | Ships with the app | On by default | How a user gets more |
 | --- | --- | --- | --- |
-| Built-in tools (schedule, notes, memory, habits, learning, web search, documents, PDFs, diagrams, routines, GitHub via `gh`) | Yes | Yes | — |
+| Built-in tools (schedule, notes, memory, learning, web search, documents, PDFs, diagrams, routines, GitHub via `gh`) | Yes | Yes | — |
 | Agent Skills (`main/skills/`: /explain, /proof-coach, /study-session, /teach-back, /drill, /converse, /goal, /reflect, /weekly-review, /tour) | Yes | Yes | Skills view: write your own, or import from a GitHub repo (e.g. `anthropics/skills`) |
 | Claude connectors | No | Off | Connect them on claude.ai → Settings → Connectors; turn on "Use my Claude connectors and plugins" (setup step "Connectors & extras" or Settings → AI brain) |
 | Claude Code plugins | No | Off (same switch) | `/plugin` in Claude Code |
@@ -28,7 +28,7 @@ Siren can reach other services in four ways: Claude connectors (the services a u
 The setup step **Connectors & extras**:
 
 - shows what is built in and needs no setup, and how many skills come included;
-- with the Claude account brain: explains connectors and plugins (none bundled, each call asks first, results are data), offers the switch (off by default), suggests connectors that fit the goals the user picked in the previous step (study → Wolfram, Consensus; languages → DeepL; goals and habits → Todoist or TickTick, Google Calendar; work → Gmail, Google Drive, Notion, Slack), opens the claude.ai connector directory, and can check what the user already has;
+- with the Claude account brain: explains connectors and plugins (none bundled, each call asks first, results are data), offers the switch (off by default), suggests connectors that fit the goals the user picked in the previous step (study → Wolfram, Consensus; languages → DeepL; goals and reflection → Todoist or TickTick, Google Calendar; work → Gmail, Google Drive, Notion, Slack), opens the claude.ai connector directory, and can check what the user already has;
 - with another brain: says connectors need the Claude account brain;
 - mentions the extensions (off) and the phone app.
 

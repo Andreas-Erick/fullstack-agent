@@ -4,6 +4,7 @@
 // as the body, so it can also be edited by hand; or, in the open Agent Skills format, a folder with a
 // SKILL.md and companion files (references, templates) the agent loads on demand (readFile). Folders
 // come from skillimport.js (GitHub) and are never executed: scripts in them are only text.
+const crypto = require('crypto');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
@@ -59,24 +60,48 @@ function serialize(skill) {
 }
 
 // Skills that ship with the app (main/skills/*.md: learning workflows) are copied into the user's
-// folder once, then they are the user's to edit or delete. installed.json remembers what was offered,
-// so a deleted skill doesn't come back with the next start.
+// folder, then they are the user's to edit or delete. .bundled.json remembers each with a hash of the
+// text as placed: when a new version changes a skill, the copy is refreshed if it is still what was
+// placed (the user never edited it) and left alone otherwise; a deleted skill doesn't come back.
+// Installs from before the hashes (a list of names) are compared with what those versions shipped
+// (SHIPPED): a skill that names tools the app no longer has must not stay behind.
 const BUNDLED = path.join(__dirname, 'skills');
+const hashOf = (text) => crypto.createHash('sha1').update(String(text).replace(/\r\n/g, '\n')).digest('hex'); // a Windows checkout has CRLF
+const SHIPPED = {
+  'goal.md': ['9eb13e44d5d60d9bad2b7e88ed300f66b9e678a5', '59d22c98333a2ae3eb7e8a40a228b50dd44064ff', 'ad798e2eb6a6406adc3c23abd5960ad6811e2180'],
+  'reflect.md': ['bfb6ddc855f73440881a850bf5036e9f5ddee7d5'],
+  'weekly-review.md': ['0268db1db0669b3272420c3cefeeb9e5c836c0d1'],
+  'study-pack.md': ['fb3aa65571b1f5aa2799b9168175fc3d836a502d'],
+};
 let bundledOnce = null;
 
 async function installBundled() {
   const marker = path.join(dir(), '.bundled.json');
-  const offered = new Set(await store.readJson(marker, []));
+  const raw = await store.readJson(marker, {});
+  const seen = Array.isArray(raw) ? Object.fromEntries(raw.map((n) => [n, null])) : raw || {};
   const names = (await fsp.readdir(BUNDLED).catch(() => [])).filter((f) => f.endsWith('.md'));
-  const fresh = names.filter((f) => !offered.has(f));
-  if (!fresh.length) return;
-  await fsp.mkdir(dir(), { recursive: true });
-  for (const f of fresh) {
+  let changed = false;
+  for (const f of names) {
+    const src = path.join(BUNDLED, f);
+    const text = await fsp.readFile(src, 'utf8').catch(() => null);
+    if (text === null) continue;
+    const h = hashOf(text);
+    if (seen[f] === h) continue;
     const target = path.join(dir(), f);
-    await fsp.copyFile(path.join(BUNDLED, f), target, fs.constants.COPYFILE_EXCL).catch(() => {}); // never over a user's own skill
-    offered.add(f);
+    if (!(f in seen)) {
+      await fsp.mkdir(dir(), { recursive: true });
+      await fsp.copyFile(src, target, fs.constants.COPYFILE_EXCL).catch(() => {}); // never over a user's own skill
+    } else {
+      // Removed or edited by the user, it is theirs: only a copy that is still what was placed is replaced.
+      const current = await fsp.readFile(target, 'utf8').catch(() => null);
+      const placed = seen[f] ? [seen[f]] : SHIPPED[f] || [];
+      const untouched = current !== null && placed.includes(hashOf(current));
+      if (untouched && !(await fsp.copyFile(src, target).then(() => true, () => false))) continue; // tried again at the next start
+    }
+    seen[f] = h;
+    changed = true;
   }
-  await store.writeJsonAtomic(marker, [...offered]);
+  if (changed) await store.writeJsonAtomic(marker, seen);
 }
 
 async function list() {
@@ -198,4 +223,4 @@ async function promptBlock() {
   return `## Skills (the user's saved workflows)\nWhen the user asks for one of these (by name, slash command or a trigger phrase), or a request fits one's purpose without naming it, load it with skill_run and follow its steps.\n${lines.join('\n')}`;
 }
 
-module.exports = { dir, list, get, save, remove, readFile, fromSlash, instructions, promptBlock, slugify, frontmatter };
+module.exports = { dir, list, get, save, remove, readFile, fromSlash, instructions, promptBlock, slugify, frontmatter, SHIPPED };

@@ -8,7 +8,7 @@ module.exports = [
   {
     name: 'tools_more',
     group: 'toolbox',
-    description: `Get more tools for this conversation when the ones you have can't do what the user asked. Groups: ${Object.keys(TOOLBOX).join(', ')} (learning = flashcards, vocabulary and the understanding tracker; habits = habits and the skill tree; documents = PDFs, diagrams, charts, windows; looks = persona and theme; notes = the whole vault). The new tools can be used right after this call. Ask for one group at a time.`,
+    description: `Get more tools for this conversation when the ones you have can't do what the user asked. Groups: ${Object.keys(TOOLBOX).join(', ')} (learning = vocabulary decks and the understanding tracker; documents = PDFs, diagrams, charts, windows; looks = persona and theme; notes = the whole vault). The new tools can be used right after this call. Ask for one group at a time.`,
     parameters: { type: 'object', properties: { group: { type: 'string', enum: Object.keys(TOOLBOX), description: 'Which group' } }, required: ['group'], additionalProperties: false },
     run: async (a, ctx) => {
       if (!ctx.toolset) return { note: 'You already have every tool.' };

@@ -18,8 +18,8 @@ const PLACES = ['lookout', 'hearth', 'library', 'cafe', 'workshop', 'garden', 'g
 const details = {
   topics: [{ name: 'Linear algebra', understood: 7, shaky: 2 }, { name: 'Thermodynamics', understood: 3, shaky: 4 }],
   decks: [{ name: 'Spanish', mature: 40, total: 120, due: 9 }, { name: 'Japanese', mature: 2, total: 30, due: 0 }],
-  habits: [{ name: 'Meditate', done: true, streak: 4, unit: 'd' }, { name: 'Run', done: false, streak: 0, unit: 'd' }],
-  skills: [{ name: 'Proofs', state: 'mastered', progress: 1, area: 'Maths' }, { name: 'Integrals', state: 'growing', progress: 0.4, area: 'Maths' }, { name: 'Pitching', state: 'locked', progress: 0, area: 'Speaking' }],
+  notebooks: [{ name: 'Robotics', done: true, count: 12 }, { name: 'Inbox', done: false, count: 3 }],
+  notesToday: ['Arm idea', 'PID tuning'],
   memories: 61,
   work: { today: { workshop: 3, lookout: 1 }, total: { workshop: 80, lookout: 23 } },
 };
@@ -55,6 +55,24 @@ test('every place lays out labelled furniture from the data, inside the walls', 
   assert.strictEqual(ws.stations.find((s) => s.kind === 'papers').doc.path, 'C:/x/Thesis.pdf');
   assert.strictEqual(room.layout('hearth', 1, data).stations.filter((s) => s.kind === 'bed').length, 3, 'a bed per resident');
   assert.ok(room.layout('library', 1, {}).stations.some((s) => /Nothing tracked/.test(s.info)), 'without data: empty shelves that say so');
+});
+
+test('the observatory needs no data: star charts as decoration, furniture about planning', async () => {
+  const room = await mod();
+  const bare = room.layout('observatory', 1, {});
+  assert.deepStrictEqual(bare, room.layout('observatory', 1, data), 'the same room whatever the data');
+  for (const kind of ['astrolabe', 'telescope', 'desk', 'globe']) assert.ok(bare.stations.some((s) => s.kind === kind), kind);
+  const charts = bare.stations.filter((s) => s.kind === 'chart');
+  assert.strictEqual(charts.length, 3);
+  for (const ch of charts) {
+    assert.ok(ch.label && ch.stars.length > 1, 'a named chart with stars to draw');
+    assert.ok(ch.stars.every((s) => Number.isInteger(s.seed) && typeof s.lit === 'boolean' && typeof s.warm === 'boolean'));
+  }
+  assert.ok(!bare.stations.some((s) => /skill|master/i.test(`${s.label} ${s.info} ${s.verbs.join(' ')}`)));
+  const sim = room.createSim();
+  let me;
+  for (let t = 0; t < 30; t += 1 / 30) me = sim.update([{ name: 'Siren', color: [0, 200, 255], active: true, kind: 'active', activity: 'at the Observatory, charting what comes next', working: true }], bare.stations, 1 / 30, t)[0];
+  assert.ok(['chart', 'telescope'].includes(me.at?.kind), 'planning work happens at the charts or the telescope');
 });
 
 test('the walkers head for the station their activity names and stay inside', async () => {

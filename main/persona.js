@@ -9,18 +9,14 @@ const templates = require('./personatemplates');
 const scenecore = require('./scenecore');
 const log = require('./logger');
 
+// A model's JSON, read leniently (jsonrepair.js: unescaped quotes, line breaks, missing commas…).
 function extractJson(text) {
-  const s = String(text || '');
-  const start = s.indexOf('{');
-  const end = s.lastIndexOf('}');
-  if (start === -1 || end <= start) throw new Error('The model did not return a theme. Try again, or use a more capable model.');
-  try {
-    return JSON.parse(s.slice(start, end + 1));
-  } catch {
-    // Common model slip: trailing commas.
-    return JSON.parse(s.slice(start, end + 1).replace(/,\s*([}\]])/g, '$1'));
-  }
+  if (!/[{[]/.test(String(text || ''))) throw new Error('The model did not return a theme. Try again, or use a more capable model.');
+  return require('./jsonrepair').parseLoose(text);
 }
+
+// The same, with one request to the model to correct JSON the repairs couldn't (`ask(prompt)`).
+const jsonWithRetry = (text, ask) => require('./jsonrepair').withRetry(text, ask);
 
 function buildPrompt({ name, masterPrompt, aesthetic, palette, voices, options }) {
   return `You are an expert brand and UI designer. Design the complete look & feel of a desktop AI assistant app so that it embodies the assistant's persona and aesthetic below. The app has: a dark or light background with a subtle repeating pattern, translucent "glass" cards, a chat view, and a full-screen animated "face" (a glowing core with traces radiating out of it and energy pulses that change color when the assistant is idle / listening / thinking / speaking).
@@ -73,7 +69,7 @@ async function generate({ masterPrompt, aesthetic, palette, voices, image, optio
     buildPrompt({ name: settings.agent.name, masterPrompt, aesthetic, palette, voices, options: { ...options, imageAttached: Boolean(image) && settings.llm.provider !== 'openai' } }),
     { image: settings.llm.provider === 'openai' ? undefined : image },
   );
-  const json = extractJson(text);
+  const json = await jsonWithRetry(text, (fix) => llm.complete(settings, fix));
   return {
     theme: json,
     personaNotes: String(json.personaNotes || '').slice(0, 800),
@@ -282,4 +278,4 @@ async function setSummary(text) {
   return summaryStatus();
 }
 
-module.exports = { generate, generateScene, extractJson, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, templates: templates.list, summaryWriter, summaryStatus, ensureSummary, setSummary };
+module.exports = { generate, generateScene, extractJson, jsonWithRetry, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, templates: templates.list, summaryWriter, summaryStatus, ensureSummary, setSummary };

@@ -63,6 +63,13 @@ async function listModels(settings) {
   const res = await fetch(`${trimBase(settings.llm.baseUrl)}/models`, {
     headers: openaiHeaders(settings.llm.apiKey),
     signal: AbortSignal.timeout(10000),
+  }).catch((err) => {
+    // Nothing answered: say which server (localcore.unreachableMessage), and start FreeLLMAPI when
+    // the settings use it (helperapps.onUnreachable, at most every two minutes).
+    const plain = require('./localcore').unreachableMessage(settings.llm.baseUrl, err);
+    if (!plain) throw err;
+    const starting = id === 'openai' && require('./helperapps').onUnreachable('freellmapi', err, settings);
+    throw Object.assign(new Error(starting ? `${plain.split(' Start')[0]} Starting it now; load the models again in a minute.` : plain), { cause: err });
   });
   if (!res.ok) throw new Error(`GET /models failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
   const json = await res.json();
@@ -168,7 +175,7 @@ function sessionConfigKey(settings) {
     prompt: PROMPT_VERSION,
   });
 }
-const PROMPT_VERSION = 14;
+const PROMPT_VERSION = 19;
 
 async function claudeCodeOptions(settings, active, model) {
   const names = active.map((t) => t.name);
@@ -317,7 +324,8 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   const model = effectiveModel(settings, { voice, mode: paced.mode });
   log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', pace: paced.pace, effort: paced.effort, voice, setup, engineering: engineering || undefined, images: images.length || undefined, conversation: conv.id, text: lastText.slice(0, 200) });
   if (settings.llm.provider === 'claude-code') {
-    const opts = { ...(await claudeCodeOptions(settings, active, model)), effort: paced.effort };
+    // routine: background work keeps the session's warm model (claudecode.chooseModel, pace.warmModel).
+    const opts = { ...(await claudeCodeOptions(settings, active, model)), effort: paced.effort, routine };
     if (setup) {
       // The setup interview keeps one stable session even though the answers change the persona.
       opts.configKey = 'first-run-setup';
@@ -700,7 +708,7 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       nudges.push({ role: 'assistant', content: result.text }, { role: noteAsSystem ? 'system' : 'user', content: lc.LOOK_FIRST });
       continue;
     }
-    // A local model that says it did something no tool did ("Icelandic practice done." with no habit
+    // A local model that says it did something no tool did ("Icelandic practice done." with no
     // logged): take it back and ask once to do it or say it isn't done. Sent, never stored.
     const changedSomething = toolRecords.some((r) => r.ok && !lc.isReadTool(r.name));
     if (!result.calls.length && !claimNudged && ctx.toolset && useTools && round < ctx.budget.rounds && !changedSomething && lc.claimsAction(result.text)) {
@@ -963,4 +971,4 @@ async function runAnthropic({ settings, conv, history, emit, signal, active, sys
 }
 
 module.exports = {
-  anthropicHistory, runTurn, listModels, testConnection, complete, prewarm, effectiveModel };
+  anthropicHistory, runTurn, listModels, testConnection, complete, prewarm, effectiveModel, sessionConfigKey };

@@ -70,7 +70,7 @@ stub({
       return turn > 4 ? '[DONE]' : `Line ${turn}`;
     },
   },
-  './persona': { extractJson: (t) => JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)) },
+  './persona': { extractJson: (t) => require('../main/jsonrepair').parseLoose(t), jsonWithRetry: (t, ask) => require('../main/jsonrepair').withRetry(t, ask) },
   './innerworld': { recordRehearsal: async (e) => recorded.push(e) },
   './stream': { USER: {}, enabled: async () => true, add: async (_loc, items) => streamed.push(...items) },
 });

@@ -39,14 +39,6 @@ const FEATURES = [
     status: (_s, f) => (f.vault ? `${f.topics} topic${f.topics === 1 ? '' : 's'} tracked` : 'needs the vault'),
   },
   {
-    id: 'flashcards',
-    title: 'Flashcards',
-    what: 'Decks of flashcards scheduled the way Anki does it: learning steps, then intervals that grow with Again, Hard, Good and Easy (Anki’s SM-2), or FSRS, Anki’s newer scheduler, as a deck option. Study them in the Cards view (Space shows the answer, 1–4 grade it), on your phone and tablet (More → Flashcards), or with me in the chat. I make cards for you (cloze cards too) and import them: put a CSV, TSV, Anki text export or an Anki deck (.apkg) in your workspace folder and ask me, or use Import in the view (for a CSV whose first line only names the columns, tick “Skip the first line”, or tell me). Images, sounds and the schedule Anki had come along. Your vocabulary decks are here too. Mixed learning studies every deck at once, each card from another deck than the last: Mixed review (today’s due cards, scheduled as usual) or Shuffle everything (every card in random order, as practice that changes no schedule). Link a deck to a skill in your skill tree and the skill grows as its cards mature.',
-    say: ['"Import the Anki deck in my workspace."', '"Make me flashcards about the Krebs cycle."', '"Quiz me on my Biology deck."', '"Let’s do a mixed review."', '"Shuffle all my cards."', '"Switch my Spanish deck to FSRS."'],
-    where: 'Cards in the rail; Flashcards/ in your vault (one note per deck); More → Flashcards on the phone.',
-    status: (_s, f) => (!f.vault ? 'needs the vault' : 'on'),
-  },
-  {
     id: 'languages',
     title: 'Languages (polyglots)',
     what: 'Vocabulary and phrase decks with spaced repetition, reviews by voice, and speaking practice: say "let\'s practice Spanish" and speech recognition and my voice switch to that language, with gentle corrections.',
@@ -56,24 +48,24 @@ const FEATURES = [
   },
   {
     id: 'coaching',
-    title: 'Coaching, goals and habits',
-    what: 'A life-coach side: I listen first, help turn intentions into small concrete steps with if-then plans, aiming for 1% better every day rather than big leaps, and follow up without nagging. A habit tracker with streaks and weekly targets; tick habits off in the Habits view or just tell me.',
-    say: ['"/goal run a half marathon"', '"I meditated"', '"How are my habits?"', '"/reflect"', '"/weekly-review"'],
-    where: 'Habits (Ctrl+9); Habits.md in the vault.',
-    status: (_s, f) => (f.vault ? `${f.habits} habit${f.habits === 1 ? '' : 's'} tracked` : 'needs the vault'),
+    title: 'Coaching and goals',
+    what: 'A life-coach side: I listen first, help turn intentions into small concrete steps with if-then plans, aiming for 1% better every day rather than big leaps, and follow up without nagging. Goals and commitments go into Active Priorities. (I don’t track daily habits.)',
+    say: ['"/goal run a half marathon"', '"/reflect"', '"/weekly-review"', '"Help me decide between these two offers"'],
+    where: 'Active Priorities.md in the vault; /goal, /reflect and /weekly-review in Skills.',
+    status: (_s, f) => (f.vault ? 'on' : 'needs the vault'),
   },
   {
-    id: 'skilltree',
-    title: 'Skill tree',
-    what: 'A constellation of what you are growing (subjects, languages, physical skills, ways of working) with prerequisites. Progress comes from your learning tracker, vocabulary decks and habits; skills unlock as what they build on grows. A broad goal is split into intermediate steps, and its progress adds up from them.',
-    say: ['"Map my goal of speaking Icelandic at B2 into my skill tree"', '"What should I work on next?"'],
-    where: 'Tree view (rail); Skill Tree.md in the vault.',
-    status: (_s, f) => (f.vault ? `${f.skills} skill${f.skills === 1 ? '' : 's'}` : 'needs the vault'),
+    id: 'notes',
+    title: 'Your notes',
+    what: 'Write your own notes in the app, like in Obsidian: it saves as you type, [[links]] to other notes, #tags, pins and notebooks (folders). ⚡ Dump (or Ctrl+Shift+N from anywhere) is a blank page for getting everything out of your head: the first line is the title, Ctrl+Enter saves and gives you a fresh page. They are plain Markdown in the vault, and I find them again when you ask about something you wrote.',
+    say: ['"What did I write about PID tuning?"', '"Find my note on the robot arm idea"', '"Summarize this week’s notes"', '"Turn my brain dump from today into a plan"'],
+    where: 'Notes (Ctrl+9); Notes/ and Inbox/ in the vault.',
+    status: (_s, f) => (f.vault ? `${f.notes} note${f.notes === 1 ? '' : 's'}` : 'needs the vault'),
   },
   {
     id: 'innerworld',
     title: 'The Inner World and rehearsals',
-    what: 'A small fantasy village where your personas (and two villagers) live a fictional day: every morning a narrator writes their plans, meetings and conversations, and each of them remembers it. It mirrors you: the Library grows with what you understand, the Café with your vocabulary, the Training Grounds fly a banner per habit (raised when kept today), the Garden blooms for each habit kept, and at night your skill tree shines as constellations. Whatever I am doing right now you can watch: at the forge when I write code, up the Lookout when I search the web. Step inside a building and you see its room from above, like crew quarters: the furniture is made of your data (a shelf per topic, a table per deck, a cabinet per batch of memories, your recent documents as paper stacks, a bed per resident) and the residents walk between the stations doing what their day says; while I work, my figure stands at the right station with a progress bar. Click a paper stack to open the document. You choose its frame rate (automatic, 15, 30, 60 or 120 a second) in the view. When a building gains a level it lights up and sparks for a moment, and ⏳ Timelapse replays how the village grew, day by day, with the seasons turning. On its Stage I can rehearse a conversation you are preparing for, with characters who have their own hidden goals, and debrief it.',
+    what: 'A small fantasy village where your personas (and two villagers) live a fictional day: every morning a narrator writes their plans, meetings and conversations, and each of them remembers it. It mirrors you: the Library grows with what you understand, the Café with your vocabulary, the Training Grounds fly a banner per notebook (raised when you write in it today), the Garden blooms for each note you write today, and the Observatory rises as we plan ahead in your schedule and routines. Whatever I am doing right now you can watch: at the forge when I write code, up the Lookout when I search the web. Step inside a building and you see its room from above, like crew quarters: the furniture is made of your data (a shelf per topic, a table per deck, a cabinet per batch of memories, your recent documents as paper stacks, a bed per resident) and the residents walk between the stations doing what their day says; while I work, my figure stands at the right station with a progress bar. Click a paper stack to open the document. You choose its frame rate (automatic, 15, 30, 60 or 120 a second) in the view. When a building gains a level it lights up and sparks for a moment, and ⏳ Timelapse replays how the village grew, day by day, with the seasons turning. On its Stage I can rehearse a conversation you are preparing for, with characters who have their own hidden goals, and debrief it.',
     say: ['"What did you do today in the Inner World?"', '"Help me rehearse asking for a raise"', '"Rehearse my thesis defense with a skeptical examiner"'],
     where: 'World view (rail; ⚙ there or Settings → Inner World for season, art and villagers); Inner World/ in the vault (Chronicle, residents’ memories, Rehearsals).',
     status: (s, f) => (!f.vault ? 'needs the vault' : s.innerWorld?.enabled ? 'awake' : 'asleep: wake it in the World view (rehearsals work anyway)'),
@@ -83,7 +75,7 @@ const FEATURES = [
     title: 'Routines (things I do on a schedule)',
     what: 'I run instructions on a schedule while the app is open: a daily briefing, syncing Google Calendar or Todoist, summarizing new Plaud recordings, a daily language text. Each run is its own conversation and you get a notification.',
     say: ['"Every morning at 8, check my Plaud for new recordings"', '"Run my daily briefing now"', '"Which routines do I have?"'],
-    where: 'Habits view → Routines.',
+    where: 'Skills view → Routines.',
     status: (_s, f) => `${f.routines} routine${f.routines === 1 ? '' : 's'}${f.routinesOn !== f.routines ? ` (${f.routinesOn} on)` : ''}`,
   },
   {
@@ -153,7 +145,7 @@ const FEATURES = [
   {
     id: 'local-brain',
     title: 'A brain on your own computer',
-    what: 'A model running on this computer with Ollama or LM Studio: free, private, and quick. It gets a compact prompt and the everyday tools, and asks for more (learning, documents, routines, habits…) when a task needs them; they stay for the rest of the conversation. With "Hand hard messages to Claude" on, what it can’t do well (code, a connected service, several steps) goes to your Claude brain instead, and the chat says so. Everyday messages are answered without hidden thinking, so the first word comes in well under a second once the model is loaded. In multi-provider mode it answers quick spoken replies first and the cloud brains take the rest.',
+    what: 'A model running on this computer with Ollama or LM Studio: free, private, and quick. It gets a compact prompt and the everyday tools, and asks for more (learning, documents, routines…) when a task needs them; they stay for the rest of the conversation. With "Hand hard messages to Claude" on, what it can’t do well (code, a connected service, several steps) goes to your Claude brain instead, and the chat says so. Everyday messages are answered without hidden thinking, so the first word comes in well under a second once the model is loaded. In multi-provider mode it answers quick spoken replies first and the cloud brains take the rest.',
     say: ['"Which local model should I use?"'],
     where: 'Settings → AI brain → FreeLLMAPI / local → Find local models, or Multi-provider → Local model.',
     status: (s) => (s.local?.model ? `local model: ${s.local.model}` : s.llm?.provider === 'openai' && s.llm?.model ? `model: ${s.llm.model}` : 'not set up'),
@@ -185,8 +177,8 @@ const FEATURES = [
   {
     id: 'diagrams',
     title: 'Diagrams, charts and study material',
-    what: 'I draw diagrams as clean HTML + SVG pages (architecture, flowchart, sequence, timeline, quadrant, mind of a proof…) and open them in a window; they are kept in Diagrams/ in your vault. Charts are computed exactly (function plots like sin(x) or a parabola, data lines, scatter and bar charts). For studying I make complete packs: a vault note in a learning order with worked examples and practice questions, the diagrams and charts, a printable PDF with them inside and formulas typeset, and flashcards. With the diagram-design skill imported, 45 editorial diagram types.',
-    say: ['"Make me a study pack for logistic regression"', '"Plot sin(x) and its derivative"', '"Make a one-page cheat sheet PDF for my exam"', '"Make a timeline of the French Revolution"'],
+    what: 'I draw diagrams as clean HTML + SVG pages (architecture, flowchart, sequence, timeline, quadrant, mind of a proof…) and open them in a window; they are kept in Diagrams/ in your vault. Charts are computed exactly (function plots like sin(x) or a parabola, data lines, scatter and bar charts, histograms, probability distributions, parametric and polar curves, vector fields, heatmaps and matrices, log axes, robot arms and other geometry, simulations of dynamics, control loops and optimizers, and 3D scenes you turn by dragging), and can be live: sliders for their parameters and a play button, so you watch a curve change as you drag. Diagrams can build up a step at a time (Back / Next / Play) or animate a flow. For studying I make complete packs: a vault note in a learning order with worked examples and practice questions, the diagrams and charts, and a printable PDF with them inside and formulas typeset. With the diagram-design skill imported, 45 editorial diagram types.',
+    say: ['"Make me a study pack for logistic regression"', '"Plot sin(x) and its derivative"', '"Show me how the normal distribution changes with its mean and spread"', '"Walk me through backpropagation step by step in a diagram"', '"Show gradient descent on the Rosenbrock function with a learning-rate slider"', '"A 2-link robot arm I can steer, and one that follows a target"', '"Show how a pinhole camera projects a 3D point"', '"Make a one-page cheat sheet PDF for my exam"', '"Make a timeline of the French Revolution"'],
     where: 'Diagrams/ in the vault; import cathrynlavery/diagram-design in Skills for the full design system.',
     status: (_s, f) => (f.vault ? 'on' : 'needs the vault'),
   },
@@ -209,7 +201,7 @@ const FEATURES = [
   {
     id: 'remote',
     title: 'Your phone, tablet and Galaxy Watch',
-    what: 'Pair a phone or tablet (the Android app, or any browser, Safari on an iPhone or iPad included) to talk to me away from the desk: chat, voice, the same face, approvals, and your day: Today, habits to check off, learning, memories, notes, the skill tree, the Inner World and the map of my own architecture (More → Architecture: pinch to zoom from containers to files, tap a part and ask me to explain it). On a tablet or in Samsung DeX the chat and those screens sit side by side. Your custom face and formulas show there as on the desktop, and the face has a full-screen mode. When you switch my persona or change my look here, paired devices and the watch follow at once. Settings → Remote access shows which device is connected now and when each was last seen (and which face the watch has); the Remote pill’s tooltip says the same, and a toast tells you when a device connects or has been gone a few minutes. A device can be made view only, and the Android app can lock with your fingerprint, face or screen lock. On a Galaxy Watch (4 or newer), tap me and ask (I listen on my own screen); I answer on your wrist in my voice and with my face, through the phone app. What changes here (a habit checked off, a note I wrote, a deck you studied, a conversation renamed) shows on the phone’s open screen by itself. Over Wi-Fi or a secure address (Tailscale or Cloudflare).',
+    what: 'Pair a phone or tablet (the Android app, or any browser, Safari on an iPhone or iPad included) to talk to me away from the desk: chat, voice, the same face, approvals, and your day: Today, learning, memories, notes, the Inner World and the map of my own architecture (More → Architecture: pinch to zoom from containers to files, tap a part and ask me to explain it). On a tablet or in Samsung DeX the chat and those screens sit side by side. Your custom face and formulas show there as on the desktop, and the face has a full-screen mode. When you switch my persona or change my look here, paired devices and the watch follow at once. Settings → Remote access shows which device is connected now and when each was last seen (and which face the watch has); the Remote pill’s tooltip says the same, and a toast tells you when a device connects or has been gone a few minutes. A device can be made view only, and the Android app can lock with your fingerprint, face or screen lock. On a Galaxy Watch (4 or newer), tap me and ask (I listen on my own screen); I answer on your wrist in my voice and with my face, through the phone app. What changes here (a note you or I wrote, the schedule, a conversation renamed) shows on the phone’s open screen by itself. Over Wi-Fi or a secure address (Tailscale or Cloudflare).',
     say: ['"How do I use you from my phone?"'],
     where: 'Settings → Remote access.',
     status: (s) => (s.remote?.enabled ? 'on' : 'off'),
@@ -233,7 +225,7 @@ const FEATURES = [
   {
     id: 'keyboard',
     title: 'Keyboard and screen readers',
-    what: 'Everything works from the keyboard: Ctrl+1 to Ctrl+9 open the views, Tab moves through the window with a visible focus ring, the arrow keys move along the rail, and each view has its own keys (the calendar’s arrows, the village’s WASD and zoom, Space to play a replay, Esc to go back a step). Screen readers hear each finished reply once, in full, instead of every streamed word, and the drawn views (the village, the architecture map, the skill tree) list their content in their side panels.',
+    what: 'Everything works from the keyboard: Ctrl+1 to Ctrl+9 open the views, Tab moves through the window with a visible focus ring, the arrow keys move along the rail, and each view has its own keys (the calendar’s arrows, the village’s WASD and zoom, Space to play a replay, Esc to go back a step). Screen readers hear each finished reply once, in full, instead of every streamed word, and the drawn views (the village, the architecture map) list their content in their side panels.',
     say: ['"Which keyboard shortcuts do you have?"', '"Can I use you with a screen reader?"'],
     where: 'docs/KEYBOARD.md lists every key per view.',
     status: () => 'always on',
@@ -249,21 +241,19 @@ const FEATURES = [
 ];
 
 async function facts() {
-  const out = { vault: '', topics: 0, decks: 0, habits: 0, skills: 0, routines: 0, routinesOn: 0, skillCount: 0 };
+  const out = { vault: '', topics: 0, decks: 0, notes: 0, routines: 0, routinesOn: 0, skillCount: 0 };
   const safe = (p) => p.catch(() => null);
   out.vault = (await safe(require('./obsidian').vaultPath())) || '';
-  const [topics, decks, habits, tree, routines, skills] = await Promise.all([
+  const [topics, decks, notes, routines, skills] = await Promise.all([
     out.vault ? safe(require('./learning').topics()) : null,
     out.vault ? safe(require('./learning').deckSummaries()) : null,
-    out.vault ? safe(require('./habits').status()) : null,
-    out.vault ? safe(require('./skilltree').view()) : null,
+    out.vault ? safe(require('./notebook').list()) : null,
     safe(require('./routines').list()),
     safe(require('./skills').list()),
   ]);
   out.topics = topics?.length || 0;
   out.decks = decks?.length || 0;
-  out.habits = habits?.habits.filter((h) => !h.paused).length || 0;
-  out.skills = tree?.skills.length || 0;
+  out.notes = notes?.notes.length || 0;
   out.routines = routines?.length || 0;
   out.routinesOn = routines?.filter((r) => r.enabled).length || 0;
   out.skillCount = skills?.length || 0;

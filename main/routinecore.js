@@ -112,4 +112,36 @@ ${routine.instructions}
 This runs on a schedule, so I may not be at the computer. Look only at what is new since the last run when that makes sense. Read, summarize and write notes freely; don't take actions that would need my approval unless the instructions ask for them (an approval nobody answers is declined). ${CONNECTOR_CHECK} End with a short report: what you found or did, in a few lines, or "Nothing new." if there was nothing.`;
 }
 
-module.exports = { KINDS, normalize, normalizeSchedule, nextRun, check, describe, prompt, CONNECTOR_CHECK };
+/**
+ * Whether a routine's conversation has become the user's own chat: its first run made the
+ * conversation, the user went on talking there, and every sync then ran in that chat (on its model,
+ * its tool results in the context of every later message). Then the routine starts its own again.
+ * A few replies to a briefing don't count: the user's own messages must be many and outnumber the
+ * routine's runs two to one.
+ */
+function takenOver(conv, routineId) {
+  const users = (conv?.messages || []).filter((m) => m.role === 'user');
+  const runs = users.filter((m) => m.routine === routineId).length;
+  const own = users.filter((m) => !m.routine).length;
+  return own >= 6 && own > 2 * runs;
+}
+
+// A run that couldn't start because the brain isn't ready (a local model not chosen or not running,
+// Claude not connected) waits and tries again, instead of failing silently: the daily briefing and the
+// recordings check both failed on "No model selected" and nothing tried again. Not handed to Claude: for
+// a local brain that would send the routine off the computer, which only the user's hand-over allows.
+const RETRY_MIN = 10;
+const MAX_RETRIES = 3;
+const NOT_READY = /no model selected|no ai provider is ready|econnrefused|fetch failed|is not installed|connect your claude account|not logged in|log ?in to claude|helper app did not come up|server is not running/i;
+const brainNotReady = (error) => NOT_READY.test(String(error?.message || error || ''));
+
+/** What a failed run means: { retryAt, retries, summary } to wait, or null to fail as before. */
+function retryPlan(routine, error, now = Date.now()) {
+  if (!brainNotReady(error)) return null;
+  const retries = (Number(routine?.retries) || 0) + 1;
+  if (retries > MAX_RETRIES) return null;
+  const why = String(error?.message || error || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+  return { retryAt: now + RETRY_MIN * 60000, retries, summary: `Waiting for the AI brain (${why}). Tries again in ${RETRY_MIN} minutes (${retries} of ${MAX_RETRIES}).` };
+}
+
+module.exports = { KINDS, normalize, normalizeSchedule, nextRun, check, describe, prompt, CONNECTOR_CHECK, takenOver, brainNotReady, retryPlan, RETRY_MIN, MAX_RETRIES };

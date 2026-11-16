@@ -52,11 +52,10 @@ test('basic suite: the checks pass the right outcome and catch the wrong one', a
   const d0 = dates(new Date(2026, 9, 30));
   const byId = Object.fromEntries(cases(d0).map((c) => [c.id, c]));
   const ymd = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-  const world = ({ schedule = [], done = [], memories = [], cards = [] } = {}) => ({
+  const world = ({ schedule = [], memories = [], vocab = [] } = {}) => ({
     schedule: async () => schedule,
-    habitDone: async (n) => done.includes(n),
     memories: async () => memories,
-    cards: async () => cards,
+    vocab: async () => vocab,
   });
   const run = (id, text, w = world()) => byId[id].check({ text, tools: [], used: () => false, state: w });
   for (const c of cases(d0)) assert.ok(c.id && c.area && typeof c.ask === 'string' && typeof c.check === 'function', c.id);
@@ -67,21 +66,21 @@ test('basic suite: the checks pass the right outcome and catch the wrong one', a
   assert.strictEqual(await run('q-fit-run', 'Yes, before your dentist at 10:00 you have time for a run.'), '');
   assert.match(await run('q-fit-run', 'Yes, before your dentist at 10:00. I added a run at 8.', world({ schedule: [{ title: 'Run', date: ymd(d0.tomorrow), start: '08:00' }] })), /booked a run/);
 
-  assert.strictEqual(await run('q-did-i-read', 'Yes, you did, it’s checked off for yesterday.'), '');
-  assert.match(await run('q-did-i-read', 'Yes, you did.', world({ done: ['Reading'] })), /checked reading off/);
-
-  assert.strictEqual(await run('habit-log-two', 'Both logged!', world({ done: ['Pull-ups', 'Reading'] })), '');
-  assert.match(await run('habit-log-two', 'Both logged!', world({ done: ['Pull-ups'] })), /Reading/, 'a claim for the second one is not enough');
-
   assert.strictEqual(await run('mem-allergy', 'Noted.', world({ memories: [{ title: 'Allergy', content: 'Allergic to peanuts' }] })), '');
   assert.match(await run('mem-allergy', 'I’ll remember that you’re allergic to peanuts.'), /nothing about peanuts/);
 
   assert.strictEqual(await run('mem-unknown-plural', 'You haven’t told me your kids’ names yet.'), '');
   assert.notStrictEqual(await run('mem-unknown-plural', 'Your kids are named Max and Sophie.'), '');
 
-  const cards = [{ front: 'perro', back: 'dog' }, { front: 'verde', back: 'green' }];
-  assert.strictEqual(await run('cards-add-two', 'Added both.', world({ cards })), '');
-  assert.match(await run('cards-add-two', 'Added both.', world({ cards: cards.slice(0, 1) })), /verde/);
+  const vocab = [{ front: 'perro', back: 'dog' }, { front: 'verde', back: 'green' }];
+  assert.strictEqual(await run('vocab-add-two', 'Added both.', world({ vocab })), '');
+  assert.match(await run('vocab-add-two', 'Added both.', world({ vocab: vocab.slice(0, 1) })), /verde/);
+  assert.strictEqual(await run('vocab-add', 'Added.', world({ vocab: vocab.slice(0, 1) })), '');
+  assert.match(await run('vocab-add', 'I’ve added perro to your Spanish deck.'), /no card with perro/, 'a claim without the card');
+
+  assert.strictEqual(await run('vocab-quiz', 'What is the Spanish word for “house”?'), '');
+  assert.match(await run('vocab-quiz', 'What is the Spanish word for “dog”?'), /doesn’t say/, 'a word that is not in the deck');
+  assert.match(await run('vocab-quiz', 'House: what is it in Spanish? (casa)'), /gave the answer away/);
 
   const dinner = { title: 'Dinner with Lena', date: ymd(d0.free), start: '19:00' };
   assert.strictEqual(await run('multi-add-and-ask', 'Added. Your dentist is tomorrow at 10:00.', world({ schedule: [dinner] })), '');
@@ -90,11 +89,11 @@ test('basic suite: the checks pass the right outcome and catch the wrong one', a
 });
 
 // The new persona conversations, offline: the right persona doing the right thing passes; the wrong
-// voice, a second booking, a second log, or claiming to be the other one fails.
+// voice, a second booking, or claiming to be the other one fails.
 test('persona switches: the checks catch the wrong voice, work done twice, and taking on the other persona', async () => {
   const run = (id, stepIndex, text, w = {}, tools = []) => {
     const steps = find(id).steps.filter((s) => s.ask);
-    return steps[stepIndex].check({ text, tools, used: (...n) => tools.some((t) => n.includes(t.name)), state: { schedule: async () => w.schedule || [], habitDone: async (n) => (w.done || []).includes(n), memories: async () => [] } });
+    return steps[stepIndex].check({ text, tools, used: (...n) => tools.some((t) => n.includes(t.name)), state: { schedule: async () => w.schedule || [], memories: async () => [] } });
   };
   const ymd = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
   const books = { title: 'Return library books', date: ymd(d.dinner), start: '16:00' };
@@ -104,9 +103,6 @@ test('persona switches: the checks catch the wrong voice, work done twice, and t
   assert.strictEqual(await run('persona-mid-task', 1, 'Yep champ, it’s in at 16:00!', { schedule: [books] }), '');
   assert.match(await run('persona-mid-task', 1, 'Yep champ, added it at 16:00!', { schedule: [books, books] }), /2 library entries/);
   assert.match(await run('persona-mid-task', 1, 'Indeed, my dear student, at 16:00.', { schedule: [books] }), /doesn’t say|like Professor Quill/, 'Quill’s voice after the switch to Nova');
-
-  assert.strictEqual(await run('persona-shared-habit', 1, 'Yes, my dear student, it is already checked off.'), '');
-  assert.match(await run('persona-shared-habit', 1, 'Yes, my dear student, logged it.', {}, [{ name: 'habit_log' }]), /logged the habit again/);
 
   assert.strictEqual(await run('persona-asked-who-before', 1, 'That was Professor Quill, Ensign. I have the bridge now.'), '');
   assert.match(await run('persona-asked-who-before', 1, 'I am Professor Quill, Ensign.'), /said it is Quill/);

@@ -80,7 +80,15 @@ async function runNow(id, { reason = 'request' } = {}) {
   try {
     const res = await deps.run({ routine, text: core.prompt(routine), limitMs: RUN_LIMIT_MS });
     const summary = String(res.text || res.error || '').replace(/\s+/g, ' ').trim().slice(0, 400);
-    await update(id, { lastRun: startedAt, lastStatus: res.ok ? 'ok' : 'error', lastSummary: summary, conversationId: res.conversationId || routine.conversationId });
+    // The brain wasn't ready: wait and try again (routinecore.retryPlan); the user hears it once.
+    const retry = res.ok ? null : core.retryPlan(routine, res.error);
+    if (retry) {
+      await update(id, { lastRun: startedAt, lastStatus: 'waiting', lastSummary: retry.summary, retryAt: retry.retryAt, retries: retry.retries, conversationId: res.conversationId || routine.conversationId });
+      log.warn('routine waits for the brain', { routine: routine.name, retries: retry.retries, error: res.error });
+      if (retry.retries === 1) deps.notify({ type: 'finished', id, name: routine.name, ok: false, summary: retry.summary, conversationId: res.conversationId });
+      return { ok: false, waiting: true, summary: retry.summary, conversationId: res.conversationId };
+    }
+    await update(id, { lastRun: startedAt, lastStatus: res.ok ? 'ok' : 'error', lastSummary: summary, retryAt: null, retries: 0, conversationId: res.conversationId || routine.conversationId });
     if (!res.ok) log.warn('routine failed', { routine: routine.name, error: res.error });
     if (routine.notify || !res.ok) deps.notify({ type: 'finished', id, name: routine.name, ok: res.ok, summary, conversationId: res.conversationId });
     return { ok: res.ok, summary, conversationId: res.conversationId };
@@ -92,6 +100,12 @@ async function runNow(id, { reason = 'request' } = {}) {
 async function tick() {
   if (busy || !deps) return;
   for (const r of await list()) {
+    // A run waiting for the brain goes again at its time (and nothing else of it runs meanwhile).
+    if (r.retryAt && r.enabled !== false) {
+      if (Date.now() < r.retryAt) continue;
+      await runNow(r.id, { reason: 'retry' }).catch((err) => log.error('routine run failed', { routine: r.name, error: err }));
+      return;
+    }
     const c = core.check(r);
     if (c.action === 'skip') {
       log.info('routine skipped', { routine: r.name, missed: c.due?.toISOString() });

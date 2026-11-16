@@ -606,7 +606,7 @@ async function startupContext() {
   ];
   if (jobs.length) parts.push(`### Jobs (read the job note before doing one of these)\n${jobs.map((j) => `- ${j.name}: ${j.purpose}`).join('\n')}`);
   const folders = Object.keys(FOLDERS).map((f) => `${f}/`).join(', ');
-  parts.push(`### Vault map\nVAULT-INDEX.md, Profile.md, Active Priorities.md, Schedule.md (the user's schedule: use the calendar_* tools), Habits.md (habit_* tools), Skill Tree.md (skilltree_* tools), ${DAILY}/, ${folders}`);
+  parts.push(`### Vault map\nVAULT-INDEX.md, Profile.md, Active Priorities.md, Schedule.md (the user's schedule: use the calendar_* tools), Notes/ (the user's own notes, written in the Notes view; subfolders are notebooks) and Inbox/ (their quick captures), ${DAILY}/, ${folders}`);
   return parts.join('\n\n');
 }
 
@@ -698,6 +698,7 @@ module.exports = {
   knownVaults,
   registerVault,
   setChangeListener,
+  afterChange,
   notifyExternalChange,
   dailyRel,
   ymd,

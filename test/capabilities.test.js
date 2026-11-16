@@ -1,7 +1,9 @@
 // The capability advisor (main/capabilities.js): which skills, connectors, plugins and extensions fit a
-// task, ready to use or worth suggesting.
+// task, ready to use or worth suggesting. And the feature guide (main/guide.js) behind "how can I use
+// you?": every area with its live status.
 const test = require('node:test');
 const assert = require('node:assert');
+const { stub, load } = require('./helpers');
 const { match, SERVICES } = require('../main/capabilities');
 
 const inv = (over = {}) => ({
@@ -53,4 +55,25 @@ test('extensions: on and ready → use; off → suggest turning on', () => {
   assert.ok(match('what planes are flying over Munich?', inv()).use.some((u) => u.kind === 'extension'));
   assert.ok(match('how does this electron app work, reverse engineer it', inv()).suggest.some((x) => x.name === 'REA' && x.why === 'off'));
   assert.ok(SERVICES.length > 10);
+});
+
+test('the feature guide covers every area and finds one by topic', async () => {
+  stub({
+    './store': { getSettings: async () => ({ voice: { ttsEnabled: true }, stt: { enabled: true, micMode: 'ptt', pttKey: 'F8' }, personas: { list: [{ name: 'Nexus' }] }, agent: { name: 'Nexus' }, learning: {}, calendar: { enabled: true }, claudeCode: { connectors: false }, documents: { workspace: '' }, web: { enabled: true }, code: { allowSelfModify: true }, remote: { enabled: false }, safety: { permissionMode: 'ask' } }) },
+    './obsidian': { vaultPath: async () => null },
+    './routines': { list: async () => [{ enabled: true }, { enabled: false }] },
+    './skills': { list: async () => [1, 2, 3] },
+  });
+  const g = load('main/guide.js');
+  const all = await g.guide();
+  const ids = all.features.map((f) => f.id);
+  for (const id of ['talk', 'personas', 'memory', 'learning', 'languages', 'coaching', 'innerworld', 'routines', 'schedule', 'connectors', 'documents', 'diagrams', 'skills', 'web-code', 'remote', 'safety']) assert.ok(ids.includes(id), id);
+  assert.strictEqual(new Set(ids).size, ids.length, 'one entry per area');
+  assert.ok(all.features.every((f) => f.status && f.status !== 'unknown'), 'every status renders');
+  assert.match(all.features.find((f) => f.id === 'routines').status, /2 routines \(1 on\)/);
+  assert.match(all.features.find((f) => f.id === 'skills').status, /3 skills/);
+  assert.match(all.features.find((f) => f.id === 'connectors').status, /^off/);
+  const one = await g.guide('how do routines work');
+  assert.strictEqual(one.topic, 'Routines (things I do on a schedule)');
+  assert.ok(one.try.length && one.where);
 });

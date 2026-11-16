@@ -1,5 +1,5 @@
 // The places of the Inner World, built from the drawing kit (art.js) on their sites (map.js). Each grows
-// with its level (0 = a construction site) and shows the user's data: banners per habit, a table per
+// with its level (0 = a construction site) and shows the user's data: banners per notebook, a table per
 // deck, books for concepts understood… Static parts are drawn into the cached scene; moving parts are
 // registered as emitters (smoke, forge fire, fountain, floating books, ravens, flames, magic light) and
 // animated every frame by scene.js. Lights (windows, lamps) glow at night.
@@ -103,11 +103,11 @@ function deckTables(c, s, z, { P, details }, front = 1.55) {
   });
 }
 
-// Flower beds around the plaza: a bloom for each habit kept today, buds for the others.
+// Flower beds around the plaza: a bloom for each note written today, buds for the rest.
 function flowerBeds(c, s, z, { P, level, details }) {
   const { gx, gy } = s;
-  const habits = details.habits || [];
-  const beds = Math.max(4, Math.min(8, habits.length || 4));
+  const items = (details.notesToday || []).map((name) => ({ name, done: true }));
+  const beds = Math.max(4, Math.min(8, items.length || 4));
   for (let i = 0; i < beds; i++) {
     const ang = (i / beds) * Math.PI * 2 + 0.4;
     const p = W(gx + Math.cos(ang) * 2.3, gy + Math.sin(ang) * 2.3, z);
@@ -118,7 +118,7 @@ function flowerBeds(c, s, z, { P, level, details }) {
     c.strokeStyle = rgba(P.stoneShade);
     c.lineWidth = 2;
     c.stroke();
-    const h = habits[i];
+    const h = items[i];
     const bloom = h ? h.done : level >= 2;
     for (let k = 0; k < 6; k++) {
       const fx = p.x - 8 + (k % 3) * 8;
@@ -303,9 +303,9 @@ const BUILD = {
 
   garden(c, s, z, { P, level, details, lights, emitters }) {
     const { gx, gy } = s;
-    // Flower beds around the plaza: a bloom for each habit kept today, buds for the others.
-    const habits = details.habits || [];
-    const beds = Math.max(4, Math.min(8, habits.length || 4));
+    // Flower beds around the plaza: a bloom for each note written today, buds for the rest.
+    const items = (details.notesToday || []).map((name) => ({ name, done: true }));
+    const beds = Math.max(4, Math.min(8, items.length || 4));
     for (let i = 0; i < beds; i++) {
       const a = (i / beds) * Math.PI * 2 + 0.4;
       const bx = gx + Math.cos(a) * 2.3;
@@ -318,7 +318,7 @@ const BUILD = {
       c.strokeStyle = rgba(P.stoneShade);
       c.lineWidth = 2;
       c.stroke();
-      const h = habits[i];
+      const h = items[i];
       const bloom = h ? h.done : level >= 2;
       for (let k = 0; k < 6; k++) {
         const fx = p.x - 8 + (k % 3) * 8;
@@ -403,14 +403,13 @@ const BUILD = {
     };
     side(gx - a, gy - b, gx + a, gy - b);
     side(gx - a, gy - b, gx - a, gy + b);
-    // Banners along the back: one per habit, raised when kept today; flames for long streaks.
-    const habits = details.habits?.length ? details.habits : [{ name: '', done: false, streak: 0, unit: 'd' }];
-    habits.slice(0, 8).forEach((h, i, all) => {
+    // Banners along the back: one per notebook, raised when written in today; flames for full ones.
+    const items = details.notebooks?.length ? details.notebooks : [{ name: '', done: false, count: 0 }];
+    items.slice(0, 8).forEach((h, i, all) => {
       const t = (i + 0.5) / all.length;
       const p = W(gx - a + 0.4 + t * (2 * a - 0.8), gy - b + 0.4, z);
       banner(c, P, p.x, p.y, 40, ACCENTS(P)[i % 5], h.done ? 1 : 0.15);
-      const days = h.unit === 'wk' ? h.streak * 7 : h.streak;
-      if (days >= 7) emitters.push({ kind: 'flame', x: p.x, y: p.y - 46, n: days >= 30 ? 2 : 1 });
+      if (h.count >= 10) emitters.push({ kind: 'flame', x: p.x, y: p.y - 46, n: h.count >= 40 ? 2 : 1 });
     });
     // Training dummies, an archery target, a weapon rack.
     const dummy = (x, y) => {

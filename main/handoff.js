@@ -71,8 +71,9 @@ Be concrete (names, files, numbers) and factual; do not invent anything. Lists m
 
 CONVERSATION ("${clip(conv.title, 80)}"):
 ${transcript}`;
-  const text = await llm.complete({ ...settings, llm: { ...settings.llm, modelMode: 'fast' } }, prompt);
-  const json = require('./persona').extractJson(text);
+  const fast = { ...settings, llm: { ...settings.llm, modelMode: 'fast' } };
+  const text = await llm.complete(fast, prompt);
+  const json = await require('./persona').jsonWithRetry(text, (fix) => llm.complete(fast, fix));
   const list = (v) => (Array.isArray(v) ? v.map((x) => clip(x, 200)).filter(Boolean).slice(0, 5) : []);
   if (!json?.summary) throw new Error('No summary in the reply');
   return { topic: clip(json.topic || conv.title, 60), summary: clip(json.summary, 900), openThreads: list(json.openThreads), nextSteps: list(json.nextSteps) };

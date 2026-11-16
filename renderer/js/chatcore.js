@@ -63,7 +63,21 @@ export const FILLERS = {
   code: ['Let me look at my code.', 'Checking how I work.'],
   doc: ['Opening that now.', 'Reading the document.'],
   other: ['One moment.', 'On it.', 'Give me a second.'],
+  think: ['Let me see.', 'Just a moment.', 'Hmm, let me check.'],
 };
+
+// A spoken message heard nothing for 4–11 s when the reply started with tools or long thinking (the
+// tool filler only came with the first tool). After this long without a word, a short line says the
+// message arrived. Not for small talk, which is answered quickly, and not for one or two words.
+export const EARLY_FILLER_MS = 1800;
+const SMALL_TALK = /^(hi|hey|hello|hallo|yo|how are (you|u|ya)|how'?s it going|how have you been|what'?s up|wie geht'?s|good (morning|afternoon|evening|night)|guten (morgen|tag|abend)|gute nacht|thanks?|thank you|danke|cool|great|nice|perfect|awesome|ok(ay)?|yes|no|yeah|nope|bye|see you|tsch[uü]ss)\b/i;
+export function earlyFiller(text, random = Math.random) {
+  const t = String(text || '').trim().replace(/[‘’ʼ]/g, "'");
+  if (t.split(/\s+/).filter(Boolean).length < 3 || (t.length <= 60 && SMALL_TALK.test(t))) return null;
+  return FILLERS.think[Math.floor(random() * FILLERS.think.length)];
+}
+/** Every filler line, to make their audio ahead of time (voice.js warmFillers). */
+export const allFillers = () => [...new Set(Object.values(FILLERS).flat())];
 export const fillerGroup = (name) => (/web|Web/.test(name) ? 'web' : /calendar/.test(name) ? 'calendar' : /vault|daily|priorit|job|profile/.test(name) ? 'vault' : /code|Read|Grep|Glob|Edit|Write|self/.test(name) ? 'code' : /document/.test(name) ? 'doc' : 'other');
 export function fillerFor(name, random = Math.random) {
   const list = FILLERS[fillerGroup(name)];

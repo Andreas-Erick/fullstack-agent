@@ -80,7 +80,7 @@ const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascr
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const FACE_LINK = /^\/f\/([A-Za-z0-9_-]{32})\/(.*)$/;
 // What a view-only device may not do (all POSTs): chat, stop a reply, answer approvals, push-to-talk,
-// have text spoken (a device speaks only its own replies, and it has none), check a habit off.
+// have text spoken (a device speaks only its own replies, and it has none).
 // Reading and moving to the secure address stay allowed.
 const VIEW_ONLY_BLOCKED = /^\/api\/(chat(\/.*)?|approvals\/.*|transcribe|speak|data\/.*)$/;
 // On every response. HSTS is added for the tunnel address (HTTPS at the edge).
@@ -118,7 +118,7 @@ const streams = new Set(); // { res, deviceId }
 const openApprovals = new Map(); // approval id -> request; only these can be answered remotely (never secret or recording prompts)
 const turnOwners = new Map(); // requestId -> deviceId
 const running = synccore.runningTurns(); // turns not finished yet, so a device that (re)opens a conversation can follow them
-// What changed on the computer (a note, a habit, a deck…), told to devices as screen names, coalesced.
+// What changed on the computer (a note, a deck, the schedule…), told to devices as screen names, coalesced.
 const dataTopics = synccore.coalescer((topics) => publish('data:changed', { topics }));
 const rateTimes = new Map(); // `${bucket}:${deviceId}` -> [timestamps]
 
@@ -343,7 +343,7 @@ async function revoke(id) {
 }
 
 // View only (Settings → Remote access): the device can read (chat history, the schedule, its screens)
-// but not chat, answer approvals, check habits off or use push-to-talk. Its open streams are closed so
+// but not chat, answer approvals or use push-to-talk. Its open streams are closed so
 // it reconnects under the new rule (and stops getting approval cards).
 async function setReadOnly(id, on) {
   let device = null;
@@ -863,13 +863,11 @@ async function schedule(url, res) {
   }
 }
 
-// The phone's data screens (companiondata.js): read-only, plus checking a habit off. Only while the
+// The phone's data screens (companiondata.js): read-only. Only while the
 // user shares them (remote.shareData, a switch only they change), and rate-limited per device.
 const DATA_GET = {
   today: () => data.today(),
-  habits: () => data.habits(),
   learn: () => data.learn(),
-  tree: () => data.tree(),
   memories: (url) => data.memories(url.searchParams.get('q') || ''),
   stream: () => data.stream(),
   notes: (url) => data.notes(url.searchParams.get('q') || ''),
@@ -878,9 +876,6 @@ const DATA_GET = {
   skills: () => data.skills(),
   routines: () => data.routines(),
   arch: () => data.arch(),
-  flashcards: () => data.flashcards(),
-  'flashcards/next': (url) => data.flashcardNext(url.searchParams.get('deck')),
-  'flashcards/mix': (url) => data.mixNext(url.searchParams.get('session')),
 };
 
 async function dataRoute(req, res, url, device) {
@@ -890,34 +885,6 @@ async function dataRoute(req, res, url, device) {
   const name = url.pathname.slice('/api/data/'.length);
   try {
     if (req.method === 'GET' && Object.hasOwn(DATA_GET, name)) return json(res, 200, await DATA_GET[name](url));
-    if (req.method === 'POST' && name === 'habits/log') {
-      const body = await readBody(req);
-      return json(res, 200, await data.logHabit(body.name, body.done, body.date));
-    }
-    // Studying a deck: answering a card and undoing that (companiondata.js; view-only devices can't).
-    if (req.method === 'POST' && name === 'flashcards/answer') {
-      if (!underLimit('cards', device.id, 240)) return fail(res, 429, 'Too many answers; wait a minute');
-      const body = await readBody(req);
-      return json(res, 200, await data.flashcardAnswer(body.deck, body.card, body.grade));
-    }
-    if (req.method === 'POST' && name === 'flashcards/undo') {
-      const body = await readBody(req);
-      return json(res, 200, await data.flashcardUndo(body.deck));
-    }
-    // Mixed learning: a session over several decks (start, answer, undo; a practice round writes nothing).
-    if (req.method === 'POST' && name === 'flashcards/mix') {
-      const body = await readBody(req);
-      return json(res, 200, await data.mixStart(body.mode, body.decks));
-    }
-    if (req.method === 'POST' && name === 'flashcards/mix/answer') {
-      if (!underLimit('cards', device.id, 240)) return fail(res, 429, 'Too many answers; wait a minute');
-      const body = await readBody(req);
-      return json(res, 200, await data.mixAnswer(body.session, body.grade, body.card));
-    }
-    if (req.method === 'POST' && name === 'flashcards/mix/undo') {
-      const body = await readBody(req);
-      return json(res, 200, await data.mixUndo(body.session));
-    }
     return fail(res, 404, 'Not found');
   } catch (err) {
     return fail(res, err.status || (/vault|not found/i.test(err.message) ? 404 : 500), forDevice(err, 'Something went wrong on the computer'), err);
