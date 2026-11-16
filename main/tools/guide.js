@@ -9,7 +9,7 @@ module.exports = [
     group: 'guide',
     description:
       'What you (the app) can do: every feature with what it does, things the user can say, where it is in the app, and whether it is set up on this computer. Call it when the user asks what you can do, how to use you, or about a feature ("how can I use you?", "what are routines?"); pass topic for one area. Never describe features from memory alone.',
-    parameters: obj({ topic: str('Optional: one area, e.g. "routines", "languages", "habits"') }),
+    parameters: obj({ topic: str('Optional: one area, e.g. "routines", "languages", "notes"') }),
     run: async (a) => require('../guide').guide(a.topic || ''),
   },
   {

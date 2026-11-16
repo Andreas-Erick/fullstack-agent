@@ -72,18 +72,19 @@ export function setZoom(z) {
 function applyZoom(z) {
   if (z === appliedZoom) return;
   appliedZoom = z;
-  api.win.zoom(z).catch(() => {});
+  api.win.zoom(z).then(() => requestAnimationFrame(fitTitlebar), () => {});
   $('#zoomReset').textContent = `${Math.round(z * 100)}%`;
   // The OS window buttons don't scale with the page: keep the title bar their height (the
   // titleBarOverlay height in main/main.js).
   document.documentElement.style.setProperty('--titlebar', `${44 / z}px`);
   $('.titlebar').style.paddingRight = `${150 / z}px`;
+  requestAnimationFrame(fitTitlebar);
 }
 
 // ------------------------------------------------------------- title bar fit
 // The title bar folds step by step when its contents don't fit (a narrow window, a high zoom, alerts,
 // a long persona name), so nothing overlaps: the levels are data-fold 1..FOLDS in styles.css.
-const FOLDS = 5;
+const FOLDS = 6;
 let fitFrame = 0;
 
 const STATE_WORDS = ['idle', 'listening', 'thinking', 'working', 'speaking', 'happy', 'sleeping', 'alert'];
@@ -305,28 +306,9 @@ async function pickScreen() {
 }
 
 // ------------------------------------------------------- notes & PDF
-export async function quickNote(prefill = '') {
-  const res = await modal((c, close) => {
-    const title = el('input', { class: 'input', placeholder: 'Title (optional)' });
-    const text = el('textarea', { class: 'input', rows: 8, placeholder: 'Jot it down… (Markdown works). Ctrl+Enter saves.' });
-    text.value = prefill;
-    text.addEventListener('keydown', (e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && close({ title: title.value, text: text.value }));
-    c.append(
-      el('h3', {}, 'Quick note'),
-      el('p', { class: 'muted', style: { margin: 0 } }, 'Saved to the Inbox folder of your vault, with today’s date.'),
-      title,
-      text,
-      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), el('button', { class: 'btn primary', onclick: () => close({ title: title.value, text: text.value }) }, 'Save note')),
-    );
-    setTimeout(() => text.focus(), 0);
-  });
-  if (!res || !res.text.trim()) return;
-  try {
-    const r = await api.notes.quick(res.text, res.title);
-    toast(`Saved to ${r.path}`);
-  } catch (err) {
-    toastError(err);
-  }
+// A quick note is the Notes view's brain-dump page (notes.js), from the chat menu as from Ctrl+Shift+N.
+export function quickNote(prefill = '') {
+  return import('./notes.js').then((m) => m.openDump(prefill));
 }
 
 export async function exportChatPdf() {

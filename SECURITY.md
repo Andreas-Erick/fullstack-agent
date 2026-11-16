@@ -30,7 +30,7 @@ Especially welcome are reports about anything that gets around the app's safety 
   client's page, token or network.
 - **The Android and watch apps** (`android/`): another app reaching the phone's relay for the watch
   (`WearRelayService`), approving from a locked phone, getting past the app lock (`AppLock`), or the
-  watch app getting network access. A view-only device chatting, approving or checking habits off.
+  watch app getting network access. A view-only device chatting or approving.
 - **Data at rest**: conversation files readable without the user's keychain when encryption is on.
 - **Approvals** (`main/approvals.js`): actions that should ask but don't, including through web pages,
   documents or other external content ("prompt injection") that make the agent act on its own.

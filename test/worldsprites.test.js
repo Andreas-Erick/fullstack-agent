@@ -14,7 +14,7 @@ const S = manifest.sprites;
 
 test('every place has a sprite for each level, and there is a construction site', () => {
   for (const p of core.PLACES) {
-    if (p.id === 'grounds') continue; // drawn by code: it is mostly the user's habits
+    if (p.id === 'grounds') continue; // drawn by code: it is mostly the user's notebooks
     for (const level of [1, 2, 3]) assert.ok(S[`${p.id}-${level}`], `${p.id}-${level}`);
   }
   assert.ok(S.construction);

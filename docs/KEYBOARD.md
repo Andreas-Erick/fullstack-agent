@@ -9,10 +9,10 @@ entry `keyboard` points here).
 
 | Keys | What it does |
 | --- | --- |
-| Ctrl+1 … Ctrl+9 | Chat, Face, Memory, Calendar, Knowledge, Documents, Evolution, Skills, Habits |
+| Ctrl+1 … Ctrl+9 | Chat, Face, Memory, Calendar, Knowledge, Documents, Evolution, Skills, Notes |
 | Ctrl+Shift+1 / 2 / 3 | Chat layout: chat only, split, face |
-| Ctrl+N | New chat |
-| Ctrl+Shift+N | Quick note |
+| Ctrl+N | New chat (in the Notes view: a new note) |
+| Ctrl+Shift+N | ⚡ Dump: a blank page for a brain dump (Notes) |
 | Ctrl+, | Settings |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in, out, reset |
 | F11 | Full screen (on the Face view: the face alone) |
@@ -28,16 +28,16 @@ The open view is marked as the current page for screen readers.
 | --- | --- | --- |
 | Chat | Enter sends, Shift+Enter a new line; `/` suggests skills (↑ ↓, Tab or Enter picks) | Closes the skill suggestions, else stops speaking |
 | Calendar | ← / → previous / next, T today, N new entry; Enter on a day opens it | Closes the entry editor |
-| Flashcards (studying) | Space or Enter shows the answer; then 1 Again, 2 Hard, 3 Good (or Space), 4 Easy; U undoes the last answer; E edits the card. Tab and Enter open a deck from the list | Back to the decks |
-| Skill tree | Tab to a skill, Enter for its details | — |
+| Notes | Ctrl+N new note, Ctrl+E edit / show rendered (or click the text to edit right there; Enter on the rendered note edits it), Ctrl+S save now; while writing: Ctrl+B bold, Ctrl+I italic, Enter continues a list (on an empty item it ends it), Tab / Shift+Tab indent list items; `[[` suggests notes to link (↑ ↓, Enter or Tab picks); ↓ from the search goes into the list, ↑ ↓ move through it. In ⚡ Dump: Ctrl+Enter saves and gives a fresh page | Closes the link suggestions, else clears the search; in Dump: saves and closes |
 | Inner World | Arrows or WASD pan, + / - zoom, 0 the whole island; the side panel lists every place and resident as buttons | Leaves the timelapse, stops following, steps outside, clears the selection (in that order) |
 | Inner World timelapse | Space play / pause (when focus is not on a button); Tab reaches the bar's play button, slider and speed | Leaves the timelapse |
 | Architecture | + / - zoom, 0 or Home everything, L the lessons, R the replay, Space play / pause in the replay | Leaves the replay, else goes up one level |
 | Vault → Growth | Space play / pause | Closes the replay |
+| Settings | On the tab bar: ← / → the previous / next section, Home / End the first / last; the search field looks through every section | Clears the search |
 | Agent window | Ctrl+L or a click edits the address | Leaves the address bar, else stops loading |
 | Pop-out document | — | Closes the window |
 
-The canvas views (the village, the architecture map, the skill tree, the replays) mirror what they
+The canvas views (the village, the architecture map, the replays) mirror what they
 draw in HTML panels and lists, so a screen reader reaches the same content.
 
 ## Screen readers

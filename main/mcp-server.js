@@ -33,6 +33,9 @@ async function handle(msg) {
         protocolVersion: params?.protocolVersion || '2025-06-18',
         capabilities: { tools: {} },
         serverInfo: { name: 'nexus', version: '1.0.0' },
+        // The model called an everyday tool on this server after finding a related one here
+        // (mcp__nexus_more__persona_switch): no such tool, a wasted round.
+        ...(SET === 'more' ? { instructions: 'The app\'s less-used tools. The everyday ones (calendar, memory, notes, personas, documents, skills…) are on the server "nexus": call each tool on the server that lists it.' } : {}),
       };
     } else if (method === 'tools/list') {
       result = { tools: await bridge('/list', { set: SET }) };

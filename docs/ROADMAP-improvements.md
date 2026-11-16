@@ -55,7 +55,7 @@ Pick an item, read `ENGINEERING.md`, and start; tick the box and note the versio
 - [x] **Done in 2.1.1:** `main/tools/<group>.js` + `main/tools/common.js`.
 - **Why:** 1,900 lines, every tool in one file; the architecture map, self-changes and reviews all
   get coarser because of it.
-- **What:** `main/tools/<group>.js` (calendar, learning, habits, vault, world, browser…), each
+- **What:** `main/tools/<group>.js` (calendar, learning, vault, world, browser…), each
   exporting its tools, registered into the same `TOOLS` list in `tools.js`; nothing else changes
   (`TOOL_LABELS`, `activeTools()`, `SETTABLE` stay). `archcore.js` COMPONENTS gets the folder;
   `test/modules.test.js` already checks every tool's schema.
@@ -93,9 +93,13 @@ Pick an item, read `ENGINEERING.md`, and start; tick the box and note the versio
 
 ## 8. Keyboard and screen-reader pass on the desktop — M
 
+- [x] **2.7.16:** Settings labels tied to their fields (they weren't: "combo box", no name), the
+  live region's text fixed (it dropped every "s"), and `renderer/js/a11ytest.js` in the launch check:
+  any control without a name on any view or Settings tab fails it. Still by hand: focus order across
+  the rail and views.
 - [x] **Done in 2.1.1:** `docs/KEYBOARD.md`, a live region for finished replies (not `aria-live` on the
   whole list, which would read every streamed word), focus rings, arrow keys on the rail.
-- **Why:** the canvas views (village, map, replay, skill tree) mirror their content in HTML
+- **Why:** the canvas views (village, map, replay) mirror their content in HTML
   panels, which is right, but focus order across the rail and views is uneven and streamed replies
   have no `aria-live` on the desktop (the phone has it).
 - **What:** `aria-live="polite"` on the chat's message list, a visible focus style on the rail and

@@ -1,11 +1,10 @@
 // What paired devices see beyond chat (main/companiondata.js): trimmed copies, notes only inside the
-// vault, habits only checked off for today or yesterday.
+// vault, nothing written.
 const test = require('node:test');
 const assert = require('node:assert');
 const { stub, load, quietLog } = require('./helpers');
 
 const reads = [];
-const logs = [];
 stub({
   './logger': quietLog,
   './store': { getSettings: async () => ({ calendar: { enabled: false } }) },
@@ -14,10 +13,7 @@ stub({
     readNote: async (p) => (reads.push(p), { path: p, fullPath: `C:/vault/${p}`, title: 'T', modified: 1, tags: ['x'], content: 'x'.repeat(10) }),
     readPriorities: async () => '---\nupdated: x\n---\n# Priorities\n- Ship 2.0',
   },
-  './habits': {
-    status: async () => ({ habits: [{ name: 'Run', frequency: 'daily', target: 7, paused: false, doneToday: true, streak: 4, streakUnit: 'days', thisWeek: 3, last7: [true], rate28: 0.5, note: 'private' }] }),
-    log: async (names, opt) => (logs.push([names, opt]), { habits: [] }),
-  },
+  './notebook': { summary: async () => ({ today: [{ path: 'Inbox/a.md', title: 'private title' }, { path: 'Notes/b.md', title: 'b' }] }) },
   './learning': { deckSummaries: async () => [], topics: async () => [] },
   './handoff': { read: async () => null },
   './memory': {
@@ -67,20 +63,16 @@ test('notes: vault paths only; the full path on disk never leaves', async () => 
   assert.deepStrictEqual(reads, ['Notes/Ideas.md']);
 });
 
-test('habits: a name is required; only today or yesterday', async () => {
-  await assert.rejects(data.logHabit('  ', true), { status: 400 });
-  await data.logHabit('Run', true, '2020-01-01');
-  assert.deepStrictEqual(logs.pop(), [['Run'], { done: true, date: 'today' }]);
-  await data.logHabit('Run', false, 'yesterday');
-  assert.deepStrictEqual(logs.pop(), [['Run'], { done: false, date: 'yesterday' }]);
-});
-
 test('trimmed copies: no private fields, long texts clipped', async () => {
-  const { habits } = await data.habits();
-  assert.strictEqual(habits[0].note, undefined, 'a habit’s private note stays on the computer');
   const { memories } = await data.memories();
   assert.strictEqual(memories[0].file, undefined);
   assert.ok(memories[0].content.length <= 2001);
   const t = await data.today();
   assert.strictEqual(t.priorities, '# Priorities\n- Ship 2.0', 'frontmatter removed');
+  assert.deepStrictEqual(Object.keys(t).sort(), ['date', 'decks', 'events', 'handoff', 'notesToday', 'priorities', 'shaky']);
+  assert.strictEqual(t.notesToday, 2, 'a count of today’s notes, never their titles or paths');
+});
+
+test('what a device can ask for: readers only, nothing that writes', () => {
+  assert.deepStrictEqual(Object.keys(data).sort(), ['arch', 'learn', 'memories', 'note', 'notes', 'routines', 'skills', 'stream', 'today', 'world']);
 });

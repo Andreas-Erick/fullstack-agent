@@ -17,7 +17,10 @@ function took(settings, { greet = false } = {}) {
 export async function switchPersona(id) {
   if (!id || id === state.settings.personas?.active) return state.settings;
   try {
-    return took(await api.persona.switch(id), { greet: true });
+    const settings = took(await api.persona.switch(id), { greet: true });
+    // The new persona's session starts while it says hello, not with the next message.
+    import('./chat.js').then((m) => m.currentConversationId() && api.llm.prewarm(m.currentConversationId())).catch(() => {});
+    return settings;
   } catch (err) {
     toastError(err);
     return state.settings;

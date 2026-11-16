@@ -50,7 +50,7 @@ import java.util.UUID;
 
 /**
  * Siren on the wrist: tap her to ask by voice; the question goes through the phone to the computer and
- * the answer is spoken and shown. Below: Today (schedule and habits) and a new chat. Turn the bezel or
+ * the answer is spoken and shown. Below: Today (the schedule) and a new chat. Turn the bezel or
  * swipe to scroll a long answer. Laid out for round screens: content stays inside the middle of the
  * circle.
  * The active persona comes from the desktop through the phone: its name and colors (data item

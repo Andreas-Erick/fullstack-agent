@@ -4,19 +4,16 @@
 // device asks /api/data/* again, under the same checks as always. test/sync.test.js.
 
 // Every topic a device may hear. 'sched' is the schedule screen, 'conversations' the list and titles.
-const TOPICS = ['today', 'habits', 'learn', 'memory', 'notes', 'tree', 'world', 'skills', 'cards', 'sched', 'conversations'];
+const TOPICS = ['today', 'learn', 'memory', 'notes', 'world', 'skills', 'sched', 'conversations'];
 
 // Vault notes by where they live (vault-relative, forward slashes), first match wins; every note also
-// counts for 'notes'. Habits, decks and topics feed Today and the skill tree's evidence too.
+// counts for 'notes'. Vocabulary decks and learning topics feed Today too.
 const VAULT_RULES = [
-  [/^Habits\.md$/i, ['habits', 'today', 'tree']],
   [/^Schedule\.md$/i, ['sched', 'today']],
-  [/^Skill Tree\.md$/i, ['tree']],
   [/^Memory\//i, ['memory']],
   [/^Stream\//i, ['memory']],
-  [/^Flashcards\//i, ['cards', 'today', 'tree']],
-  [/^Languages\//i, ['cards', 'learn', 'today', 'tree']],
-  [/^Learning\//i, ['learn', 'today', 'tree']],
+  [/^Languages\//i, ['learn', 'today']],
+  [/^Learning\//i, ['learn', 'today']],
   [/^Inner World\//i, ['world']],
   [/^(Active Priorities|Where We Left Off)\.md$/i, ['today']],
 ];
@@ -34,11 +31,9 @@ function topicsForVault(rel) {
 // Chat events that say the agent changed something (tools emit them for the window).
 const CHAT_TOPICS = {
   start: ['conversations'], // a new conversation, or one moved to the top of the list
-  habits_changed: ['habits', 'today', 'tree'],
   calendar_changed: ['sched', 'today'],
   memory_changed: ['memory'],
   skills_changed: ['skills'],
-  skilltree_changed: ['tree'],
   world_changed: ['world'],
 };
 
@@ -53,8 +48,8 @@ function topicsForEvent(channel, payload) {
 const clean = (topics) => [...new Set((Array.isArray(topics) ? topics : [topics]).filter((t) => TOPICS.includes(t)))];
 
 /**
- * Collects topics for `waitMs` and hands them over at once (a turn can write a dozen notes; a deck
- * import hundreds). `flush(topics)` gets a sorted list; `timers` lets tests drive time.
+ * Collects topics for `waitMs` and hands them over at once (a turn can write a dozen notes).
+ * `flush(topics)` gets a sorted list; `timers` lets tests drive time.
  */
 function coalescer(flush, { waitMs = 600, timers = { setTimeout, clearTimeout } } = {}) {
   let pending = new Set();

@@ -23,7 +23,7 @@ stub({
   }),
   './logger': quietLog,
   './llm': { complete: (...a) => (llmCalls++, llmImpl(...a)) },
-  './persona': { extractJson: (t) => JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)) },
+  './persona': { extractJson: (t) => require('../main/jsonrepair').parseLoose(t), jsonWithRetry: (t, ask) => require('../main/jsonrepair').withRetry(t, ask) },
   './obsidian': { vaultPath: async () => dir, writeNote: async (rel, text) => vaultWrites.push({ rel, text }) },
 });
 const handoff = load('main/handoff.js');

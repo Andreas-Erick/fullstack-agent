@@ -8,8 +8,8 @@
 
 :is(.fx-hud, .fx-subtle) {
   --hud-mono: var(--font-mono);
-  --hud-bracket: rgba(var(--c1), 0.8);
-  --hud-bracket-size: 18px;
+  --hud-bracket: rgba(var(--c1), 0.42);
+  --hud-bracket-size: 13px;
 }
 
 /* ---------------------------------------------------------------- ambient depth */
@@ -66,8 +66,8 @@
   z-index: 50;
   pointer-events: none;
   background:
-    repeating-linear-gradient(to bottom, transparent 0 2px, rgba(var(--shadow), 0.06) 2px 3px),
-    radial-gradient(ellipse at 50% 45%, transparent 60%, rgba(var(--shadow), 0.3));
+    repeating-linear-gradient(to bottom, transparent 0 2px, rgba(var(--shadow), 0.025) 2px 3px),
+    radial-gradient(ellipse at 50% 45%, transparent 65%, rgba(var(--shadow), 0.16));
 }
 
 /* ---------------------------------------------------------------- HUD frames */
@@ -90,7 +90,6 @@
     linear-gradient(#000 0 0) 100% 0 / var(--hud-bracket-size) var(--hud-bracket-size) no-repeat,
     linear-gradient(#000 0 0) 0 100% / var(--hud-bracket-size) var(--hud-bracket-size) no-repeat,
     linear-gradient(#000 0 0) 100% 100% / var(--hud-bracket-size) var(--hud-bracket-size) no-repeat;
-  filter: drop-shadow(0 0 4px rgba(var(--c1), 0.5));
 }
 :is(.fx-hud, .fx-subtle) .glass::after {
   content: '';
@@ -252,14 +251,14 @@
 :is(.fx-hud, .fx-subtle) .msg.assistant .bubble[data-stamp]::before {
   content: attr(data-stamp);
   display: block;
-  margin: -2px 0 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px dashed rgba(var(--c1), 0.25);
+  margin: -2px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(var(--c1), 0.14);
   font-family: var(--hud-mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(var(--c1-soft), 0.85);
+  color: rgba(var(--c1-soft), 0.65);
 }
 :is(.fx-hud, .fx-subtle) .msg.assistant .bubble {
   border-top-left-radius: 2px;
@@ -340,9 +339,9 @@
 
 /* ---------------------------------------------------------------- views appear, not just switch */
 /* Opacity and transform only: a blur filter over the whole view repainted it every frame and stuttered. */
-body.fx-hud .view.active.materialize { animation: hud-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); }
 @keyframes hud-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.995); }
+  from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: none; }
 }
 
@@ -450,11 +449,6 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.3s cubic-bezier(0.2, 
 /* ---------------------------------------------------------------- reduced motion */
 .fx-still *, .fx-still *::before, .fx-still *::after, .fx-still::after { animation: none !important; transition-duration: 0.01ms !important; }
 
-/* ---------------------------------------------------------------- skill tree */
-/* Unlocked stars breathe slowly (opacity only). */
-.fx-hud .tree-node:not(.locked) .core { animation: hud-tree-pulse 4s ease-in-out infinite; }
-@keyframes hud-tree-pulse { 50% { opacity: 0.72; } }
-
 /* ---------------------------------------------------------------- agent window */
 /* Corner brackets on the frame around the page, and while the agent browses an energy light circling
    the ring (renderer/agentwindow.html; the page itself is a native view inside the ring). */
@@ -504,7 +498,7 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.3s cubic-bezier(0.2, 
   color: rgba(var(--c1), 0.6);
   text-shadow: none;
 }
-:is(.fx-hud, .fx-subtle) :is(.view-head h2, .tree-head h2, .arch-head h2, .world-head h2) {
+:is(.fx-hud, .fx-subtle) :is(.view-head h2, .arch-head h2, .world-head h2) {
   text-shadow: -1px 0 rgba(var(--c3), 0.35), 1px 0 rgba(var(--c1), 0.45), 0 0 18px rgba(var(--c1), 0.4);
 }
 
@@ -514,29 +508,26 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.3s cubic-bezier(0.2, 
 .hud-beam::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: linear-gradient(90deg, transparent, rgb(var(--c1)) 20%, rgb(var(--c1-soft)) 50%, rgb(var(--c1)) 80%, transparent); box-shadow: 0 0 18px 2px rgba(var(--c1), 0.7); }
 .hud-beam::after { content: ''; position: absolute; left: 0; right: 0; top: -140px; height: 140px; background: linear-gradient(to bottom, transparent, rgba(var(--c1), 0.07)); }
 @keyframes hud-beam { from { transform: translateY(0); opacity: 1; } 85% { opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
-/* Cards and rows arrive one after another (js sets --hud-i). Tree stars only fade: their position is an SVG transform. */
-.fx-hud .hud-cascade :is(.mem-card, .skill-card, .habit-row, .fc-deck, .routine-row, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *, .world-scene, .world-res, .stream-row) {
-  animation: hud-card-in 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  animation-delay: calc(var(--hud-i, 0) * 32ms);
+/* Cards and rows arrive one after another (js sets --hud-i). */
+.fx-hud .hud-cascade :is(.mem-card, .skill-card, .routine-row, .note-item, .kb-item, .evo-item, .conv-item, .settings > .card, .docs-recent li, .cal-cell, .kb-note, .evo-detail, .doc-viewer, .kb-list, .evo-list, .docs-recent, .cal-side > *, .world-scene, .world-res, .stream-row) {
+  animation: hud-card-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--hud-i, 0) * 14ms);
 }
-.fx-hud .hud-cascade .tree-node { animation: hud-fade-in 0.6s ease both; animation-delay: calc(var(--hud-i, 0) * 60ms); }
 /* No filter here either: forty cards brightening at once is forty repaints a frame. */
 @keyframes hud-card-in {
-  from { opacity: 0; transform: translateY(14px) scale(0.98); }
-  60% { opacity: 1; }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
-@keyframes hud-fade-in { from { opacity: 0; } }
 
 /* ---------------------------------------------------------------- lock-on hover */
-:is(.fx-hud, .fx-subtle) :is(.mem-card, .skill-card, .habit-row, .fc-deck, .routine-row, .settings > .card) { transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s, border-color 0.25s; }
-:is(.fx-hud, .fx-subtle) :is(.mem-card, .skill-card, .habit-row, .fc-deck, .routine-row):hover {
+:is(.fx-hud, .fx-subtle) :is(.mem-card, .skill-card, .routine-row, .note-item, .settings > .card) { transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s, border-color 0.25s; }
+:is(.fx-hud, .fx-subtle) :is(.mem-card, .skill-card, .routine-row, .note-item):hover {
   --hud-bracket: rgb(var(--c1-soft));
   --hud-bracket-size: 26px;
   border-color: var(--line-strong);
   box-shadow: var(--glow), 0 0 26px -6px rgba(var(--c1), 0.55), inset 0 0 22px -12px rgba(var(--c1), 0.6);
 }
-.fx-hud :is(.mem-card, .skill-card, .habit-row, .fc-deck, .routine-row):hover { transform: translateY(-3px); }
+.fx-hud :is(.mem-card, .skill-card, .routine-row, .note-item):hover { transform: translateY(-3px); }
 /* List rows: an energy bar grows on the left. */
 :is(.fx-hud, .fx-subtle) :is(.kb-item, .conv-item, .docs-recent li, .evo-item) { position: relative; }
 :is(.fx-hud, .fx-subtle) :is(.kb-item, .conv-item, .docs-recent li)::before {
@@ -634,10 +625,10 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.3s cubic-bezier(0.2, 
 @media (max-width: 1100px) { .hud-readout { display: none !important; } }
 
 /* ---------------------------------------------------------------- chat: transmissions */
-.fx-hud .msg.assistant { animation: hud-msg-l 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
-.fx-hud .msg.user { animation: hud-msg-r 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
-@keyframes hud-msg-l { from { opacity: 0; transform: translateX(-18px); filter: brightness(2); } 60% { filter: brightness(1.2); } }
-@keyframes hud-msg-r { from { opacity: 0; transform: translateX(18px); } }
+.fx-hud .msg.assistant { animation: hud-msg-l 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.fx-hud .msg.user { animation: hud-msg-r 0.24s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes hud-msg-l { from { opacity: 0; transform: translateX(-10px); } }
+@keyframes hud-msg-r { from { opacity: 0; transform: translateX(10px); } }
 
 /* ---------------------------------------------------------------- memory, settings: numbered records */
 :is(.fx-hud, .fx-subtle) .mem-grid { counter-reset: hud-rec; }
@@ -648,13 +639,6 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.3s cubic-bezier(0.2, 
 :is(.fx-hud, .fx-subtle) .settings > .card > h3::after { content: 'CFG.' counter(hud-cfg, decimal-leading-zero); margin-left: auto; font-family: var(--hud-mono); font-size: 9.5px; letter-spacing: 0.18em; color: var(--muted); }
 .fx-hud .settings > .card > h3 .dot { animation: hud-blink 2.4s ease-in-out infinite; }
 
-/* ---------------------------------------------------------------- habits: completed checks pulse */
-:is(.fx-hud, .fx-subtle) .habit-check { position: relative; }
-:is(.fx-hud, .fx-subtle) .habit-check.done::after { content: ''; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid rgba(var(--ok), 0.7); }
-.fx-hud .habit-check.done::after { animation: hud-ping 2.4s ease-out infinite; }
-@keyframes hud-ping { from { transform: scale(0.85); opacity: 0.9; } to { transform: scale(1.45); opacity: 0; } }
-:is(.fx-hud, .fx-subtle) .habit-days i.on { box-shadow: 0 0 6px rgba(var(--ok), 0.8); }
-:is(.fx-hud, .fx-subtle) .habit-streak { font-family: var(--hud-mono); text-shadow: 0 0 10px rgba(var(--warn), 0.6); }
 
 /* ---------------------------------------------------------------- evolution: a timeline */
 :is(.fx-hud, .fx-subtle) .evo-item::after { content: ''; position: absolute; left: 16.5px; top: 0; bottom: 0; width: 1px; background: linear-gradient(to bottom, rgba(var(--c1), 0.45), rgba(var(--c1), 0.15)); pointer-events: none; }
@@ -677,7 +661,5 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.3s cubic-bezier(0.2, 
 .fx-hud .doc-empty::after { animation: hud-spin-ring 7s linear infinite reverse; }
 :is(.fx-hud, .fx-subtle) .docs-recent li .k { font-family: var(--hud-mono); }
 
-/* ---------------------------------------------------------------- skill tree: orbits */
-:is(.fx-hud, .fx-subtle) .tree-node:not(.locked) .ring-bg { stroke-dasharray: 2 5; transform-box: fill-box; transform-origin: center; }
-.fx-hud .tree-node:not(.locked) .ring-bg { animation: hud-spin-ring 30s linear infinite; }
+/* ---------------------------------------------------------------- skills */
 :is(.fx-hud, .fx-subtle) .skill-card code.cmd { text-shadow: 0 0 10px rgba(var(--c1), 0.6); }

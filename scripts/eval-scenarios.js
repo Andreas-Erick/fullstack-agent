@@ -70,7 +70,7 @@ function inCharacter(name, { asked = false } = {}) {
 const whoAmI = (name) => all(said(new RegExp(name.split(' ').pop(), 'i')), inCharacter(name));
 
 /** The scenario world, through the app's own modules (the formats are what the app writes). */
-async function seedScenarios({ calendar, habits, memory, flashcards, vault, fs, path }, d) {
+async function seedScenarios({ calendar, memory, learning, vault, fs, path }, d) {
   // A student who also works part-time, learns Icelandic and has a full life.
   await calendar.add({ title: 'Linear Algebra lecture', when: 'every Monday, Wednesday 10:15-11:45', location: 'Hörsaal 2' });
   await calendar.add({ title: 'Control Systems lab', when: 'every Thursday 14:00-17:00' });
@@ -80,20 +80,13 @@ async function seedScenarios({ calendar, habits, memory, flashcards, vault, fs, 
   await calendar.add({ title: 'Call with the landlord', when: `${ymd(d.tomorrow)} 08:30-09:00` });
   await calendar.add({ title: 'Pick up dry cleaning', when: `${ymd(d.tomorrow)} 17:00-17:15` });
   await calendar.add({ title: 'Brunch with Tom', when: `${ymd(d.brunch)} 10:00-11:00` });
-  await habits.add({ name: 'Icelandic practice', target: 7, note: '15 minutes' });
-  await habits.add({ name: 'Gym', target: 3 });
-  await habits.add({ name: 'Deep work', target: 5, note: '90-minute block' });
   await memory.save({ title: 'Studies', content: 'Erick studies mechanical engineering at TU Munich, 5th semester.', category: 'facts' });
   await memory.save({ title: 'Job', content: 'Erick works part-time as a backend developer at Finlytics (Python, PostgreSQL). His manager is Sarah Klein.', category: 'facts' });
   await memory.save({ title: 'Thesis', content: 'Erick’s bachelor thesis is about model predictive control (MPC) for quadcopter drones.', category: 'facts' });
   await memory.save({ title: 'Icelandic goal', content: 'Erick is learning Icelandic: level A2 now, goal B1 by next summer.', category: 'goals' });
   await memory.save({ title: 'Allergy', content: 'Erick is allergic to peanuts.', category: 'health' });
   await memory.save({ title: 'Explanations', content: 'Erick prefers explanations that start with a concrete example.', category: 'preferences' });
-  await flashcards.addCards('Thermo', [
-    { front: 'First law of thermodynamics', back: 'ΔU = Q − W' },
-    { front: 'Carnot efficiency', back: 'η = 1 − T_c / T_h' },
-  ]);
-  await flashcards.addCards('Icelandic', [
+  await learning.addCards('Icelandic', [
     { front: 'kaffi', back: 'coffee' },
     { front: 'vatn', back: 'water' },
     { front: 'takk', back: 'thanks' },
@@ -125,15 +118,6 @@ function scenarios(d) {
         const hm = (iso) => String(iso).slice(11, 16);
         const bad = list.find((x) => hm(x.start) !== '19:00' || hm(x.end) !== '20:30');
         return bad ? `a session is at ${bad.start}–${bad.end} (expected 19:00–20:30)` : '';
-      },
-    },
-    {
-      id: 'stem-cards',
-      area: 'stem student',
-      ask: 'Make three flashcards for my Thermo deck from my exam topics note, on topics the deck doesn’t cover yet.',
-      check: async (r) => {
-        const cards = await r.state.cards('Thermo');
-        return cards.length >= 5 ? '' : `the Thermo deck has ${cards.length} cards (expected 2 + 3)`;
       },
     },
     {
@@ -186,11 +170,10 @@ function scenarios(d) {
       area: 'language learner',
       ask: 'Add bók (book) and hús (house) to my Icelandic deck.',
       check: async (r) => {
-        const fronts = (await r.state.cards('Icelandic')).map((c) => `${c.front} ${c.back}`).join(' | ');
+        const fronts = (await r.state.vocab('Icelandic')).map((c) => `${c.front} ${c.back}`).join(' | ');
         return /bók/i.test(fronts) && /hús/i.test(fronts) ? '' : `the Icelandic deck has: ${fronts.slice(0, 120)}`;
       },
     },
-    { id: 'lang-habit', area: 'language learner', ask: 'I practised Icelandic for 20 minutes today.', check: async (r) => ((await r.state.habitDone('Icelandic practice')) ? '' : 'Icelandic practice is not checked off for today') },
     { id: 'lang-colours-de', area: 'language learner', ask: 'Kannst du mir drei isländische Wörter für Farben nennen?', check: all(said(/rauð|blá|græn|gul|svart|hvít/i), said(/\b(und|ist|rot|blau|grün|gelb|schwarz|weiß|Farbe)\b/i)) },
     { id: 'lang-goal', area: 'language learner', ask: 'What level am I aiming for in Icelandic, and by when?', check: all(said(/\bB1\b/), said(/summer/i)) },
     // ================================================================ lifelong learner
@@ -331,17 +314,6 @@ function scenarios(d) {
             return n === 1 ? '' : `${n} library entries (expected exactly one)`;
           }),
         },
-      ],
-    },
-    {
-      // A habit logged under one persona and asked about under another: shared, and not logged twice.
-      id: 'persona-shared-habit',
-      area: 'persona switches',
-      steps: [
-        { persona: 'Captain Vega' },
-        { ask: 'Done with my Icelandic practice for today.', check: async (r) => ((await r.state.habitDone('Icelandic practice')) ? '' : 'Icelandic practice is not checked off') },
-        { persona: 'Professor Quill' },
-        { ask: 'Have I done my Icelandic practice today?', check: all(said(/\byes\b|you have|already|done|checked off|logged/i), inCharacter('Professor Quill'), (r) => (r.tools.some((t) => t.name === 'habit_log') ? 'it logged the habit again' : '')) },
       ],
     },
     {

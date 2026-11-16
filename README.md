@@ -22,7 +22,7 @@ Voice-first · Claude-powered · Obsidian memory · Windows & macOS · Android a
 
 ---
 
-Siren is an assistant you talk to like a trusted colleague: a chief of staff, a tutor and a good friend in one. Hold a key (or just speak, hands-free), and she answers in a natural voice within a few seconds, with your schedule, your notes, your documents and your GitHub repos at hand. She keeps her memory in an Obsidian vault you can read and edit, asks before she does anything consequential, and can change her own code when you ask for a feature, with every change checked, tested, recorded and reversible. Away from your desk, the Android app (or any phone browser) has the same assistant, your day, your habits, your flashcards, what you're learning and your notes, and a Galaxy Watch puts her on your wrist, while the brain, the memory and the keys stay on your computer. She even has a place of her own: an Inner World, a small village where her personas live a day you can watch and whose buildings grow with your real progress.
+Siren is an assistant you talk to like a trusted colleague: a chief of staff, a tutor and a good friend in one. Hold a key (or just speak, hands-free), and she answers in a natural voice within a few seconds, with your schedule, your notes, your documents and your GitHub repos at hand. She keeps her memory in an Obsidian vault you can read and edit, asks before she does anything consequential, and can change her own code when you ask for a feature, with every change checked, tested, recorded and reversible. Away from your desk, the Android app (or any phone browser) has the same assistant, your day, your notes and what you're learning, and a Galaxy Watch puts her on your wrist, while the brain, the memory and the keys stay on your computer. She even has a place of her own: an Inner World, a small village where her personas live a day you can watch and whose buildings grow with your real progress.
 
 > **Formerly Nexus Agent.** Updating keeps everything: your data folder moves to its new name by itself, and your assistant's name, look, face, voice and brain stay as they were. Siren, the new default persona, is one click away in Settings → Persona.
 
@@ -38,10 +38,8 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 |---|---|
 | ![The Inner World: a floating village whose buildings grow with your progress](docs/screenshots/inner-world.jpg) | ![The face view: Siren on her rock in her cove, with live telemetry](docs/screenshots/face.jpg) |
 | **The Inner World.** Her personas live here; she walks to the Library when she researches and to the Workshop when she codes. | **Her face.** Listening, thinking, speaking and sleeping, in your theme. |
-| ![The skill tree: Machine Learning as a goal made of steps](docs/screenshots/skill-tree.jpg) | ![Habits with streaks and weekly targets](docs/screenshots/habits.jpg) |
-| **Skill tree.** A broad goal split into steps; progress comes from what you learn, study and practice. | **Habits.** Tick them off or just say "I went for a run"; never miss twice. |
-| ![Flashcards: decks scheduled like Anki, and mixed review](docs/screenshots/flashcards.jpg) | ![The phone app: today, habits, the Inner World and flashcards](docs/screenshots/phone.jpg) |
-| **Flashcards.** Anki's scheduler (SM-2 or FSRS), imports from Anki, mixed review across decks. | **On your phone.** Your day, habits, the village and your cards, with the brain staying on your computer. |
+| ![The Notes view: notes grouped by day, notebook and tag chips, and a note open in the editor](docs/screenshots/notes.jpg) | ![The phone app: your day and the Inner World](docs/screenshots/phone.jpg) |
+| **Notes.** Write your own notes and brain dumps; they are plain Markdown in your vault, and she can look them up. | **On your phone.** Your day and the village, with the brain staying on your computer. |
 
 <sub>Sample data. The screenshots are made by the app itself (`NEXUS_SHOTS`, see [CLAUDE.md](CLAUDE.md) → Engineering method).</sub>
 
@@ -76,7 +74,8 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 | 📄 **Documents** | Opens PDFs, Word files, Markdown, images… each in **its own window** with zoom, fit-to-width and page navigation. Finds files by name in your **workspace folder** first ("open the quarterly report PDF"). |
 | 🖥️ **Monitors** | Named by where they are: "move the quarterly report to the **right** monitor", "make it full screen", "which monitor is which?" |
 | 👀 **Screen sharing** | Share a screen or window and it **sees what you see**: "what's wrong with this error?", "help me fill in this form". You pick what to share; nothing is recorded. |
-| 📝 **Notes & PDFs** | Quick notes (Ctrl+Shift+N), "save this reply as a note", and **PDF export** of any reply, note or whole chat. Ask it to "write that up as a PDF". |
+| 📝 **Notes** | Write your own notes in the **Notes** view (Ctrl+9), like in Obsidian: plain Markdown in the vault's `Notes/` folder (subfolders are notebooks), saved as you type, `[[links]]` suggested as you write them, #tags, pins and search. **⚡ Dump** (Ctrl+Shift+N, from anywhere) is a blank full-screen page for a brain dump that lands in `Inbox/`. Ask "what did I write about PID tuning?" and she looks it up. |
+| 🖨️ **PDFs** | "Save this reply as a note", and **PDF export** of any reply, note or whole chat. Ask it to "write that up as a PDF". |
 | 📅 **Calendar** | Nothing to connect: **tell it your schedule** ("I have Linear Algebra every Monday at 10 in H1 until February") and it keeps it in `Schedule.md` in its vault, repeat rules included. A themed month / week / agenda view to look at and edit it, also on the phone. With the Todoist or TickTick connector, your **tasks** appear in it too (press Sync, or ask). |
 | 🐙 **GitHub** | Reads repos, issues and pull requests; clones a repo, works on a branch and commits. **Push and PRs always ask.** It never merges. |
 | 🌐 **Web** | Searches and reads pages, citing sources. Its own **agent window** (a sandboxed browser beside the app) for sites that need a real page: it reads, looks and, with your approval, clicks and types, never into passwords or payment fields. |
@@ -84,12 +83,10 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 ### 🎓 Learning, coaching and routines
 - **Understanding over memorizing:** intuition first, then the rigorous version; proofs with the strategy, every step justified and hints instead of answers while you work (`/explain`, `/proof-coach`, `/teach-back`, `/study-session`). **Formulas render** (LaTeX) and are **read aloud in words**.
 - **A learning tracker** per topic in your vault: what you understood, what's shaky, misconceptions and open questions; the assistant follows up next time.
-- **Flashcards with Anki's scheduler** (SM-2 as Anki runs it, or FSRS): decks as plain notes in your vault, cards she makes from what you learn or that you type by hand, imports of CSV and Anki packages with their media, a Cards view with the four grades and what each would do, **mixed learning** across decks, and the same cards on your phone.
-- **Study material that teaches:** ask for a study pack, guide or cheat sheet and she writes a vault note in a learning order, draws the diagrams, plots exact charts, makes a printable PDF with formulas typeset and adds the flashcards (`/study-pack`).
+- **Study material that teaches:** ask for a study pack, guide or cheat sheet and she writes a vault note in a learning order, draws the diagrams, plots exact charts and makes a printable PDF with formulas typeset (`/study-pack`).
 - **For polyglots:** vocabulary decks with **spaced repetition**, reviews by voice (`/drill`), and **speaking practice** (`/converse`): speech recognition and the voice switch to the language you practice.
-- **A life-coach side and a habit tracker:** goals into small steps, tiny anchored habits with streaks (Habits view, or just say "I went for a run"), `/goal`, `/reflect`, `/weekly-review`.
-- **A skill tree** of everything you're growing, as a constellation: progress comes from your learning tracker, decks and habits; skills unlock as their foundations grow.
-- **Routines:** the assistant works on a schedule while the app is open: a daily briefing, syncing Google Calendar or Todoist, summarizing new Plaud recordings, a daily language text. Each run notifies you.
+- **A life-coach side:** goals into small steps and if-then plans, `/goal`, `/reflect`, `/weekly-review`.
+- **Routines:** the assistant works on a schedule while the app is open: a daily briefing, syncing Google Calendar or Todoist, summarizing new Plaud recordings, a daily language text. Each run notifies you. They are listed in the Skills view, under the skills.
 - **Claude connectors and plugins** (with the Claude account brain): the services on your claude.ai account, each set to ask, allow reading, allow all but deleting, or allow everything.
 - **Skills from GitHub:** import Agent Skills (SKILL.md folders, e.g. mattpocock/skills) with their reference files; nothing in them is run.
 - **Diagrams and charts:** clean HTML + SVG diagrams saved in your vault (45 types with the diagram-design skill) and exact function charts (no AI drawing: a formula parser plots them), both embedded in her PDFs.
@@ -97,14 +94,14 @@ Siren is an assistant you talk to like a trusted colleague: a chief of staff, a 
 - **Persona templates:** Ada (STEM tutor), Mira (polyglot coach), Sol (life coach), each with its own look, face and voice. Ask **"How can I use you?"** for a tour of everything, tailored to you.
 
 ### 🏡 An inner world
-- **A village where her personas live:** a floating island with a Library, a Workshop, a Café, an Observatory, an Archive, a Stage… Every morning a narrator writes the residents' day (plans, meetings, conversations), and each of them remembers it. The buildings grow with **your** real progress: the Library with what you understand, the Café with your vocabulary, the Training Grounds fly a banner per habit, your skill tree shines as constellations at night. Whatever she is doing right now, you can watch: at the forge while she writes code, up the Lookout while she searches the web.
+- **A village where her personas live:** a floating island with a Library, a Workshop, a Café, an Observatory, an Archive, a Stage… Every morning a narrator writes the residents' day (plans, meetings, conversations), and each of them remembers it. The buildings grow with **your** real progress: the Library with what you understand, the Café with your vocabulary, the Observatory with what you plan together, the Garden with a flower for each note you write today, and the Training Grounds fly a banner per notebook. Whatever she is doing right now, you can watch: at the forge while she writes code, up the Lookout while she searches the web.
 - **Step inside a building** and you see its room from above, crew-quarters style: the furniture is your data (a shelf per topic, a table per deck, a cabinet per batch of memories, your recent documents as paper stacks, a bed per resident), the residents walk between the stations doing what their day says, and while she works her figure stands at the right station with a progress bar. Click a paper stack to open the document.
 - **Rehearsals:** on the Stage she plays out a conversation you are preparing for, with characters who have their own hidden goals, and debriefs it. A **timelapse** replays how the village grew; the seasons follow the real date.
 
 ### 📱 On your phone and your wrist
 - **Chat with the same assistant** from any phone browser or the **Android app**: replies stream live, conversations are shared with the desktop, and spoken replies play on the phone.
-- **Your day on the phone:** tabs for **Today** (schedule, habits, priorities, cards due, where you left off), **Habits** (check them off; the desktop sees it at once), **Learn** (topics and decks), and under More your **flashcards** (studied with the same schedule), memories, notes, skill tree, the **Inner World** (walk the island, step inside its buildings), the map of her own architecture and your skills. Tablets and Samsung DeX put the chat beside the screens. What changes on the computer (a habit checked off, a note she wrote, a conversation renamed) shows on the phone's open screen by itself.
-- **A Galaxy Watch** (Wear OS 3+) puts her on your wrist: tap to ask, she listens on her own screen and answers in her voice with her face; Today and your habits; approvals as notifications. It goes through the phone app, nothing to pair.
+- **Your day on the phone:** tabs for **Today** (schedule, notes written today, priorities, where you left off), **Notes** (read and search your vault's notes), **Learn** (topics and vocabulary decks), and under More your schedule, memories, the **Inner World** (walk the island, step inside its buildings), the map of her own architecture and your skills. Tablets and Samsung DeX put the chat beside the screens. What changes on the computer (a note you or she wrote, a conversation renamed) shows on the phone's open screen by itself.
+- **A Galaxy Watch** (Wear OS 3+) puts her on your wrist: tap to ask, she listens on her own screen and answers in her voice with her face; Today with what's left on your schedule; approvals as notifications. It goes through the phone app, nothing to pair.
 - **Approve from anywhere:** approval cards (with a countdown) on the phone, and on Android as **notifications with Allow / Deny**, even with the app closed.
 - **Push-to-talk on the phone,** transcribed on your computer with your own speech-to-text. On Android also a **Quick Settings tile** and **Share → Siren** from any app.
 - **Pair by QR code** in seconds; reach it at home over Wi-Fi or **from anywhere** through Tailscale (set up with one click on the desktop) or your own Cloudflare Tunnel (optionally behind Cloudflare Access). No port is opened on your router and no server of ours is involved.
@@ -194,7 +191,7 @@ A short setup walks you through everything, one topic at a time:
 4. **The brain:** your Claude account (recommended), several providers with automatic fallback, a local server, or an API key, with a test.
 5. **Voice:** the offline voice (downloaded once, with a sample), a cloud voice or VoiceStudio; your microphone; push-to-talk or hands-free; speech recognition on this computer or through Groq.
 6. **Memory and files:** her own vault, or an existing Obsidian vault, and optionally the workspace folder where you keep your files.
-7. **What you want help with:** studying, languages, goals and habits, work. It adds the matching personas and a daily briefing.
+7. **What you want help with:** studying, languages, goals, work. It adds the matching personas and a daily briefing.
 8. **Connectors and extras:** what is built in, which Claude connectors fit your goals (none come with the app; [why](docs/CONNECTORS.md)), the extensions and the phone app.
 9. **Personality and face.**
 10. **What I can do:** a tour of every feature, with things to say.
@@ -213,7 +210,7 @@ Remote access is **off by default**. While it is on, a **Remote** badge shows in
 2. **Pair:** click **Pair a device** and **scan the QR code** with the phone's camera; the phone app opens already connected. Or open the address on the phone and type the six-digit code. Codes and QR links work once and expire after five minutes.
 3. **Android (optional):** install `Siren-Android-x.y.z.apk` (or the `-debug.apk`) from [Releases](https://github.com/Andreas-Erick/fullstack-agent/releases/latest) (Android 8 or newer), enter the address or paste the QR link, and turn on notifications to get approvals and replies while the app is closed. Build it yourself: [`android/README.md`](android/README.md).
 
-A paired phone can chat, read conversations, answer approvals sent to it, and (unless you turn it off: Settings → Remote access → "Show my notes, memories…") see your day, habits, learning, flashcards, memories, notes, skill tree, Inner World and the architecture map, read-only except for checking habits off and answering flashcards. It never sees your settings, keys, the setup conversation or screenshots of your desktop, and tool activity reaches it as names only (never what a tool read or wrote). Each device is listed in Settings with where it last connected from; remove one, or all at once. A device unused for 90 days is unpaired automatically. Push-to-talk on the phone needs the encrypted address (browsers allow the microphone only there).
+A paired phone can chat, read conversations, answer approvals sent to it, and (unless you turn it off: Settings → Remote access → "Show my notes, memories…") see your day, notes, learning, memories, Inner World and the architecture map, read-only: nothing on those screens changes anything on the computer. It never sees your settings, keys, the setup conversation or screenshots of your desktop, and tool activity reaches it as names only (never what a tool read or wrote). Each device is listed in Settings with where it last connected from; remove one, or all at once. A device unused for 90 days is unpaired automatically. Push-to-talk on the phone needs the encrypted address (browsers allow the microphone only there).
 
 ## Talking to it
 
@@ -256,12 +253,12 @@ A paired phone can chat, read conversations, answer approvals sent to it, and (u
 | Enter / Shift+Enter | Send / new line |
 | F8 (hold) | Push-to-talk |
 | Ctrl/Cmd+Alt+Space | Listen from anywhere |
-| Ctrl/Cmd+1…9 | Chat, Face, Memory, Calendar, Vault, Documents, Evolution, Skills, Habits |
+| Ctrl/Cmd+1…9 | Chat, Face, Memory, Calendar, Vault, Documents, Evolution, Skills, Notes |
 | Ctrl/Cmd+Shift+1 / 2 / 3 | Chat only / side by side / face layout |
 | Ctrl/Cmd + / − / 0, Ctrl + wheel | Zoom in / out / reset (over a document: zoom the document) |
 | Ctrl/Cmd+, | Settings |
-| Ctrl/Cmd+N | New conversation |
-| Ctrl/Cmd+Shift+N | Quick note |
+| Ctrl/Cmd+N | New conversation (in Notes: a new note) |
+| Ctrl/Cmd+Shift+N | ⚡ Dump: a blank page for a brain dump, saved to Inbox |
 | `/` in the message box | Run a skill (Tab completes) |
 | F11 | Full screen (on Face: full-screen face) |
 | Esc | Stop speaking / exit full screen / close a document window |

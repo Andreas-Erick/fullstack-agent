@@ -17,7 +17,6 @@ let slowIo = false; // the store's file access with random delays (the device-li
 const calls = [];
 let share = true; // remote.shareData
 const turns = []; // what hooks.startTurn was asked
-const habitLogs = [];
 const alerts = []; // hooks.notify events
 let uiFace = ''; // ui.face on the desktop
 let scene = null; // appearance.scene on the desktop
@@ -54,9 +53,7 @@ stub({
   }),
   './voice': {},
   './companiondata': {
-    today: async () => ({ date: '2026-10-26', events: [], habits: [] }),
-    habits: async () => ({ habits: [{ name: 'Run', doneToday: false }] }),
-    logHabit: async (name, done) => (habitLogs.push([name, done]), { habits: [{ name, doneToday: done !== false }] }),
+    today: async () => ({ date: '2026-10-26', events: [], notesToday: 0 }),
     note: async (p) => ({ path: p, title: 'X', content: '# X' }),
   },
   './logger': quietLog,
@@ -294,7 +291,7 @@ test('the schedule: read-only, a bounded range, only the fields the phone shows'
   assert.strictEqual((await post('/api/schedule', {}, auth)).status, 404, 'no way to change it');
 });
 
-test('data screens: only paired devices, only while shared; habits can be checked off', async () => {
+test('data screens: only paired devices, only while shared; read-only', async () => {
   let r = await fetch(`${base}/api/data/today`);
   assert.strictEqual(r.status, 401, 'no token, no data');
   const token = await pairDevice('Data phone');
@@ -302,15 +299,18 @@ test('data screens: only paired devices, only while shared; habits can be checke
   r = await fetch(`${base}/api/data/today`, { headers: auth });
   assert.strictEqual(r.status, 200);
   assert.strictEqual((await r.json()).date, '2026-10-26');
-  r = await post('/api/data/habits/log', { name: 'Run', done: true }, auth);
-  assert.strictEqual(r.status, 200);
-  assert.deepStrictEqual(habitLogs.pop(), ['Run', true]);
+  // Nothing on the computer can be changed through the data routes: every POST is refused.
+  for (const name of ['today', 'learn', 'memories', 'stream', 'notes', 'note', 'world', 'skills', 'routines', 'arch', 'habits', 'habits/log', 'learn/answer']) {
+    assert.strictEqual((await post(`/api/data/${name}`, { name: 'Run', done: true }, auth)).status, 404, `a device cannot write through /api/data/${name}`);
+  }
+  r = await fetch(`${base}/api/data/habits`, { headers: auth });
+  assert.strictEqual(r.status, 404, 'the habits screen is gone');
   r = await fetch(`${base}/api/data/nothing-here`, { headers: auth });
   assert.strictEqual(r.status, 404);
   r = await fetch(`${base}/api/data/__proto__`, { headers: auth });
   assert.strictEqual(r.status, 404);
   share = false;
-  r = await fetch(`${base}/api/data/habits`, { headers: auth });
+  r = await fetch(`${base}/api/data/today`, { headers: auth });
   assert.strictEqual(r.status, 403, 'the user turned sharing off');
   r = await fetch(`${base}/api/info`, { headers: auth });
   assert.strictEqual((await r.json()).share, false);
@@ -417,7 +417,7 @@ test('the watch face pack: paired devices only, cached by its key', async () => 
   assert.strictEqual(dev.watch, true, 'a device that asked for the face gets it recorded ahead from now on');
 });
 
-test('view-only devices read but cannot chat, approve, talk, have text spoken or check habits off', async () => {
+test('view-only devices read but cannot chat, approve, talk or have text spoken', async () => {
   const token = await pairDevice('Kitchen tablet');
   const auth = { Authorization: `Bearer ${token}` };
   const id = JSON.parse(fs.readFileSync(devicesFile, 'utf8')).find((d) => d.name === 'Kitchen tablet').id;
@@ -426,7 +426,7 @@ test('view-only devices read but cannot chat, approve, talk, have text spoken or
   assert.strictEqual((await (await fetch(`${base}/api/info`, { headers: auth })).json()).readOnly, true);
   assert.strictEqual((await fetch(`${base}/api/conversations`, { headers: auth })).status, 200, 'reading works');
   const before = turns.length;
-  for (const [p, body] of [['/api/chat', { text: 'hi' }], ['/api/chat/r1/abort', {}], ['/api/approvals/a1', { allow: true }], ['/api/data/habits/log', { name: 'Run' }], ['/api/speak', { text: 'hello' }]]) {
+  for (const [p, body] of [['/api/chat', { text: 'hi' }], ['/api/chat/r1/abort', {}], ['/api/approvals/a1', { allow: true }], ['/api/speak', { text: 'hello' }]]) {
     assert.strictEqual((await post(p, body, auth)).status, 403, p);
   }
   assert.strictEqual(turns.length, before, 'no turn started');
@@ -561,17 +561,19 @@ const dataEvents = (streamed) => [...streamed.matchAll(/event: data\.changed\nda
 test('a change on the computer reaches devices as one data.changed: the screens to fetch again, never the note', async () => {
   const auth = { Authorization: `Bearer ${await pairDevice('Sync phone')}` };
   const streamed = await listen(auth, async () => {
-    // A turn that checks a habit off, writes a memory and a note: a burst of vault changes and events.
-    companion.publish('vault:changed', 'Habits.md');
+    // A turn that adds an event, writes a memory and a note: a burst of vault changes and events.
+    companion.publish('vault:changed', 'Schedule.md');
     companion.publish('vault:changed', 'Memory/my-bank-pin.md');
     companion.publish('vault:changed', 'Notes/Diary.md');
-    companion.publish('chat:event', { requestId: 'rS', conversationId: 'c1', type: 'habits_changed' });
+    companion.publish('chat:event', { requestId: 'rS', conversationId: 'c1', type: 'calendar_changed' });
+    companion.publish('chat:event', { requestId: 'rS', conversationId: 'c1', type: 'memory_changed' });
+    companion.publish('chat:event', { requestId: 'rS', conversationId: 'c1', type: 'habits_changed' }); // no such topic any more
     companion.publish('vault:changed', '.obsidian/workspace.json');
   });
   const events = dataEvents(streamed);
   assert.strictEqual(events.length, 1, streamed);
-  assert.deepStrictEqual(events[0], { topics: ['habits', 'memory', 'notes', 'today', 'tree'] });
-  assert.ok(!/bank|Diary|Habits\.md|obsidian/.test(streamed), 'no path or name of a note');
+  assert.deepStrictEqual(events[0], { topics: ['memory', 'notes', 'sched', 'today'] });
+  assert.ok(!/bank|Diary|Schedule\.md|obsidian/.test(streamed), 'no path or name of a note');
   assert.ok(!streamed.includes('event: vault.changed'), 'the window’s own event stays with the window');
 });
 

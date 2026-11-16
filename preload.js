@@ -21,6 +21,7 @@ const channels = {
   skills: ['list', 'save', 'delete', 'openFolder', 'scan', 'import'],
   pdf: ['fromMarkdown', 'fromNote', 'fromConversation'],
   notes: ['quick'],
+  notebook: ['list', 'read', 'create', 'save', 'remove', 'pin'],
   hardware: ['scan'],
   chat: ['send', 'abort', 'endSession'],
   approval: ['respond'],
@@ -46,8 +47,6 @@ const channels = {
   self: ['status', 'ensure', 'log', 'show', 'check', 'verification', 'commit', 'revert', 'restore', 'discard', 'reload', 'restart'],
   claude: ['status', 'login', 'logout', 'installHint', 'connectors', 'usage', 'setConnectorLevel'],
   persona: ['generate', 'scene', 'switch', 'create', 'remove', 'templates', 'summaryStatus', 'summarize', 'setSummary'],
-  habits: ['status', 'log', 'add', 'pause'],
-  skilltree: ['view', 'upsert', 'remove'],
   stream: ['recent', 'reflect'],
   world: ['view', 'simulate', 'resident'],
   extensions: ['status', 'check', 'install', 'start', 'stop', 'openGlobe'],
@@ -61,7 +60,6 @@ const channels = {
   system: ['watch', 'bluetooth', 'network', 'speedtest', 'usage', 'free'],
   app: ['info', 'ready'],
   updates: ['status', 'check', 'skip', 'open'],
-  flashcards: ['decks', 'browse', 'card', 'next', 'answer', 'undo', 'mixStart', 'mixNext', 'mixAnswer', 'mixUndo','create', 'add', 'edit', 'options', 'delete', 'importable', 'import'],
 };
 
 const api = { on };

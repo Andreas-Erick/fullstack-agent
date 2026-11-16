@@ -54,8 +54,9 @@ CONVERSATION:
 ${transcript}`;
   let entry;
   try {
-    const text = await llm.complete({ ...settings, llm: { ...settings.llm, modelMode: 'fast' } }, prompt);
-    entry = require('./persona').extractJson(text);
+    const fast = { ...settings, llm: { ...settings.llm, modelMode: 'fast' } };
+    const text = await llm.complete(fast, prompt);
+    entry = await require('./persona').jsonWithRetry(text, (fix) => llm.complete(fast, fix));
   } catch (err) {
     log.warn('journal summarize failed', err.message);
     return;

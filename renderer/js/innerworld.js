@@ -4,9 +4,9 @@
 // along today's plan in real time; while a scene happens its people gather and talk in speech bubbles;
 // the clock slider replays the day. The village also shows the present: whatever the assistant is doing
 // sends the active persona to the matching building (code → the Workshop's forge, the web → the
-// Lookout…); your skill tree shines in the night sky; banners, flowers, books and tables show your
-// habits, topics and decks. Drag to look around, scroll to zoom, double-click a building to step inside.
-// The side panel tells today; click a building, a resident or a star for theirs.
+// Lookout…); banners, flowers, books and tables show your notebooks, notes, topics and decks. Drag to look
+// around, scroll to zoom, double-click a building to step inside.
+// The side panel tells today; click a building or a resident for theirs.
 import { $, api, el, toast, toastError, on, promptDialog, logEvent } from './util.js';
 import { switchView, currentView } from './nav.js';
 import { send } from './chat.js';
@@ -24,8 +24,8 @@ import { initRoom, openRoom, closeRoom, roomOpen, refreshRoom } from './roomview
 const ACTIONS = {
   library: ['Study session', () => ask('/study-session')],
   cafe: ['Review cards', () => ask('/drill')],
-  grounds: ['Open habits', () => switchView('habits')],
-  observatory: ['Open the skill tree', () => switchView('tree')],
+  grounds: ['Open your notes', () => switchView('notes')],
+  observatory: ['Open the calendar', () => switchView('calendar')],
   archive: ['Open memory', () => switchView('memory')],
   stage: ['🎭 Rehearse something', () => rehearse()],
   hearth: ['Personas', () => switchView('settings')],
@@ -48,7 +48,7 @@ let islandKey = '';
 let cam = null; // { x, y, z } in world pixels
 let home = null; // the camera that shows everything
 let interior = null; // a place id while looking inside it
-let hits = { people: [], stars: [] };
+let hits = { people: [] };
 let selected = null; // { type: 'place' | 'resident', id }
 let hover = null;
 let scrub = null; // minutes since midnight while the slider is held away from "live"
@@ -527,7 +527,7 @@ function setupCamera() {
       }
     }
     const h = hit(e);
-    canvas.title = h?.type === 'star' ? `${h.id} · ${h.state}${h.state === 'mastered' ? '' : ` · ${Math.round(h.progress * 100)}%`} (your skill tree)` : h?.type === 'place' ? (placeById(h.id)?.level ? 'Click for details · double-click to step inside' : 'Click for details (not built yet)') : h?.type === 'resident' ? `${h.id} · click for their day` : '';
+    canvas.title = h?.type === 'place' ?(placeById(h.id)?.level ? 'Click for details · double-click to step inside' : 'Click for details (not built yet)') : h?.type === 'resident' ? `${h.id} · click for their day` : '';
     if (h?.id !== hover?.id) ((hover = h), draw());
     canvas.style.cursor = h ? 'pointer' : 'grab';
   });
@@ -553,9 +553,7 @@ function setupCamera() {
       return scheduleRebuild();
     }
     if (e.type === 'pointercancel') return;
-    const h = hit(e);
-    if (h?.type === 'star') return switchView('tree');
-    select(h);
+    select(hit(e));
   };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
@@ -890,7 +888,6 @@ function draw() {
     lite: lite(),
     minute: m,
     weather: weatherOf(data.day?.weather),
-    skills: data.details?.skills || [],
     residents: people,
     live: l?.place || (stage.length ? 'stage' : null),
     busy: data.details?.work?.today,
@@ -930,9 +927,7 @@ function hit(e) {
     // Several boxes can overlap: the one in front (lowest on screen) wins.
     if (!best || b.y1 > best.b.y1) best = { id, b };
   }
-  if (best) return { type: 'place', id: best.id };
-  for (const st of hits.stars) if (Math.hypot(s.x - st.x, s.y - st.y) < st.r) return { type: 'star', id: st.name, state: st.state, progress: st.progress };
-  return null;
+  return best ? { type: 'place', id: best.id } : null;
 }
 
 function select(h) {
@@ -957,7 +952,7 @@ function wakeCard() {
   return [
     el('h3', { class: 'display' }, 'The village is asleep'),
     el('p', {}, 'Wake it and your personas start living a small fictional life here: every morning a narrator writes their day (plans, chance meetings, conversations), and each of them remembers it and draws their own insights over time.'),
-    el('p', {}, 'The village mirrors you. The Library grows with what you come to understand, the Café with your vocabulary, the Training Grounds fly a banner for each habit, the Observatory charts your skills, and at night your skill tree shines in the sky. Whatever your assistant is doing right now, you’ll see its persona at work: at the forge when it writes code, in the Library when it researches, and out for a walk through the village when it has nothing to do. Your other personas relax at the Hearth.'),
+    el('p', {}, 'The village mirrors you. The Library grows with what you come to understand, the Café with your vocabulary, the Training Grounds fly a banner for each notebook, the Garden blooms with the notes you write, and the Observatory rises as you plan ahead together. Whatever your assistant is doing right now, you’ll see its persona at work: at the forge when it writes code, in the Library when it researches, and out for a walk through the village when it has nothing to do. Your other personas relax at the Hearth.'),
     el('p', { class: 'hint' }, 'It costs one model call a day (plus an occasional one when a resident reflects). Everything stays in your vault under “Inner World/”. Your assistant talks about it only when you ask.'),
     el('button', { class: 'btn primary', onclick: wake }, '🌅 Wake the world'),
   ];
@@ -1067,7 +1062,7 @@ function back() {
   return el('button', { class: 'btn small world-back', onclick: () => select(null) }, '← Today');
 }
 
-// What a place shows of you: the topics on its shelves, the banners, the stars…
+// What a place shows of you: the topics on its shelves, the banners, the work done there…
 function placeDetails(p) {
   const d = data.details || {};
   const list = (title, items) => (items.length ? el('div', { class: 'world-sec' }, el('b', {}, title), ...items) : '');
@@ -1078,11 +1073,11 @@ function placeDetails(p) {
     case 'cafe':
       return list('At the tables', (d.decks || []).map((x) => row(`🗂 ${x.name} · ${x.mature} mature of ${x.total}${x.due ? ` · ${x.due} due` : ''}`)));
     case 'grounds':
-      return list('Banners', (d.habits || []).map((h) => row(`${h.done ? '🚩' : '🏳'} ${h.name}${h.streak ? ` · streak ${h.streak} ${h.unit}` : ''}${h.done ? ' · kept today' : ''}`, h.done ? 'now' : '')));
+      return list('Banners', (d.notebooks || []).map((h) => row(`${h.done ? '🚩' : '🏳'} ${h.name} · ${h.count} note${h.count === 1 ? '' : 's'}${h.done ? ' · written in today' : ''}`, h.done ? 'now' : '')));
     case 'garden':
-      return list('In bloom today', (d.habits || []).map((h) => row(`${h.done ? '🌸' : '🌱'} ${h.name}`, h.done ? 'now' : '')));
+      return list('In bloom today', (d.notesToday || []).map((name) => row(`🌸 ${name}`, 'now')));
     case 'observatory':
-      return list('Charted skills (the night sky)', (d.skills || []).map((s) => row(`${s.state === 'mastered' ? '✦' : s.state === 'locked' ? '·' : '✧'} ${s.name} · ${s.state === 'mastered' ? 'mastered' : `${Math.round(s.progress * 100)}%`}`, s.state === 'mastered' ? 'now' : '')));
+      return el('div', { class: 'world-grow' }, el('b', {}, 'Planned ahead here'), el('div', {}, `${d.work?.today?.observatory || 0} today · ${d.work?.total?.observatory || 0} in all`));
     case 'archive':
       return el('div', { class: 'world-grow' }, el('b', {}, 'Filed here'), el('div', {}, `${d.memories || 0} memories · ${d.records || 0} stream records · ${d.insights || 0} insights`));
     case 'workshop':

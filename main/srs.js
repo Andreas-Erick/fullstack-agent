@@ -1,9 +1,9 @@
 // Vocabulary decks with spaced repetition (Languages/<Language>.md in the vault). One card per line,
 // readable and editable in Obsidian; the schedule hides in an HTML comment:
 //   - **el desarrollo** — development · _El desarrollo es lento._ <!-- srs due=2026-10-26 ivl=1 ease=2.5 reps=1 lapses=0 -->
-// Scheduling is Anki's (ankicore.js, the same as the Flashcards view: learning steps, then SM-2 days);
-// a card in its learning steps also keeps type, step, at (when it is due, ms) and last in the comment,
-// and FSRS's s and d when its deck uses FSRS. Pure: no I/O.
+// Scheduling is Anki's (ankicore.js: learning steps, then SM-2 days); a card in its learning steps
+// also keeps type, step, at (when it is due, ms) and last in the comment, and FSRS's s and d when it
+// is scheduled with FSRS. Pure: no I/O.
 const anki = require('./ankicore');
 
 const GRADES = anki.GRADES;
@@ -99,7 +99,7 @@ function addCards(deck, items) {
 // A moment: ms, or a day ('YYYY-MM-DD', taken at noon).
 const momentOf = (now) => (typeof now === 'number' ? now : Date.parse(`${now}T12:00:00`));
 
-/** Anki's scheduler with four grades (ankicore.answer). opts: the deck's options (Flashcards view). */
+/** Anki's scheduler with four grades (ankicore.answer). opts: ankicore's options (its DEFAULTS when left out). */
 function schedule(card, grade, now, opts = {}) {
   const ms = momentOf(now);
   const { card: s } = anki.answer(toSched(card), grade, ms, opts, keyOf(card.front));

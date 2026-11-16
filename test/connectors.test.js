@@ -94,7 +94,7 @@ test('connectors off: nothing changes', () => {
 
 test('the app’s tools on request: everyday ones loaded, the rest a second own server', () => {
   const t = (name) => ({ name, description: name, parameters: { type: 'object', properties: {} } });
-  const s = claudecode.sessionSpec({ settings: settings({}), configKey: 'k', activeTools: [t('calendar_get_events'), t('memory_search'), t('flashcards_decks'), t('github_push')], cwd: '/app', vault: '', repos: '', model: 'default' });
+  const s = claudecode.sessionSpec({ settings: settings({}), configKey: 'k', activeTools: [t('calendar_get_events'), t('memory_search'), t('vocab_review'), t('github_push')], cwd: '/app', vault: '', repos: '', model: 'default' });
   assert.deepStrictEqual(s.coreTools, ['calendar_get_events', 'memory_search']);
   assert.ok(s.allowed.includes('mcp__nexus') && s.allowed.includes('mcp__nexus_more'));
   const servers = claudecode.mcpServersFor(s, { url: 'u', token: 't', turn: 'x' });
@@ -102,9 +102,9 @@ test('the app’s tools on request: everyday ones loaded, the rest a second own 
   assert.strictEqual(servers.nexus.env.NEXUS_TOOLSET, 'core');
   assert.strictEqual(servers.nexus_more.env.NEXUS_TOOLSET, 'more');
   assert.strictEqual(servers.nexus_more.alwaysLoad, undefined, 'found with ToolSearch');
-  const off = claudecode.sessionSpec({ settings: settings({ toolsOnRequest: false }), configKey: 'k', activeTools: [t('flashcards_decks')], cwd: '/app', vault: '', repos: '', model: 'default' });
+  const off = claudecode.sessionSpec({ settings: settings({ toolsOnRequest: false }), configKey: 'k', activeTools: [t('vocab_review')], cwd: '/app', vault: '', repos: '', model: 'default' });
   assert.deepStrictEqual(Object.keys(claudecode.mcpServersFor(off, { url: 'u', token: 't', turn: 'x' })), ['nexus'], 'off: one server with every tool');
-  assert.ok(!connectors.isConnectorTool('mcp__nexus_more__flashcards_decks'), 'the second server is the app’s own: no connector approval');
+  assert.ok(!connectors.isConnectorTool('mcp__nexus_more__vocab_review'), 'the second server is the app’s own: no connector approval');
   assert.deepStrictEqual(connectors.allowedKeys(['nexus_more', 'claude_ai_Todoist']), ['claude_ai_Todoist'], 'and can never be always-allowed');
 });
 

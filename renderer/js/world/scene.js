@@ -1,6 +1,6 @@
 // The Inner World scene: the island (map.js) painted once into a cached bitmap at the current zoom
 // (tiles and objects back to front, in diagonal rows), then every frame: the sky with its sun, moon,
-// clouds and your skill constellations; the island through the camera; water, the waterfall, smoke,
+// stars and clouds; the island through the camera; water, the waterfall, smoke,
 // sparks, the fountain, floating books, ravens, flames; the residents; night light; weather; names.
 import { W, TW, TH, HZ, tile, tree, prop, person, rgba, mix, shadowAt, house } from './art.js';
 import { N, noise2, rng } from './map.js';
@@ -238,23 +238,22 @@ export function weatherOf(text) {
   if (/cloud|overcast|grey|gray/.test(t)) return 'cloudy';
   return 'clear';
 }
-const hashStr = (s) => [...String(s)].reduce((h, ch) => Math.imul(h ^ ch.codePointAt(0), 16777619), 2166136261) >>> 0;
 
 // ------------------------------------------------------------ the frame
 let layer = null;
 
 /**
- * Draws one frame. f: { w, h, dpr, cam, island, P, t, anim, lite, minute, weather, skills, residents
+ * Draws one frame. f: { w, h, dpr, cam, island, P, t, anim, lite, minute, weather, residents
  * (world px: x, y, + person fields), live: place id | null, busy: { place: n } }.
- * Returns screen hit areas for residents and stars.
+ * Returns screen hit areas for residents.
  */
 export function frame(ctx, f) {
   const { w, h, cam, island, P } = f;
   const night = nightAt(f.minute);
   const dusk = duskAt(f.minute);
-  const out = { people: [], stars: [] };
+  const out = { people: [] };
   ctx.clearRect(0, 0, w, h);
-  sky(ctx, f, night, dusk, out);
+  sky(ctx, f, night, dusk);
 
   // The island on its own layer, so night only darkens the island.
   const dpr = f.dpr;
@@ -382,7 +381,7 @@ function glow(c, x, y, r, tone, a) {
 }
 
 // ------------------------------------------------------------ sky
-function sky(c, f, night, dusk, out) {
+function sky(c, f, night, dusk) {
   const { w, h, P, t } = f;
   const day0 = mix([92, 160, 222], P.c1, 0.1);
   const day1 = mix([196, 228, 244], P.c1, 0.06);
@@ -427,78 +426,6 @@ function sky(c, f, night, dusk, out) {
     c.fill();
   }
   clouds(c, f, night, 'back');
-  constellations(c, f, night, out);
-}
-
-// Your skill tree as constellations in the upper sky; mastered stars glow and are named at night.
-// Where the stars sit depends only on the view's size and the skills' names, so it is worked out once
-// (spreading them apart is thirty rounds over every pair) and kept until either changes.
-let starMap = { key: '', pos: null };
-function starPositions(w, h, skills) {
-  const key = `${w}|${h}|${skills.map((s) => s.name).join('\n')}`;
-  if (starMap.key === key) return starMap.pos;
-  const pos = new Map();
-  for (const sk of skills) {
-    const r = rng(hashStr(sk.name));
-    pos.set(sk.name, { x: w * (0.4 + r() * 0.56), y: h * (0.05 + r() * 0.22) });
-  }
-  const list = [...pos.values()];
-  for (let round = 0; round < 30; round++) {
-    for (let i = 0; i < list.length; i++) {
-      for (let j = i + 1; j < list.length; j++) {
-        const a = list[i];
-        const b = list[j];
-        const dx = b.x - a.x || 1;
-        const dy = (b.y - a.y) * 2.5;
-        const d = Math.hypot(dx, dy);
-        if (d >= 110) continue;
-        const push = (110 - d) / 2;
-        a.x -= (dx / d) * push;
-        b.x += (dx / d) * push;
-      }
-    }
-    for (const p of list) p.x = Math.max(w * 0.38, Math.min(w * 0.97, p.x));
-  }
-  starMap = { key, pos };
-  return pos;
-}
-
-function constellations(c, f, night, out) {
-  const { w, h, P, t } = f;
-  const skills = f.skills || [];
-  if (!skills.length) return;
-  const where = starPositions(w, h, skills);
-  const pos = new Map(skills.map((sk) => [sk.name, { ...where.get(sk.name), sk }]));
-  const list = [...pos.values()];
-  const vis = Math.max(0.15, night);
-  for (const { x, y, sk } of list) {
-    for (const n of sk.needs || []) {
-      const q = pos.get(n);
-      if (!q) continue;
-      c.strokeStyle = rgba(P.c1, 0.35 * vis);
-      c.lineWidth = 1;
-      c.beginPath();
-      c.moveTo(x, y);
-      c.lineTo(q.x, q.y);
-      c.stroke();
-    }
-  }
-  for (const { x, y, sk } of list) {
-    const bright = sk.state === 'mastered' ? 1 : sk.state === 'locked' ? 0.25 : 0.4 + sk.progress * 0.5;
-    const rad = 2.2 + bright * 3;
-    if (sk.state !== 'locked') glow(c, x, y, rad * 5, P.c1, (sk.state === 'mastered' ? 0.55 : 0.25) * vis);
-    c.beginPath();
-    c.arc(x, y, rad, 0, Math.PI * 2);
-    c.fillStyle = rgba(sk.state === 'mastered' ? mix(P.c1, [255, 255, 255], 0.5) : [240, 244, 255], bright * vis * (0.85 + 0.15 * Math.sin(t / 700 + x)));
-    c.fill();
-    out.stars.push({ x, y, r: rad + 8, name: sk.name, state: sk.state, progress: sk.progress });
-    if (sk.state !== 'locked' && night > 0.5) {
-      c.font = `${sk.state === 'mastered' ? '600 ' : ''}11px ${P.body}`;
-      c.textAlign = 'center';
-      c.fillStyle = rgba([236, 240, 255], (sk.state === 'mastered' ? 0.9 : 0.55) * night);
-      c.fillText(sk.name, x, y - rad - 5);
-    }
-  }
 }
 
 // Fluffy clouds: behind the island (some below it, so it floats) and a few in front.

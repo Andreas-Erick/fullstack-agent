@@ -107,7 +107,8 @@ function reflect(loc, { force = false, who, threshold } = {}) {
     const limit = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error('Reflection took too long.')), REFLECT_LIMIT_MS)));
     try {
       const text = await Promise.race([llm.complete({ ...settings, llm: { ...settings.llm, modelMode: 'fast' } }, prompt), limit]);
-      const insights = core.parseReflections(require('./persona').extractJson(text), records);
+      const fast = { ...settings, llm: { ...settings.llm, modelMode: 'fast' } };
+      const insights = core.parseReflections(await Promise.race([require('./persona').jsonWithRetry(text, (fix) => llm.complete(fast, fix)), limit]), records);
       const saved = await add(loc, insights.map((x) => ({ ...x, kind: 'reflection' })));
       log.info('stream reflected', { stream: loc.key, from: p.fresh.length, insights: saved.length });
       return saved;

@@ -12,7 +12,6 @@ test('lookups in the user\'s own things and small commands are quick', () => {
     "What's on my calendar today?",
     'do I have any meetings this week',
     'when is my next exam?',
-    'Any habits left today?',
     'what time is it',
     'add milk to my todoist',
     'remind me to call mom at 6',
@@ -112,4 +111,27 @@ test('the model per pace: quick → fast, everyday → normal (Sonnet), deep →
   assert.strictEqual(llm.effectiveModel(local, { mode: pace.plan(local, { text: 'explain why the sky is blue', voice: true }).mode }), 'qwen3:8b', 'spoken: the fast model, as before');
   assert.strictEqual(llm.effectiveModel({ ...settings, claudeCode: { ...settings.claudeCode, normalModel: '' } }, { mode: 'normal' }), 'default', 'empty = the main model');
   assert.strictEqual(llm.effectiveModel({ ...settings, llm: { provider: 'openai', model: 'qwen3:8b' } }, { mode: 'normal' }), 'qwen3:8b', 'other providers have no normal model');
+});
+
+// Each model has its own prompt cache: moving a big warm session to a smaller model made it read cold.
+test('warmModel keeps a big warm session on its model instead of a smaller one', () => {
+  const now = 1e9;
+  const ttlMs = 55 * 60000;
+  const last = { model: 'sonnet', at: now - 60000, tokens: 110000, key: 'k' };
+  const pick = (want, extra = {}) => pace.warmModel({ want, last, key: 'k', now, ttlMs, ...extra });
+  assert.deepStrictEqual(pick('haiku'), { model: 'sonnet', kept: 'warm' });
+  // A bigger model for deep work: the user asked for the thinking.
+  assert.deepStrictEqual(pick('opus'), { model: 'opus' });
+  assert.deepStrictEqual(pick('sonnet'), { model: 'sonnet' });
+  // A routine never moves the chat's model, up or down.
+  assert.deepStrictEqual(pick('opus', { routine: true }), { model: 'sonnet', kept: 'routine' });
+  // Switching is free when nothing is cached for it anyway.
+  assert.deepStrictEqual(pick('haiku', { now: now + ttlMs }), { model: 'haiku' }, 'cache gone cold');
+  assert.deepStrictEqual(pick('haiku', { key: 'other' }), { model: 'haiku' }, 'new configuration: new system prompt');
+  assert.deepStrictEqual(pace.warmModel({ want: 'haiku', last: { ...last, tokens: 20000 }, key: 'k', now, ttlMs }), { model: 'haiku' }, 'small session');
+  assert.deepStrictEqual(pace.warmModel({ want: 'haiku', last: null, key: 'k', now, ttlMs }), { model: 'haiku' }, 'no call yet');
+  // Unknown families (an account default, a full id it can't rank) are never second-guessed.
+  assert.deepStrictEqual(pace.warmModel({ want: 'haiku', last: { ...last, model: 'default' }, key: 'k', now, ttlMs }), { model: 'haiku' });
+  assert.deepStrictEqual(pace.warmModel({ want: 'claude-haiku-5-5', last: { ...last, model: 'claude-opus-5-5' }, key: 'k', now, ttlMs }), { model: 'claude-opus-5-5', kept: 'warm' });
+  assert.deepStrictEqual(pace.warmModel({ want: '', last: { ...last, model: 'default' }, key: 'k', now, ttlMs }), { model: 'default' });
 });

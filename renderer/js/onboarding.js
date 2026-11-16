@@ -5,7 +5,7 @@
 // you?"), and ends with a "first hello" test; then it offers the agent's get-to-know-you interview.
 import { $, api, el, toast, toastError, on } from './util.js';
 import { state, saveSettings, loadSettings } from './state.js';
-import { ROUTINE_TEMPLATES } from './habits.js';
+import { ROUTINE_TEMPLATES } from './routines.js';
 import { speaker, listMics, testLocalVoice } from './voice.js';
 import { BUILT_IN, FaceHost } from './faces/host.js';
 import { scanInto } from './hwscan.js';
@@ -24,12 +24,12 @@ const CONNECTORS_URL = 'https://claude.ai/settings/connectors';
 const GOALS = [
   { value: 'study', ico: '🎓', title: 'Understanding hard things', desc: 'Math, proofs, science, tech: intuition first, then rigor', template: 'stem-tutor', persona: 'Ada', connectors: ['Wolfram (math you can trust)', 'Consensus (research papers)'] },
   { value: 'languages', ico: '🗣', title: 'Learning languages', desc: 'Conversation practice, vocabulary with spaced repetition', template: 'polyglot-coach', persona: 'Mira', connectors: ['DeepL (translation)'] },
-  { value: 'life', ico: '🌱', title: 'Goals and habits', desc: 'A coach for small steps, habits and weekly reviews', template: 'life-coach', persona: 'Sol', connectors: ['Todoist or TickTick (tasks)', 'Google Calendar'] },
+  { value: 'life', ico: '🌱', title: 'Goals and reflection', desc: 'A coach for small steps, plans and weekly reviews', template: 'life-coach', persona: 'Sol', connectors: ['Todoist or TickTick (tasks)', 'Google Calendar'] },
   { value: 'work', ico: '🗂', title: 'Work and projects', desc: 'Notes, documents, schedule, tasks, research', connectors: ['Gmail', 'Google Drive', 'Notion', 'Slack'] },
 ];
 
 // Icons for the tour (main/guide.js FEATURES ids).
-const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '🎓', flashcards: '🗂', languages: '🗣', coaching: '🌱', skilltree: '🌳', innerworld: '🏡', routines: '⏰', schedule: '📅', connectors: '🔌', documents: '📄', folders: '📁', 'agent-window': '🌐', architecture: '🏛', performance: '⚡', system: '📊', 'local-brain': '💻', 'switch-brain': '🔀', usage: '⏳', skills: '✨', diagrams: '📐', extensions: '🧩', 'web-code': '💻', remote: '📱', watch: '⌚', keyboard: '⌨', updates: '⬆', safety: '🛡' };
+const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '🎓', languages: '🗣', coaching: '🌱', innerworld: '🏡', routines: '⏰', schedule: '📅', connectors: '🔌', documents: '📄', folders: '📁', 'agent-window': '🌐', architecture: '🏛', performance: '⚡', system: '📊', 'local-brain': '💻', 'switch-brain': '🔀', usage: '⏳', skills: '✨', diagrams: '📐', extensions: '🧩', 'web-code': '💻', remote: '📱', watch: '⌚', keyboard: '⌨', updates: '⬆', safety: '🛡' };
 
 let step = 0;
 const draft = {};
@@ -104,7 +104,7 @@ async function render() {
     draft.name = draft.name || s.agent.name;
     const stage = el('div', { class: 'ob-face' });
     body.append(
-      el('div', { class: 'ob-hero' }, stage, el('div', {}, el('h2', {}, `Meet ${s.agent.name || 'Siren'}`), el('p', { class: 'muted' }, 'Your personal assistant on this computer: she talks and listens, remembers what matters to you, keeps your notes and schedule, teaches, coaches your habits, works on the web and in your documents, and comes along on your phone.'), el('p', { class: 'muted' }, 'This setup takes a few minutes, one topic at a time. You can change everything later in Settings (the gear at the bottom of the left rail, labelled Config), and nothing you already have is overwritten.'))),
+      el('div', { class: 'ob-hero' }, stage, el('div', {}, el('h2', {}, `Meet ${s.agent.name || 'Siren'}`), el('p', { class: 'muted' }, 'Your personal assistant on this computer: she talks and listens, remembers what matters to you, keeps your notes and schedule, teaches, coaches you toward your goals, works on the web and in your documents, and comes along on your phone.'), el('p', { class: 'muted' }, 'This setup takes a few minutes, one topic at a time. You can change everything later in Settings (the gear at the bottom of the left rail, labelled Config), and nothing you already have is overwritten.'))),
       field('What should your assistant be called?', input(draft.name, 'Siren', (v) => (draft.name = v)), 'The name she answers to and uses for herself. Every persona can have its own.'),
     );
     faceHost = new FaceHost(stage, { compact: true });
@@ -340,7 +340,7 @@ async function render() {
     const opts = [{ value: '', title: 'Create her own vault', desc: def }, ...known.filter((v) => v.exists).map((v) => ({ value: v.path, title: `Use “${v.name}”`, desc: `${v.path} — structure is added, nothing is overwritten` }))];
     body.append(
       el('h2', {}, 'Memory vault'),
-      el('p', { class: 'muted' }, 'She keeps her long-term memory, your notes, a daily journal, your priorities, your schedule, what you learn and your habits in an Obsidian vault: plain Markdown files you own, with a version history so any change can be undone. Obsidian itself is optional.'),
+      el('p', { class: 'muted' }, 'She keeps her long-term memory, your notes, a daily journal, your priorities, your schedule and what you learn in an Obsidian vault: plain Markdown files you own, with a version history so any change can be undone. Obsidian itself is optional.'),
       choices(opts, draft.vault, (v) => (draft.vault = v)),
       el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => { const d = await api.dialog.pickFolder('Vault folder'); if (d) { draft.vault = d; render(); } } }, 'Choose another folder…')),
     );
@@ -380,7 +380,7 @@ async function render() {
       picks,
       checkbox(draft.addPersonas, 'Add the matching ready-made personas (Ada, Mira, Sol) to switch to from the title bar', (v) => (draft.addPersonas = v)),
       el('div', { class: 'row' }, checkbox(draft.briefing, 'A daily briefing every morning at', (v) => (draft.briefing = v)), time),
-      el('p', { class: 'hint' }, 'The briefing is a routine: she prepares today’s schedule, priorities, habits and what’s due while the app is open. More routines, habits and the skill tree are in the Habits and Tree views.'),
+      el('p', { class: 'hint' }, 'The briefing is a routine: she prepares today’s schedule, priorities and what’s due while the app is open. More routines are in the Skills view.'),
     );
     beforeNext = async () => {
       const s2 = state.settings;
@@ -477,7 +477,7 @@ async function connectStep(s) {
   const skills = await api.skills.list().catch(() => []);
   const parts = [
     el('h2', {}, 'Connectors and extras'),
-    point('✅', 'Built in, nothing to set up', 'Your schedule, notes, memory, habits, learning tracker, flashcards (Anki decks import too), web search, documents and PDFs, diagrams, routines and the Inner World all run inside the app. GitHub works once the GitHub CLI is signed in.'),
+    point('✅', 'Built in, nothing to set up', 'Your schedule, notes, memory, learning tracker, vocabulary decks, web search, documents and PDFs, diagrams, routines and the Inner World all run inside the app. GitHub works once the GitHub CLI is signed in.'),
     point('✨', `${skills.length} skills included`, 'Ready-made workflows such as /explain, /proof-coach, /study-session, /weekly-review and /tour. Add your own, or import more from GitHub, in the Skills view.'),
   ];
   if (claudeBrain) {

@@ -1807,12 +1807,23 @@
       }
 
       // --- 6. MAIN ANIMATION LOOP ---
+      let lastDraw = 0;
       function render(timestamp) {
+        if (document.hidden || width < 4 || height < 4) {
+          lastTimestamp = timestamp;
+          requestAnimationFrame(render);
+          return;
+        }
+        const av = getAV();
+        if (av.state === 'sleeping' && av.level < 0.01 && timestamp - lastDraw < 48) {
+          requestAnimationFrame(render);
+          return;
+        }
+        lastDraw = timestamp;
         const rawDt = clamp((timestamp - lastTimestamp) * 0.001, 0.001, 0.1);
         lastTimestamp = timestamp;
         const dt = prefersReducedMotion ? rawDt * 0.25 : rawDt;
 
-        const av = getAV();
         updateCharacterState(dt, rawDt, av);
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1822,7 +1833,8 @@
 
         // Center the 620x620 virtual stage in any window size (from 160x160 to 4K) without clipping
         const stageSize = 620;
-        const scale = Math.min(width / stageSize, height / stageSize);
+        const portraitBoost = height > width * 1.35 ? 1.12 : 1;
+        const scale = Math.min((width * portraitBoost) / stageSize, height / stageSize);
         ctx.translate(width * 0.5, height * 0.5 + 18 * scale);
         ctx.scale(scale, scale);
 

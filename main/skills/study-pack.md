@@ -1,10 +1,10 @@
 ---
 name: Study pack
-description: Complete study material for a topic, made to learn from (not just to read) - a vault note, diagrams, exact charts, a printable PDF and flashcards
+description: Complete study material for a topic, made to learn from (not just to read) - a vault note with practice questions, diagrams, exact charts and a printable PDF
 triggers: study pack, study guide, study material, make me notes, summary sheet, cheat sheet, help me prepare for my exam
 input: the topic, and what it is for (an exam, a lecture, a chapter) and the level
 created: 2026-10-27
-updated: 2026-10-27
+updated: 2026-11-16
 ---
 1. Pin down the scope in one short exchange unless it is already clear: the topic, what it is for (exam date, course, chapter), their level, and what they already find hard (learning_overview helps). If they shared lecture notes, slides or a PDF, read them first and follow their notation and order.
 2. Plan the pack in your head: 4-8 core ideas in the order they build on each other, each with what must be understood (not just remembered), the typical mistake, and a worked example.
@@ -17,8 +17,8 @@ updated: 2026-10-27
    - The big picture in three sentences, then the diagram.
    - Each core idea: the intuition, the precise statement (formulas in LaTeX), why it is true, a worked example with real numbers, and the common mistake.
    - Key formulas and definitions in one table.
-   - Practice: 5-10 questions from recall to transfer (explain, compute, compare, apply to something new), with answers at the end, not next to the questions.
+   - Practice: 8-15 questions, with answers at the end, not next to the questions. Start with recall of what must be known by heart (definitions, formulas, the key steps, the common mistakes as questions), one fact per question, worded as a cue that requires recall; then move to transfer (explain, compute, compare, apply to something new).
    - Self-check: three "can you explain…" questions.
 5. Turn the note into a printable PDF with create_pdf: the same content, the embedInPdf lines where the figures belong, a one-page summary sheet first if they asked for revision.
-6. Make flashcards for what must be recalled (definitions, formulas, the key steps, the common mistakes as questions) with flashcards_add in a deck named after the subject: one fact per card, the question as a cue that requires recall, cloze cards for formulas and lists.
-7. Tell them what you made, in a few lines: the note, the PDF, the deck and how many cards. Offer one next step: a short quiz now (flashcards_mixed or questions from the practice set), or a study session.
+6. For a language topic, add the words and phrases worth keeping to their vocabulary deck with vocab_add (with an example sentence each).
+7. Tell them what you made, in a few lines: the note, the diagrams and charts, the PDF. Offer one next step: a short quiz now from the practice set, or a study session.

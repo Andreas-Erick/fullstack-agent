@@ -85,14 +85,8 @@
         <button class="rail-btn" data-view="skills" title="Skills — reusable workflows (Ctrl+8)">
           <svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z" /></svg><span>Skills</span>
         </button>
-        <button class="rail-btn" data-view="habits" title="Habits and routines (Ctrl+9)">
-          <svg viewBox="0 0 24 24"><path d="M4 12l4 4 8-9" /><path d="M14 17h6M17 14v6" /></svg><span>Habits</span>
-        </button>
-        <button class="rail-btn" data-view="cards" title="Flashcards — spaced repetition, as in Anki">
-          <svg viewBox="0 0 24 24"><rect x="3" y="7" width="13" height="10" rx="2" /><path d="M8 4h11a2 2 0 0 1 2 2v9" /><path d="M7 12h5" /></svg><span>Cards</span>
-        </button>
-        <button class="rail-btn" data-view="tree" title="Skill tree — what you are growing">
-          <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2" /><circle cx="13" cy="6" r="2" /><circle cx="13" cy="18" r="2" /><circle cx="20" cy="12" r="2" /><path d="M7 11l4-4M7 13l4 4M15 7l3.5 4M15 17l3.5-4" /></svg><span>Tree</span>
+        <button class="rail-btn" data-view="notes" title="Your notes (Ctrl+9)">
+          <svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5" /><path d="M9 13h7M9 17h5" /></svg><span>Notes</span>
         </button>
         <button class="rail-btn" data-view="world" title="Inner World — where your personas live">
           <svg viewBox="0 0 24 24"><path d="M3 20h18" /><path d="M5 20v-7l4-3 4 3v7" /><path d="M14 20v-9l3.5-3 3.5 3v9" /><path d="M8 20v-3h2v3" /><circle cx="17.5" cy="4" r="1.2" /></svg><span>World</span>
@@ -154,7 +148,7 @@
                 <div class="suggestions">
                   <button class="suggestion">How can I use you?</button>
                   <button class="suggestion">What's on my calendar today?</button>
-                  <button class="suggestion">How are my habits?</button>
+                  <button class="suggestion">What did I write about lately?</button>
                   <button class="suggestion">Let's study</button>
                   <button class="suggestion">What do you remember about me?</button>
                 </div>
@@ -211,7 +205,7 @@
             <h2 class="display">Memory Vault</h2>
             <div class="actions">
               <input class="input search" id="memSearch" placeholder="Search memories…" />
-              <select class="input" id="memCategory"><option value="">All categories</option></select>
+              <select class="input" id="memCategory" aria-label="Category"><option value="">All categories</option></select>
               <button class="btn primary" id="memAdd">＋ Add memory</button>
               <div class="dropdown">
                 <button class="btn" id="memMore">⋯</button>
@@ -304,23 +298,6 @@
           </div>
         </section>
 
-        <!-- ============ SKILLS (reusable workflows) ============ -->
-        <section class="view" id="view-tree">
-          <div class="tree-head">
-            <h2 class="display">Skill tree</h2>
-            <div class="tree-legend" id="treeLegend"></div>
-            <div class="actions">
-              <button class="btn primary" id="treeGoal">🪄 Map a goal</button>
-              <button class="btn" id="treeAdd">＋ Skill</button>
-            </div>
-          </div>
-          <div class="tree-body">
-            <svg class="tree-canvas" id="treeCanvas"><g id="treeLayer"></g></svg>
-            <div class="tree-empty glass hidden" id="treeEmpty"></div>
-            <aside class="tree-detail glass hidden" id="treeDetail"></aside>
-          </div>
-        </section>
-
         <!-- ============ INNER WORLD (the personas' village, renderer/js/innerworld.js) ============ -->
         <section class="view" id="view-world">
           <div class="world-head">
@@ -340,7 +317,7 @@
             </div>
           </div>
           <div class="world-body">
-            <canvas class="world-canvas" id="worldCanvas" aria-label="The village: click a building, a resident or a star"></canvas>
+            <canvas class="world-canvas" id="worldCanvas" aria-label="The village: click a building or a resident"></canvas>
             <!-- Inside a building (js/roomview.js over world/room.js): the room from above, over the island. -->
             <div class="world-room hidden" id="worldRoom">
               <div class="world-room-head">
@@ -396,31 +373,26 @@
           </div>
         </section>
 
-        <section class="view padded" id="view-cards">
-          <div class="view-head">
-            <h2 class="display">Flashcards</h2>
-            <div class="actions">
-              <button class="btn" id="fcImport" title="Import a CSV, TSV, Anki text export (.txt) or Anki package (.apkg, .colpkg)">📥 Import…</button>
-              <button class="btn primary" id="fcNewDeck">＋ New deck</button>
-            </div>
+        <section class="view" id="view-notes">
+          <div class="notes">
+            <aside class="notes-side">
+              <div class="view-head notes-head">
+                <h2 class="display">Notes</h2>
+                <div class="actions">
+                  <button class="btn primary" id="notesNew" title="New note (Ctrl+N here)">＋ New</button>
+                  <button class="btn" id="notesDump" title="Brain dump: a blank page, just write (Ctrl+Shift+N from anywhere)">⚡ Dump</button>
+                </div>
+              </div>
+              <input class="input search" id="notesSearch" type="search" placeholder="Search notes, #tags…" aria-label="Search notes" />
+              <div class="notes-chips" id="notesChips"></div>
+              <div class="notes-list" id="notesList" role="listbox" aria-label="Notes"></div>
+              <div class="notes-foot hint" id="notesFoot"></div>
+            </aside>
+            <div class="notes-editor" id="notesEditor"></div>
           </div>
-          <div id="fcBody"></div>
-        </section>
-        <section class="view padded" id="view-habits">
-          <div class="view-head">
-            <h2 class="display">Habits</h2>
-            <div class="actions"><button class="btn primary" id="habitNew">＋ New habit</button></div>
-          </div>
-          <p class="muted">Tick off what you did today, or just tell the assistant (“I went for a run”). Kept in <code>Habits.md</code> in your vault. A missed day isn't failure: never miss twice.</p>
-          <div class="habit-list" id="habitList"></div>
-          <div class="view-head" style="margin-top: 22px">
-            <h2 class="display">Routines</h2>
-            <div class="actions"><button class="btn" id="routineNew">＋ New routine</button></div>
-          </div>
-          <p class="muted">Things the assistant does on a schedule, on its own, while the app is open: each run is its own conversation and you get a notification.</p>
-          <div class="habit-list" id="routineList"></div>
         </section>
 
+        <!-- ============ SKILLS (reusable workflows) ============ -->
         <section class="view padded" id="view-skills">
           <div class="view-head">
             <h2 class="display">Skills</h2>
@@ -433,6 +405,12 @@
           </div>
           <p class="muted">Save a workflow once, run it again any time: type <kbd>/name</kbd> in the chat, say one of its trigger phrases, or click Run. You can also ask the agent to “make this a skill” after it did something for you.</p>
           <div class="skill-grid" id="skillGrid"></div>
+          <div class="view-head" style="margin-top: 26px">
+            <h2 class="display routines-title">Routines</h2>
+            <div class="actions"><button class="btn" id="routineNew">＋ New routine</button></div>
+          </div>
+          <p class="muted">Things the assistant does on a schedule, on its own, while the app is open: each run is its own conversation and you get a notification.</p>
+          <div class="routine-list" id="routineList"></div>
         </section>
 
         <!-- ============ EVOLUTION (self-modification history) ============ -->
@@ -459,6 +437,7 @@
             <h2 class="display">Configuration</h2>
             <div class="actions"><span class="save-state" id="saveState"></span></div>
           </div>
+          <div class="settings-tabs" id="settingsTabs"></div>
           <div class="settings" id="settingsRoot"></div>
         </section>
       </main>

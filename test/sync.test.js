@@ -41,42 +41,41 @@ function fakeTimers() {
 // ------------------------------------------------------------------ main/synccore.js
 test('vault notes map to the screens that show them', () => {
   const cases = {
-    'Habits.md': ['habits', 'notes', 'today', 'tree'],
+    'Habits.md': ['notes'], // an ordinary note now
     'Schedule.md': ['notes', 'sched', 'today'],
-    'Skill Tree.md': ['notes', 'tree'],
     'Memory/likes-tea.md': ['memory', 'notes'],
     'Stream/2026-10.md': ['memory', 'notes'],
-    'Flashcards/Biology.md': ['cards', 'notes', 'today', 'tree'],
-    'Flashcards/media/Biology/cell.png': ['cards', 'today', 'tree'], // media: not a note
-    'Languages/Spanish.md': ['cards', 'learn', 'notes', 'today', 'tree'],
-    'Learning/Calculus.md': ['learn', 'notes', 'today', 'tree'],
+    'Languages/Spanish.md': ['learn', 'notes', 'today'],
+    'Languages/media/hola.png': ['learn', 'today'], // not a note
+    'Learning/Calculus.md': ['learn', 'notes', 'today'],
     'Inner World/Chronicle.md': ['notes', 'world'],
     'Inner World/Residents/Ada.md': ['notes', 'world'],
     'Active Priorities.md': ['notes', 'today'],
     'Where We Left Off.md': ['notes', 'today'],
     'Notes/Shopping.md': ['notes'],
     'Daily/2026-10-31.md': ['notes'],
+    'Notes/photo.png': [], // not a note, and in no folder a screen shows
   };
   for (const [rel, want] of Object.entries(cases)) assert.deepStrictEqual(sync.topicsForVault(rel).sort(), want, rel);
 });
 
 test('vault paths: Windows separators and case are understood; hidden folders and nothing are ignored', () => {
   assert.deepStrictEqual(sync.topicsForVault('Memory\\x.md').sort(), ['memory', 'notes']);
-  assert.deepStrictEqual(sync.topicsForVault('habits.md').sort(), ['habits', 'notes', 'today', 'tree']);
+  assert.deepStrictEqual(sync.topicsForVault('schedule.md').sort(), ['notes', 'sched', 'today']);
   assert.deepStrictEqual(sync.topicsForVault('/Schedule.md').sort(), ['notes', 'sched', 'today']);
   for (const rel of ['', null, undefined, '.obsidian/workspace.json', '.trash/old.md', '.git/HEAD']) assert.deepStrictEqual(sync.topicsForVault(rel), [], String(rel));
   // A folder only *starting* like a known one is just a note.
   assert.deepStrictEqual(sync.topicsForVault('Memoryless/x.md'), ['notes']);
-  assert.deepStrictEqual(sync.topicsForVault('Notes/Habits.md'), ['notes']);
+  assert.deepStrictEqual(sync.topicsForVault('Notes/Schedule.md'), ['notes']);
 });
 
 test('events: vault changes and the agent’s own change events; anything else touches nothing', () => {
-  assert.deepStrictEqual(sync.topicsForEvent('vault:changed', 'Habits.md').sort(), ['habits', 'notes', 'today', 'tree']);
+  assert.deepStrictEqual(sync.topicsForEvent('vault:changed', 'Schedule.md').sort(), ['notes', 'sched', 'today']);
   assert.deepStrictEqual(sync.topicsForEvent('vault:changed', { rel: 'Memory/a.md' }).sort(), ['memory', 'notes']);
   assert.deepStrictEqual(sync.topicsForEvent('chat:event', { type: 'start' }), ['conversations']);
   assert.deepStrictEqual(sync.topicsForEvent('chat:event', { type: 'skills_changed' }), ['skills']);
   assert.deepStrictEqual(sync.topicsForEvent('chat:event', { type: 'calendar_changed' }).sort(), ['sched', 'today']);
-  for (const type of ['text', 'tool_start', 'tool_end', 'done', 'error', 'settings_changed', 'self_changed', 'thinking', 'nonsense']) assert.deepStrictEqual(sync.topicsForEvent('chat:event', { type }), [], type);
+  for (const type of ['text', 'tool_start', 'tool_end', 'done', 'error', 'settings_changed', 'self_changed', 'thinking', 'habits_changed', 'nonsense']) assert.deepStrictEqual(sync.topicsForEvent('chat:event', { type }), [], type);
   for (const ch of ['approval:request', 'system:stats', 'claude:usage', 'info:changed', 'data:changed']) assert.deepStrictEqual(sync.topicsForEvent(ch, {}), [], ch);
   assert.deepStrictEqual(sync.topicsForEvent('chat:event', null), []);
 });
@@ -87,19 +86,16 @@ test('every topic names a phone screen (or the schedule, or the conversation lis
   for (const t of sync.TOPICS) assert.ok(screens.has(t) || t === 'sched' || t === 'conversations', `${t} is not a phone screen`);
   // …and everything the rules or the change events produce is a known topic.
   const produced = new Set([...sync.VAULT_RULES.flatMap(([, t]) => t), 'notes']);
-  for (const type of ['start', 'habits_changed', 'calendar_changed', 'memory_changed', 'skills_changed', 'skilltree_changed', 'world_changed']) for (const t of sync.topicsForEvent('chat:event', { type })) produced.add(t);
+  for (const type of ['start', 'calendar_changed', 'memory_changed', 'skills_changed', 'world_changed']) for (const t of sync.topicsForEvent('chat:event', { type })) produced.add(t);
   for (const t of produced) assert.ok(sync.TOPICS.includes(t), t);
 });
 
 test('the vault names in the rules are the ones the modules write', () => {
   const constant = (rel, name) => new RegExp(`const ${name} = '([^']+)'`).exec(read(rel))?.[1];
   const names = [
-    constant('main/habits.js', 'NOTE'),
     constant('main/calendar.js', 'FILE'),
-    constant('main/skilltree.js', 'NOTE'),
     constant('main/handoff.js', 'VAULT_NOTE'),
-    `${constant('main/flashcards.js', 'FOLDER')}/x.md`,
-    `${constant('main/flashcards.js', 'LANGUAGES')}/x.md`,
+    `${constant('main/learning.js', 'LANGUAGES')}/x.md`,
     `${constant('main/learning.js', 'LEARNING')}/x.md`,
     constant('main/innerworld.js', 'CHRONICLE'),
     'Active Priorities.md',
@@ -117,15 +113,15 @@ test('the coalescer: many changes, one message, each topic once, sorted; unknown
   const timers = fakeTimers();
   const sent = [];
   const c = sync.coalescer((t) => sent.push(t), { waitMs: 600, timers });
-  c.add(['habits', 'today']);
-  c.add(['today', 'tree', 'secret/path.md', 42]);
+  c.add(['habits', 'sched', 'today']); // 'habits' is no topic any more
+  c.add(['today', 'learn', 'secret/path.md', 42]);
   c.add([]);
   c.add('notes');
   assert.deepStrictEqual(sent, []);
   timers.tick(599);
   assert.deepStrictEqual(sent, []);
   timers.tick(1);
-  assert.deepStrictEqual(sent, [['habits', 'notes', 'today', 'tree']]);
+  assert.deepStrictEqual(sent, [['learn', 'notes', 'sched', 'today']]);
   // Nothing pending: no timer, no message.
   c.add(['nonsense']);
   assert.strictEqual(timers.pending, 0);
@@ -134,8 +130,8 @@ test('the coalescer: many changes, one message, each topic once, sorted; unknown
   timers.tick(1000);
   assert.strictEqual(sent.length, 1, 'cancelled (the server stopped)');
   // A long burst still goes out after the first wait, not never.
-  for (let i = 0; i < 50; i++) (c.add(['cards']), timers.tick(100));
-  assert.ok(sent.length >= 2 && sent.at(-1).includes('cards'));
+  for (let i = 0; i < 50; i++) (c.add(['learn']), timers.tick(100));
+  assert.ok(sent.length >= 2 && sent.at(-1).includes('learn'));
 });
 
 test('running turns: followed per conversation until they end; a lost end does not last forever', () => {
@@ -173,15 +169,15 @@ test('a silent stream is dead after two missed pings, never while disconnected',
 
 test('what a change redraws: the screen on show, unless busy or a live canvas', async () => {
   const { refreshPlan } = await client();
-  assert.deepStrictEqual(refreshPlan(['habits', 'today'], { view: 'habits' }), { screen: true, schedule: false, conversations: false });
-  assert.strictEqual(refreshPlan(['habits'], { view: 'today' }).screen, false, 'another screen');
-  assert.strictEqual(refreshPlan(['cards'], { view: 'cards', busy: true }).screen, false, 'studying a card');
+  assert.deepStrictEqual(refreshPlan(['learn', 'today'], { view: 'learn' }), { screen: true, schedule: false, conversations: false });
+  assert.strictEqual(refreshPlan(['learn'], { view: 'today' }).screen, false, 'another screen');
+  assert.strictEqual(refreshPlan(['notes'], { view: 'notes', busy: true }).screen, false, 'reading a note');
   assert.strictEqual(refreshPlan(['world'], { view: 'world' }).screen, false, 'live canvas');
   assert.strictEqual(refreshPlan(['notes'], { view: 'chat' }).screen, false);
   assert.deepStrictEqual(refreshPlan(['sched'], { view: 'sched' }), { screen: false, schedule: true, conversations: false }, 'the schedule has its own redraw');
   assert.strictEqual(refreshPlan(['conversations'], { view: 'chat' }).conversations, true);
   assert.deepStrictEqual(refreshPlan(undefined, {}), { screen: false, schedule: false, conversations: false });
-  assert.deepStrictEqual(refreshPlan('habits', { view: 'habits' }), { screen: false, schedule: false, conversations: false }, 'not a list');
+  assert.deepStrictEqual(refreshPlan('learn', { view: 'learn' }), { screen: false, schedule: false, conversations: false }, 'not a list');
 });
 
 test('after a reconnect: the own reply ends if it finished meanwhile, stays if running or unsent; others are followed', async () => {
@@ -212,15 +208,15 @@ test('the phone batches change messages too', async () => {
   const timers = fakeTimers();
   const out = [];
   const add = batcher((t) => out.push(t.sort()), 300, timers);
-  add(['habits']);
+  add(['learn']);
   timers.tick(200);
-  add(['today', 'habits']);
+  add(['today', 'learn']);
   add('nope');
   add([1, null]);
   timers.tick(299);
   assert.deepStrictEqual(out, []);
   timers.tick(1);
-  assert.deepStrictEqual(out, [['habits', 'today']]);
+  assert.deepStrictEqual(out, [['learn', 'today']]);
 });
 
 // ------------------------------------------------------------------ contracts between the two sides
@@ -242,14 +238,16 @@ test('every data route the phone calls exists on the server', () => {
   // Up to the call's first ")": a POST's options come before it, and two calls on one line stay apart.
   const calls = [...screens.matchAll(/api\([`']\/api\/data\/([a-z/]+?)(?:[?`'$]|\/\$)([^)]*)/g)];
   const found = new Set(calls.map((m) => m[1].replace(/\/$/, '')));
-  for (const n of ['today', 'habits', 'habits/log', 'skills', 'routines', 'flashcards', 'flashcards/mix', 'note', 'arch']) assert.ok(found.has(n), `the test no longer sees the phone's call to ${n}`);
+  for (const n of ['today', 'learn', 'memories', 'notes', 'skills', 'routines', 'note', 'arch']) assert.ok(found.has(n), `the test no longer sees the phone's call to ${n}`);
   for (const m of calls) {
     const name = m[1].replace(/\/$/, '');
     const post = /method: 'POST'/.test(m[2]);
-    // Built from a variable: `flashcards/${what === 'undo' ? 'undo' : 'answer'}` and the mix's twin.
-    const names = /\$\{/.test(m[0]) && /'undo' : 'answer'/.test(m[0]) ? [`${name}/undo`, `${name}/answer`] : [name];
-    for (const n of names) assert.ok(post ? posts.has(n) : gets.has(n) || posts.has(n), `${post ? 'POST' : 'GET'} /api/data/${n} has no route`);
+    assert.ok(post ? posts.has(name) : gets.has(name), `${post ? 'POST' : 'GET'} /api/data/${name} has no route`);
   }
+  // The data routes are read-only: the phone posts to none, and the server takes no POST there.
+  assert.deepStrictEqual(calls.filter((m) => /method: 'POST'/.test(m[2])).map((m) => m[1]), [], 'the phone writes through a data route');
+  assert.deepStrictEqual([...posts], []);
+  assert.match(companion, /req\.method === 'GET' && Object\.hasOwn\(DATA_GET, name\)/, 'data routes answer GET only');
 });
 
 test('every module the phone client loads is served, and the offline shell caches only served files', () => {
@@ -270,7 +268,7 @@ test('every module the phone client loads is served, and the offline shell cache
 
 test('the server tells devices what changed but never which note or what it says', () => {
   // Only the fixed vocabulary leaves: a path (or anything else) handed to clean() is dropped.
-  for (const rel of ['Memory/my bank pin.md', 'Notes/Diary 2026.md', 'Flashcards/Private.md']) for (const t of sync.topicsForVault(rel)) assert.ok(sync.TOPICS.includes(t), t);
+  for (const rel of ['Memory/my bank pin.md', 'Notes/Diary 2026.md', 'Languages/Private.md']) for (const t of sync.topicsForVault(rel)) assert.ok(sync.TOPICS.includes(t), t);
   assert.deepStrictEqual(sync.clean(['Memory/my bank pin.md', 'memory', { rel: 'x' }]), ['memory']);
   assert.deepStrictEqual(sync.clean('notes'), ['notes']);
 });

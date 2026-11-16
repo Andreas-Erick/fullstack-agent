@@ -12,10 +12,10 @@ const store = load('main/store.js');
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 test('writes land in call order and leave no temp files', async () => {
-  const file = path.join(dir, 'vault', 'Habits.md');
+  const file = path.join(dir, 'vault', 'Schedule.md');
   await Promise.all(Array.from({ length: 20 }, (_, i) => store.writeTextAtomic(file, `version ${i}`)));
   assert.strictEqual(fs.readFileSync(file, 'utf8'), 'version 19');
-  assert.deepStrictEqual(fs.readdirSync(path.dirname(file)), ['Habits.md']);
+  assert.deepStrictEqual(fs.readdirSync(path.dirname(file)), ['Schedule.md']);
 });
 
 test('the JSON writer still works through it', async () => {

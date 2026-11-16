@@ -1,6 +1,6 @@
 // The Inner World: a small village where the user's personas (and two villagers of its own) live a
-// fictional day. Its buildings grow with the user's real progress (the learning tracker, decks, habits,
-// the skill tree, memory, rehearsals), so the village is a living picture of what they are building.
+// fictional day. Its buildings grow with the user's real progress (the learning tracker, vocabulary
+// decks, notes, planning, memory, rehearsals), so the village is a living picture of what they are building.
 // A day is written by one "narrator" model call (the game-master pattern of DeepMind's Concordia):
 // every resident's plan, a few scenes with dialogue, and what each resident remembers of it. The
 // residents' memories are memory streams (streamcore.js), as in "Generative Agents".
@@ -13,16 +13,16 @@ const PLACES = [
   { id: 'library', name: 'The Library', icon: '📚', x: 0.2, y: 0.2, about: 'Shelves for everything you are coming to understand.', base: (e) => e.topics > 0, value: (e) => e.understood, steps: [10, 30], unit: 'concepts understood', start: 'Rises when you track a learning topic ("help me understand…").' },
   { id: 'cafe', name: 'The Language Café', icon: '☕', x: 0.79, y: 0.3, about: 'Small tables, many languages, strong coffee.', base: (e) => e.decks > 0, value: (e) => e.mature, steps: [50, 200], unit: 'mature vocabulary cards', start: 'Opens with your first vocabulary deck.' },
   { id: 'workshop', name: 'The Workshop', icon: '⚒', x: 0.28, y: 0.5, about: 'A forge and a workbench: where code, documents and plans are made.', base: () => true, value: (e) => e.crafting, steps: [50, 300], unit: 'pieces of work made together (code, documents, notes)' },
-  { id: 'garden', name: 'The Garden', icon: '🌿', x: 0.56, y: 0.5, about: 'The commons in the middle of the village. A flower blooms for every habit you kept today.', base: () => true, value: (e) => e.days, steps: [7, 30], unit: 'days the world has lived' },
-  { id: 'grounds', name: 'The Training Grounds', icon: '🏃', x: 0.14, y: 0.76, about: 'A banner for every habit, raised high on the days you keep it.', base: (e) => e.habits > 0, value: (e) => e.streak, steps: [7, 30], unit: 'days in your best habit streak', start: 'Laid out when you start tracking a habit.' },
-  { id: 'observatory', name: 'The Observatory', icon: '🔭', x: 0.86, y: 0.66, about: 'Where the skill constellations are charted: at night your skill tree shines in the sky.', base: (e) => e.skills > 0, value: (e) => e.mastered, steps: [1, 5], unit: 'skills mastered', start: 'Built when you map a skill in the skill tree.' },
+  { id: 'garden', name: 'The Garden', icon: '🌿', x: 0.56, y: 0.5, about: 'The commons in the middle of the village. A flower blooms for every note you wrote today.', base: () => true, value: (e) => e.days, steps: [7, 30], unit: 'days the world has lived' },
+  { id: 'grounds', name: 'The Training Grounds', icon: '🏃', x: 0.14, y: 0.76, about: 'A banner for every notebook, raised high on the days you write in it.', base: (e) => e.notes > 0, value: (e) => e.notes, steps: [15, 80], unit: 'notes you wrote', start: 'Laid out when you write your first note.' },
+  { id: 'observatory', name: 'The Observatory', icon: '🔭', x: 0.86, y: 0.66, about: 'Where what comes next is charted: your schedule and routines, written up in the almanac.', base: (e) => e.charting > 0, value: (e) => e.charting, steps: [25, 100], unit: 'times you planned ahead together', start: 'Built the first time you plan something together: an event in your schedule or a routine.' },
   { id: 'archive', name: 'The Archive', icon: '🗄', x: 0.38, y: 0.9, about: 'Every memory, filed and cross-referenced.', base: (e) => e.memories > 0, value: (e) => e.memories, steps: [25, 100], unit: 'memories kept', start: 'Starts with the first thing your assistant remembers about you.' },
   { id: 'stage', name: 'The Stage', icon: '🎭', x: 0.68, y: 0.9, about: 'Where rehearsals are played out before the real thing.', base: () => true, value: (e) => e.rehearsals, steps: [3, 10], unit: 'rehearsals' },
 ];
 
 // What the assistant is doing, as a place in the village: each tool it uses sends the active persona
-// there (live, in the view) and is counted (the Workshop and the Lookout grow with it; the narrator
-// hears how the day went). Covers the app's own tools and Claude Code's native ones. A fourth entry
+// there (live, in the view) and is counted (the Workshop, the Lookout and the Observatory grow with
+// it; the narrator hears how the day went). Covers the app's own tools and Claude Code's native ones. A fourth entry
 // counts the work toward another place than the one it happens in (research is read in the Library
 // but is a trip out to the web: the Lookout grows with it).
 const WORK = [
@@ -33,8 +33,7 @@ const WORK = [
   [/^(memory_|stream_|vault_|daily_note|priorities_|profile_|job_|history_search)/, 'archive', 'in the Archive, filing notes'],
   [/^(learning_|open_document|close_document|documents?_|doc_|read_document|Read$)/, 'library', 'in the Library, reading'],
   [/^(vocab_|language_practice)/, 'cafe', 'at the Café, practicing words'],
-  [/^habit_/, 'grounds', 'at the Training Grounds'],
-  [/^(skilltree_|calendar_|routine_)/, 'observatory', 'at the Observatory, charting what comes next'],
+  [/^(calendar_|routine_)/, 'observatory', 'at the Observatory, charting what comes next'],
   [/^rehearsal_/, 'stage', 'on the Stage, rehearsing'],
   [/^(world_)/, 'garden', 'strolling through the village'],
   [/^(persona_|theme_|voice_|settings_|skill_|app_guide|capabilities_for)/, 'hearth', 'at the Hearth, tidying up'],
@@ -71,7 +70,7 @@ const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 /** Each place's level (0 = foundation … 3 = flourishing) and what grows it, from the evidence counts. */
 function places(evidence) {
-  const e = Object.fromEntries(['days', 'personas', 'topics', 'understood', 'decks', 'mature', 'habits', 'streak', 'skills', 'mastered', 'memories', 'rehearsals', 'crafting', 'scouting'].map((k) => [k, num(evidence?.[k])]));
+  const e = Object.fromEntries(['days', 'personas', 'topics', 'understood', 'decks', 'mature', 'notes', 'memories', 'rehearsals', 'crafting', 'scouting', 'charting'].map((k) => [k, num(evidence?.[k])]));
   return PLACES.map((p) => {
     const value = p.value(e);
     const level = p.base(e) ? 1 + p.steps.filter((s) => value >= s).length : 0;

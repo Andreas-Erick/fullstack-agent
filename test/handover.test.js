@@ -9,8 +9,8 @@ const { stub, load, quietLog } = require('./helpers');
 const core = load('main/localcore.js');
 
 test('which tools only look things up', () => {
-  for (const n of ['calendar_get_events', 'memory_search', 'vault_read_note', 'habit_status', 'flashcards_decks', 'flashcards_next', 'tools_more', 'web_search', 'app_guide', 'learning_overview', 'history_search']) assert.ok(core.isReadTool(n), n);
-  for (const n of ['calendar_add_event', 'memory_save', 'habit_log', 'vault_write_note', 'flashcards_add', 'flashcards_answer', 'priorities_update', 'daily_note_log', 'routine_save', 'brain_switch']) assert.ok(!core.isReadTool(n), n);
+  for (const n of ['calendar_get_events', 'memory_search', 'vault_read_note', 'routine_list', 'stream_recall', 'tools_more', 'web_search', 'app_guide', 'learning_overview', 'history_search']) assert.ok(core.isReadTool(n), n);
+  for (const n of ['calendar_add_event', 'memory_save', 'vault_write_note', 'vocab_add', 'vocab_grade', 'priorities_update', 'daily_note_log', 'routine_save', 'brain_switch']) assert.ok(!core.isReadTool(n), n);
 });
 
 test('what goes straight to Claude: code, a connected service by name, a long text', () => {

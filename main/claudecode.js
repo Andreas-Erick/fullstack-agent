@@ -188,7 +188,21 @@ function installHint() {
 
 // The app's everyday tools for a Claude session with tools on request: what a local model always has
 // (localcore.COMPACT_TOOLS) and the common changes to the same things. The rest: ToolSearch.
-const CORE_TOOLS = new Set([...require('./localcore').COMPACT_TOOLS, 'calendar_update_event', 'calendar_delete_event', 'calendar_list_entries', 'memory_update', 'memory_delete', 'persona_switch', 'tasks_save', 'open_document', 'vault_write_note']);
+// A tool that acts on something by name comes with the one that finds it. persona_switch was loaded and
+// persona_list was not: the model found persona_list on nexus_more, then called
+// mcp__nexus_more__persona_switch ("No such tool available"): a wasted round, 11.6 s for a switch.
+const COMPANIONS = {
+  persona_switch: ['persona_list'],
+  open_document: ['find_document', 'close_document', 'list_monitors'],
+  brain_switch: ['brain_options'],
+  calendar_update_event: ['calendar_list_entries'],
+  calendar_delete_event: ['calendar_list_entries'],
+  memory_update: ['memory_search'],
+  memory_delete: ['memory_search'],
+  skill_run: ['skill_list'],
+};
+// Skills are run by voice too ("do my weekly review"): each run needed a ToolSearch round first.
+const CORE_TOOLS = new Set([...require('./localcore').COMPACT_TOOLS, 'calendar_update_event', 'calendar_delete_event', 'calendar_list_entries', 'memory_update', 'memory_delete', 'persona_switch', 'tasks_save', 'open_document', 'vault_write_note', 'skill_run', ...Object.values(COMPANIONS).flat()]);
 
 /** The MCP servers of a session: the app's (one, or core + more) and the extensions. */
 function mcpServersFor(spec, { url, token, turn }) {
@@ -529,6 +543,7 @@ class Session {
         text: '',
         tools: new Map(),
         records: [],
+        sentAt: Date.now(),
         settled: false,
         resolve: (v) => {
           if (turn.settled) return;
@@ -576,7 +591,10 @@ class Session {
       return;
     }
     // The plan's usage windows (how much is left) come with every turn; the title bar shows them.
-    if (msg.type === 'rate_limit_event') return claudeUsage.update(msg.rate_limit_info);
+    if (msg.type === 'rate_limit_event') {
+      onPlan = true; // only a Claude plan sends these: its main conversation keeps the cache an hour
+      return claudeUsage.update(msg.rate_limit_info);
+    }
     // The end of a turn that was interrupted (see interrupt()).
     if (msg.type === 'result' && this.afterInterrupt) return this.afterInterrupt();
     // A control request (model, effort, interrupt) the CLI refused: worth knowing, never fatal.
@@ -594,10 +612,15 @@ class Session {
         return;
       }
       // Where the time went: the CLI's own overhead vs. waiting for the model (finding slow turns).
-      log.info('claude timing', { totalMs: msg.duration_ms, apiMs: msg.duration_api_ms, firstTokenMs: msg.ttft_ms, toRequestMs: msg.time_to_request_ms, turns: msg.num_turns, contextTokens: t.contextTokens || undefined });
+      // startupMs: how long the message waited before the CLI's own clock started (a new process
+      // starting and connecting its tool servers; ~0 when warm).
+      const waited = Date.now() - t.sentAt - (Number(msg.duration_ms) || 0);
+      log.info('claude timing', { totalMs: msg.duration_ms, apiMs: msg.duration_api_ms, firstTokenMs: msg.ttft_ms, toRequestMs: msg.time_to_request_ms, turns: msg.num_turns, contextTokens: t.contextTokens || undefined, startupMs: waited > 150 ? waited : undefined });
       this.resumable = this.sessionId;
       // A fresh session's first turn: how big a session starts in this setup (rollover is measured from it).
       const freshTokens = !this.resumed && !this.freshTokens && t.contextTokens ? (this.freshTokens = t.contextTokens) : 0;
+      // What is cached now, and on which model (startOrReuse keeps it warm; outlives this process).
+      lastCalls.set(this.convId, { model: this.requestedModel, at: Date.now(), tokens: t.contextTokens || 0, key: this.key });
       t.resolve({ text: t.text.trim() || String(msg.result || '').trim(), toolCalls: t.records, raw: null, model: this.model || this.spec.model, sessionId: this.sessionId, contextTokens: t.contextTokens || 0, freshTokens });
       this.resetIdle();
       return;
@@ -617,6 +640,7 @@ class Session {
     }
     if (msg.type === 'assistant') {
       // How much the model read for this call: the session's size (the result's usage sums every call).
+      if (msg.message?.model) this.model = msg.message.model; // after set_model, init's model is stale
       const u = msg.message?.usage;
       if (u) t.contextTokens = Math.max(t.contextTokens || 0, (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0));
       for (const block of msg.message?.content || []) {
@@ -793,18 +817,51 @@ async function ensureSession(conv, opts) {
   }
 }
 
-async function startOrReuse(session, conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, folders, model, effort }) {
-  const spec = sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, folders, model });
+// The last call of each conversation's session: its model, when, how big, under which configuration.
+const lastCalls = new Map();
+let onPlan = false;
+// How long the CLI keeps the main conversation cached: an hour on a Claude plan, 5 minutes on an API
+// key (its promptCacheTtl setting), each with a margin.
+const cacheTtl = () => (onPlan ? 55 : 4) * 60000;
+
+// The model for this turn: the pace's choice unless that would make the session read cold (pace.warmModel).
+function chooseModel(conv, spec, { model, routine, settings }) {
+  if (settings.claudeCode?.keepModelWarm === false) return model;
+  const last = lastCalls.get(conv.id);
+  const pick = require('./pace').warmModel({ want: model, last, key: spec.key, ttlMs: cacheTtl(), routine });
+  if (pick.kept) log.info('claude model kept warm', { conversation: conv.id, wanted: model || 'default', kept: pick.model, why: pick.kept, tokens: last.tokens });
+  return pick.model;
+}
+
+async function startOrReuse(session, conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, folders, model: wanted, effort, routine = false, prewarming = false }) {
+  const spec = sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, folders, model: wanted });
+  // A prewarm knows no message, so no pace: it never moves a live session's model (opening a chat
+  // switched it to the settings' model), and a new process starts on the conversation's last one.
+  const model = prewarming ? lastCalls.get(conv.id)?.model || wanted : chooseModel(conv, spec, { model: wanted, routine, settings });
+  spec.model = model;
   if (session.alive() && session.key === spec.key) {
+    if (prewarming) return session;
     session.setModel(model);
     session.setEffort(effort);
     return session;
   }
+  // Never restart under a reply that is still being written (a persona picked from the menu mid-reply).
+  if (prewarming && session.turn && !session.turn.settled) return session;
   // A restart costs a cold start (several seconds); the log says why it happened.
-  if (session.alive()) log.info('claude session restarts', { conversation: conv.id, changed: changedParts(session.spec?.keyParts, spec.keyParts) });
+  const restart = session.alive();
+  if (restart) log.info('claude session restarts', { conversation: conv.id, changed: changedParts(session.spec?.keyParts, spec.keyParts) });
   const p = await buildPrompt();
   spec.system = p.stable;
   spec.resume = conv.claudeSessionId || session.resumable;
+  // A new configuration (a persona switch…) changes the system prompt, so the resumed session would be
+  // read cold in full: 127k tokens, 7.4 s to the first word after a switch. Past the rollover size a
+  // fresh one with the recent messages (transcript()) starts sooner and stays smaller.
+  const last = lastCalls.get(conv.id);
+  if (spec.resume && last && last.key !== spec.key && last.tokens > ROLLOVER_TOKENS) {
+    log.info('claude session starts fresh after a configuration change', { conversation: conv.id, contextTokens: last.tokens });
+    spec.resume = null;
+    session.resumable = null;
+  }
   session.memIds = p.memIds;
   if (perf.profile(settings) === 'balanced') closeExcessSessions(conv.id);
   await session.spawn(spec);
@@ -879,9 +936,11 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, images 
 }
 
 // Start the process ahead of time (e.g. while the greeting plays) so the first turn is warm.
+// Also after a persona switch (main.js, renderer personas.js): the new session's process and tool
+// servers start while the user reads or listens (~1 s), not when they speak again.
 async function prewarm(conv, opts) {
   if (!conv) return;
-  await ensureSession(conv, opts);
+  await ensureSession(conv, { ...opts, prewarming: true });
 }
 
 function endSession(convId) {
@@ -945,4 +1004,4 @@ async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { CORE_TOOLS, mcpServersFor, sessionArgs, changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };
+module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };

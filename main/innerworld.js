@@ -92,29 +92,25 @@ async function evidence(st, settings) {
 async function gather(st, settings) {
   const safe = (p, fallback) => Promise.resolve().then(p).catch(() => fallback);
   const learning = require('./learning');
-  const [topics, decks, habits, tree, mems, records] = await Promise.all([
+  const [topics, decks, notes, mems, records] = await Promise.all([
     safe(() => learning.topics(), []),
     safe(() => learning.deckSummaries(), []),
-    safe(() => require('./habits').status(), { habits: [] }),
-    safe(() => require('./skilltree').view(), { skills: [] }),
+    safe(() => require('./notebook').summary(), { count: 0, today: [], notebooks: [] }),
     safe(() => require('./memory').list(), []),
     safe(() => stream.readAll(stream.USER), []),
   ]);
-  const active = habits.habits.filter((h) => !h.paused);
   const work = await activityLog().catch(() => ({ days: {}, total: {} }));
   const counts = {
     crafting: work.total.workshop || 0,
     scouting: work.total.lookout || 0,
+    charting: work.total.observatory || 0,
     days: st.dayCount,
     personas: settings.personas?.list?.length || 1,
     topics: topics.length,
     understood: topics.reduce((s, t) => s + (t.understood || 0), 0),
     decks: decks.length,
     mature: decks.reduce((s, d) => s + (d.mature || 0), 0),
-    habits: active.length,
-    streak: Math.max(0, ...active.map((h) => (h.streakUnit === 'days' ? h.streak : h.streak * 7) || 0)),
-    skills: tree.skills.length,
-    mastered: tree.skills.filter((s) => s.state === 'mastered').length,
+    notes: notes.count,
     memories: mems.length + records.length,
     rehearsals: st.rehearsals.length,
   };
@@ -122,8 +118,9 @@ async function gather(st, settings) {
   const details = {
     topics: topics.slice(0, 12).map((t) => ({ name: clip(t.topic), understood: t.understood || 0, shaky: t.shakyCount || 0 })),
     decks: decks.slice(0, 8).map((d) => ({ name: clip(d.language), mature: d.mature || 0, total: d.total || 0, due: d.dueCount || 0 })),
-    habits: active.slice(0, 10).map((h) => ({ name: clip(h.name), done: Boolean(h.doneToday), streak: h.streak || 0, unit: h.streakUnit === 'days' ? 'd' : 'wk' })),
-    skills: tree.skills.slice(0, 40).map((s) => ({ name: clip(s.name), state: s.state, progress: s.progress || 0, area: clip(s.area, 24), needs: (s.needs || []).slice(0, 6) })),
+    // The Training Grounds fly a banner per notebook (raised when written in today); the Garden blooms per note of today.
+    notebooks: notes.notebooks.slice(0, 10).map((b) => ({ name: clip(b.name), done: Boolean(b.done), count: b.count || 0 })),
+    notesToday: notes.today.slice(0, 10).map((t) => clip(t)),
     memories: mems.length,
     records: records.length,
     insights: records.filter((r) => r.kind === 'reflection').length,
@@ -188,7 +185,7 @@ function simulate({ force = false } = {}) {
     let parsed;
     try {
       const text = await Promise.race([llm.complete(settings, prompt), limit]);
-      parsed = core.parseDay(require('./persona').extractJson(text), residents);
+      parsed = core.parseDay(await Promise.race([require('./persona').jsonWithRetry(text, (fix) => llm.complete(settings, fix)), limit]), residents);
     } finally {
       clearTimeout(limitTimer);
     }

@@ -18,7 +18,7 @@ export const LIVE = new Set(['world', 'arch']);
 
 /**
  * What to do for a data.changed with `topics`, given the screen shown (`view`) and whether the user is
- * in the middle of something there (`busy`: studying a card, a note open, typing a search).
+ * in the middle of something there (`busy`: a note open, typing a search).
  * → { screen: draw it again quietly, schedule: forget the cached weeks, conversations: check the list }
  */
 export function refreshPlan(topics, { view, busy = false } = {}) {

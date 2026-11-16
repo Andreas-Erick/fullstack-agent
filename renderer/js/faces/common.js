@@ -58,9 +58,12 @@ export function audio() {
   return { level: 0, freq: null, wave: null };
 }
 
+const ZERO_64 = Object.freeze(new Array(64).fill(0));
+
 // 64 samples of the current waveform (for custom faces).
 export function samples64() {
   const { wave, level } = audio();
+  if (!wave && level === 0) return ZERO_64;
   const out = new Array(64);
   for (let i = 0; i < 64; i++) out[i] = wave ? wave[Math.floor((i / 64) * wave.length)] : Math.sin(i / 4 + performance.now() / 120) * level * 0.5;
   return out;
@@ -68,14 +71,16 @@ export function samples64() {
 
 // Feeds a custom face (a sandboxed iframe, faces/core.js) the agent state once per display frame, so a
 // face made for 90, 120 or 144 Hz gets fresh voice samples on every frame it draws; ~30×/s when lite
-// (Balanced). `message()` builds what is posted. Returns stop().
+// (Balanced) or idle, ~20×/s when sleeping. `message()` builds what is posted. Returns stop().
 export function pumpFrame(frame, message) {
   let raf = 0;
   let last = 0;
   const tick = (now) => {
     raf = requestAnimationFrame(tick);
-    if (!frame.contentWindow || !frame.offsetParent) return; // hidden: skip (the chat-only layout hides the face)
-    if (env.lite() && now - last < LITE_FRAME_MS) return;
+    if (document.hidden || !frame.contentWindow || !frame.offsetParent) return; // hidden: skip (the chat-only layout hides the face)
+    const st = env.agentState();
+    const minGap = st === 'sleeping' ? 50 : env.lite() || st === 'idle' ? LITE_FRAME_MS : 0;
+    if (minGap && now - last < minGap) return;
     last = now;
     frame.contentWindow.postMessage(message(), '*');
   };

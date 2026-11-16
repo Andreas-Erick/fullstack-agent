@@ -159,3 +159,83 @@ test('a fresh session’s first turn reports its size once', async () => {
   assert.strictEqual((await turn).freshTokens, 0, 'only the first turn');
   clearTimeout(sess.idleTimer);
 });
+
+// Each model has its own prompt cache: a warm session moved to a smaller model read ~110k tokens cold
+// (3.4–7.4 s to the first word instead of ~1.8 s), and routines in the chat moved it to Opus.
+test('a big warm session keeps its model; a routine never moves it; a new configuration starts fresh', async () => {
+  const spawns = [];
+  const writes = [];
+  let sess;
+  let tokens = 110000;
+  const realSpawn = claudecode.Session.prototype.spawn;
+  const realSend = claudecode.Session.prototype.send;
+  claudecode.Session.prototype.spawn = async function (spec) {
+    sess = this;
+    spawns.push({ model: spec.model, resume: spec.resume || this.resumable || null });
+    this.child = { exitCode: null, stdin: { write: (s) => writes.push(JSON.parse(s)) }, once() {}, kill() {}, pid: -1 };
+    this.dead = false;
+    this.spec = spec;
+    this.key = spec.key;
+    this.requestedModel = spec.model || 'default';
+    this.resumed = Boolean(spec.resume);
+  };
+  // The fake CLI answers every message: one call of `tokens`, then the result.
+  claudecode.Session.prototype.send = function (...a) {
+    const p = realSend.apply(this, a);
+    setImmediate(() => {
+      this.onLine(JSON.stringify({ type: 'assistant', message: { model: `claude-${this.requestedModel}`, content: [], usage: { input_tokens: 1, cache_read_input_tokens: tokens - 1, cache_creation_input_tokens: 0 } } }));
+      this.onLine(result('ok'));
+    });
+    return p;
+  };
+  const conv = { id: 'warm-1', claudeSessionId: 'old-session' };
+  const settings = { claudeCode: {}, web: { enabled: false }, code: { allowSelfModify: false }, extensions: {}, perf: { mode: 'full' } };
+  const opts = (model, extra = {}) => ({ settings, configKey: 'k', activeTools: [], cwd: process.cwd(), model, buildPrompt: async () => ({ stable: 'p', memIds: [] }), ...extra });
+  const turn = (model, extra) => claudecode.runTurn({ conv, history: [{ role: 'user', content: 'hi' }], buildContext: async () => '', emit() {}, signal: new AbortController().signal, ctx: {}, ...opts(model, extra) });
+  const models = () => writes.filter((w) => w.request?.subtype === 'set_model').map((w) => w.request.model);
+  try {
+    assert.strictEqual((await turn('sonnet')).model, 'claude-sonnet', 'the model the calls really ran on');
+    await turn('haiku');
+    assert.deepStrictEqual(models(), [], 'stays on the warm Sonnet instead of a cold Haiku');
+    await turn('opus', { routine: true });
+    assert.deepStrictEqual(models(), [], 'a routine keeps the chat’s model');
+    // Opening a chat prewarms with the settings' model: a live session is left as it is.
+    await claudecode.prewarm(conv, opts('default'));
+    assert.deepStrictEqual(models(), []);
+    await turn('opus');
+    assert.deepStrictEqual(models(), ['opus'], 'deep work still moves up');
+
+    // A persona switch changes the system prompt: nothing is cached, so the big old session is not
+    // resumed; the prewarm right after starts it on the conversation's last model.
+    tokens = 120000;
+    await turn('opus');
+    await claudecode.prewarm(conv, opts('default', { configKey: 'k2' }));
+    assert.strictEqual(spawns.length, 2);
+    assert.deepStrictEqual(spawns[1], { model: 'opus', resume: null });
+
+    // A prewarm never restarts a session under a reply still being written.
+    const busy = new AbortController();
+    claudecode.Session.prototype.send = realSend;
+    const running = claudecode.runTurn({ conv, history: [{ role: 'user', content: 'long' }], buildContext: async () => '', emit() {}, signal: busy.signal, ctx: {}, ...opts('opus', { configKey: 'k2' }) });
+    await new Promise((r) => setImmediate(r));
+    await claudecode.prewarm(conv, opts('default', { configKey: 'k3' }));
+    assert.strictEqual(spawns.length, 2, 'not restarted mid-reply');
+    sess.onLine(result('done'));
+    await running;
+
+    // Off in Settings: the pace's model, as before.
+    const off = { ...settings, claudeCode: { keepModelWarm: false } };
+    claudecode.Session.prototype.send = function (...a) {
+      const p = realSend.apply(this, a);
+      setImmediate(() => this.onLine(result('ok')));
+      return p;
+    };
+    await turn('haiku', { configKey: 'k2', settings: off });
+    assert.deepStrictEqual(models().slice(-1), ['haiku']);
+  } finally {
+    claudecode.Session.prototype.spawn = realSpawn;
+    claudecode.Session.prototype.send = realSend;
+    if (sess) sess.child.exitCode = 0;
+    claudecode.endSession('warm-1');
+  }
+});

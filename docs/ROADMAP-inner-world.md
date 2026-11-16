@@ -25,16 +25,15 @@ process already keeps `levels` in `innerworld.json`; push a `world:event` `level
 sees a higher one) and a short one-off animation in `scene.js`. Strongest link between progress and
 reward.
 
-## 2. Statues for mastered skills, festivals for milestones
-A statue on the plaza for each mastered skill (its name on the plinth; data is in `details.skills`).
-Festivals when a habit streak passes 7 / 30 / 100 days, or on a birthday from memory: lanterns
+## 2. Festivals for milestones
+Festivals when you have written 100 / 500 / 1,000 notes, or on a birthday from memory: lanterns
 strung between houses, banners, a market, residents gathered on the plaza, a line in the chronicle.
 
 ## 3. Quest board
-A noticeboard on the plaza that turns what is due into quests: cards to review, today's habits,
-shaky concepts, today's calendar entries, rehearsals planned. Completing them lights up the village
-(a lantern per quest, a festival when the board is clear). A feature of its own: decide how quests are
-generated (rules over the data the app already has, no model call) and whether they appear in chat.
+A noticeboard on the plaza that turns what is due into quests: vocabulary to review, brain dumps
+waiting in the Inbox, shaky concepts, today's calendar entries, rehearsals planned. Completing them
+lights up the village (a lantern per quest, a festival when the board is clear). A feature of its
+own: decide how quests are generated (rules over the data the app already has, no model call) and whether they appear in chat.
 
 ## 4. More life in the village
 Birds and butterflies by day, bats at dusk; a boat on the river; carts travelling the roads;

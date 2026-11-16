@@ -91,10 +91,7 @@ const TOOLS = [
   ...require('./tools/guide'),
   ...require('./tools/browser'),
   ...require('./tools/learning'),
-  ...require('./tools/flashcards'),
   ...require('./tools/world'),
-  ...require('./tools/habits'),
-  ...require('./tools/skilltree'),
   ...require('./tools/routines'),
   ...require('./tools/appearance'),
   ...require('./tools/documents'),
@@ -212,7 +209,7 @@ const SETUP_TOOLS = [
   {
     name: 'setup_add_persona',
     group: 'setup',
-    description: 'Add a ready-made persona the user can switch to later from the title bar (it does not change who you are now): "stem-tutor" (Ada: understanding, math, proofs), "polyglot-coach" (Mira: languages), "life-coach" (Sol: goals and habits). Offer the ones that fit what the user wants to use you for.',
+    description: 'Add a ready-made persona the user can switch to later from the title bar (it does not change who you are now): "stem-tutor" (Ada: understanding, math, proofs), "polyglot-coach" (Mira: languages), "life-coach" (Sol: goals and reflection). Offer the ones that fit what the user wants to use you for.',
     parameters: obj({ template: { type: 'string', enum: ['stem-tutor', 'polyglot-coach', 'life-coach'], description: 'Which template' } }, ['template']),
     run: async (a, ctx) => {
       const s = await require('./persona').create({ template: a.template, activate: false });
@@ -294,7 +291,7 @@ const SETUP_TOOLS = [
 TOOLS.push(...SETUP_TOOLS);
 
 // Tools available in the setup conversation.
-const SETUP_EXTRA = ['memory_save', 'priorities_update', 'diagnose', 'voice_calibrate', 'app_guide', 'habit_add', 'routine_save', 'skilltree_update', 'setup_add_persona'];
+const SETUP_EXTRA = ['memory_save', 'priorities_update', 'diagnose', 'voice_calibrate', 'app_guide', 'routine_save', 'setup_add_persona'];
 
 const NATIVE_IN_CLAUDE_CODE = ['code', 'selfmod', 'web'];
 
@@ -312,7 +309,7 @@ async function activeTools(settings, { setup = false } = {}) {
     if (t.group === 'voice') return settings.voice.ttsEnabled;
     if (t.group === 'listening') return settings.stt.enabled;
     if (t.group === 'github') return settings.github?.enabled !== false && gh.connected;
-    if (t.group === 'vault' || t.group === 'learning' || t.group === 'habits' || t.group === 'skilltree' || t.group === 'rehearsal') return Boolean(vault);
+    if (t.group === 'vault' || t.group === 'learning' || t.group === 'rehearsal') return Boolean(vault);
     if (t.group === 'stream') return Boolean(vault) && settings.memory?.stream !== false;
     if (t.group === 'world') return Boolean(vault) && Boolean(settings.innerWorld?.enabled);
     if (t.group === 'practice') return settings.stt.enabled || settings.voice.ttsEnabled;
@@ -338,6 +335,14 @@ async function executeTool(name, args, ctx) {
   }
   ctx.turn ||= approvals.newTurn();
   const started = Date.now();
+  // Its arguments against its schema (toolargs.js): obvious other names fixed, else a clear error.
+  const checked = require('./toolargs').checkArgs(tool, args);
+  if (checked.error) {
+    log.warn('tool arguments wrong', { name, sent: Object.keys(args || {}).join(',') });
+    return { ok: false, result: { error: checked.error } };
+  }
+  if (checked.renamed.length) log.info('tool arguments renamed', { name, renamed: checked.renamed.map(([a, b]) => `${a}→${b}`).join(',') });
+  args = checked.args;
   try {
     let result = await tool.run(args || {}, ctx);
     // Images (look_at_screen) travel next to the result, never inside its text.

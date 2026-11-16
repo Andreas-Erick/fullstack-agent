@@ -112,19 +112,6 @@ test('diagrams: cleaned until nothing changes, and every saved page carries a CS
   await assert.rejects(diagrams.save('Huge', `<div>${'<a '.repeat(1100000)}`), /over 2 MB/, 'the size is checked before cleaning');
 });
 
-test('Anki media can’t unpack past its limit, whatever size the archive declares', () => {
-  const core = load('main/flashimportcore.js');
-  const zlib = require('zlib');
-  const big = zlib.deflateRawSync(Buffer.alloc(5 * 1024 * 1024)); // 5 MB of zeros, a few KB packed
-  const local = Buffer.alloc(30);
-  local.writeUInt32LE(0x04034b50, 0);
-  const buf = Buffer.concat([local, big]);
-  const entry = { name: '0', method: 8, csize: big.length, size: 1, local: 0 }; // claims 1 byte
-  assert.throws(() => core.zipRead(buf, entry, { max: 1024 * 1024 }), /too large/, 'stopped at 1 MB while unpacking');
-  assert.strictEqual(core.zipRead(buf, entry, { max: 6 * 1024 * 1024 }).length, 5 * 1024 * 1024, 'within the limit it unpacks');
-  assert.throws(() => core.zipRead(buf, { ...entry, csize: buf.length * 2 }), /Damaged/, 'data past the end of the file');
-});
-
 test('during setup, moving the vault asks in the app like the workspace does', () => {
   const src = fs.readFileSync(path.join(ROOT, 'main/tools.js'), 'utf8');
   assert.match(src, /\['documents\.workspace', 'obsidian\.vaultPath'\]\.includes\(a\.setting\)/);

@@ -51,8 +51,11 @@ const localVoice = {
         } else if (msg.id && this.pending.has(msg.id)) {
           const { done, fail } = this.pending.get(msg.id);
           this.pending.delete(msg.id);
-          if (msg.type === 'audio') done(msg.samples);
-          else fail(new Error(msg.message));
+          if (msg.type === 'audio') {
+            // The first sentences after a load, to see what a sentence costs (tts-worker.js generate).
+            if (msg.timing && (this.timed = (this.timed || 0) + 1) <= 40) logEvent('info', 'offline voice sentence', { ...msg.timing, device: this.device });
+            done(msg.samples);
+          } else fail(new Error(msg.message));
         } else if (msg.type === 'error') this.reset(msg.message, reject);
       };
       this.worker.onerror = (e) => this.reset(e.message || 'the offline voice failed to load', reject);
@@ -158,6 +161,7 @@ class Speaker {
     this.running = false;
     this.onFallback = false; // set after VoiceStudio fails; retried periodically
     this.lastSpokeAt = 0;
+    this.fillers = new Map(); // fillerKey → AudioBuffer
   }
 
   say(text, override) {
@@ -211,8 +215,8 @@ class Speaker {
     this.batch.push(text);
     this.batchOverride = override;
     clearTimeout(this.batchTimer);
-    if (this.batch.length >= 2) this.release();
-    else this.batchTimer = setTimeout(() => this.release(), 1500);
+    if (this.batch.length >= 2 || text.length >= 110) this.release();
+    else this.batchTimer = setTimeout(() => this.release(), 450);
   }
 
   release() {
@@ -221,10 +225,35 @@ class Speaker {
     this.batch = [];
   }
 
-  // Short line while tools run, so a pause never feels like a dead line. Skipped if already talking.
+  // Short line while a reply is on its way, so a pause never feels like a dead line. Skipped if already
+  // talking. It plays from audio made ahead in a quiet moment (warmFillers): made on the spot it held up
+  // the reply's first sentence (one voice engine, one sentence at a time). Not made yet: nothing.
   filler(text) {
-    if (this.busy || Date.now() - this.lastSpokeAt < 4000) return;
-    this.enqueue(text);
+    if (this.busy || Date.now() - this.lastSpokeAt < 4000 || practiceLanguage(state.settings)) return false;
+    const buf = this.fillers.get(fillerKey(text));
+    if (!buf) return false;
+    this.queue.push({ text, audio: Promise.resolve(buf), gen: this.gen, queuedAt: performance.now() });
+    this.pump();
+    return true;
+  }
+
+  // Makes the filler lines' audio one at a time, only while `idle()` and nothing is being said.
+  warmFillers(lines, idle) {
+    if (this.warming) return;
+    const todo = lines.filter((t) => !this.fillers.has(fillerKey(t)));
+    if (!todo.length) return;
+    this.warming = true;
+    const next = async () => {
+      const text = todo.shift();
+      if (!text || !idle() || this.busy) return void (this.warming = false);
+      const buf = await this.synthesize(text, undefined, this.gen).catch(() => null);
+      // The system voice ('system') is instant anyway; a failure stops until the next quiet moment.
+      if (!buf || typeof buf !== 'object') return void (this.warming = false);
+      if (this.fillers.size > 80) this.fillers.clear(); // a few voices' worth
+      this.fillers.set(fillerKey(text), buf);
+      setTimeout(next, 600);
+    };
+    setTimeout(next, 1500);
   }
 
   enqueue(text, override, { first = false } = {}) {
@@ -385,6 +414,9 @@ class Speaker {
   }
 }
 
+// A filler's audio belongs to the voice that made it (engine, voice, speed…).
+const fillerKey = (text) => `${JSON.stringify([state.settings.voice?.engine, state.settings.voice?.voice, state.settings.voice?.localVoice, state.settings.voice?.speed, state.settings.cloudVoice])}|${text}`;
+
 function splitSentences(text, all = false) {
   const { done, rest } = takeSentences(text);
   if (all && rest.trim()) done.push(rest);
@@ -395,7 +427,7 @@ function splitSentences(text, all = false) {
 function takeSentences(buf) {
   const done = [];
   let rest = buf;
-  const re = /([\s\S]*?[.!?…:;](?=\s|$)|[\s\S]*?\n\s*\n)/;
+  const re = /([\s\S]*?[.!?…:;](?=\s|$)|[\s\S]*?\s[—–]\s|[\s\S]*?\n\s*\n)/;
   let m;
   let acc = '';
   while ((m = rest.match(re)) && m[0].length < rest.length) {
@@ -755,7 +787,7 @@ class HandsFree {
       // A short "yes" has ~150 ms of vowel; segments with none are breath or noise.
       if (seg.voiced < 80) return (setCaption(heldPiece.pending), heldPiece.pending && heldPiece.later());
       if (ended === 'limit') logEvent('info', 'long utterance split at the limit', { sec: Math.round(seg.length / 1000) });
-      finishUtterance(() => toMono16k(concat(seg.chunks), this.rate), { join: true, limit: ended === 'limit' });
+      finishUtterance(() => toMono16k(concat(seg.chunks), this.rate), { join: true, limit: ended === 'limit', pauseMs: ended === 'limit' ? 0 : seg.silence });
     }
   }
 }
@@ -967,7 +999,8 @@ export async function analyzeClip(samples, rate) {
 // ----------------------------------------------------- utterance handling
 let busy = false;
 
-// End-to-end latency: from the moment an utterance was closed to the reply's first audio.
+// End-to-end latency: from the end of the user's speech (before the pause that closed the utterance,
+// which the log didn't count) to the reply's first audio.
 let utteranceEndedAt = 0;
 
 function logFirstAudio(item) {
@@ -994,13 +1027,15 @@ const heldPiece = {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       const text = joiner.due(performance.now());
+      // A piece that trailed off waited this long for more: part of the wait before a reply.
+      if (text) logEvent('info', 'voice piece sent after a hold', { heldMs: HOLD_MS + 50 });
       if (text) emit('voice-input', text);
     }, HOLD_MS + 50);
   },
 };
 
-async function finishUtterance(getSamples, { join = false, limit = false } = {}) {
-  utteranceEndedAt = performance.now();
+async function finishUtterance(getSamples, { join = false, limit = false, pauseMs = 0 } = {}) {
+  utteranceEndedAt = performance.now() - pauseMs;
   busy = true;
   try {
     const samples = await getSamples();
@@ -1015,7 +1050,7 @@ async function finishUtterance(getSamples, { join = false, limit = false } = {})
     const started = performance.now();
     const text = await transcribe(samples);
     setCaption(text || '(didn’t catch that)', 'user');
-    if (text) logEvent('info', 'heard', { text, sttMs: Math.round(performance.now() - started), audioSec: +(samples.length / 16000).toFixed(1) });
+    if (text) logEvent('info', 'heard', { text, sttMs: Math.round(performance.now() - started), audioSec: +(samples.length / 16000).toFixed(1), pauseMs: pauseMs || undefined });
     if (join) {
       const whole = joiner.add(text, { limit, now: performance.now() });
       if (whole) emit('voice-input', whole);

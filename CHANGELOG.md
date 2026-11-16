@@ -1,5 +1,55 @@
 # Changelog
 
+## 2.7.16 — 2026-11-16
+
+- **Notes**: write your own notes in the app, like in Obsidian (Ctrl+9, where Habits was). They save as you type with a quiet "Saved ✓"; `[[` suggests your other notes to link; Ctrl+E shows the rendered note (a link to a note that doesn't exist yet creates it); pin the ones that matter; filter by notebook (a folder) or #tag, or search everything. Renaming a note updates the links to it; deleting one can be undone. Notes are plain Markdown in your vault's `Notes/` and `Inbox/`, so Obsidian opens them as they are.
+- Notes open **rendered**: titles, subtitles, numbered and bulleted lists, checklists, quotes, tables, formulas and links to other notes (a link to a note that doesn't exist yet shows a ＋ and creates it). Click anywhere in the text to edit right there; 👁 Done (or Ctrl+E) shows it rendered again. Tick a checklist item in the rendered note and it's ticked in the note.
+- A **formatting bar** while you write: Title, Subtitle, Heading 3, bold, italic, bullet list, numbered list, checklist, quote and 🔗 link to another note. Lists continue themselves on Enter (numbers count up; Enter on an empty item ends the list), Tab and Shift+Tab indent list items, Ctrl+B and Ctrl+I work, and Ctrl+Z undoes any of it.
+- On the phone and tablet, the Notes tab lists your own notes (pinned first, with a preview and their notebook and #tags), and links in a note open the note they name. The Learn tab has its own icon, and More no longer repeats Notes.
+- **⚡ Brain dump**: a blank page for getting everything out of your head (the Dump button, or Ctrl+Shift+N from anywhere). The first line becomes the title; Ctrl+Enter saves it to your Inbox and gives you a fresh page; Esc saves and closes. It replaces the old quick-note box, and a half-written dump survives closing the app.
+- The assistant knows your notes: ask "what did I write about PID tuning?" or "find my note on the arm idea" and it looks them up before answering. "Ask" on a note hands it to the chat.
+- The daily-habit tracker is removed: the Habits view, the assistant's habit tools and coaching, the phone's Habits tab and check-offs, and the habits on the watch. Your `Habits.md` stays in your vault as a plain note; nothing is deleted. Goals, `/goal`, `/reflect` and `/weekly-review` remain (they now look at your notes instead).
+- Routines moved to the Skills view. The "Morning briefing" and "Weekly review prep" templates no longer mention habits, and a new "Inbox tidy-up" template goes through your quick captures once a week (it suggests, it doesn't move anything).
+- The phone's Notes tab replaces Habits, and Today shows how many notes you wrote. With habits gone, nothing on a paired device can change your data through its screens any more: they are read-only.
+- In the Inner World, the Garden blooms with a flower for each note you write today, and the Training Grounds fly a banner for each notebook, raised on the days you write in it.
+
+- The skill tree is removed, with its Tree view on the computer, the Skill tree screen on the phone and the assistant's tools for it.
+- Flashcards are removed: the Cards view, imports from CSV and Anki, mixed review, the phone's Flashcards screen and the cards due on its Today screen.
+- What stays: vocabulary decks for your languages, added and reviewed in the chat on the same schedule as before ("add these words", "quiz me on my Spanish", `/drill`), the learning tracker and habits.
+- Your notes are untouched. `Skill Tree.md` and the `Flashcards/` folder, with its pictures and sounds, stay in your vault as plain notes: nothing is deleted or converted, and you can keep, edit or delete them yourself.
+- In the Inner World, the Observatory now grows with planning: it is built the first time you put an event in your schedule or set up a routine together, and grows as you keep planning ahead. The skill constellations are gone from the night sky.
+- The `/goal` and `/study-pack` skills no longer use the skill tree or flashcards: a goal becomes steps, a first action and a habit; a study pack is the note, its diagrams and charts, and the PDF.
+- Built-in skills that change in a new version now reach you: your copy is replaced unless you edited it, and a skill you deleted stays deleted. They used to be copied once and never updated.
+- For developers: the real-brain test set (`npm run eval`) checks vocabulary decks instead of flashcard decks.
+- Visualizations you can play with. A chart can have sliders: ask "show me how the normal distribution changes with its mean and spread" or "how does damping change an oscillation?" and drag the parameters, or press ▶ to watch the curve move. New chart kinds: probability distributions (normal, binomial, Poisson, exponential, uniform), histograms with a density curve, parametric curves (Lissajous figures, orbits), polar curves and vector fields. In PDFs and Obsidian the same chart shows as a still picture.
+- Visualizations for computer science and robotics, all live with sliders:
+  - Robot arms from joint angles, with their joints and workspace; inverse kinematics that follows a target you drag. Any geometry: points, links, polygons, circles, arrows.
+  - Simulations: dynamics and control loops (a pendulum, a PID loop) integrated step by step, and optimizers (gradient descent, momentum, Adam) as paths over the loss landscape, with a learning-rate slider; a run that blows up is marked "diverged".
+  - Heatmaps of a function with contour lines and a colour bar (loss landscapes, decision functions), and of a matrix (attention weights, confusion matrices).
+  - Logarithmic axes, for Bode plots and long learning curves.
+  - 3D scenes you turn by dragging (or with the arrow keys): surfaces, curves, point clouds, camera frustums and projections.
+- Diagrams can build up a step at a time ("walk me through backpropagation step by step"): Back, Next, Play and Show all above the diagram, each step fading in. Diagrams may also animate a flow or a cycle; with "reduce motion" on, they stay still.
+- Nothing a model writes runs in a chart or diagram: the app draws the sliders and computes every curve itself; a diagram's steps are shown by restyling it.
+- When the assistant calls one of its tools with a wrong name for something ("skill" instead of "name"), the obvious mix-ups are corrected, and otherwise it is told exactly what the tool takes. Running a skill used to fail twice in a row with "No skill called undefined".
+- A small slip in the JSON a model writes no longer loses the whole result: the "where we left off" note, the Inner World's day, journal entries, reflections, rehearsal debriefs and generated looks are read leniently, and if that isn't enough the model is asked once to correct it.
+- A routine that can't start because the AI brain isn't ready (no model chosen, the local server not running, Claude not connected) waits and tries again every 10 minutes, up to three times, and tells you once. Routines used to fail quietly. It never moves to another brain on its own.
+- "Load models" says which server isn't answering ("FreeLLMAPI isn't running", "Ollama isn't running") instead of "fetch failed", starts FreeLLMAPI when your settings use it, and offers a Start button.
+- Switching persona by voice: the new persona greets you in its own voice right after the reply, as it does from the menu, instead of the old one saying it was speaking for the last time.
+- When a connected service answers "rate limit", the assistant tries once more, one call at a time, and otherwise says the service is busy.
+- The Settings search also finds what is set in a field ("localhost", a model name). Password fields are never searched.
+- Screen readers: every Settings field now says its name and its hint (labels weren't tied to their fields), and the Memory view's category filter and the connector permission lists have names. The launch check now fails on any control without a name, on every view and Settings tab.
+- Settings in tabs: Persona & look, Brain, Voice, Knowledge, Connections, Safety and System, each showing only its own settings instead of one long page of 19 cards. A search field finds a setting in any tab ("zoom", "push to talk"). The tab you used last opens next time, and links to a setting (the title bar's Brain or Voice light) open its tab. On the tab bar, ← / → move between tabs.
+- On a narrow window, a Settings card with a long dropdown no longer runs past the window's edge.
+- Quicker replies with the Claude brain. Each model keeps its own copy of the conversation ready, and switching to the fast model for a quick or spoken message made it read the whole conversation (often 100,000+ tokens) from scratch: 3–7 seconds before the first word instead of about 2. The assistant now stays on the model that is already warm unless a message needs deeper thinking, and routines no longer switch your chat's model (the next thing you said paid for it). Settings → AI brain → "Stay on the warm model" turns this off.
+- After a persona switch, a long conversation carries on in a fresh session with its recent messages, instead of re-reading everything with the new persona: 7.4 seconds to the first word in the log that showed it.
+- Switching persona by voice works first time: the assistant used to look the persona up in one place and then try to switch it in another, fail, and try again (11.6 seconds for "switch to Ringmaster"). Closing documents and running your skills no longer need a lookup round first either.
+- A spoken message hears something within a moment: when the reply starts with looking things up or thinking it over, a short line ("Let me see.") comes after about two seconds instead of up to ten seconds of silence. Not for small talk. The lines are prepared in a quiet moment after a reply, so they play at once and never hold up the answer itself.
+- After a persona switch (by voice or from the menu), the new persona's session starts while it says hello, instead of when you speak again.
+- A routine whose conversation became your everyday chat (the TickTick sync's first run started the conversation you then kept using) starts a conversation of its own, so its syncs stop filling your chat and changing its model. A few replies to a briefing don't count.
+- Screen readers heard every finished reply with its letters "s" replaced by spaces.
+- The log now says where waiting time goes: how long a message waits for Claude Code to start, what each sentence of the offline voice costs, and how long hands-free mode waits after you stop talking (that wait is now counted in "first audio").
+- A persona whose look came with a long design brief no longer sends all of it with every message (about 4,000 tokens: layout, materials, animation). Replies get its vision and the notes on how it speaks; the look is still drawn from the whole brief.
+
 ## 2.7.15 — 2026-11-01
 
 - Formulas in exported PDFs look properly typeset: real fractions, radicals, matrices and spacing in KaTeX's own fonts, instead of the browser's plain math drawing. The formulas stay selectable and searchable.

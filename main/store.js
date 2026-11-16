@@ -71,6 +71,7 @@ const DEFAULTS = {
     deepModel: 'opus',
     idleMinutes: 20, // keep the warm session alive this long between turns
     warmOnLaunch: true,
+    keepModelWarm: true, // stay on the model whose prompt cache is warm instead of a smaller one reading cold (pace.warmModel)
     // The user's claude.ai connectors and plugin MCP servers (main/connectors.js). Only the user turns
     // this on and picks what runs without asking: never in tools.js SETTABLE.
     connectors: false,
@@ -194,7 +195,7 @@ const DEFAULTS = {
     accessTeam: '', // Cloudflare Access team (myteam or myteam.cloudflareaccess.com); with accessAud, every tunnel request must be signed in
     accessAud: '', // the Access application's AUD tag
     cloudflaredPath: '', // empty = find cloudflared on PATH
-    shareData: true, // paired devices also see notes, memories, habits, learning, the skill tree and the Inner World (companiondata.js; user-only)
+    shareData: true, // paired devices also see notes, memories, learning and the Inner World (companiondata.js; user-only)
   },
   // VoiceStudio and FreeLLMAPI are separate apps; Nexus starts the ones its settings use (helperapps.js).
   // Only the user changes these (never in tools.js SETTABLE: the paths are programs Nexus runs).
@@ -471,7 +472,8 @@ async function getSettings() {
   merged.personas = personas.ensure(merged, { defaultScene: DEFAULTS.appearance.scene });
   const act = merged.personas.list.find((x) => x.id === merged.personas.active);
   const live = merged.appearance?.scene;
-  if (live?.portrait && act?.scene && act.scene.svg === live.svg && !act.scene.portrait) merged.appearance.scene = { ...live, portrait: '' };
+  if (act && !act.scene && live?.svg === DEFAULTS.appearance.scene?.svg) merged.appearance.scene = null;
+  else if (live?.portrait && act?.scene && act.scene.svg === live.svg && !act.scene.portrait) merged.appearance.scene = { ...live, portrait: '' };
   settingsCache = merged;
   setSealing(merged.privacy?.encryptConversations !== false);
   return merged;
@@ -511,7 +513,7 @@ async function applySettings(patchOrFn, { replace = [] } = {}) {
     if (!isPlainObject(patch?.[section]) || !Object.hasOwn(patch[section], key)) continue;
     const v = patch[section][key];
     const d = DEFAULTS[section]?.[key];
-    const whole = isPlainObject(v) && isPlainObject(d) ? deepMerge(d, v) : (v ?? d ?? null);
+    const whole = isPlainObject(v) && isPlainObject(d) ? deepMerge(d, v) : (key === 'scene' && v === null ? null : (v ?? d ?? null));
     next[section] = { ...next[section], [key]: whole == null ? whole : JSON.parse(JSON.stringify(whole)) };
   }
   // Whatever changed in the live persona (name, prompt, theme, face, voice…) is saved with it.

@@ -31,11 +31,11 @@ function snapshot(settings) {
   return out;
 }
 
-/** The settings patch that makes `persona` live; fields it lacks come from `defaults` (store DEFAULTS). Save it with store.setSettings(patch, { replace: REPLACE }), so each field is set whole. */
+/** The settings patch that makes `persona` live; fields it lacks come from `defaults` (store DEFAULTS), except `scene: null` which stays null (Siren's default scene belongs only to her). Save it with store.setSettings(patch, { replace: REPLACE }), so each field is set whole. */
 function patchFor(persona, defaults) {
   const patch = {};
   for (const [section, key, field] of FIELDS) {
-    const v = persona[field] ?? defaults[section]?.[key] ?? null;
+    const v = field === 'scene' && persona.scene === null ? null : (persona[field] ?? defaults[section]?.[key] ?? null);
     (patch[section] ||= {})[key] = whole(field, clone(v));
   }
   return patch;
@@ -105,7 +105,8 @@ function create(settings, { name, copy = false, template = null } = {}, { newId,
   const p = sync(settings);
   if (p.list.length >= MAX_PERSONAS) throw new Error(`You can keep up to ${MAX_PERSONAS} personas. Delete one first.`);
   // A template (personatemplates.js) fills in prompt, look, face and greeting; the voice stays the current one.
-  const base = { ...snapshot(copy ? settings : { agent: defaults.agent, appearance: defaults.appearance, ui: defaults.ui, voice: settings.voice }), ...(template || {}) };
+  // A fresh persona starts without Siren's cove scene (scene: null) until its own scene is drawn.
+  const base = { ...snapshot(copy ? settings : { agent: defaults.agent, appearance: { ...defaults.appearance, scene: null }, ui: defaults.ui, voice: settings.voice }), ...(template || {}) };
   const wanted = String(name || '').trim().slice(0, 40) || (template?.name ? template.name : copy ? `${base.name || 'Persona'} (copy)` : 'New persona');
   const persona = { ...base, id: newId('p-'), name: uniqueName(p.list, wanted) };
   return { personas: { active: p.active, list: [...p.list, persona] }, persona };
@@ -249,4 +250,24 @@ function cleanSummary(reply) {
   return clip(t, SUMMARY_MAX);
 }
 
-module.exports = { FIELDS, REPLACE, FIRST_ID, MAX_PERSONAS, snapshot, patchFor, ensure, repairScenes, sync, find, create, remove, lastPersona, summary, digest, SUMMARY_FROM, SUMMARY_MAX, fingerprint, needsSummary, summaryFresh, forSmallModels, summaryPrompt, cleanSummary };
+// The aesthetic in a chat's prompt. A generated look can come with a whole UI design brief (17k
+// characters, ~4k tokens on every call: layout, materials, animation, design constraints) that shapes
+// the app's look, not the replies. Chats get its opening, the vision: the text up to its first
+// rule (---) or numbered section, whole paragraphs, at most AESTHETIC_MAX characters.
+const AESTHETIC_MAX = 1500;
+function aestheticGist(text, max = AESTHETIC_MAX) {
+  const t = String(text || '').trim();
+  if (t.length <= max) return t;
+  const cut = t.search(/\n\s*(-{3,}|\*{3,}|#{1,4}\s*\d+[.)])\s*/);
+  const head = (cut > 0 ? t.slice(0, cut) : t).trim();
+  const paras = head.split(/\n\s*\n/);
+  let out = '';
+  for (const p of paras) {
+    if ((out ? out.length + 2 : 0) + p.length > max) break;
+    out = out ? `${out}\n\n${p}` : p;
+  }
+  if (!out) out = head.slice(0, max).replace(/\s+\S*$/, '');
+  return `${out}\n\n(The rest of this brief describes the app's visual design in detail; the app draws your look from it.)`;
+}
+
+module.exports = { FIELDS, REPLACE, FIRST_ID, MAX_PERSONAS, snapshot, patchFor, ensure, repairScenes, sync, find, create, remove, lastPersona, summary, digest, SUMMARY_FROM, SUMMARY_MAX, fingerprint, needsSummary, summaryFresh, forSmallModels, summaryPrompt, cleanSummary, aestheticGist, AESTHETIC_MAX };
