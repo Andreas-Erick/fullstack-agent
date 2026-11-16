@@ -12,7 +12,7 @@ export const ROUTINE_TEMPLATES = [
     name: 'Check new Plaud recordings',
     schedule: { kind: 'daily', time: '08:00' },
     instructions:
-      '1. With the Plaud connector, list my recordings and keep only the ones created since the last run.\n2. For each new one, read its transcript or note.\n3. Write a vault note per recording in Recordings/ named "<date> <title>.md": a short summary, key points, decisions, and action items (who, what, when).\n4. Add action items that are mine to Active Priorities, and dates or deadlines to my schedule only if they are clearly stated.\n5. Report: how many new recordings, one line each, and my action items.',
+      '1. With the Plaud connector, list my recordings and keep only the ones created since the last run.\n2. For each new one, read Plaud’s own note for it (get_note) and its transcript.\n3. Save it as one of my notes: vault_write_note to Notes/Recordings/"<date> <title>.md" (the Recordings notebook in the Notes view). Put Plaud’s note in it as Plaud wrote it, then a "## Action items" section (who, what, when) and the tags #plaud #recording. If Plaud has no note for it, write a short summary, key points and decisions from the transcript instead.\n4. Add action items that are mine to Active Priorities, and dates or deadlines to my schedule only if they are clearly stated.\n5. Report: how many new recordings, one line each, and my action items.',
     hint: 'Needs the Claude account brain with connectors on, and Plaud set to “always allow” in Settings → AI brain.',
   },
   {

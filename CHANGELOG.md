@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.7.20 — 2026-11-16
+
+- **Notes keep you writing**: after each autosave ("Saved ✓") the note used to switch back to reading mode, so you had to click into it again to go on typing. Your own saves now leave the note as it is; a change from elsewhere (the assistant, Obsidian) still shows up, in the same mode and with the cursor where it was.
+- **Plaud recordings become notes**: the "Check new Plaud recordings" routine saves each new recording in **Notes → Recordings** (`Notes/Recordings/` in your vault) with Plaud's own note as Plaud wrote it, then the action items, tagged #plaud #recording. Without a Plaud note it writes a summary from the transcript.
+
 ## 2.7.19 — 2026-11-16
 
 - **Faster first replies with the Claude brain**: the first message after you start the app, open a chat or switch personas used to wait 5–7 seconds while Claude read the whole conversation from scratch. One tiny hidden message now gets it ready ahead of time, on the model your next message will use (the fast one after you've been talking), so a spoken "How are you?" starts in about 2 seconds. Each one counts toward your plan like a very short message; turn it off with **Settings → AI brain → Get the first reply ready ahead of time**.
