@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.7.18 — 2026-11-16
 
 - **Leaner messages with the Claude brain**: your Claude Code plugins (their skill lists, about 4,000 tokens on every message) no longer load just because connectors are on; your claude.ai connectors still do. Turn them back on with **Settings → AI brain → Also load my Claude Code plugins**. The prompt lists your skills by name and phrases only, drops chart recipes the chart tool already explains, and VoiceStudio's voice tools appear only when VoiceStudio is your voice.
 - **Routines on the everyday model**: a routine's long instructions made it look like deep work, so syncs and briefings ran on Opus; they now use your everyday model (Sonnet with Claude), unless you chose a model mode yourself. The village's daily story does too.
