@@ -339,7 +339,8 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     // background, so the next message is quick; main.js then keeps no session id to resume.
     if (!setup && claudecode.needsRollover(result.contextTokens, result.freshTokens || conv.claudeFreshTokens)) {
       claudecode.rollover(conv.id, result.contextTokens);
-      claudecode.prewarm({ id: conv.id, claudeSessionId: null }, opts).catch((error) => log.warn('prewarm failed', { error }));
+      const next = [...history, { role: 'assistant', content: result.text }];
+      warmUp(settings, { id: conv.id, claudeSessionId: null }, opts, { history: next, last: conv.messages }).catch((error) => log.warn('prewarm failed', { error }));
       return { ...result, rollover: true };
     }
     return result;
@@ -403,7 +404,32 @@ async function prewarm(settings, conv) {
   }
   if (settings.llm.provider !== 'claude-code' || !conv) return;
   const active = settings.llm.useTools ? await tools.activeTools(settings) : [];
-  await claudecode.prewarm(conv, await claudeCodeOptions(settings, active, effectiveModel(settings)));
+  const opts = await claudeCodeOptions(settings, active, effectiveModel(settings));
+  // Opening chats one after another warms only the one that stays open.
+  const mine = (warmingFor = conv.id);
+  await claudecode.prewarm(conv, opts);
+  await new Promise((r) => setTimeout(r, WARM_DELAY_MS));
+  if (warmingFor === mine) await warmUp(settings, conv, opts, { history: conv.messages || [], started: true });
+}
+
+let warmingFor = null;
+const WARM_DELAY_MS = 1500;
+
+// The model and effort the conversation's next message will most likely use: after a spoken message
+// the voice model, as for a short spoken greeting (pace.plan); after a typed one the everyday model.
+function warmTarget(settings, messages = []) {
+  const last = [...messages].reverse().find((m) => m.role === 'user' && !m.routine && !m.hidden);
+  const voice = Boolean(last?.spoken);
+  const plan = voice ? pace.plan(settings, { text: 'How are you?', voice }) : pace.plan(settings, { text: 'Could you look at this for me and add it?', voice });
+  return { model: effectiveModel(settings, { voice, mode: plan.mode }), effort: plan.effort };
+}
+
+// Starts the session (unless `started`) and fills its prompt cache (claudecode.warmCache).
+// `last`: the messages to guess the next model from, when `history` already has the reply in it.
+async function warmUp(settings, conv, opts, { history = [], last = history, started = false } = {}) {
+  if (!started) await claudecode.prewarm(conv, opts);
+  if (settings.claudeCode?.warmCache === false) return;
+  await claudecode.warmCache(conv, opts, { ...warmTarget(settings, last), history });
 }
 
 // Single non-streaming completion with whichever provider is configured (used for persona/theme
@@ -973,4 +999,4 @@ async function runAnthropic({ settings, conv, history, emit, signal, active, sys
 }
 
 module.exports = {
-  anthropicHistory, runTurn, listModels, testConnection, complete, prewarm, effectiveModel, sessionConfigKey };
+  anthropicHistory, runTurn, listModels, testConnection, complete, prewarm, warmTarget, effectiveModel, sessionConfigKey };

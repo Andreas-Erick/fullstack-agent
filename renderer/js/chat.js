@@ -31,6 +31,7 @@ export function initChat() {
   $('#sendBtn').onclick = sendFromInput;
   $('#stopBtn').onclick = stop;
   $('#newChatBtn').onclick = newChat;
+  $('#newChatTop').onclick = newChat; // the history panel (and its ＋) is hidden in the Face layout and narrow windows
   $('#convSearch').addEventListener('input', renderConvList);
   $('#chatTitle').ondblclick = renameCurrent;
   document.querySelectorAll('.suggestion').forEach((b) => (b.onclick = () => send(b.textContent)));

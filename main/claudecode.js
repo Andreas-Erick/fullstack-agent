@@ -447,6 +447,8 @@ class Session {
   // Permission prompts from Claude Code: vault edits are fine, own-code edits need approval,
   // shell commands outside the safe list always ask, anything else outside the allowed folders is denied.
   async approve({ tool_name: tool, input = {} }) {
+    // The cache warm-up (warmCache) is not the user's turn: nothing it asks for runs.
+    if (this.warming) return { behavior: 'deny', message: 'This is an automatic warm-up: no tools.' };
     const turnState = this.turn?.ctx?.turn;
     const { codeRoot, vault, repos, allowSelfModify } = this.spec;
     if (EDIT_TOOLS.includes(tool)) {
@@ -858,12 +860,12 @@ async function startOrReuse(session, conv, { settings, configKey, buildPrompt, a
   const p = await buildPrompt();
   spec.system = p.stable;
   spec.resume = conv.claudeSessionId || session.resumable;
-  // A new configuration (a persona switch…) changes the system prompt, so the resumed session would be
-  // read cold in full: 127k tokens, 7.4 s to the first word after a switch. Past the rollover size a
-  // fresh one with the recent messages (transcript()) starts sooner and stays smaller.
+  // A resumed session that is cold anyway is read in full: 127k tokens, 7.4 s to the first word after
+  // a persona switch. A fresh one with the recent messages (transcript()) starts sooner (startFresh).
   const last = lastCalls.get(conv.id);
-  if (spec.resume && last && last.key !== spec.key && last.tokens > ROLLOVER_TOKENS) {
-    log.info('claude session starts fresh after a configuration change', { conversation: conv.id, contextTokens: last.tokens });
+  const why = spec.resume && startFresh({ last, key: spec.key, tokens: conv.claudeTokens, freshTokens: conv.claudeFreshTokens, now: Date.now(), ttlMs: cacheTtl() });
+  if (why) {
+    log.info('claude session starts fresh', { conversation: conv.id, why, contextTokens: last?.tokens || conv.claudeTokens });
     spec.resume = null;
     session.resumable = null;
   }
@@ -948,6 +950,51 @@ async function prewarm(conv, opts) {
   await ensureSession(conv, { ...opts, prewarming: true });
 }
 
+// Starting the process fills no cache: only a request does. So the first message after a launch or a
+// persona switch read the whole session cold (5.0 and 7.3 s to Haiku's first word at 64–72k tokens,
+// 2.3–3.4 s warm). warmCache sends one tiny message on the model the next one will likely use (llm.js
+// warmTarget), queued like a turn, while the greeting plays; skipped when the session is warm already.
+const WARMUP = '[Automatic warm-up from the app, not a message from the user. Do not use any tools. Reply with only: ok]';
+const WARMUP_TIMEOUT_MS = 60000;
+
+/** Is a call on this configuration still cached? Then a warm-up would be wasted. */
+const isWarm = (last, key, now, ttlMs) => Boolean(last && last.key === key && now - last.at < ttlMs);
+
+async function warmCache(conv, opts, { model, effort, history = [] } = {}) {
+  if (!conv) return null;
+  const session0 = sessions.get(conv.id) || new Session(conv.id);
+  sessions.set(conv.id, session0);
+  const run = async () => {
+    const session = await ensureSession(conv, { ...opts, prewarming: true });
+    if (!session.alive() || (session.turn && !session.turn.settled)) return null;
+    if (isWarm(lastCalls.get(conv.id), session.key, Date.now(), cacheTtl())) return null;
+    session.setModel(model);
+    session.setEffort(effort);
+    // A fresh session's first message carries the recent conversation (as runTurn's would), so it is
+    // cached too and the user's message after it doesn't send it again.
+    let text = WARMUP;
+    if (!session.resumed && !session.sentAny) text = transcript([...history, { role: 'user', content: '' }]) + text;
+    session.sentAny = true;
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), WARMUP_TIMEOUT_MS);
+    const started = Date.now();
+    session.warming = true;
+    try {
+      const r = await session.send(text, { emit() {}, signal: ac.signal, ctx: null });
+      // The user's first turn reports the fresh size (rollover is measured from it), not this one.
+      session.freshTokens = 0;
+      log.info('claude cache warmed', { conversation: conv.id, model: model || 'default', ms: Date.now() - started, contextTokens: r.contextTokens || undefined });
+      return r;
+    } finally {
+      clearTimeout(timer);
+      session.warming = false;
+    }
+  };
+  const p = session0.chain.then(run, run);
+  session0.chain = p.catch(() => {});
+  return p;
+}
+
 function endSession(convId) {
   sessions.get(convId)?.kill();
   sessions.delete(convId);
@@ -966,6 +1013,28 @@ const GROWTH_TOKENS = Number(process.env.NEXUS_ROLLOVER_GROWTH) || 50000; // the
 // ~120k): a fresh one of 119k rolled over again after one message when the limit was a flat 100k.
 const needsRollover = (contextTokens, freshTokens = 0) => Number(contextTokens) > Math.max(ROLLOVER_TOKENS, (Number(freshTokens) || 0) + GROWTH_TOKENS);
 const NO_SAVED_SESSION = /No conversation found with session ID/i;
+
+// How big a fresh session starts here when the conversation hasn't measured it (37k measured with
+// connectors on), and how far past that a cold session may have grown before it is not resumed.
+const FRESH_GUESS = 40000;
+const COLD_GROWTH = 15000;
+
+/**
+ * Resume the conversation's saved session, or start fresh with the recent messages? Fresh when the
+ * resumed one would be read cold anyway (a new configuration such as a persona switch, or nothing
+ * cached in this run or past the cache's lifetime) and it has grown well past a fresh one: after a
+ * switch a 64k session took 5.0 s to Haiku's first word, a fresh one is ~37k. A warm one is always
+ * resumed. `last` = lastCalls' entry; `tokens` = the size the conversation saved (conv.claudeTokens).
+ * Returns why (for the log), or ''.
+ */
+function startFresh({ last, key, tokens, freshTokens, now, ttlMs }) {
+  const size = Number(last?.tokens || tokens) || 0;
+  if (size <= (Number(freshTokens) || FRESH_GUESS) + COLD_GROWTH) return '';
+  if (!last) return 'cold after a restart';
+  if (last.key !== key) return 'new configuration';
+  if (now - last.at >= ttlMs) return 'cache expired';
+  return '';
+}
 
 /** Closes the conversation's session so the next one starts fresh (not resumed). */
 function rollover(convId, contextTokens) {
@@ -1011,4 +1080,4 @@ async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };
+module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, warmCache, startFresh, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };

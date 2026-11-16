@@ -877,6 +877,7 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
     ...(images.length ? { screen: true } : {}),
     ...(hidden ? { hidden: true } : {}),
     ...(remote ? { remote } : {}),
+    ...(viaVoice ? { spoken: true } : {}), // the cache warm-up guesses the next model from it (llm.warmTarget)
   };
   conv.messages.push(userMsg);
   if (!conv.setup && conv.messages.filter((m) => m.role === 'user').length === 1) conv.title = (slash ? slash.skill.name : display || String(text)).replace(/\s+/g, ' ').slice(0, 60);
@@ -931,6 +932,8 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       if (result.rollover) fresh.claudeSessionId = null;
       else if (result.sessionId) fresh.claudeSessionId = result.sessionId;
       if (result.freshTokens) fresh.claudeFreshTokens = result.freshTokens; // how big a fresh session starts here (rollover)
+      // How big the session is now: a cold one well past a fresh one isn't resumed (claudecode.startFresh).
+      if (result.contextTokens) fresh.claudeTokens = result.rollover ? 0 : result.contextTokens;
       if (result.convPatch) Object.assign(fresh, result.convPatch);
       await store.saveConversation(fresh);
       emit({ type: 'done', message: stripRaw(assistantMsg) });

@@ -71,6 +71,7 @@ const DEFAULTS = {
     deepModel: 'opus',
     idleMinutes: 20, // keep the warm session alive this long between turns
     warmOnLaunch: true,
+    warmCache: true, // one tiny message after launch, a chat opening or a persona switch fills the prompt cache (claudecode.warmCache)
     keepModelWarm: true, // stay on the model whose prompt cache is warm instead of a smaller one reading cold (pace.warmModel)
     // The user's claude.ai connectors and plugin MCP servers (main/connectors.js). Only the user turns
     // this on and picks what runs without asking: never in tools.js SETTABLE.
