@@ -137,7 +137,10 @@ test('the phone gets the desktop face and its modules', async () => {
   const info = await (await fetch(`${base}/api/info`, { headers: auth })).json();
   assert.strictEqual(info.face.id, 'siren', 'the default face (Siren) when none is set');
   assert.ok('sleepAfterMin' in info);
-  const r = await fetch(`${base}/js/faces/common.js`);
+  // The client's version: a page that sees it change reloads into the new screens (the app keeps one page open for days).
+  assert.match(info.client, /^[0-9a-f]{16}$/);
+  assert.strictEqual((await (await fetch(`${base}/api/info`, { headers: auth })).json()).client, info.client, 'the same files, the same version');
+  const r =await fetch(`${base}/js/faces/common.js`);
   assert.strictEqual(r.status, 200);
   assert.match(r.headers.get('content-type'), /javascript/);
   assert.match(r.headers.get('content-security-policy'), /script-src 'self'/);
