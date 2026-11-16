@@ -83,7 +83,7 @@ export function initNotes() {
     clearTimeout(reload);
     reload = setTimeout(async () => {
       await loadList();
-      if (current && rel === current.path && !dirty && currentView === 'notes') openNote(current.path, { keepFocus: true });
+      if (current && rel === current.path && !dirty && currentView === 'notes') reloadOpen();
     }, 400);
   });
   window.addEventListener('beforeunload', () => flush());
@@ -213,6 +213,29 @@ async function openNote(path, { keepFocus = false, focus = '' } = {}) {
     b.setAttribute('aria-selected', String(on));
   }
   if (!keepFocus && !focus) ($('#notesEditor .note-body') || $('#notesEditor .note-preview'))?.focus({ preventScroll: true });
+}
+
+// The open note changed on disk. Our own autosave lands here too: the same text, so nothing is redrawn
+// (redrawing put the note back in reading mode, and the writer had to click into it again after every
+// "Saved ✓"). A real outside change is shown in the same mode, keeping the caret if the user was writing.
+async function reloadOpen() {
+  const note = current;
+  let fresh;
+  try {
+    fresh = await api.notebook.read(note.path);
+  } catch {
+    return;
+  }
+  if (current !== note || dirty || review) return; // switched notes, or typed meanwhile
+  const same = fresh.body === note.body && fresh.title === note.title;
+  Object.assign(note, { mtime: fresh.mtime, pinned: fresh.pinned });
+  if (same) return;
+  const body = $('#notesEditor .note-body');
+  const writing = mode === 'write' && body && document.activeElement === body;
+  const at = writing ? [body.selectionStart, body.selectionEnd] : null;
+  current = fresh;
+  renderEditor({ focus: writing ? 'body' : '' });
+  if (at) $('#notesEditor .note-body')?.setSelectionRange(Math.min(at[0], fresh.body.length), Math.min(at[1], fresh.body.length));
 }
 
 function setMode(m, { caret } = {}) {
