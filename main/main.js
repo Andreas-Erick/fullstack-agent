@@ -677,6 +677,7 @@ function registerIpc() {
   handle('notebook:save', (rel, note) => notebook().save(String(rel || ''), { ...(note?.title !== undefined ? { title: String(note.title) } : {}), ...(note?.body !== undefined ? { body: String(note.body) } : {}) }));
   handle('notebook:remove', (rel) => notebook().remove(String(rel || '')));
   handle('notebook:pin', (rel, on) => notebook().pin(String(rel || ''), Boolean(on)));
+  handle('notebook:polish', (rel) => notebook().polish(String(rel || '')));
 
   // Hardware scan (setup wizard)
   handle('hardware:scan', (opts) => require('./hardware').scan(opts || {}));
