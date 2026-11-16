@@ -315,7 +315,9 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   const engineering = !setup && !voice && !routine && isEngineeringTask(lastText);
   // How much thinking this message needs (pace.js): a lookup gets the fast model at low effort.
   const base = settings.llm.provider === 'claude-code' ? settings.claudeCode.effort : settings.llm.provider === 'anthropic' ? settings.anthropic.effort : 'default';
-  const paced = pace.plan(settings, { text: lastText, voice, setup, engineering, base });
+  // A routine's long instructions read as "deep" and ran on Opus; syncing lists and briefings is everyday
+  // work (the normal model, Sonnet with Claude), unless the user set a model mode themselves.
+  const paced = routine && settings.llm?.autoPace !== false && (settings.llm?.modelMode || 'default') === 'default' ? { pace: 'routine', mode: 'normal', effort: base } : pace.plan(settings, { text: lastText, voice, setup, engineering, base });
   const ctx = { emit, turn: approvals.newTurn(), logTags: log.context(), budget: toolBudget(settings, engineering), effort: paced.effort, pace: paced.pace };
   // A routine works on its own (a sync can take many steps): the larger number of rounds, not code work's effort.
   if (routine) ctx.budget.rounds = ctx.budget.deep;

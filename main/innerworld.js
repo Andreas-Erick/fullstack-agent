@@ -184,8 +184,10 @@ function simulate({ force = false } = {}) {
     const limit = new Promise((_, reject) => (limitTimer = setTimeout(() => reject(new Error('The narrator took too long; try again later.')), DAY_LIMIT_MS)));
     let parsed;
     try {
-      const text = await Promise.race([llm.complete(settings, prompt), limit]);
-      parsed = core.parseDay(await Promise.race([require('./persona').jsonWithRetry(text, (fix) => llm.complete(settings, fix)), limit]), residents);
+      // The everyday model (Sonnet with Claude): a short story a day doesn't need the deep one.
+      const everyday = { ...settings, llm: { ...settings.llm, modelMode: 'normal' } };
+      const text = await Promise.race([llm.complete(everyday, prompt), limit]);
+      parsed = core.parseDay(await Promise.race([require('./persona').jsonWithRetry(text, (fix) => llm.complete(everyday, fix)), limit]), residents);
     } finally {
       clearTimeout(limitTimer);
     }

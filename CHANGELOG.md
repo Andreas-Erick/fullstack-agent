@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Leaner messages with the Claude brain**: your Claude Code plugins (their skill lists, about 4,000 tokens on every message) no longer load just because connectors are on; your claude.ai connectors still do. Turn them back on with **Settings → AI brain → Also load my Claude Code plugins**. The prompt lists your skills by name and phrases only, drops chart recipes the chart tool already explains, and VoiceStudio's voice tools appear only when VoiceStudio is your voice.
+- **Routines on the everyday model**: a routine's long instructions made it look like deep work, so syncs and briefings ran on Opus; they now use your everyday model (Sonnet with Claude), unless you chose a model mode yourself. The village's daily story does too.
+- **Long chats start fresh sooner**: a Claude session now starts fresh after growing 50k tokens past its start (was 80k), with the recent messages, memories and notes carried over, so a long chat no longer carries up to ~165k tokens on every message.
+- The log now names the graphics card the offline voice runs on.
+
 ## 2.7.17 — 2026-11-16
 
 - **✨ Polish** in the note view: the assistant tidies up a messy note (spelling, grammar, clear sentences, headings where it covers several things, to-dos as a checklist) in your own voice and language, keeping every fact, number, name, link and #tag. It adds a **Related** section linking your other notes that genuinely relate, each with a few words on why; a link to a note that doesn't exist is never kept. Nothing changes until you choose **Use it** (or **Keep mine**; **Compare with mine** shows your version), and the note's history keeps the old text. It uses your everyday model (Sonnet with Claude).

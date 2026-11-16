@@ -71,10 +71,20 @@ test('sessions leave out the repo’s CLAUDE.md and Claude Code’s own memory',
   const args = claudecode.sessionArgs(spec, { sysFile: 's.md', mcpFile: 'm.json', settingsFile: 'set.json', resume: 'abc' });
   const value = (flag) => args[args.indexOf(flag) + 1];
   // No "project" source (the developer's CLAUDE.md, ~22k tokens) and no "local" one; the user's own
-  // settings (their permission rules, extra folders) only where connectors need them for plugins.
+  // settings (their permission rules, extra folders) only when they want their plugins: the claude.ai
+  // connectors load without them, and the plugins' skills were ~4k tokens per message.
   assert.strictEqual(value('--setting-sources'), '');
-  const withConnectors = claudecode.sessionArgs({ ...spec, connectors: true }, {});
-  assert.strictEqual(withConnectors[withConnectors.indexOf('--setting-sources') + 1], 'user');
+  const source = (s) => {
+    const a = claudecode.sessionArgs(s, {});
+    return a[a.indexOf('--setting-sources') + 1];
+  };
+  assert.strictEqual(source({ ...spec, connectors: true }), '', 'connectors alone: none of the user’s settings');
+  assert.strictEqual(source({ ...spec, connectors: true, plugins: true }), 'user');
+  assert.strictEqual(source({ ...spec, plugins: true }), '', 'plugins need connectors on');
+  const s = (cc) => claudecode.sessionSpec({ settings: { claudeCode: cc, web: { enabled: false }, code: { allowSelfModify: false }, extensions: {}, perf: { mode: 'full' } }, configKey: 'k', activeTools: [], cwd: process.cwd() });
+  assert.ok(!s({ connectors: true }).builtins.includes('Skill'), 'no plugin skills, no Skill tool');
+  assert.ok(s({ connectors: true, plugins: true }).builtins.includes('Skill'));
+  assert.notStrictEqual(s({ connectors: true }).key, s({ connectors: true, plugins: true }).key, 'switching plugins restarts the session');
   assert.strictEqual(value('--settings'), 'set.json');
   assert.strictEqual(value('--append-system-prompt-file'), 's.md');
   assert.ok(args.includes('--strict-mcp-config'));
@@ -140,8 +150,8 @@ test('a session that never answered is not resumed by its id; one that answered 
 
 test('rollover is measured from how big a fresh session starts in this setup', () => {
   assert.strictEqual(claudecode.needsRollover(118694, 118694), false, 'a fresh 119k session does not roll over at once');
-  assert.strictEqual(claudecode.needsRollover(180000, 118694), false);
-  assert.strictEqual(claudecode.needsRollover(200000, 118694), true);
+  assert.strictEqual(claudecode.needsRollover(165000, 118694), false);
+  assert.strictEqual(claudecode.needsRollover(170000, 118694), true, 'fresh size + 50k');
   assert.strictEqual(claudecode.needsRollover(394371), true, 'an old session of unknown start');
   assert.strictEqual(claudecode.needsRollover(90000), false);
 });

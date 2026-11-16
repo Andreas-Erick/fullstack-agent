@@ -33,7 +33,9 @@ function load() {
     try {
       if (!adapter) throw new Error('no WebGPU adapter');
       model = await StyleTextToSpeech2Model.from_pretrained(KOKORO_MODEL, { device: 'webgpu', dtype: 'fp32', progress_callback });
-      device = 'WebGPU';
+      // Which GPU it got (a laptop has two): the log's "offline voice ready" says, as speech recognition's does.
+      const info = adapter.info || {};
+      device = `WebGPU · ${[info.vendor, info.architecture, info.description].filter(Boolean).join(' ') || 'GPU'}`;
     } catch (err) {
       model = await StyleTextToSpeech2Model.from_pretrained(KOKORO_MODEL, { dtype: 'q8', progress_callback });
       device = adapter ? `CPU (WASM; WebGPU failed: ${err.message})` : 'CPU (WASM)';

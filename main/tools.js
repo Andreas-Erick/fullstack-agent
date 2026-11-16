@@ -306,7 +306,9 @@ async function activeTools(settings, { setup = false } = {}) {
     // Claude Code edits with its own tools, but still states its plan for approval first.
     if (viaClaudeCode && NATIVE_IN_CLAUDE_CODE.includes(t.group) && t.name !== 'self_change_plan') return false;
     if (t.group === 'calendar') return settings.calendar.enabled && Boolean(vault);
-    if (t.group === 'voice') return settings.voice.ttsEnabled;
+    // VoiceStudio's voices (list, design, clone, delete) only with VoiceStudio as the voice: with the
+    // offline or cloud voice they can't do anything, and their schemas and prompt line cost every message.
+    if (t.group === 'voice') return settings.voice.ttsEnabled && (t.name === 'voice_calibrate' || settings.voice.engine === 'voicestudio');
     if (t.group === 'listening') return settings.stt.enabled;
     if (t.group === 'github') return settings.github?.enabled !== false && gh.connected;
     if (t.group === 'vault' || t.group === 'learning' || t.group === 'rehearsal') return Boolean(vault);

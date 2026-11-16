@@ -107,3 +107,13 @@ test('the shipped skills name only tools the app has', () => {
     for (const name of new Set(shipped(f).match(/\b[a-z]+(?:_[a-z]+)+\b/g) || [])) assert.ok(tools.has(name), `${f} names ${name}`);
   }
 });
+
+test('the prompt lists skills by name and trigger phrases only (descriptions via skill_list)', async () => {
+  const skills = await start();
+  const block = await skills.promptBlock();
+  assert.match(block, /^## Skills/);
+  assert.match(block, /- \/goal Set a goal \("/);
+  const all = await skills.list();
+  for (const s of all) if (s.description) assert.ok(!block.includes(s.description), `${s.slug}'s description is not in every message`);
+  assert.ok(block.includes('skill_list'));
+});
