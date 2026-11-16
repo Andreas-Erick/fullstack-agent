@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.22 — 2026-11-17
+
+- **The phone and tablet app catch up by themselves**: the Android app keeps its page open for days, and coming back online only reconnected it, so a phone could keep showing screens the computer no longer has (Habits, the old Learn tab). The computer now tells devices which version of the phone screens it serves; a device that sees a new one reloads into it when you are not in the middle of something (a reply coming in, a recording, text typed, a note open). Close and reopen the app once to get this version; after that it updates itself.
+
 ## 2.7.21 — 2026-11-16
 
 - **Smoother face on the watch**: the face is recorded at 30 frames a second (was 24), which a 60 Hz watch screen shows at an even pace (24 fps showed frames for two and three refreshes in turn, a slight stutter), from paints taken twice as often so every frame is evenly spaced in time. The watch now picks each frame from the display's own refresh, uploads frames to the graphics chip ahead of time, and redraws only when the frame changes. Faces are recorded again once; install **Siren-Wear-2.7.21** on the watch (and the phone app from the same release).

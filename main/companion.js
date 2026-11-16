@@ -590,6 +590,18 @@ function underLimit(bucket, deviceId, perMin) {
   return true;
 }
 
+// What the phone client is made of right now: its files' sizes and change times. A client that sees this
+// change in /api/info reloads itself (the Android app keeps one page open for days, and a reconnect
+// alone never fetched the new screens). Cached briefly: /api/info is asked often.
+let clientMark = { at: 0, value: '' };
+async function clientVersion() {
+  if (Date.now() - clientMark.at < 5000) return clientMark.value;
+  const files = [...new Set(Object.values(STATIC))].filter((rel) => rel.startsWith('renderer/')).sort();
+  const parts = await Promise.all(files.map((rel) => fsp.stat(path.join(ROOT, rel)).then((st) => `${rel}:${st.size}:${Math.round(st.mtimeMs)}`, () => `${rel}:-`)));
+  clientMark = { at: Date.now(), value: crypto.createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 16) };
+  return clientMark.value;
+}
+
 async function serveStatic(res, rel) {
   try {
     const data = await fsp.readFile(path.join(ROOT, rel));
@@ -670,7 +682,7 @@ async function info() {
   const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
   // The scene behind the face: only its key here; the device fetches /api/scene when the key changes.
   const scene = s.appearance?.scene?.svg ? { key: sceneKey(`${s.appearance.scene.svg}\n${s.appearance.scene.portrait || ''}`), caption: String(s.appearance.scene.caption || '').slice(0, 80) } : null;
-  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, scene, sleepOnLaunch: s.ui?.sleepOnLaunch !== false, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.engine === 'cloud' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, update: await Promise.resolve().then(() => require('./updates').forDevices()).catch(() => null) };
+  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, scene, sleepOnLaunch: s.ui?.sleepOnLaunch !== false, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.engine === 'cloud' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, client: await clientVersion().catch(() => ''), update: await Promise.resolve().then(() => require('./updates').forDevices()).catch(() => null) };
 }
 
 async function speak(req, res) {

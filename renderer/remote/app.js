@@ -42,6 +42,7 @@ const state = {
   name: 'Siren',
   view: 'chat', // chat | sched | a screen from screens.js (today, learn, memory, notes, world, arch, skills, more)
   info: null, // the computer's /api/info
+  client: '', // the phone client's version this page was loaded as (/api/info client)
   calendar: false,
   convTitle: '',
   secureUrl: '', // the computer's https address, when it has one
@@ -343,7 +344,7 @@ function checkStream() {
   if (streamStale(state.lastByte, Date.now(), state.connected)) state.stream?.abort();
 }
 setInterval(checkStream, 10000);
-document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && checkStream());
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && (checkStream(), applyInfo()));
 window.addEventListener('online', () => {
   if (state.connected) state.stream?.abort(); // the old connection belongs to the network that went away
   else state.wake?.(); // waiting to retry: try at once
@@ -1593,12 +1594,30 @@ function renderLinkInfo() {
 }
 
 // ------------------------------------------------------------------ boot
+// A new phone client on the computer (an update, or a change to these files): reload into it, but not
+// in the middle of something (a reply coming in, a recording, text typed, a note being read).
+let reloadTimer = 0;
+function noteClient(v) {
+  if (!v) return;
+  if (!state.client) state.client = v;
+  else if (v !== state.client && !reloadTimer) reloadWhenFree();
+}
+function reloadWhenFree() {
+  reloadTimer = 0;
+  const typing = $('#input').value.trim() || ($('#composer').contains(document.activeElement) && document.activeElement.matches('textarea'));
+  const recording = !$('#recBar').classList.contains('hidden');
+  const reading = state.view !== 'chat' && state.view !== 'sched' && screenBusy(state.view);
+  if (state.active || state.turns.size || state.face === 'speaking' || typing || recording || reading) reloadTimer = setTimeout(reloadWhenFree, 5000);
+  else location.reload();
+}
+
 async function applyInfo() {
   try {
     const info = await api('/api/info');
     state.voice = info.voice;
     state.name = info.name;
     state.info = info;
+    noteClient(info.client);
     // View only (set on the computer): no composer, approvals or check-offs here.
     document.body.classList.toggle('view-only', info.readOnly === true);
     state.calendar = Boolean(info.calendar);
