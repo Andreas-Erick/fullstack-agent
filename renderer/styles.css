@@ -1329,3 +1329,14 @@ body.agent .aw-frame::before { border-color: rgba(var(--c1), 0.85); box-shadow: 
 @keyframes dump-in { from { opacity: 0; transform: scale(0.99); } to { opacity: 1; transform: none; } }
 body.fx-still :is(.note-status, .note-item, .dump-saved, .dump-area, .dump-layer) { animation: none !important; }
 body.fx-still .dump-saved.show { opacity: 1; }
+
+/* ✨ Polish (notes.js): the polished version waits for a yes, shown with what it linked. */
+.polish-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin: 0 0 18px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid rgba(var(--c1), 0.4); background: rgba(var(--c1), 0.08); }
+.polish-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.polish-what b { color: rgb(var(--c1-soft)); }
+.polish-what .hint { overflow-wrap: anywhere; }
+.note-page.reviewing .note-preview { cursor: default; }
+.note-page.polishing :is(.note-preview, .note-body) { opacity: 0.55; transition: opacity 0.3s; }
+:is(.fx-hud, .fx-subtle) .note-page.polishing::after { content: ''; position: absolute; inset: 70px 0 auto; height: 3px; border-radius: 3px; background: linear-gradient(90deg, transparent, rgb(var(--c1)), transparent); animation: polish-sweep 1.4s ease-in-out infinite; }
+@keyframes polish-sweep { 0% { transform: translateX(-60%); opacity: 0.2; } 50% { opacity: 1; } 100% { transform: translateX(60%); opacity: 0.2; } }
+body.fx-still .note-page.polishing::after { animation: none; }

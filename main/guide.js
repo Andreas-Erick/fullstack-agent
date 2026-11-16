@@ -57,8 +57,8 @@ const FEATURES = [
   {
     id: 'notes',
     title: 'Your notes',
-    what: 'Write your own notes in the app, like in Obsidian: it saves as you type, [[links]] to other notes, #tags, pins and notebooks (folders). ⚡ Dump (or Ctrl+Shift+N from anywhere) is a blank page for getting everything out of your head: the first line is the title, Ctrl+Enter saves and gives you a fresh page. They are plain Markdown in the vault, and I find them again when you ask about something you wrote.',
-    say: ['"What did I write about PID tuning?"', '"Find my note on the robot arm idea"', '"Summarize this week’s notes"', '"Turn my brain dump from today into a plan"'],
+    what: 'Write your own notes in the app, like in Obsidian: it saves as you type, [[links]] to other notes, #tags, pins and notebooks (folders). ⚡ Dump (or Ctrl+Shift+N from anywhere) is a blank page for getting everything out of your head: the first line is the title, Ctrl+Enter saves and gives you a fresh page. ✨ Polish tidies a messy note up and links your related notes; you see it before anything changes. They are plain Markdown in the vault, and I find them again when you ask about something you wrote.',
+    say: ['"What did I write about PID tuning?"', '✨ Polish on a messy note: tidied up, with links to related notes, shown before anything changes', '"Find my note on the robot arm idea"', '"Summarize this week’s notes"', '"Turn my brain dump from today into a plan"'],
     where: 'Notes (Ctrl+9); Notes/ and Inbox/ in the vault.',
     status: (_s, f) => (f.vault ? `${f.notes} note${f.notes === 1 ? '' : 's'}` : 'needs the vault'),
   },

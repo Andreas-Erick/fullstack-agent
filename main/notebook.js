@@ -157,10 +157,42 @@ async function pin(rel, on) {
   return { path: rel, pinned: Boolean(on) };
 }
 
+/**
+ * ✨ Polish: the note rewritten clearly by the AI brain, with links to related notes (polishcore.js).
+ * Nothing is written: the Notes view shows it and the user accepts it or keeps theirs. Returns
+ * { body, added } (added: the titles newly linked).
+ */
+async function polish(rel) {
+  check(rel);
+  const polishcore = require('./polishcore');
+  const note = await read(rel);
+  if (!note.body.trim()) throw new Error('The note is empty: write something first.');
+  if (note.body.length > polishcore.MAX_NOTE) throw new Error(`The note is longer than ${polishcore.MAX_NOTE.toLocaleString()} characters; polish it in parts.`);
+  const { notes } = await list();
+  const related = polishcore.candidates(note, notes);
+  const settings = await require('./store').getSettings();
+  // The everyday model (Sonnet for Claude): good at writing, much quicker than the deep one.
+  const run = require('./llm').complete({ ...settings, llm: { ...settings.llm, modelMode: 'normal' } }, polishcore.prompt(note, related), { maxTokens: 8000 });
+  let timer;
+  const limit = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error('Polishing took too long; try again.')), 180000)));
+  try {
+    // "fetch failed" said nothing: name the brain that didn't answer (localcore.unreachableMessage).
+    const reply = await Promise.race([run, limit]).catch((err) => {
+      const plain = require('./localcore').unreachableMessage(settings.llm?.baseUrl, err);
+      throw plain ? new Error(`Polishing needs the AI brain, and it didn't answer: ${plain}`) : err;
+    });
+    const out = polishcore.clean(reply, note, notes.map((n) => n.title));
+    require('./logger').info('note polished', { chars: note.body.length, offered: related.length, linked: out.added.length });
+    return out;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** For the Inner World: how many notes, which changed today, and the notebooks. */
 async function summary() {
   const { notes, today } = await list();
   return { count: notes.length, today: notes.filter((n) => n.day === today).map((n) => n.title), notebooks: core.notebooks(notes, today) };
 }
 
-module.exports = { list, read, create, save, rename, remove, pin, summary };
+module.exports = { list, read, create, save, rename, remove, pin, polish, summary };

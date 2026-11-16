@@ -21,6 +21,9 @@ let bodyTimer = 0;
 let titleTimer = 0;
 let dirty = false;
 let landed = null; // path of a note that just arrived (the pop animation)
+// ✨ Polish: the polished version waiting for the user's yes ({ path, original, polished, added, show }), and the note being polished.
+let review = null;
+let polishing = '';
 
 const store = {
   get: (k) => {
@@ -201,6 +204,7 @@ async function openNote(path, { keepFocus = false, focus = '' } = {}) {
   }
   current = note;
   dirty = false;
+  if (review?.path !== path) review = null;
   mode = focus || !note.body.trim() ? 'write' : 'read';
   renderEditor({ focus });
   for (const b of document.querySelectorAll('#notesList .note-item')) {
@@ -274,6 +278,7 @@ function renderEditor({ focus = '' } = {}) {
     el('span', { class: 'spacer' }),
     modeBtn,
     pin,
+    el('button', { class: 'btn small polish-btn', type: 'button', title: 'Let the assistant tidy this note up and link related notes (you see it before anything changes)', disabled: polishing === n.path || Boolean(review), onclick: () => polishNote() }, polishing === n.path ? '✨ Polishing…' : '✨ Polish'),
     el('button', { class: 'btn small', type: 'button', title: 'Ask the assistant about this note', onclick: () => askAbout() }, '💬 Ask'),
     el('button', { class: 'btn small', type: 'button', title: 'Open in Obsidian', 'aria-label': 'Open in Obsidian', onclick: () => api.obsidian.openInObsidian(n.path).catch(toastError) }, '◆'),
     el('button', { class: 'btn small danger', type: 'button', title: 'Delete (to the vault’s bin)', 'aria-label': 'Delete note', onclick: () => removeNote() }, '🗑'),
@@ -384,7 +389,26 @@ function renderEditor({ focus = '' } = {}) {
     if (e.key === 'Enter' && !e.target.closest('a')) (e.preventDefault(), setMode('write', { caret: body.value.length }));
   });
   const edited = el('span', {}, `edited ${timeAgo(n.mtime)}`);
-  const page = el('div', { class: `note-page ${mode === 'write' ? 'writing' : 'reading'}` }, title, mode === 'write' ? fmtBar : '', mode === 'write' ? body : preview, el('div', { class: 'note-foot' }, count, edited, n.folder ? el('span', {}, n.folder) : ''));
+  // The polished version, shown before anything changes: accept it, keep yours, or compare.
+  if (review && review.path === n.path) {
+    const showing = review.show === 'original' ? review.original : review.polished;
+    const view = el('div', { class: 'note-preview doc-html' });
+    view.innerHTML = renderMarkdown(showing, { wikilinks: true });
+    const banner = el(
+      'div',
+      { class: 'polish-banner', role: 'region', 'aria-label': 'Polished version' },
+      el('div', { class: 'polish-what' }, el('b', {}, review.show === 'original' ? 'Your version' : '✨ Polished version'), el('span', { class: 'hint' }, review.added.length ? `Links added: ${review.added.join(', ')}` : 'No related notes to link.')),
+      el('div', { class: 'row' },
+        el('button', { class: 'btn small', type: 'button', onclick: () => ((review.show = review.show === 'original' ? 'polished' : 'original'), renderEditor()) }, review.show === 'original' ? 'Show polished' : 'Compare with mine'),
+        el('button', { class: 'btn small', type: 'button', onclick: () => ((review = null), renderEditor()) }, 'Keep mine'),
+        el('button', { class: 'btn small primary', type: 'button', onclick: () => acceptPolish() }, '✓ Use it'),
+      ),
+    );
+    $('#notesEditor').replaceChildren(tools, el('div', { class: 'note-page reading reviewing' }, title, banner, view, el('div', { class: 'note-foot' }, count, edited)));
+    banner.querySelector('.primary').focus({ preventScroll: true });
+    return;
+  }
+  const page = el('div', { class: `note-page ${mode === 'write' ? 'writing' : 'reading'}${polishing === n.path ? ' polishing' : ''}` }, title, mode === 'write' ? fmtBar : '', mode === 'write' ? body : preview, el('div', { class: 'note-foot' }, count, edited, n.folder ? el('span', {}, n.folder) : ''));
   if (mode === 'read') {
     preview.innerHTML = renderMarkdown(body.value || '*Nothing written yet. Click to start.*', { wikilinks: true });
     // Links to notes that don't exist yet look different (a click creates them).
@@ -465,6 +489,42 @@ async function flush() {
     rename(input ? input.value : current?.title || '');
   }
   await saving;
+}
+
+// ✨ Polish: the assistant rewrites the note clearly and links related notes (main/notebook.js polish);
+// nothing changes until the user says "Use it", and the note's history keeps the old text.
+async function polishNote() {
+  if (!current || polishing) return;
+  await flush();
+  const path = current.path;
+  polishing = path;
+  renderEditor();
+  try {
+    const r = await api.notebook.polish(path);
+    if (current?.path !== path) return toast('The polished version is ready: open the note again and press ✨ Polish.');
+    review = { path, original: current.body, polished: r.body, added: r.added || [], show: 'polished' };
+  } catch (err) {
+    toastError(new Error(String(err.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')));
+  } finally {
+    polishing = '';
+    if (current?.path === path) renderEditor();
+  }
+}
+
+async function acceptPolish() {
+  if (!review || current?.path !== review.path) return;
+  if (current.body !== review.original) {
+    // Changed meanwhile (the assistant or Obsidian wrote it): don't overwrite that.
+    review = null;
+    renderEditor();
+    return toast('The note changed meanwhile, so the polished version was not used. Polish it again.');
+  }
+  current.body = review.polished;
+  review = null;
+  mode = 'read';
+  dirty = true;
+  await saveBody(() => toast('Polished ✓  The old version stays in the note’s history.'));
+  renderEditor();
 }
 
 async function newNote({ title = '', body = '' } = {}) {

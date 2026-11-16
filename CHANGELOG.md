@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.17 — 2026-11-16
+
+- **✨ Polish** in the note view: the assistant tidies up a messy note (spelling, grammar, clear sentences, headings where it covers several things, to-dos as a checklist) in your own voice and language, keeping every fact, number, name, link and #tag. It adds a **Related** section linking your other notes that genuinely relate, each with a few words on why; a link to a note that doesn't exist is never kept. Nothing changes until you choose **Use it** (or **Keep mine**; **Compare with mine** shows your version), and the note's history keeps the old text. It uses your everyday model (Sonnet with Claude).
+
 ## 2.7.16 — 2026-11-16
 
 - **Notes**: write your own notes in the app, like in Obsidian (Ctrl+9, where Habits was). They save as you type with a quiet "Saved ✓"; `[[` suggests your other notes to link; Ctrl+E shows the rendered note (a link to a note that doesn't exist yet creates it); pin the ones that matter; filter by notebook (a folder) or #tag, or search everything. Renaming a note updates the links to it; deleting one can be undone. Notes are plain Markdown in your vault's `Notes/` and `Inbox/`, so Obsidian opens them as they are.
