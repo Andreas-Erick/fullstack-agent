@@ -249,3 +249,85 @@ test('a big warm session keeps its model; a routine never moves it; a new config
     claudecode.endSession('warm-1');
   }
 });
+
+// Regression: after a launch or a persona switch the first message read the whole session cold
+// (5.0 and 7.3 s to Haiku's first word); resuming a cold 64k session instead of a fresh ~37k one.
+test('a cold session well past a fresh one starts fresh; a warm one is resumed', () => {
+  const now = 1e9;
+  const ttlMs = 55 * 60000;
+  const f = (o) => claudecode.startFresh({ key: 'k', now, ttlMs, freshTokens: 37000, ...o });
+  assert.strictEqual(f({ last: { key: 'k2', tokens: 64000, at: now - 1000 } }), 'new configuration');
+  assert.strictEqual(f({ last: null, tokens: 72000 }), 'cold after a restart', 'the size the conversation saved');
+  assert.strictEqual(f({ last: { key: 'k', tokens: 64000, at: now - ttlMs - 1 } }), 'cache expired');
+  assert.strictEqual(f({ last: { key: 'k', tokens: 90000, at: now - 60000 } }), '', 'still cached: resumed');
+  assert.strictEqual(f({ last: { key: 'k2', tokens: 45000, at: now } }), '', 'barely bigger than a fresh one: resumed');
+  assert.strictEqual(f({ last: null, tokens: 0 }), '', 'size unknown: resumed');
+  assert.strictEqual(claudecode.startFresh({ key: 'k', now, ttlMs, last: null, tokens: 50000 }), '', 'unmeasured fresh size: about 40k');
+});
+
+test('the cache warm-up: one tiny message on the target model, no tools, skipped while warm', async () => {
+  const writes = [];
+  let sess;
+  const realSpawn = claudecode.Session.prototype.spawn;
+  const realSend = claudecode.Session.prototype.send;
+  claudecode.Session.prototype.spawn = async function (spec) {
+    sess = this;
+    this.child = { exitCode: null, stdin: { write: (s) => writes.push(JSON.parse(s)) }, once() {}, kill() {}, pid: -1 };
+    this.dead = false;
+    this.spec = spec;
+    this.key = spec.key;
+    this.requestedModel = spec.model || 'default';
+    this.resumed = Boolean(spec.resume);
+    this.sentAny = false;
+  };
+  claudecode.Session.prototype.send = function (...a) {
+    const p = realSend.apply(this, a);
+    setImmediate(() => {
+      this.onLine(JSON.stringify({ type: 'assistant', message: { content: [], usage: { input_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 36999 } } }));
+      this.onLine(result('ok'));
+    });
+    return p;
+  };
+  const conv = { id: 'warmup-1' };
+  const settings = { claudeCode: {}, web: { enabled: false }, code: { allowSelfModify: false }, extensions: {}, perf: { mode: 'full' } };
+  const opts = { settings, configKey: 'k', activeTools: [], cwd: process.cwd(), model: 'default', buildPrompt: async () => ({ stable: 'p', memIds: [] }) };
+  const history = [{ role: 'user', content: 'Remember the robotics lab' }, { role: 'assistant', content: 'Noted.' }];
+  const users = () => writes.filter((w) => w.type === 'user');
+  try {
+    const r = await claudecode.warmCache(conv, opts, { model: 'haiku', effort: 'low', history });
+    assert.strictEqual(r.text, 'ok');
+    const set = writes.filter((w) => w.request?.subtype === 'set_model').map((w) => w.request.model);
+    assert.deepStrictEqual(set, ['haiku'], 'warmed on the model the next message uses');
+    const sent = users()[0].message.content;
+    assert.match(sent, /warm-up/);
+    assert.match(sent, /Remember the robotics lab/, 'a fresh session gets the recent conversation with it');
+    assert.strictEqual(sess.warming, false);
+    sess.warming = true;
+    assert.strictEqual((await sess.approve({ tool_name: 'Write', input: { file_path: 'x' } })).behavior, 'deny', 'nothing runs during a warm-up');
+    sess.warming = false;
+
+    // Warm now: a second warm-up sends nothing.
+    await claudecode.warmCache(conv, opts, { model: 'haiku', effort: 'low', history });
+    assert.strictEqual(users().length, 1);
+
+    // The user's message after it doesn't repeat the conversation, and reports the fresh size.
+    const t = await claudecode.runTurn({ conv, history: [...history, { role: 'user', content: 'How are you?' }], buildContext: async () => '', emit() {}, signal: new AbortController().signal, ctx: {}, ...opts, model: 'haiku' });
+    assert.doesNotMatch(users()[1].message.content, /robotics/);
+    assert.strictEqual(t.freshTokens, 37000);
+  } finally {
+    claudecode.Session.prototype.spawn = realSpawn;
+    claudecode.Session.prototype.send = realSend;
+    if (sess) sess.child.exitCode = 0;
+    claudecode.endSession('warmup-1');
+  }
+});
+
+test('the warm-up guesses the next model: spoken chats the voice model, typed ones the everyday one', () => {
+  stub({ './claudecode': claudecode });
+  const llm = load('main/llm.js');
+  const s = { llm: { provider: 'claude-code', voiceUsesFast: true, autoPace: true, modelMode: 'default' }, claudeCode: { model: 'default', fastModel: 'haiku', normalModel: 'sonnet', deepModel: 'opus' } };
+  assert.deepStrictEqual(llm.warmTarget(s, [{ role: 'user', content: 'hi', spoken: true }, { role: 'assistant', content: 'hello' }]), { model: 'haiku', effort: 'low' });
+  assert.deepStrictEqual(llm.warmTarget(s, [{ role: 'user', content: 'hi' }]), { model: 'sonnet', effort: 'default' });
+  assert.deepStrictEqual(llm.warmTarget(s, [{ role: 'user', content: 'hi', spoken: true }, { role: 'user', content: 'Sync', routine: 'x' }]).model, 'haiku', 'a routine run is not the user talking');
+  assert.strictEqual(llm.warmTarget(s, []).model, 'sonnet');
+});

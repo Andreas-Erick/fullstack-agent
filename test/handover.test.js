@@ -54,7 +54,9 @@ stub({
     runTurn: async () => (calls.claude++, { text: 'From Claude', toolCalls: [], contextTokens: calls.contextTokens || 20000 }),
     needsRollover: (n, fresh = 0) => n > Math.max(100000, fresh + 80000),
     rollover: (id, n) => calls.rolled.push([id, n]),
-    prewarm: async (conv) => calls.prewarmed.push(conv), cachedConnectors: async () => ({ list: [{ name: 'claude.ai TickTick', source: 'connector' }] }) },
+    prewarm: async (conv) => calls.prewarmed.push(conv),
+    warmCache: async (conv, opts, target) => calls.warmed.push({ id: conv.id, ...target, history: target.history.length }),
+    cachedConnectors: async () => ({ list: [{ name: 'claude.ai TickTick', source: 'connector' }] }) },
   './codebase': { root: async () => '/app' },
   './obsidian': { vaultPath: async () => null },
   './github': {},
@@ -87,7 +89,7 @@ async function turn(text, s = settings(), { routine = false } = {}) {
   const r = await llm.runTurn({ settings: s, conv, history: conv.messages, emit: (e) => events.push(e), signal: new AbortController().signal, images: [], routine });
   return { r, events };
 }
-const reset = () => Object.assign(calls, { claude: 0, local: 0, lastTools: [], contextTokens: 0, rolled: [], prewarmed: [] });
+const reset = () => Object.assign(calls, { claude: 0, local: 0, lastTools: [], contextTokens: 0, rolled: [], prewarmed: [], warmed: [] });
 const callTool = (name, args) => [{ content: 'Let me see… ' }, { tool_calls: [{ index: 0, id: 't1', function: { name, arguments: JSON.stringify(args) } }] }];
 
 test('the local model hands a hard message over: its text is taken back, Claude answers', async () => {
@@ -196,6 +198,11 @@ test('a Claude session grown past 100k tokens is closed after the reply and a fr
   assert.strictEqual(r.rollover, true, 'main.js keeps no session id to resume');
   assert.deepStrictEqual(calls.rolled, [['c1', 370000]]);
   assert.deepStrictEqual(calls.prewarmed, [{ id: 'c1', claudeSessionId: null }], 'the next one starts fresh, warm');
+  await new Promise((r) => setImmediate(r));
+  // …and its cache is filled before the next message, with the conversation and this reply in it.
+  assert.strictEqual(calls.warmed.length, 1);
+  assert.strictEqual(calls.warmed[0].history, 2, 'the message and the reply');
+  assert.strictEqual(calls.warmed[0].effort, 'default', 'a typed chat: the everyday pace, not a quick one');
   reset();
   calls.contextTokens = 40000;
   assert.strictEqual((await turn('what is on my ticktick today?')).r.rollover, undefined, 'a small session stays');

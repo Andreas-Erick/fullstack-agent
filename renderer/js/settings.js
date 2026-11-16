@@ -823,6 +823,8 @@ function brainCard() {
       el('div', { class: 'grid2' }, text('claudeCode.fastModel', 'Fast model', { placeholder: 'haiku' }), text('claudeCode.deepModel', 'Deep model', { placeholder: 'opus' })),
       text('claudeCode.normalModel', 'Model for everyday messages', { placeholder: 'same as Model', hint: 'Quick lookups use the fast model, explanations and plans the deep one, everything else this one. Sonnet starts a reply that uses tools in a few seconds; Opus often takes 15. Empty = the model above.' }),
       el('div', { class: 'grid2' }, toggle('claudeCode.warmOnLaunch', 'Keep a warm session (faster replies)'), text('claudeCode.idleMinutes', 'Close idle session after (min)', { type: 'number' })),
+      toggle('claudeCode.warmCache', 'Get the first reply ready ahead of time'),
+      el('div', { class: 'hint' }, 'After launch, when you open a chat and after a persona switch, one tiny hidden message gets the conversation ready, so your first message is answered a few seconds sooner. Each counts toward your plan like a very short message.'),
       toggle('claudeCode.keepModelWarm', 'Stay on the warm model instead of switching to a faster one'),
       el('div', { class: 'hint' }, 'Each model keeps its own copy of the conversation ready. Switching to the fast model for a quick message makes it read the whole conversation from scratch, which is slower than letting the model that is already warm answer. Routines never change the chat’s model.'),
       toggle('claudeCode.toolsOnRequest', 'Load less-used tools only when a message needs them'),

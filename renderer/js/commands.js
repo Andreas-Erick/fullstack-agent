@@ -6,6 +6,8 @@ import { speaker, setMicMode } from './voice.js';
 
 const norm = (t) => t.toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
 
+export const NEW_CHAT = /^(okay |ok |so )?(let s |let us |can we |could we |please |i want to |i d like to )?((start|open|begin|make)( a| an| the)? )?((new|fresh|another) |(clear|reset) (the |this )?)(session|conversation|chat)( please)?$/;
+
 const COMMANDS = [
   { re: /^(go )?hands free( mode)?$/, run: async () => (await saveSettings({ stt: { micMode: 'open' } }), setMicMode('open'), 'Hands-free mode on. I’m listening.') },
   { re: /^(go back to |switch to )?push to talk( mode)?$/, run: async () => (await saveSettings({ stt: { micMode: 'ptt' } }), setMicMode('ptt'), `Push to talk. Hold ${state.settings.stt.pttKey} to speak.`) },
@@ -14,7 +16,8 @@ const COMMANDS = [
   { re: /^(switch to |use )?(the )?default model$/, run: async () => (await saveSettings({ llm: { modelMode: 'default' } }), 'Back to the default model.') },
   { re: /^stop asking( for permission)?$/, run: async () => (await saveSettings({ safety: { permissionMode: 'auto' } }), 'Okay — I’ll stop asking, except before changing my code after reading web pages or documents, and before running commands.') },
   { re: /^start asking( again)?( for permission)?$/, run: async () => (await saveSettings({ safety: { permissionMode: 'ask' } }), 'I’ll ask before changing my code, settings or deleting things.') },
-  { re: /^(clear|new|reset) (the )?(session|conversation|chat)$/, run: async (ctx) => (ctx.newChat(), 'Fresh session.') },
+  // "New chat", "start a new conversation", "let's start a fresh chat please", "clear the chat".
+  { re: NEW_CHAT, run: async (ctx) => (ctx.newChat(), 'New chat.') },
   { re: /^(please )?close (the |this )?(document|pdf|image|picture|file|window)( please)?$/, run: async () => ((await api.docs.closePopup().catch(() => null)) ? 'Closed.' : 'No document is open.') },
   // Instant window controls for the latest document window ("make it full screen", "minimize the PDF").
   ...[
