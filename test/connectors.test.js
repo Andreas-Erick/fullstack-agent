@@ -111,7 +111,8 @@ test('the app’s tools on request: everyday ones loaded, the rest a second own 
 test('connectors on: tool search and skills; no connector is pre-allowed, levels never restart the session', () => {
   const s = spec({ connectors: true, connectorsAllowed: ['claude_ai_AccuWeather'] });
   assert.strictEqual(s.connectors, true);
-  assert.ok(s.builtins.includes('ToolSearch') && s.builtins.includes('Skill'));
+  assert.ok(s.builtins.includes('ToolSearch'));
+  assert.ok(!s.builtins.includes('Skill'), 'plugin skills only with claudeCode.plugins (test/claudesession.test.js)');
   assert.ok(!s.allowed.some((a) => a.startsWith('mcp__claude_ai')), 'every call reaches approve(), so taking a level back applies at once');
   assert.strictEqual(s.key, spec({ connectors: true, connectorsReadOnly: ['claude_ai_Todoist'] }).key, 'changing a level keeps the warm session');
   assert.notStrictEqual(s.key, spec({}).key, 'turning connectors on restarts the session');

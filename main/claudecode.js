@@ -685,8 +685,11 @@ const SESSION_SETTINGS = { autoMemoryEnabled: false };
  * with connectors on, where their plugins are set up: otherwise the user's permission rules and extra
  * folders (written for their own coding sessions, e.g. "git push" allowed, a whole workspace readable)
  * would let calls skip approve() and the folder policy (documents.userFolders).
+ * Only when the user also wants their plugins (claudeCode.plugins): the claude.ai connectors load
+ * without them, and the plugins' skill lists were ~4,000 tokens on every message (16.2k vs 12.3k
+ * measured), used twice in three weeks.
  */
-const settingSources = (spec) => (spec.connectors ? 'user' : '');
+const settingSources = (spec) => (spec.connectors && spec.plugins ? 'user' : '');
 
 /** The CLI's arguments for a session. */
 function sessionArgs(spec, { sysFile, mcpFile, settingsFile, resume }) {
@@ -722,6 +725,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   if (settings.code.allowSelfModify) allowed.push('Bash(npm run check)', 'Bash(node scripts/check.js)', 'Bash(npm test*)', 'Bash(node scripts/test.js*)', 'Bash(node scripts/verify.js*)', 'Bash(git status*)', 'Bash(git diff*)', 'Bash(git log*)');
   // The user's claude.ai connectors and plugins: found with ToolSearch, plugin skills with Skill.
   const withConnectors = Boolean(cc.connectors);
+  const withPlugins = withConnectors && cc.plugins === true; // their skills (Skill) and MCP servers
   // Extensions (extensions.js): MCP servers Nexus adds itself; they work with connectors off too.
   const extensionServers = require('./extensions').mcpServers(settings);
   const extensionKeys = Object.keys(extensionServers);
@@ -736,7 +740,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
     allowed.push('ToolSearch');
   }
   if (onRequest) allowed.push('mcp__nexus_more');
-  if (withConnectors) {
+  if (withPlugins) {
     builtins.push('Skill');
     allowed.push('Skill');
   }
@@ -744,6 +748,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   const coreTools = onRequest ? toolNames.filter((n) => CORE_TOOLS.has(n)) : null;
   const spec = {
     connectors: withConnectors,
+    plugins: withPlugins,
     extensions: extensionServers,
     system: '',
     builtins,
@@ -765,7 +770,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   // memories change (those reach the agent through the per-turn context) and not for a model switch
   // (Session.setModel changes it in place).
   // Each part named, so a restart can say what changed (see ensureSession).
-  spec.keyParts = { config: configKey, builtins, allowed, tools: toolNames, core: coreTools, folders: [cwd, vault, repos, ...readRoots], effort: cc.effort, connectors: withConnectors, extensions: extensionServers };
+  spec.keyParts = { config: configKey, builtins, allowed, tools: toolNames, core: coreTools, folders: [cwd, vault, repos, ...readRoots], effort: cc.effort, connectors: withConnectors, plugins: withPlugins, extensions: extensionServers };
   spec.key = crypto.createHash('sha1').update(JSON.stringify(Object.values(spec.keyParts))).digest('hex');
   return spec;
 }
@@ -954,7 +959,9 @@ function endSession(convId) {
 // and a fresh one carries on with the recent messages (transcript()); memories, notes and "where we
 // left off" keep the rest.
 const ROLLOVER_TOKENS = Number(process.env.NEXUS_ROLLOVER_TOKENS) || 100000; // the variable: tests only
-const GROWTH_TOKENS = Number(process.env.NEXUS_ROLLOVER_GROWTH) || 80000; // the variable: tests only
+// 50k (was 80k): a long chat carried up to ~165k tokens on every message; the recent messages, memories
+// and notes carry over to the fresh one.
+const GROWTH_TOKENS = Number(process.env.NEXUS_ROLLOVER_GROWTH) || 50000; // the variable: tests only
 // Measured from how big a fresh session is in this setup (its tools, vault notes and persona: ~50k to
 // ~120k): a fresh one of 119k rolled over again after one message when the limit was a flat 100k.
 const needsRollover = (contextTokens, freshTokens = 0) => Number(contextTokens) > Math.max(ROLLOVER_TOKENS, (Number(freshTokens) || 0) + GROWTH_TOKENS);

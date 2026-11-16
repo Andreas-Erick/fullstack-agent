@@ -729,7 +729,8 @@ function connectorsSection() {
   return el(
     'div',
     { class: 'field' },
-    toggle('claudeCode.connectors', 'Use my Claude connectors and plugins'),
+    toggle('claudeCode.connectors', 'Use my Claude connectors'),
+    toggle('claudeCode.plugins', 'Also load my Claude Code plugins (their skills cost about 4,000 tokens per message)'),
     el('div', { class: 'hint', html: 'The agent can use the connectors on your claude.ai account (Todoist, Google Calendar, Canva, Figma…) and your Claude Code plugins, through the Claude account brain only. It looks them up when a task needs one. <b>Every call asks you first</b>, even in auto mode (one yes covers that service for the rest of the reply), unless you allow it below: “Allow reading” lets it look things up without asking (what routines need) while anything that creates, sends, changes or deletes still asks. What they return is treated as external content. Data you send goes to that service.' }),
     el('div', { class: 'row' }, check),
     out,

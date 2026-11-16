@@ -75,6 +75,7 @@ const DEFAULTS = {
     // The user's claude.ai connectors and plugin MCP servers (main/connectors.js). Only the user turns
     // this on and picks what runs without asking: never in tools.js SETTABLE.
     connectors: false,
+    plugins: false, // the user's Claude Code plugins too (their skills, ~4k tokens per message), with connectors on; user-only
     connectorsAllowed: [], // server keys (e.g. claude_ai_AccuWeather) whose calls don't ask each time
     connectorsReadOnly: [], // server keys whose reading tools (list, get, search…) don't ask; the rest still asks
     connectorsWrite: [], // server keys where everything but deleting (delete, remove, archive…) runs without asking

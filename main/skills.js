@@ -218,9 +218,10 @@ function instructions(skill, args = '') {
 async function promptBlock() {
   const all = await list().catch(() => []);
   if (!all.length) return '';
-  const short = (t) => (t.length > 220 ? `${t.slice(0, 217)}…` : t);
-  const lines = all.slice(0, 80).map((s) => `- /${s.slug} — ${s.name}${s.description ? `: ${short(s.description)}` : ''}${s.triggers.length ? ` (when the user says: ${s.triggers.map((t) => `"${t}"`).join(', ')})` : ''}`);
-  return `## Skills (the user's saved workflows)\nWhen the user asks for one of these (by name, slash command or a trigger phrase), or a request fits one's purpose without naming it, load it with skill_run and follow its steps.\n${lines.join('\n')}`;
+  // Name and up to three trigger phrases: the descriptions were most of this block on every message,
+  // and skill_list gives them when a request might fit one without naming it.
+  const lines = all.slice(0, 80).map((s) => `- /${s.slug} ${s.name}${s.triggers.length ? ` ("${s.triggers.slice(0, 3).join('", "')}")` : ''}`);
+  return `## Skills (the user's saved workflows)\nWhen the user asks for one of these (by name, slash command or a phrase like those shown), load it with skill_run and follow its steps; when a request might fit one without naming it, skill_list has their descriptions.\n${lines.join('\n')}`;
 }
 
 module.exports = { dir, list, get, save, remove, readFile, fromSlash, instructions, promptBlock, slugify, frontmatter, SHIPPED };
