@@ -9,7 +9,10 @@ import android.graphics.Path;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.view.Choreographer;
 import android.view.View;
+import android.view.animation.AnimationUtils;
 
 import org.json.JSONObject;
 
@@ -27,8 +30,10 @@ import java.util.concurrent.Executors;
  * The persona's face on the watch: the desktop records it (built-in or custom, in its theme) as a short
  * loop per agent state (main/facecapture.js, a "SRF1" pack); this view plays the loop of the current
  * state in a circle. Only the current state's frames are decoded (a few MB); the rest stay as JPEG.
- * Smooth: the next frame is asked for exactly when it is due (on the display's beat), nothing is
- * redrawn between two frames, and a new state starts as soon as its first frame is decoded.
+ * Smooth: the frame shown is chosen from the display's own vsync time (Choreographer), so at 30 fps on a
+ * 60 Hz screen every frame stays up for exactly two refreshes; the view is redrawn only when the frame
+ * changes, frames are uploaded to the GPU right after decoding (not on the draw), and a new state starts
+ * as soon as its first frame is decoded. Nothing runs while the view is hidden.
  */
 public class FacePlayer extends View {
     private final Map<String, List<byte[]>> packed = new HashMap<>();
@@ -39,9 +44,24 @@ public class FacePlayer extends View {
     private final Rect dst = new Rect();
     private Bitmap[] frames = new Bitmap[0];
     private String state = "idle";
-    private int fps = 24;
-    private long start = System.currentTimeMillis();
+    private int fps = 30;
+    private long start = SystemClock.uptimeMillis();
     private int generation;
+    private int shown = -1; // the frame index last drawn
+    private boolean ticking;
+    private final Choreographer.FrameCallback tick = new Choreographer.FrameCallback() {
+        @Override
+        public void doFrame(long frameTimeNanos) {
+            ticking = false;
+            if (!isShown() || frames.length < 2) return;
+            // A frame is due when its time has come at this vsync; half a refresh early counts, so a
+            // vsync that lands a hair before the boundary doesn't hold the old frame one refresh too long.
+            long t = frameTimeNanos / 1_000_000 - start + 8;
+            int i = (int) ((Math.max(0, t) * fps / 1000) % frames.length);
+            if (i != shown) invalidate();
+            schedule();
+        }
+    };
 
     public FacePlayer(Context c) {
         super(c);
@@ -76,7 +96,7 @@ public class FacePlayer extends View {
             }
             packed.clear();
             packed.putAll(out);
-            fps = Math.max(4, Math.min(30, header.optInt("fps", 12)));
+            fps = Math.max(4, Math.min(60, header.optInt("fps", 12)));
             decode(state);
             return true;
         } catch (Exception e) {
@@ -103,12 +123,14 @@ public class FacePlayer extends View {
             for (int i = 0; i < out.length; i++) {
                 if (gen != generation) return; // another state was asked for meanwhile
                 out[i] = BitmapFactory.decodeByteArray(list.get(i), 0, list.get(i).length, o);
+                if (out[i] != null) out[i].prepareToDraw(); // its GPU upload now, on this thread, not mid-animation
                 if (i == 0) {
                     // Show the new state at once; its frame 0 holds until the rest are ready.
                     Bitmap first = out[0];
                     main.post(() -> {
                         if (gen != generation) return;
                         frames = new Bitmap[] { first };
+                        shown = -1;
                         invalidate();
                     });
                 }
@@ -116,17 +138,33 @@ public class FacePlayer extends View {
             main.post(() -> {
                 if (gen != generation) return;
                 frames = out;
-                start = System.currentTimeMillis();
+                start = SystemClock.uptimeMillis();
+                shown = -1;
                 invalidate();
+                schedule();
             });
         });
+    }
+
+    private void schedule() {
+        if (ticking || frames.length < 2 || !isShown()) return;
+        ticking = true;
+        Choreographer.getInstance().postFrameCallback(tick);
+    }
+
+    private void stop() {
+        if (!ticking) return;
+        ticking = false;
+        Choreographer.getInstance().removeFrameCallback(tick);
     }
 
     @Override
     protected void onDraw(Canvas c) {
         if (frames.length == 0) return;
-        long t = System.currentTimeMillis() - start;
-        int i = (int) ((t * fps / 1000) % frames.length);
+        // During a draw this is the vsync time the frame callback saw (same clock as uptimeMillis).
+        long t = AnimationUtils.currentAnimationTimeMillis() - start + 8;
+        int i = (int) ((Math.max(0, t) * fps / 1000) % frames.length);
+        shown = i;
         Bitmap f = frames[i];
         int w = getWidth();
         int h = getHeight();
@@ -138,16 +176,26 @@ public class FacePlayer extends View {
         c.clipPath(clip);
         if (f != null) c.drawBitmap(f, null, dst, paint);
         c.restore();
-        if (frames.length > 1) {
-            // Wake when the next frame is due, not 1/fps after this draw (that drifts, and a late
-            // draw then skips or doubles a frame): every frame is then drawn on the vsync after it.
-            long next = ((t * fps / 1000) + 1) * 1000 / fps;
-            postInvalidateDelayed(Math.max(1, next - t));
-        }
+        schedule();
+    }
+
+    @Override
+    protected void onVisibilityChanged(View changed, int visibility) {
+        super.onVisibilityChanged(changed, visibility);
+        if (isShown()) schedule();
+        else stop();
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (visibility == VISIBLE) schedule();
+        else stop();
     }
 
     @Override
     protected void onDetachedFromWindow() {
+        stop();
         decoder.shutdownNow();
         super.onDetachedFromWindow();
     }

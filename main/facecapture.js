@@ -12,10 +12,11 @@ const store = require('./store');
 const log = require('./logger');
 
 const STATES = ['idle', 'listening', 'thinking', 'working', 'speaking', 'happy', 'sleeping'];
-const FPS = 24;
-const FRAMES = 48; // two seconds per state
-const BLEND = 8; // frames recorded past the loop, faded into its first ones: no jump where it repeats
-const REC = 2; // how the frames are recorded: a new way records every face again
+const FPS = 30; // 60 Hz watch screens show each frame for exactly two refreshes (24 fps judders 2-3-2-3)
+const CAPTURE_FPS = 60; // paints recorded twice as often as kept: each even step finds a paint within ~8 ms
+const FRAMES = 60; // two seconds per state
+const BLEND = 10; // frames recorded past the loop, faded into its first ones: no jump where it repeats
+const REC = 3; // how the frames are recorded: a new way records every face again
 const DRAW = 320; // the page's size; frames are scaled down to SIZE
 const SIZE = 240;
 const CROP = 32; // a round watch shows the middle: the margin around the face is cut
@@ -124,7 +125,7 @@ async function record(r) {
   wc.setWindowOpenHandler(() => ({ action: 'deny' }));
   wc.on('will-navigate', (e) => e.preventDefault());
   try {
-    wc.setFrameRate(FPS);
+    wc.setFrameRate(CAPTURE_FPS);
     await win.loadURL('app://bundle/renderer/facecapture.html');
     await wc.executeJavaScript(`window.__face.mount(${JSON.stringify(r)})`);
     const frames = {};

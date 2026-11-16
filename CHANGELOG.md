@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.21 — 2026-11-16
+
+- **Smoother face on the watch**: the face is recorded at 30 frames a second (was 24), which a 60 Hz watch screen shows at an even pace (24 fps showed frames for two and three refreshes in turn, a slight stutter), from paints taken twice as often so every frame is evenly spaced in time. The watch now picks each frame from the display's own refresh, uploads frames to the graphics chip ahead of time, and redraws only when the frame changes. Faces are recorded again once; install **Siren-Wear-2.7.21** on the watch (and the phone app from the same release).
+
 ## 2.7.20 — 2026-11-16
 
 - **Notes keep you writing**: after each autosave ("Saved ✓") the note used to switch back to reading mode, so you had to click into it again to go on typing. Your own saves now leave the note as it is; a change from elsewhere (the assistant, Obsidian) still shows up, in the same mode and with the cursor where it was.
