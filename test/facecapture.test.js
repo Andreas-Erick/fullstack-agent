@@ -38,5 +38,6 @@ test('smooth loops: frames picked at even steps from uneven paints, the seam fad
   assert.deepStrictEqual(loop, [60, 40, 20, 30, 40, 50], 'starts as the frame after the last, ends as the loop’s own');
   assert.strictEqual(fc.seamless(f.slice(0, 3), 2).length, 1, 'too short to blend: just the loop');
   assert.ok(fc.FPS >= 24, 'fluid on the watch');
+  assert.strictEqual(60 % fc.FPS, 0, 'an even cadence on a 60 Hz watch screen: every frame shown for the same number of refreshes');
   assert.notStrictEqual(fc.keyOf({ face: 'siren' }), require('crypto').createHash('sha256').update(JSON.stringify({ face: 'siren' })).digest('hex').slice(0, 24), 'packs recorded the old way are recorded again');
 });
