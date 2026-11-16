@@ -297,7 +297,9 @@ async function run() {
     else {
       const title = `Browser sync ${size.name}`;
       await require('../../main/obsidian').writeNote(`Notes/${title}.md`, `# ${title}\n\nWritten on the computer.\n`); // on the computer
-      if (!(await until(sc, `document.querySelector('#panel .note-list').innerText.includes(${JSON.stringify(title)})`, 8000))) problems.push(`${size.name} sync: a note written on the computer did not show on the open Notes screen`);
+      // The list is redrawn when the change arrives, so for a moment it may not be there (a slow machine
+      // caught the probe in between, and its error counted as the page's): ask without failing.
+      if (!(await until(sc, `Boolean(document.querySelector('#panel .note-list')?.innerText.includes(${JSON.stringify(title)}))`, 8000))) problems.push(`${size.name} sync: a note written on the computer did not show on the open Notes screen`);
       screens[`${size.name}/sync notes`] = await sc.executeJavaScript(`document.querySelector('#panel .note-list')?.innerText.slice(0, 160)`);
     }
     sw.destroy();
