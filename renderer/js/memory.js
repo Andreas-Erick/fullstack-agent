@@ -1,5 +1,5 @@
 // Memory vault view: browse, search, add, edit, delete, import/export.
-import { $, api, el, escapeHtml, timeAgo, toast, toastError, modal, confirmDialog, debounce, on } from './util.js';
+import { $, api, el, escapeHtml, timeAgo, toast, toastError, modal, confirmDialog, plainError, debounce, on } from './util.js';
 
 let entries = [];
 // What main said, without Electron's "Error invoking remote method '…': Error: " in front.
@@ -180,33 +180,52 @@ function render() {
   }
 }
 
+// The editor checks and saves before it closes: a refusal shows in it, and every field is kept.
 async function edit(entry) {
-  const result = await modal((card, close) => {
+  let dirty = () => false; // set once the fields exist
+  await modal((card, close) => {
     const title = el('input', { class: 'input', value: entry?.title || '', placeholder: 'Title' });
     const category = el('input', { class: 'input', value: entry?.category || 'general', placeholder: 'Category', list: 'memCats' });
     const datalist = el('datalist', { id: 'memCats' }, [...new Set(entries.map((e) => e.category))].map((c) => el('option', { value: c })));
     const content = el('textarea', { class: 'input', rows: 8, placeholder: 'What should the agent remember?' });
     content.value = entry?.content || '';
+    const snapshot = () => JSON.stringify([title.value, category.value, content.value]);
+    const start = snapshot();
+    dirty = () => snapshot() !== start;
+    const error = el('div', { class: 'test-result err hidden', role: 'alert' });
+    const fail = (msg, field) => {
+      error.textContent = msg;
+      error.classList.remove('hidden');
+      field?.focus();
+    };
+    let busy = false;
+    const saveBtn = el('button', { class: 'btn primary' }, 'Save');
+    saveBtn.onclick = async () => {
+      if (busy) return; // a second click while the first save runs
+      const result = { title: title.value.trim(), category: category.value.trim() || 'general', content: content.value.trim() };
+      if (!result.content) return fail('Write what the agent should remember.', content);
+      busy = true;
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      try {
+        if (entry) await api.memory.update(entry.id, result);
+        else await api.memory.save(result);
+        refresh(); // the list first: a save that lands after Esc → Discard still shows
+        close(true);
+      } catch (err) {
+        busy = false;
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+        fail(plainError(err), saveBtn); // the focus is kept in the card (a disabled button may lose it)
+      }
+    };
     card.append(
       el('h3', {}, entry ? 'Edit memory' : 'New memory'),
       el('div', { class: 'grid2' }, el('div', { class: 'field' }, el('label', {}, 'Title'), title), el('div', { class: 'field' }, el('label', {}, 'Category'), category, datalist)),
       el('div', { class: 'field' }, el('label', {}, 'Content'), content),
-      el(
-        'div',
-        { class: 'modal-actions' },
-        el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'),
-        el('button', { class: 'btn primary', onclick: () => close({ title: title.value.trim(), category: category.value.trim() || 'general', content: content.value.trim() }) }, 'Save'),
-      ),
+      error,
+      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), saveBtn),
     );
     setTimeout(() => (entry ? content : title).focus(), 0);
-  });
-  if (!result) return;
-  if (!result.content) return toast('Content is required', 'error');
-  try {
-    if (entry) await api.memory.update(entry.id, result);
-    else await api.memory.save(result);
-    refresh();
-  } catch (err) {
-    toastError(err);
-  }
+  }, { dirty: () => dirty() });
 }

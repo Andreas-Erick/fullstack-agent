@@ -1,5 +1,5 @@
 // Renderer entry point: wires views, the agent face, push-to-talk and status indicators together.
-import { $, $$, api, on, emit, el, toast, logEvent } from './util.js';
+import { $, $$, api, on, emit, el, toast, logEvent, dialogOpen } from './util.js';
 import { state, loadSettings, saveSettings, ttsActive, raiseAlert, noteActivity } from './state.js';
 import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
@@ -405,7 +405,7 @@ function setupShortcuts() {
     } else if (mod && e.key === ',') {
       e.preventDefault();
       switchView('settings');
-    } else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'h' && $('#modal').classList.contains('hidden') && $('#onboarding').classList.contains('hidden') && !$('#notesDumpLayer')) {
+    } else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'h' && !dialogOpen() && $('#onboarding').classList.contains('hidden') && !$('#notesDumpLayer')) {
       // History: the earlier chats and the search through them (history.js), from any view.
       e.preventDefault();
       if (currentView !== 'chat') switchView('chat');
@@ -427,7 +427,7 @@ function setupShortcuts() {
       speaker.stop();
     } else if (e.key === 'Escape' && isFullscreen()) {
       exitFullscreen();
-    } else if (e.key === 'Escape' && state.generating && !e.defaultPrevented && ['chat', 'face'].includes(currentView) && !state.approvalPending && $('#modal').classList.contains('hidden')) {
+    } else if (e.key === 'Escape' && state.generating && !e.defaultPrevented && ['chat', 'face'].includes(currentView) && !dialogOpen()) {
       // The first Esc stops the voice (above), the next one the reply still being written.
       cancelReply();
     } else if (e.key === 'End' && !mod && !e.shiftKey && !e.defaultPrevented && currentView === 'chat' && !isTypingTarget(e.target)) {

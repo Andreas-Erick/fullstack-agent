@@ -3,7 +3,7 @@
 // "Saved ✓"), a new note lands in the list with a little pop, [[ suggests your other notes, Ctrl+E shows
 // the rendered note, and Dump is a blank page for getting everything out of your head (Ctrl+Enter: saved,
 // a fresh page; Esc: saved and closed). The assistant reads them like any vault note.
-import { $, api, el, renderMarkdown, timeAgo, toast, toastError, on } from './util.js';
+import { $, api, el, renderMarkdown, timeAgo, toast, toastError, pushToast, on } from './util.js';
 import { switchView, currentView } from './nav.js';
 import * as fmt from './notesedit.js';
 
@@ -601,7 +601,7 @@ async function removeNote() {
   await flush();
   const gone = { ...current };
   try {
-    await api.notebook.remove(gone.path);
+    gone.trashed = (await api.notebook.remove(gone.path))?.trashed;
   } catch (err) {
     toastError(err);
     return;
@@ -610,21 +610,22 @@ async function removeNote() {
   await loadList();
   if (notes.length) openNote(notes[0].path, { keepFocus: true });
   else showEmpty();
-  // Undo: the note comes back (the vault's .trash and its history keep it too).
+  // Undo: the file itself comes back from the vault's .trash, frontmatter (tags, aliases, pinned) and all.
   const t = el('div', { class: 'toast' }, el('b', {}, `“${gone.title}” moved to the bin`), el('div', { class: 'toast-actions' }, el('button', {
     class: 'btn small',
     onclick: async () => {
       t.remove();
-      const folder = gone.path.startsWith('Inbox/') ? 'Inbox' : gone.folder;
-      const { path } = await api.notebook.create({ title: gone.title, body: gone.body, folder });
-      if (gone.pinned) await api.notebook.pin(path, true);
-      landed = path;
-      await loadList();
-      openNote(path);
+      try {
+        const { path } = await api.notebook.restore(gone.trashed, gone.path);
+        landed = path;
+        await loadList();
+        openNote(path);
+      } catch (err) {
+        toastError(err);
+      }
     },
   }, 'Undo')));
-  $('#toasts').append(t);
-  setTimeout(() => t.remove(), 10000);
+  pushToast(t, 10000);
 }
 
 function askAbout() {

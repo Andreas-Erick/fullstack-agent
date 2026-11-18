@@ -466,8 +466,9 @@
     </div>
 
     <div class="onboarding hidden" id="onboarding"></div>
-    <div class="toasts" id="toasts"></div>
+    <div class="toasts" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
     <div class="drop-overlay hidden" id="dropOverlay" aria-hidden="true"><div class="drop-card"><b>Drop to attach</b><span>Images · text and code · PDF · Word, up to 6 files</span></div></div>
     <div class="modal hidden" id="modal"><div class="modal-card glass" id="modalCard"></div></div>
+    <div class="modal approval-layer hidden" id="approvalModal"><div class="modal-card glass" id="approvalCard" tabindex="-1"></div></div>
   </body>
 </html>

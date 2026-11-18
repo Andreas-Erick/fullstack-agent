@@ -1,7 +1,7 @@
 // Calendar view: the user's schedule from Schedule.md in the vault (main/calendar.js), as a month
 // grid, a week time grid or an agenda, with today's readout and the repeating rules on the side.
 // The agent adds entries from what the user tells it; the user can add and edit them here too.
-import { $, api, el, toast, toastError, modal, confirmDialog, on, emit } from './util.js';
+import { $, api, el, toast, toastError, modal, confirmDialog, on, emit, dialogOpen } from './util.js';
 import { switchView } from './nav.js';
 
 const DAY = 86400000;
@@ -166,7 +166,7 @@ export function initCalendar() {
   api.on('tasks:changed', () => $('#view-calendar').classList.contains('active') && refresh());
   on('vault-changed', (p) => p === 'Schedule.md' && $('#view-calendar').classList.contains('active') && refresh());
   document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey || e.metaKey || e.altKey || !$('#view-calendar').classList.contains('active') || e.target.closest('input, textarea, select, [contenteditable]') || !$('#modal').classList.contains('hidden')) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || !$('#view-calendar').classList.contains('active') || e.target.closest('input, textarea, select, [contenteditable]') || dialogOpen()) return;
     if (e.key === 'ArrowLeft') shift(-1);
     else if (e.key === 'ArrowRight') shift(1);
     else if (e.key.toLowerCase() === 't') $('#calToday').click();

@@ -1,6 +1,6 @@
 // Skills view: the user's reusable workflows. Create, edit, delete, and run one (it opens the chat and
 // sends "/name", so the agent gets the steps). The agent can save skills too ("make this a skill").
-import { $, api, el, toast, toastError, modal, confirmDialog, on, emit } from './util.js';
+import { $, api, el, toast, toastError, modal, confirmDialog, plainError, on, emit } from './util.js';
 import { switchView } from './nav.js';
 import { send } from './chat.js';
 
@@ -82,25 +82,60 @@ function render() {
 async function run(s) {
   let input = '';
   if (s.input) {
+    let dirty = () => false; // set once the box exists
     input = await modal((card, close) => {
       const t = el('textarea', { class: 'input', rows: 6, placeholder: s.input });
+      dirty = () => t.value.trim() !== '';
       card.append(el('h3', {}, s.name), el('p', { class: 'muted', style: { margin: 0 } }, `Input: ${s.input}`), t, el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), el('button', { class: 'btn primary', onclick: () => close(t.value) }, '▶ Run')));
       setTimeout(() => t.focus(), 0);
-    });
+    }, { dirty: () => dirty() });
     if (input === null) return;
   }
   switchView('chat');
   send(`/${s.slug}${input ? ` ${input}` : ''}`);
 }
 
+// The editor checks and saves before it closes: a refusal (a taken name, an empty step list) shows in it,
+// and every field is kept.
 async function edit(skill = {}, { isNew = !skill.slug } = {}) {
-  const res = await modal((card, close) => {
+  let dirty = () => false; // set once the fields exist
+  const saved = await modal((card, close) => {
     const name = el('input', { class: 'input', value: skill.name || '', placeholder: 'e.g. Morning briefing' });
     const desc = el('input', { class: 'input', value: skill.description || '', placeholder: 'One line: what it does' });
     const triggers = el('input', { class: 'input', value: (skill.triggers || []).join(', '), placeholder: 'start my day, morning briefing' });
     const input = el('input', { class: 'input', value: skill.input || '', placeholder: 'e.g. the rough notes (leave empty if it needs nothing)' });
     const steps = el('textarea', { class: 'input', rows: 9, placeholder: '1. …\n2. …\n3. …' });
     steps.value = skill.steps || '';
+    const snapshot = () => JSON.stringify([name.value, desc.value, triggers.value, input.value, steps.value]);
+    const start = snapshot();
+    dirty = () => snapshot() !== start;
+    const error = el('div', { class: 'test-result err hidden', role: 'alert' });
+    const fail = (msg, field) => {
+      error.textContent = msg;
+      error.classList.remove('hidden');
+      field?.focus();
+    };
+    let busy = false;
+    const saveBtn = el('button', { class: 'btn primary' }, 'Save skill');
+    saveBtn.onclick = async () => {
+      if (busy) return; // a second click while the first save runs
+      if (!name.value.trim()) return fail('Give the skill a name.', name);
+      if (!steps.value.trim()) return fail('Write its steps.', steps);
+      busy = true;
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      const payload = { name: name.value, description: desc.value, triggers: triggers.value.split(',').map((t) => t.trim()).filter(Boolean), input: input.value, steps: steps.value };
+      try {
+        const s = await api.skills.save(payload, isNew ? undefined : skill.slug);
+        emit('skills-changed'); // the list first: a save that lands after Esc → Discard still shows
+        close(s);
+      } catch (err) {
+        busy = false;
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save skill';
+        fail(plainError(err), saveBtn); // the focus is kept in the card (a disabled button may lose it)
+      }
+    };
     const field = (label, control, hint) => el('div', { class: 'field' }, el('label', {}, label), control, hint ? el('div', { class: 'hint' }, hint) : '');
     card.classList.add('wide');
     card.append(
@@ -108,18 +143,12 @@ async function edit(skill = {}, { isNew = !skill.slug } = {}) {
       el('div', { class: 'grid2' }, field('Name', name, 'Becomes the /command.'), field('Purpose', desc)),
       el('div', { class: 'grid2' }, field('Trigger phrases (comma-separated)', triggers, 'Saying one of these starts it.'), field('Input it needs', input, 'Asked for when you click Run.')),
       field('Steps', steps, 'Write them for the agent: what to read, which tools to use, what to give back. Numbered steps work best.'),
-      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), el('button', { class: 'btn primary', onclick: () => close({ name: name.value, description: desc.value, triggers: triggers.value.split(',').map((t) => t.trim()).filter(Boolean), input: input.value, steps: steps.value }) }, 'Save skill')),
+      error,
+      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), saveBtn),
     );
     setTimeout(() => name.focus(), 0);
-  });
-  if (!res) return;
-  try {
-    const saved = await api.skills.save(res, isNew ? undefined : skill.slug);
-    toast(`Saved — run it with /${saved.slug}`);
-    emit('skills-changed');
-  } catch (err) {
-    toastError(err);
-  }
+  }, { dirty: () => dirty() });
+  if (saved) toast(`Saved — run it with /${saved.slug}`);
 }
 
 // Agent Skills from GitHub (main/skillimport.js): find the skills in a repository, pick, install.

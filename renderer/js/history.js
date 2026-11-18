@@ -4,7 +4,7 @@
 // back to the message box. Docked, the same button and key go to its search. Also the search's state:
 // titles are matched in chat.js at once, the words inside chats by main (conv:search) a moment later.
 // A leaf: chat.js passes its list functions in (initHistory), so this never imports chat.js.
-import { $, api, on } from './util.js';
+import { $, api, on, dialogOpen } from './util.js';
 import * as core from './historycore.mjs';
 
 const narrow = matchMedia('(max-width: 980px)');
@@ -35,7 +35,7 @@ export function initHistory({ render, refresh }) {
 }
 
 // A dialog, the setup wizard or the brain-dump page is in front: the drawer's keys stand aside.
-const blocked = () => !$('#modal').classList.contains('hidden') || !$('#onboarding').classList.contains('hidden') || Boolean($('#notesDumpLayer'));
+const blocked = () => dialogOpen() || !$('#onboarding').classList.contains('hidden') || Boolean($('#notesDumpLayer'));
 
 export const historyDocked = () => !$('#view-chat').classList.contains('layout-face') && !narrow.matches;
 export const historyOpen = () => $('#view-chat').classList.contains('history-open');

@@ -151,11 +151,17 @@ export function timeAgo(ts) {
 }
 
 // Removes a notice `ms` after the user can see it: one that came while the window was in the background
-// waits until it has focus again.
+// waits until it has focus again, and none goes while the pointer or the keyboard focus is on it.
 export function removeLater(node, ms) {
-  const remove = () => node.remove();
-  if (document.hasFocus()) setTimeout(remove, ms);
-  else window.addEventListener('focus', () => setTimeout(remove, ms), { once: true });
+  let timer = null;
+  const start = () => (clearTimeout(timer), (timer = setTimeout(() => node.remove(), ms)));
+  const hold = () => clearTimeout(timer);
+  node.addEventListener('mouseenter', hold);
+  node.addEventListener('focusin', hold);
+  node.addEventListener('mouseleave', () => !node.contains(document.activeElement) && start());
+  node.addEventListener('focusout', (e) => !node.contains(e.relatedTarget) && !node.matches(':hover') && start());
+  if (document.hasFocus()) start();
+  else window.addEventListener('focus', () => !node.matches(':hover') && !node.contains(document.activeElement) && start(), { once: true });
 }
 
 // Shows a notice and removes it later; at most MAX_TOASTS at once (the oldest make room), so notices
@@ -187,27 +193,55 @@ export function toastError(err) {
 }
 
 // Generic modal: build(card, close) fills the card; resolves with whatever close() is called with.
-export function modal(build) {
+// dirty(): true while the form has unsaved edits; then Esc or a click beside the card asks first.
+let activeModal = null; // the open modal(): a new one settles it (null), so its Escape listener never stays behind
+export function modal(build, { dirty = null } = {}) {
+  activeModal?.close(null);
   const wrap = document.getElementById('modal');
   const card = document.getElementById('modalCard');
   card.innerHTML = '';
   card.className = 'modal-card glass'; // a previous modal may have widened it
+  card.style.cssText = ''; // the calendar's details set inline custom properties
   wrap.classList.remove('hidden');
   return new Promise((resolve) => {
+    const me = {};
+    let downOnWrap = false; // a drag that starts in the card and ends on the backdrop is no click on it
+    let asking = null; // { row, back }: the "Discard your changes?" question and where the focus was
+    const release = holdFocus(wrap, card);
     const close = (value) => {
+      if (activeModal !== me) return; // settled already (a newer modal, or Discard and Save racing)
+      activeModal = null;
       wrap.classList.add('hidden');
-      wrap.onclick = null;
+      wrap.onclick = wrap.onmousedown = null;
       document.removeEventListener('keydown', onKey, true);
+      release();
       resolve(value);
     };
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        close(null);
-      }
+    const keep = () => {
+      const { row, back } = asking;
+      asking = null;
+      row.remove();
+      (card.contains(back) ? back : card).focus({ preventScroll: true });
     };
+    const ask = () => {
+      const stay = el('button', { class: 'btn', onclick: keep }, 'Keep editing');
+      const row = el('div', { class: 'modal-discard', role: 'alert' }, el('span', {}, 'Discard your changes?'), stay, el('button', { class: 'btn danger', onclick: () => close(null) }, 'Discard'));
+      asking = { row, back: document.activeElement };
+      card.append(row);
+      stay.focus(); // scrolls it into view in a tall card
+    };
+    const dismiss = () => (dirty?.() ? (asking ? keep() : ask()) : close(null));
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.isComposing || topLayer() !== wrap) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dismiss();
+    };
+    me.close = close;
+    activeModal = me;
     document.addEventListener('keydown', onKey, true);
-    wrap.onclick = (e) => e.target === wrap && close(null);
+    wrap.onmousedown = (e) => (downOnWrap = e.target === wrap);
+    wrap.onclick = (e) => e.target === wrap && downOnWrap && dismiss();
     build(card, close);
   });
 }
@@ -229,6 +263,67 @@ export function promptDialog(title, value = '') {
     card.append(el('h3', {}, title), input, el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), el('button', { class: 'btn primary', onclick: () => close(input.value) }, 'Save')));
     setTimeout(() => input.select(), 0);
   });
+}
+
+// Layers that hold the focus (a dialog, an approval), lowest first. The top one gets the keys; the window
+// behind it and any layer under it are inert. An approval (.approval-layer) stays above a dialog opened
+// after it (from a notice or a timer). Releasing the top one gives the focus back to where it was.
+const layers = []; // [{ layer, card, initial, rank, opener }]
+const BACKGROUND = ['.titlebar', '.shell', '#sysPanel', '#onboarding', '#modal', '#approvalModal'];
+const FIELD = 'input:not([type=hidden]):not(:disabled), textarea:not(:disabled), select:not(:disabled)';
+// The actions row's first button when it is neither danger nor primary: Cancel or Close. Never Approve,
+// Delete, Save or another action (the calendar's details start with Delete: the card takes the focus).
+const SAFE_BUTTON = '.modal-actions > .btn:first-child:not(.danger):not(.primary):not(:disabled)';
+let dialogSeq = 0;
+function applyInert() {
+  const top = layers.at(-1)?.layer;
+  for (const q of BACKGROUND) for (const n of document.querySelectorAll(q)) n.inert = Boolean(top) && n !== top && !n.contains(top);
+}
+function focusInto({ card, initial }) {
+  (initial?.isConnected ? initial : card.querySelector(FIELD) || card.querySelector(SAFE_BUTTON) || card).focus({ preventScroll: true });
+}
+const usable = (n) => Boolean(n?.isConnected) && n !== document.body && !n.closest('[inert], .hidden');
+export function holdFocus(layer, card, { role = 'dialog', initial = null } = {}) {
+  const rank = layer.classList.contains('approval-layer') ? 1 : 0;
+  const at = layers.findIndex((l) => l.rank > rank);
+  // A dialog that opens under an approval (a timer, a notice) gives the focus back to where the user was
+  // before the approval, not to the approval's card.
+  const entry = { layer, card, initial, rank, opener: at < 0 ? document.activeElement : layers[at].opener };
+  layers.splice(at < 0 ? layers.length : at, 0, entry);
+  if (!card.hasAttribute('tabindex')) card.tabIndex = -1;
+  card.setAttribute('role', role);
+  card.setAttribute('aria-modal', 'true');
+  applyInert();
+  let released = false;
+  queueMicrotask(() => {
+    // After build() has filled the card: its heading names it, and the focus moves in, unless the builder
+    // already put it there or a layer above (an approval) holds it.
+    const head = card.querySelector('h2, h3');
+    if (head) card.setAttribute('aria-labelledby', (head.id ||= `dlg-${++dialogSeq}`));
+    else card.removeAttribute('aria-labelledby');
+    if (!released && layers.at(-1) === entry && !card.contains(document.activeElement)) focusInto(entry);
+  });
+  return () => {
+    if (released) return;
+    released = true;
+    const i = layers.indexOf(entry);
+    const wasTop = i === layers.length - 1;
+    layers.splice(i, 1);
+    applyInert();
+    if (!wasTop) return; // a layer under the top closed: nothing moves
+    // Back to the opener, unless a layer is still open and the opener isn't in it (a notice's button):
+    // then into that layer, e.g. an approval closing over a dialog opened after it.
+    const next = layers.at(-1);
+    if (usable(entry.opener) && (!next || next.layer.contains(entry.opener))) entry.opener.focus({ preventScroll: true });
+    else if (next) focusInto(next);
+  };
+}
+export const dialogOpen = () => layers.length > 0;
+export const topLayer = () => layers.at(-1)?.layer || null;
+// A refusal from the main process in plain words (inline errors in the editors).
+export function plainError(e) {
+  const text = typeof e === 'string' ? e : e?.message;
+  return String(text || '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '') || 'Something went wrong.';
 }
 
 export function debounce(fn, ms = 250) {

@@ -63,7 +63,7 @@
   content: '';
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: var(--z-toast); /* painted after #toasts, never in the way of clicks */
   pointer-events: none;
   background:
     repeating-linear-gradient(to bottom, transparent 0 2px, rgba(var(--shadow), 0.025) 2px 3px),
@@ -369,7 +369,7 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 }
 :is(.fx-hud, .fx-subtle) .toast.err { border-left-color: rgb(var(--err)); }
 :is(.fx-hud, .fx-subtle) .toast::before {
-  content: 'SYS // ' attr(data-time);
+  content: 'SYS // ' attr(data-time) / ''; /* not read out: the notices are a live region */
   display: block;
   margin-bottom: 3px;
   font-family: var(--hud-mono);
@@ -426,7 +426,7 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 .hud-boot {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: var(--z-boot);
   display: grid;
   place-items: center;
   background: radial-gradient(ellipse at center, rgba(var(--c1), 0.08), transparent 60%), var(--bg);

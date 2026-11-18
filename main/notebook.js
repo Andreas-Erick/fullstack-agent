@@ -149,6 +149,48 @@ async function remove(rel) {
   return obsidian.deleteNote(rel);
 }
 
+const GONE = 'That note isn’t in the vault’s bin (.trash) any more.';
+let restoring = Promise.resolve(); // one Undo at a time: two never land on the same name
+
+/** Undo of a delete: the file from the bin back to where it was, byte for byte (frontmatter included). */
+function restore(trashed, rel) {
+  const run = restoring.then(() => restoreNow(String(trashed || ''), String(rel || '')));
+  restoring = run.catch(() => {});
+  return run;
+}
+
+async function restoreNow(trashed, rel) {
+  check(rel);
+  if (!/^\.trash\/[^/\\]+\.md$/i.test(trashed)) throw new Error(GONE);
+  const r = await root();
+  const from = resolveInside(r, trashed);
+  const st = await fsp.stat(from).catch(() => null);
+  if (!st?.isFile()) throw new Error(GONE);
+  const dir = rel.split('/').slice(0, -1).join('/');
+  const used = await taken(r, dir);
+  // Its own name when that is still free; "<name> 2" when a note took it meanwhile (never over it).
+  let next = used.has(rel.toLowerCase()) ? check(core.uniquePath(dir, core.titleOf(rel), used)) : rel;
+  await fsp.mkdir(path.dirname(resolveInside(r, next)), { recursive: true });
+  // Copied without replacing, then taken out of the bin: a rename replaces a file that appeared at that
+  // name after the check (on Windows too), so a note written there a moment ago would be lost.
+  for (;;) {
+    const to = resolveInside(r, next);
+    try {
+      await fsp.copyFile(from, to, fs.constants.COPYFILE_EXCL);
+      await fsp.utimes(to, st.atime, st.mtime).catch(() => {}); // its dates as they were, as a move keeps them
+      break;
+    } catch (err) {
+      if (err.code === 'ENOENT') throw new Error(GONE);
+      if (err.code !== 'EEXIST') throw err;
+      used.add(next.toLowerCase());
+      next = check(core.uniquePath(dir, core.titleOf(rel), used)); // gives up after 999 names
+    }
+  }
+  await fsp.unlink(from).catch(() => {}); // the note is back; a copy left in the bin harms nothing
+  await obsidian.afterChange(r, next, `restore ${next}`);
+  return { path: next };
+}
+
 async function pin(rel, on) {
   check(rel);
   const full = resolveInside(await root(), rel);
@@ -195,4 +237,4 @@ async function summary() {
   return { count: notes.length, today: notes.filter((n) => n.day === today).map((n) => n.title), notebooks: core.notebooks(notes, today) };
 }
 
-module.exports = { list, read, create, save, rename, remove, pin, polish, summary };
+module.exports = { list, read, create, save, rename, remove, restore, pin, polish, summary };
