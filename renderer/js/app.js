@@ -12,7 +12,7 @@ import { initUsage } from './usage.js';
 import { initUpdates } from './updates.js';
 import { initIssues } from './issues.js';
 import { initSysmon } from './sysmon.js';
-import { initHandoff, handoffNote } from './handoff.js';
+import { handoffNote } from './handoff.js';
 import { initHud, bootScreen } from './hud.js';
 import { tryCommand } from './commands.js';
 import { startThinkingSound, stopThinkingSound, thinkingStyle } from './sounds.js';
@@ -100,7 +100,6 @@ async function boot() {
   const showAgentWin = () => $('#pillAgentWin').classList.toggle('hidden', state.settings?.agentWindow?.enabled === false);
   on('settings', showAgentWin);
   showAgentWin();
-  initHandoff();
   setupVoiceRouting();
 
   // Navigation

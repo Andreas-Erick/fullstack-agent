@@ -26,7 +26,7 @@ const channels = {
   chat: ['send', 'abort', 'endSession'],
   approval: ['respond'],
   remote: ['status', 'pair', 'cancelPair', 'revoke', 'revokeAll', 'setReadOnly', 'transcribed', 'spoken', 'detectTailscale', 'checkSecure', 'setupTailscale'],
-  handoff: ['get', 'dismiss', 'skip'],
+  handoff: ['get', 'dismiss'],
   helperApps: ['status', 'start'],
   setup: ['start', 'skip', 'checkService'],
   guide: ['features'],

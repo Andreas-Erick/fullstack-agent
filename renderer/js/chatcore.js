@@ -55,6 +55,26 @@ export function describeMessage(m, labels = {}) {
   };
 }
 
+const newest = (items, key) => items.reduce((best, c) => (!best || (c[key] || 0) > (best[key] || 0) ? c : best), null);
+
+/** The chat opened at launch, from the conversation index (main/store.js): the one the user last wrote
+ *  in, not a routine's run that came later; the setup conversation only when there is nothing else. */
+export function launchConversation(list) {
+  const items = (list || []).filter(Boolean);
+  if (!items.length) return null;
+  const mine = items.filter((c) => !c.setup && c.lastOwnAt > 0);
+  if (mine.length) return newest(mine, 'lastOwnAt');
+  return newest(items.filter((c) => !c.routine && !c.setup), 'updatedAt') || items[0];
+}
+
+/** A History row: a routine's conversation (no message of the user's own; also the tasks sync) is marked
+ *  ⏰, once (its title usually starts with the run's own ⏰ or 🔄 already). */
+export function historyTitle(c) {
+  const title = c.title || 'Untitled';
+  if (!c.routine) return { text: title, tip: title };
+  return { text: /^(⏰|🔄)/u.test(title) ? title : `⏰ ${title}`, tip: `${title} (started by a routine or the app, not by you)` };
+}
+
 // What the voice says while a tool runs, by the kind of tool.
 export const FILLERS = {
   web: ['Let me look that up.', 'Searching the web.', 'One moment, checking online.'],

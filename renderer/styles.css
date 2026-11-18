@@ -215,7 +215,7 @@ select.input option { background: var(--bg-3); }
 .empty-orb { width: 90px; height: 90px; margin: 0 auto; border-radius: 50%; background: radial-gradient(circle at 50% 50%, rgba(var(--c1), 0.9), rgba(var(--c2), 0.4) 40%, transparent 70%); box-shadow: 0 0 60px rgba(var(--c1), 0.35); opacity: 0.85; animation: breathe 3.5s ease-in-out infinite; }
 /* Scale and opacity only: an animated filter repainted the glow every frame (~3% CPU while idle). */
 @keyframes breathe { 50% { transform: scale(1.08); opacity: 1; } }
-/* "Where we left off" (handoff.js): on the empty chat, and the screen shown while closing */
+/* "Where we left off" (handoff.js): on the empty chat */
 .handoff-card { margin: 22px auto 0; max-width: 520px; padding: 14px 16px; text-align: left; display: flex; flex-direction: column; gap: 6px; }
 .handoff-card p { margin: 0; color: var(--text); font-size: 14px; }
 .handoff-card .row { margin-top: 6px; }
@@ -225,11 +225,6 @@ select.input option { background: var(--bg-3); }
 .handoff-list { font-size: 13px; color: var(--text-2); }
 .handoff-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .handoff-list ul { margin: 2px 0 0; padding-left: 18px; }
-.closing-screen { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(var(--shadow), 0.6); backdrop-filter: blur(4px); }
-.closing-card { padding: 22px 26px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; background: var(--glass-strong); }
-.closing-spin { width: 26px; height: 26px; border-radius: 50%; border: 2px solid rgba(var(--c1), 0.25); border-top-color: rgb(var(--c1)); animation: spin 0.9s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .closing-spin { animation: none; } }
 .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 22px; }
 .suggestion { border: 1px solid var(--line); background: var(--glass); border-radius: 999px; padding: 7px 14px; font-size: 13px; cursor: pointer; color: var(--text-2); }
 .suggestion:hover { border-color: var(--line-strong); color: var(--text); }
