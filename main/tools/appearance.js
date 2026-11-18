@@ -18,7 +18,7 @@ module.exports = [
     parameters: obj({ persona: str('The persona\'s name or id (persona_list)') }, ['persona']),
     run: async (a, ctx) => {
       const persona = require('../persona');
-      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', `Switch to the persona "${a.persona}"`, 'Asked after reading external content.');
+      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', `Switch to the persona "${a.persona}"`, 'Asked after reading external content.', { taintAsks: true });
       const s = await persona.activate(a.persona);
       ctx.emit({ type: 'settings_changed' });
       // The new persona says hello in its own voice once this reply is done (renderer chat.js).
@@ -57,7 +57,7 @@ module.exports = [
     run: async (a, ctx) => {
       const persona = require('../persona');
       const s = await store.getSettings();
-      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', 'Change my look', 'Asked after reading external content.');
+      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', 'Change my look', 'Asked after reading external content.', { taintAsks: true });
       const patch = {};
       if (a.reset) patch.appearance = { theme: null };
       else {

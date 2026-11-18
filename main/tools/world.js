@@ -56,7 +56,7 @@ module.exports = [
     ),
     run: async (a, ctx) => {
       const world = require('../innerworld');
-      const r = await require('../rehearsal').run({ ...a, opener: a.opener === 'user' ? 'user' : 'character' }, { onTurn: (line) => world.progress({ type: 'rehearsal_turn', line }) });
+      const r = await require('../rehearsal').run({ ...a, opener: a.opener === 'user' ? 'user' : 'character' }, { onTurn: (line) => world.progress({ type: 'rehearsal_turn', line }), signal: ctx.signal });
       ctx.emit({ type: 'world_changed' });
       if (r.note) ctx.emit({ type: 'vault_changed', path: r.note });
       return r;

@@ -14,6 +14,7 @@ const github = require('./github');
 const approvals = require('./approvals');
 const log = require('./logger');
 const connectors = require('./connectors');
+const outbound = require('./outboundcore');
 const claudeUsage = require('./claudeusage');
 const perf = require('./perfcore');
 
@@ -303,6 +304,27 @@ function forget(convId, ...ids) {
 }
 const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const WEB_TOOLS = ['WebFetch', 'WebSearch'];
+const READ_TOOLS = ['Read', 'Glob', 'Grep'];
+// Our own refusals (approve()) as the CLI hands them back (an error result): nothing from outside in them.
+const DENIED = /^(User did not approve|Not approved by the user|Connectors are turned off|This is an automatic warm-up|The reply was stopped|Tool \S+ is not available)/;
+
+// Where a path really is: the nearest part that exists, resolved (a Windows short name such as GIT~1, a
+// link or a junction becomes what it names), plus the parts that don't exist yet.
+function realPath(p) {
+  let probe = path.resolve(p);
+  const rest = [];
+  while (!fs.existsSync(probe)) {
+    const up = path.dirname(probe);
+    if (up === probe) return path.resolve(p);
+    rest.unshift(path.basename(probe));
+    probe = up;
+  }
+  try {
+    return path.join(fs.realpathSync.native(probe), ...rest);
+  } catch {
+    return path.resolve(p);
+  }
+}
 const shortTool = (name) => String(name || '').replace(/^mcp__nexus(_more)?__/, '');
 
 function inside(root, file) {
@@ -414,7 +436,7 @@ class Session {
     const unregister = bridge.registerSession(bridgeId, {
       allowed: spec.toolNames,
       core: spec.coreTools,
-      getCtx: () => this.turn?.ctx || null,
+      getCtx: () => (this.turn && !this.turn.settled ? this.turn.ctx : null),
       approve: (req) => this.inTurn(() => this.approve(req)),
     });
     this.unregister = unregister;
@@ -535,11 +557,22 @@ class Session {
   async approve({ tool_name: tool, input = {} }) {
     // The cache warm-up (warmCache) is not the user's turn: nothing it asks for runs.
     if (this.warming) return { behavior: 'deny', message: 'This is an automatic warm-up: no tools.' };
+    if (!this.turn || this.turn.settled) return { behavior: 'deny', message: 'The reply was stopped.' };
     const turnState = this.turn?.ctx?.turn;
     const { codeRoot, vault, repos, allowSelfModify } = this.spec;
     if (EDIT_TOOLS.includes(tool)) {
       const file = input.file_path || input.notebook_path || '';
-      if (vault && inside(vault, file)) return { behavior: 'allow', updatedInput: input };
+      if (vault && inside(vault, file)) {
+        // The vault's own machinery (.git: vaultgit runs git there; .obsidian: Obsidian loads its plugins
+        // from it; .trash, node_modules) is never written from a session, as the app's own vault tools
+        // refuse it. Compared where the file really is, so GIT~1 is .git and a link can't lead out.
+        const rel = path.relative(realPath(vault), realPath(file));
+        if (rel.startsWith('..') || path.isAbsolute(rel)) return { behavior: 'deny', message: 'That path leads out of the vault.' };
+        // A colon names an NTFS stream (".git::$INDEX_ALLOCATION" is .git itself); no note name has one.
+        if (rel.includes(':')) return { behavior: 'deny', message: 'A vault path can’t contain “:” (Obsidian doesn’t allow it in a note’s name either).' };
+        if (require('./files').hasReservedPart(rel, require('./obsidian').IGNORE)) return { behavior: 'deny', message: 'The vault’s .git, .obsidian, .trash and node_modules folders are not edited from here.' };
+        return { behavior: 'allow', updatedInput: input };
+      }
       if (repos && inside(repos, file)) return this.approveRepoEdit(tool, file, input, turnState);
       if (inside(codeRoot, file)) {
         if (!allowSelfModify) return { behavior: 'deny', message: 'Self-modification is disabled in Settings.' };
@@ -559,32 +592,49 @@ class Session {
     if (connectors.isConnectorTool(tool)) {
       if (!this.spec.connectors && !(connectors.toolServer(tool) in (this.spec.extensions || {}))) return { behavior: 'deny', message: 'Connectors are turned off in Settings.' };
       // Connectors act in the user's accounts (send, post, create, delete), so they ask even in auto
-      // mode; one yes covers that connector for the rest of the turn. The user's level for the service
-      // (connectors.levelOf: allow reading / all but deleting / everything) is read live, so a change
-      // applies at once, even mid-turn, and taking a permission back never waits for a restart.
+      // mode; one yes covers that connector for the rest of the turn, except that after outside content
+      // deleting or reaching other people needs a yes given after it (below). The user's level for the
+      // service (connectors.levelOf: allow reading / all but deleting / everything) is read live, so a
+      // change applies at once, even mid-turn, and taking a permission back never waits for a restart.
       const server = connectors.toolServer(tool);
-      if (turnState?.connectorsApproved?.has(server)) return { behavior: 'allow', updatedInput: input };
-      const cc = (await store.getSettings()).claudeCode;
-      if (connectors.permits(connectors.levelOf(cc, server), tool)) return { behavior: 'allow', updatedInput: input };
+      const s = await store.getSettings();
+      const level = connectors.levelOf(s.claudeCode, server);
+      const tainted = Boolean(turnState?.tainted) && Boolean(s.safety?.taintGuard); // ?.: test stand-ins carry only claudeCode
+      // After outside content (a calendar invitation's or a shared task's text can ask for anything),
+      // deleting or reaching other people needs a yes given after it: neither the level nor an earlier yes
+      // in the turn covers it. One dialog per service for deleting and one for reaching people, with the
+      // warning: a yes to one never covers the other.
+      const why = tainted ? connectors.taintedAsk(tool, input) : null;
+      const askKey = why ? `${server}#${why}` : server;
+      if (why ? turnState?.connectorsApprovedTainted?.has(askKey) : turnState?.connectorsApproved?.has(server)) return { behavior: 'allow', updatedInput: input };
+      if (!why && connectors.permits(level, tool)) return { behavior: 'allow', updatedInput: input };
+      if (why && connectors.permits(level, tool)) log.info('connector asked after outside content', { server, why });
       // Parallel calls to one service (several searches at once) ask once: the others wait for that
-      // answer instead of each opening a dialog.
-      const asking = turnState?.connectorAsking?.get(server);
+      // answer instead of each opening a dialog. A delete or an invitation after outside content never
+      // follows another call's yes.
+      const asking = turnState?.connectorAsking?.get(askKey);
       if (asking) {
         const first = await asking;
         if (first.allow) return { behavior: 'allow', updatedInput: input };
         return { behavior: 'deny', message: `User did not approve: ${first.reason}` };
       }
       const { service, action } = connectors.describeTool(tool);
-      const choices = connectors.rememberChoices(tool);
+      const choices = tainted ? [] : connectors.rememberChoices(tool); // never "from now on" from a turn that read outside content
       const question = approvals.gate(turnState, 'connector', `Use ${service}: ${action}`, JSON.stringify(input, null, 2).slice(0, 1500), { remember: choices });
-      if (turnState) (turnState.connectorAsking ||= new Map()).set(server, question);
+      if (turnState) (turnState.connectorAsking ||= new Map()).set(askKey, question);
       let r;
       try {
         r = await question;
       } finally {
-        turnState?.connectorAsking?.delete(server);
+        turnState?.connectorAsking?.delete(askKey);
       }
-      if (r.allow && turnState) (turnState.connectorsApproved ||= new Set()).add(server);
+      if (r.allow && turnState) {
+        (turnState.connectorsApproved ||= new Set()).add(server);
+        // A yes to a delete covers the service's next deletes for the rest of the turn, a yes to an
+        // invitation its next invitations; a yes to anything else covers neither (its dialog said nothing
+        // about deleting or inviting).
+        if (why) (turnState.connectorsApprovedTainted ||= new Set()).add(askKey);
+      }
       // "Always allow…" in the dialog (the user's click or spoken "always"): only a level offered for this tool.
       if (r.allow && choices.some((c) => c.level === r.remember)) {
         await store.setSettings({ claudeCode: connectors.levelPatch((await store.getSettings()).claudeCode, server, r.remember) });
@@ -608,6 +658,11 @@ class Session {
       approvals.markTainted(turnState, `${tool} ${input.file_path || input.path || ''}`);
       return { behavior: 'allow', updatedInput: input };
     }
+    // Only when the session was given it (web search on): a new host after outside content asks.
+    if (tool === 'WebFetch' && (this.spec.builtins || []).includes('WebFetch')) {
+      const r = await approvals.askOutbound(turnState, input.url);
+      return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
+    }
     return { behavior: 'deny', message: `Tool ${tool} is not available here.` };
   }
 
@@ -627,6 +682,31 @@ class Session {
     const preview = String(input.new_string ?? input.content ?? '').slice(0, 600);
     const r = await approvals.gate(turnState, 'repo_change', `Change files in ${repo} (branch ${branch})`, `${tool} ${rel}${preview ? `\n\n${preview}` : ''}`);
     return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
+  }
+
+  noteResult(t, info, content) {
+    const turn = t.ctx?.turn;
+    if (!turn) return;
+    const input = info.input || {};
+    // The result links of a search made before the turn read anything outside may be opened later
+    // without asking (its own links only: a snippet's text is the page's own words).
+    if (info.name === 'WebSearch') outbound.noteHosts(turn, outbound.resultLinkHosts(content));
+    if (connectors.isConnectorTool(info.name)) {
+      const { service, action } = connectors.describeTool(info.name);
+      approvals.markTainted(turn, `${service}: ${action}`); // as the dialogs name it, not the tool id
+    } else if (WEB_TOOLS.includes(info.name) || this.readsOutside(info.name, input)) {
+      approvals.markTainted(turn, `${info.name} ${input.url || input.query || input.file_path || input.path || ''}`.trim());
+    }
+  }
+
+  // Read/Glob/Grep in the user's folders or a cloned repo (the CLI allows them there without asking
+  // approve()). The vault and the app's own code stay the user's own, as vault_read_note and code_read_file.
+  readsOutside(name, input) {
+    if (!READ_TOOLS.includes(name)) return false;
+    const { cwd, vault, codeRoot, repos, userFolders = [] } = this.spec || {};
+    const target = readTarget(input, cwd);
+    if ((vault && inside(vault, target)) || (codeRoot && inside(codeRoot, target))) return false;
+    return [repos, ...userFolders].some((r) => r && inside(r, target));
   }
 
   send(content, { emit, signal, ctx }) {
@@ -746,9 +826,6 @@ class Session {
         if (block.type !== 'tool_use' || t.tools.has(block.id)) continue;
         const name = shortTool(block.name);
         if (name === 'approval_prompt') continue;
-        if (WEB_TOOLS.includes(name)) approvals.markTainted(t.ctx?.turn, `${name} ${block.input?.url || block.input?.query || ''}`);
-        // What a connector returns (emails, documents, tasks, web results) is external content too.
-        if (connectors.isConnectorTool(name)) approvals.markTainted(t.ctx?.turn, name);
         // own: one of the app's tools (tools.js runs and logs it), not a connector or a Claude Code tool.
         t.tools.set(block.id, { name, input: block.input, started: Date.now(), own: /^mcp__nexus(_more)?__/.test(block.name) });
         t.emit({ type: 'tool_start', id: block.id, name, input: block.input });
@@ -764,6 +841,11 @@ class Session {
         if (!info) continue;
         const raw = Array.isArray(block.content) ? block.content.map((c) => c.text || '').join('\n') : String(block.content ?? '');
         const preview = raw.slice(0, 600);
+        // What came back is outside content (a page, search results, a connector's data, a file from the
+        // user's folders or a cloned repo): marked when it arrives, not when the call is made, so a call
+        // never counts as having read itself (its own approve() runs before its result). Only an error
+        // result can be our refusal: a page or an email that starts with those words still taints.
+        if (!(block.is_error && DENIED.test(preview))) this.noteResult(t, info, block.content);
         t.emit({ type: 'tool_end', id: block.tool_use_id, name: info.name, ok: !block.is_error, preview });
         t.records.push({ name: info.name, input: info.input, ok: !block.is_error, preview });
         const ms = Date.now() - info.started;
@@ -832,7 +914,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   // anything else comes to approve(), which checks the path against readRoots.
   const allowed = ['mcp__nexus'];
   const readRoots = [...new Set([cwd, vault, repos, ...folders, cwd && cliProjectDir(cwd)].filter(Boolean).map((p) => path.resolve(p)))];
-  if (settings.web.enabled) allowed.push('WebSearch', 'WebFetch');
+  if (settings.web.enabled) allowed.push('WebSearch'); // WebFetch comes to approve() (approvals.askOutbound)
   if (settings.code.allowSelfModify) allowed.push('Bash(npm run check)', 'Bash(node scripts/check.js)', 'Bash(npm test*)', 'Bash(node scripts/test.js*)', 'Bash(node scripts/verify.js*)', 'Bash(git status*)', 'Bash(git diff*)', 'Bash(git log*)');
   // The user's claude.ai connectors and plugins: found with ToolSearch, plugin skills with Skill.
   const withConnectors = Boolean(cc.connectors);
@@ -871,6 +953,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
     codeRoot: cwd,
     repos,
     readRoots,
+    userFolders: folders,
     addDirs: [...new Set([vault, repos, ...folders].filter(Boolean))],
     model,
     effort: cc.effort,
@@ -1012,6 +1095,20 @@ function closeIdleSessions() {
   return n;
 }
 
+const abortError = () => Object.assign(new Error('Stopped'), { name: 'AbortError' });
+function raceAbort(p, signal) {
+  if (!signal) return p;
+  let off = () => {};
+  const stopped = new Promise((_, reject) => {
+    if (signal.aborted) return reject(abortError());
+    const on = () => reject(abortError());
+    signal.addEventListener('abort', on, { once: true });
+    off = () => signal.removeEventListener('abort', on);
+  });
+  stopped.catch(() => {});
+  return Promise.race([p, stopped]).finally(off);
+}
+
 /**
  * One assistant turn through the conversation's warm Claude Code session. The stable prompt is built
  * once when the process starts; `buildContext(memIds)` supplies what changed since then, every turn.
@@ -1020,7 +1117,9 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, images 
   const session0 = sessions.get(conv.id) || new Session(conv.id);
   sessions.set(conv.id, session0);
   const attempt = async () => {
+    if (signal.aborted) throw abortError(); // stopped while waiting in line: never sent, nothing spawned
     await session0.interrupting; // the previous, interrupted turn must end first
+    if (signal.aborted) throw abortError();
     const session = await ensureSession(conv, opts);
     const context = await buildContext(session.memIds);
     let prompt = history[history.length - 1].content;
@@ -1053,7 +1152,7 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, images 
   };
   const p = session0.chain.then(run, run);
   session0.chain = p.catch(() => {});
-  return p;
+  return raceAbort(p, signal); // Stop ends a turn waiting behind a warm-up or another reply at once
 }
 
 // Start the process ahead of time (e.g. while the greeting plays) so the first turn is warm.

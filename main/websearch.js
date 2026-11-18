@@ -142,7 +142,8 @@ function htmlToText(html) {
   return { title, text };
 }
 
-async function fetchPage(url, maxChars = 20000) {
+/** beforeRedirect(url): awaited before each redirect is followed; it throws to refuse it (web_fetch asks there). */
+async function fetchPage(url, maxChars = 20000, { beforeRedirect = null } = {}) {
   const s = await store.getSettings();
   if (!s.web.enabled) throw new Error('Internet access is disabled in Settings.');
   // Redirects one hop at a time, each checked before it is requested: with redirect 'follow', a public
@@ -151,6 +152,7 @@ async function fetchPage(url, maxChars = 20000) {
   let at = url;
   for (let hop = 0; ; hop++) {
     await assertPublic(at);
+    if (hop > 0 && beforeRedirect) await beforeRedirect(at);
     res = await fetch(at, { headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml,text/plain,application/json;q=0.9' }, redirect: 'manual', signal: AbortSignal.timeout(20000) });
     const next = res.status >= 300 && res.status < 400 && res.headers.get('location');
     if (!next) break;

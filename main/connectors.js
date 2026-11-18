@@ -68,25 +68,88 @@ function parseMcpList(text) {
   return out;
 }
 
+/**
+ * A tool's action in words: "mcp__x__send-message", "send_message" and "sendMessage" are all "send message".
+ * stripService drops leading words that repeat the service's name (Slack's slack_send_message, Gmail's
+ * gmail_…), so the verb comes first as with other services.
+ */
+function actionWords(toolName, { stripService = false } = {}) {
+  const server = toolServer(toolName);
+  const words = String(toolName).slice(`mcp__${server}__`.length).replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[-_\s]+/).filter(Boolean);
+  if (stripService) {
+    const service = new Set(describeTool(toolName).service.toLowerCase().split(/[^a-z0-9]+/));
+    while (words.length > 1 && service.has(words[0])) words.shift();
+  }
+  return words.join(' ');
+}
+
 // Tool names that only read: list_events, get-file, search_designs, suggest_time, whoami…
 const READ_VERBS = /^(list|get|search|read|find|fetch|query|lookup|view|describe|whoami|suggest|check|count|status)(?![a-z])/;
 
-/** True when the tool's own name says it only reads (used for connectors set to "allow reading"). */
+/**
+ * True when the tool's own name says it only reads (used for connectors set to "allow reading"): it starts
+ * with a reading verb, after the service's own name, and names no deleting (check_and_remove_duplicates).
+ */
 function isReadOnly(toolName) {
-  const server = toolServer(toolName);
-  const action = String(toolName).slice(`mcp__${server}__`.length).toLowerCase().replace(/[-_]+/g, ' ');
-  return READ_VERBS.test(action);
+  return READ_VERBS.test(actionWords(toolName, { stripService: true })) && !isDestructive(toolName);
 }
 
 // Tool names that remove or undo things: delete-object, remove_member, archive_project, cancel_order…
-const DESTRUCTIVE_VERBS = /^(delete|remove|archive|purge|destroy|drop|cancel|revoke|clear|reset|wipe|uninstall|unsubscribe|empty|trash)(?![a-z])/;
+// Anywhere in the name (slack_delete_message, bulkDeleteTasks): only ever asks more.
+const DESTRUCTIVE_VERBS = /(^| )(delete|remove|archive|purge|destroy|drop|cancel|revoke|clear|reset|wipe|uninstall|unsubscribe|empty|trash)(?![a-z])/;
 
 /** True when the tool's name says it deletes or undoes something (asks even at "allow all but deleting"). */
 function isDestructive(toolName) {
-  const server = toolServer(toolName);
-  const action = String(toolName).slice(`mcp__${server}__`.length).toLowerCase().replace(/[-_]+/g, ' ');
+  const action = actionWords(toolName);
   // Multipurpose admin tools (Todoist's project-management archives projects) can do either: they ask.
   return DESTRUCTIVE_VERBS.test(action) || /(^| )(manage|management|admin)( |$)/.test(action);
+}
+
+// Fields that name other people (an invitation, a message, an assignment), with the prefixes and suffixes
+// services use: attendees, attendeeEmails, addedAttendees (Google Calendar), assignee_username (TickTick),
+// shareWith… removedAttendeeEmails too: Google Calendar e-mails them a cancellation. The address-like
+// ones count only with an "@" in them ("to" is also a date in some tools).
+const PEOPLE_KEY = /^(added|new|extra|removed)?(attendee|invitee|guest|recipient|assignee|responsible|member|participant|collaborator|sharewith|sharedwith|shareto)s?(email|emails|user|users|username|usernames|uid|id|ids|name|names)?$/;
+const ADDRESS_KEYS = new Set(['to', 'cc', 'bcc', 'email', 'emails']);
+// Anywhere in the name (slack_send_message, outlook_send_email); a message goes to someone (Slack's
+// schedule_message sends it later).
+const PEOPLE_VERBS = /(^| )(send|share|invite|assign|respond|reply|forward|publish|post|notify|mention|email|message|messages)(?![a-z])/;
+// Shallow on purpose: a nested value is walked by namesPeople, with a depth and width limit.
+const filled = (v) => (Array.isArray(v) ? v.length > 0 : v && typeof v === 'object' ? Object.keys(v).length > 0 : typeof v === 'string' ? v.trim() !== '' : v != null && v !== false);
+const hasAt = (v) => {
+  try {
+    return JSON.stringify(v).includes('@');
+  } catch {
+    return true; // too deep to look at: counted as naming someone
+  }
+};
+
+/** Whether an input names people: a people field anywhere in it (batch tools nest them), or an address field with an "@". */
+function namesPeople(value, depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 4) return false;
+  if (Array.isArray(value)) return value.slice(0, 50).some((v) => namesPeople(v, depth + 1));
+  return Object.keys(value).slice(0, 100).some((k) => {
+    const key = k.toLowerCase().replace(/[-_\s]/g, '');
+    if (PEOPLE_KEY.test(key)) return filled(value[k]);
+    if (ADDRESS_KEYS.has(key)) return filled(value[k]) && hasAt(value[k]);
+    return namesPeople(value[k], depth + 1);
+  });
+}
+
+/** True when the call reaches people besides the user: its action sends or shares, or its input names them. */
+function reachesPeople(toolName, input) {
+  return PEOPLE_VERBS.test(actionWords(toolName)) || namesPeople(input);
+}
+
+/**
+ * In a turn that read outside content: why this call needs a yes given after it ('delete' | 'people'), or
+ * null. Neither the service's level nor a yes from before the taint covers such a call. Reads never do.
+ */
+function taintedAsk(toolName, input) {
+  if (isReadOnly(toolName)) return null;
+  if (isDestructive(toolName)) return 'delete';
+  if (reachesPeople(toolName, input)) return 'people';
+  return null;
 }
 
 /** A short view by state: { connected, needSignIn, failing, notSetUp } of display names. */
@@ -149,4 +212,4 @@ function findServers(list, name) {
   return (list || []).filter((c) => clean(c).includes(want) || c.key.toLowerCase() === want.replace(/ /g, '_')).sort((a, b) => rank(a) - rank(b));
 }
 
-module.exports = { OWN_SERVER, LEVELS, LEVEL_LABEL, serverKey, toolServer, isConnectorTool, isReadOnly, isDestructive, describeTool, parseMcpList, byStatus, allowedKeys, levelOf, permits, levelPatch, rememberChoices, findServers, OWN_SERVERS, isOwnServer };
+module.exports = { OWN_SERVER, LEVELS, LEVEL_LABEL, serverKey, toolServer, isConnectorTool, isReadOnly, isDestructive, reachesPeople, taintedAsk, describeTool, parseMcpList, byStatus, allowedKeys, levelOf, permits, levelPatch, rememberChoices, findServers, OWN_SERVERS, isOwnServer };

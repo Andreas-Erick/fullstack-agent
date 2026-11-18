@@ -104,3 +104,114 @@ test('"try again" is a command only while the latest reply failed or was stopped
   const app = fs.readFileSync(path.join(ROOT, 'renderer/js/app.js'), 'utf8');
   assert.match(app, /retry: retryLatest, canRetry: canRetryLatest/, 'app.js hands the chat’s Try again to the commands');
 });
+
+// ---- Spoken answers to an approval (approvalAnswer): "Approve" and "Okay, go ahead" used to decline; a
+// lone "okay" from a TV approved a command through an open microphone; words said before the dialog
+// appeared answered it.
+test('spoken approval answers: what approves and what declines', async () => {
+  const { approvalAnswer } = await load();
+  for (const said of ['Approve.', 'Okay, go ahead.', 'Yes, yes.', 'yes please', 'Yes', 'OK.', 'Allow it!', 'Sure, go ahead.', 'Approve it']) {
+    assert.strictEqual(approvalAnswer(said), 'yes', said);
+  }
+  for (const said of ['No, put it in drafts.', 'go', 'alright', '', '   ', '👨‍👩‍👧‍👦', 'نعم', '<script>alert(1)</script>', 'x'.repeat(10000), 'yes '.repeat(3000), 'yes but not the dentist', null, undefined]) {
+    assert.strictEqual(approvalAnswer(said), 'no', String(said).slice(0, 40));
+  }
+  for (const said of ['Details', 'details.', 'What exactly?', 'show details']) assert.strictEqual(approvalAnswer(said), 'details', said);
+});
+
+test('"always" needs a remember choice and the talk key', async () => {
+  const { approvalAnswer } = await load();
+  assert.strictEqual(approvalAnswer('Always.', { canRemember: true, source: 'ptt' }), 'always');
+  assert.strictEqual(approvalAnswer("Don't ask again.", { canRemember: true, source: 'ptt' }), 'always', 'the apostrophe is dropped');
+  assert.strictEqual(approvalAnswer('always', { canRemember: true, source: 'open' }), 'needs-key');
+  assert.strictEqual(approvalAnswer('always', { canRemember: true, source: '' }), 'needs-key');
+  assert.strictEqual(approvalAnswer('always', { source: 'ptt' }), 'no', 'nothing to remember: a sentence');
+});
+
+test('the always-ask kinds take a spoken yes only from the talk key; a tainted command only a click', async () => {
+  const { approvalAnswer } = await load();
+  assert.strictEqual(approvalAnswer('yes', { voice: 'key', source: 'ptt' }), 'yes');
+  assert.strictEqual(approvalAnswer('okay', { voice: 'key', source: 'open' }), 'needs-key', 'a TV saying "okay" approves nothing');
+  assert.strictEqual(approvalAnswer('yes', { voice: 'key', source: '' }), 'needs-key');
+  assert.strictEqual(approvalAnswer('yes', { voice: 'click', source: 'ptt' }), 'needs-click');
+  assert.strictEqual(approvalAnswer('no thanks', { voice: 'click', source: 'ptt' }), 'no', 'declining by voice is fine');
+  assert.strictEqual(approvalAnswer('details', { voice: 'click' }), 'details');
+  assert.strictEqual(approvalAnswer('yes', { voice: 'any', source: 'open' }), 'yes');
+});
+
+test('speech that began before the approval appeared is never its answer', async () => {
+  const { approvalAnswer } = await load();
+  for (const said of ['yes', 'no', 'details', 'always', '', 'please add milk']) {
+    assert.strictEqual(approvalAnswer(said, { startedAt: 100, shownAt: 200, source: 'ptt', canRemember: true }), 'early', said);
+  }
+  assert.strictEqual(approvalAnswer('yes', { startedAt: 0, shownAt: 200 }), 'yes', 'start unknown: never early');
+  assert.strictEqual(approvalAnswer('yes', { startedAt: 200, shownAt: 200 }), 'yes');
+  assert.strictEqual(approvalAnswer('yes', { startedAt: 300, shownAt: 200 }), 'yes');
+});
+
+test('seeded: no spoken text approves past its policy', async () => {
+  const { approvalAnswer } = await load();
+  const words = ['yes', 'Yes,', 'okay', 'go', 'ahead', 'approve', 'always', 'allow', 'it', 'no', 'details', '.', '!', "don't", 'ask', 'again', 'please', 'سلام', '👍', '   ', 'do', 'sure'];
+  let a = 4242; // mulberry32, seed 4242
+  const rnd = () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const results = new Set(['early', 'details', 'needs-click', 'needs-key', 'yes', 'always', 'no']);
+  for (let i = 0; i < 500; i++) {
+    const text = Array.from({ length: 1 + Math.floor(rnd() * 4) }, () => words[Math.floor(rnd() * words.length)]).join(' ');
+    const voice = ['any', 'key', 'click'][Math.floor(rnd() * 3)];
+    const source = ['ptt', 'open', ''][Math.floor(rnd() * 3)];
+    const canRemember = rnd() < 0.5;
+    const r = approvalAnswer(text, { voice, source, canRemember });
+    const label = `seed 4242 case ${i}: ${JSON.stringify(text)} ${voice} ${source} ${canRemember}`;
+    assert.ok(results.has(r), label);
+    if (voice === 'click') assert.ok(r !== 'yes' && r !== 'always', label);
+    if (source !== 'ptt') assert.ok(r !== 'always', label);
+    if (voice === 'key' && source !== 'ptt') assert.ok(r !== 'yes', label);
+    if (!canRemember) assert.ok(r !== 'always', label);
+  }
+});
+
+test('the spoken prompt and the hint say how this approval is answered', async () => {
+  const { approvalPrompt, approvalHint } = await load();
+  assert.strictEqual(approvalPrompt({ title: 'Delete a note', kind: 'delete', voice: 'any' }), 'Permission needed: Delete a note. Say yes or no.');
+  assert.match(approvalPrompt({ title: 'x', kind: 'connector', voice: 'key', tainted: true }), /after reading outside content/);
+  assert.doesNotMatch(approvalPrompt({ title: 'x', kind: 'connector', voice: 'key' }), /outside content|details/);
+  assert.match(approvalPrompt({ title: 'Run a command', kind: 'command', voice: 'key' }), /Say details to hear the command\. Say yes or no\.$/);
+  assert.match(approvalPrompt({ title: 'Run a command', kind: 'command', voice: 'click', tainted: true }), /Then click Approve or Deny\.$/);
+  assert.strictEqual(approvalHint({ voice: 'click' }), 'Click Approve or Deny: this one isn’t answered by voice. ');
+  assert.strictEqual(approvalHint({ voice: 'any', remember: [{ level: 'read' }] }), 'Say “yes” to approve, say “always” to stop asking, “details” to hear more; anything else declines. ');
+  assert.strictEqual(approvalHint({ voice: 'key' }, { pttKey: 'F8', handsFree: true }), 'Hold F8 and say “yes” to approve, “details” to hear more; anything else declines. ');
+  assert.strictEqual(approvalHint({ voice: 'any', remember: [{}] }, { pttKey: 'F8', handsFree: true }), 'Say “yes” to approve, hold F8 and say “always” to stop asking, “details” to hear more; anything else declines. ');
+  assert.strictEqual(approvalHint({ voice: 'key' }, { handsFree: false }), 'Say “yes” to approve, “details” to hear more; anything else declines. ', 'push-to-talk: the key is how they speak anyway');
+  assert.match(approvalHint({ voice: 'key' }, { handsFree: true }), /^Hold the talk key/);
+});
+
+test('the dialog answers through approvalAnswer, marks when it appeared, and acknowledges', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/approval.js'), 'utf8');
+  assert.match(src, /import \{ approvalAnswer, approvalPrompt, approvalHint \} from '\.\/commandcore\.js';/);
+  assert.doesNotMatch(src, /const (YES|ALWAYS) = new Set/, 'the word lists live in commandcore.js');
+  const shown = src.indexOf('current.shownAt = performance.now();');
+  assert.ok(shown > 0 && shown < src.indexOf('speaker.say(approvalPrompt(req))'), 'shownAt is set before the prompt is spoken');
+  assert.match(src, /toast\(`🎙 \$\{allow \? 'Approved' : 'Declined'\}/);
+  const voice = fs.readFileSync(path.join(ROOT, 'renderer/js/voice.js'), 'utf8');
+  assert.match(voice, /export const utteranceInfo = \(\) => utteranceStart;/);
+  assert.ok(voice.indexOf("utteranceStart = { source: 'ptt'") < voice.indexOf('await finishUtterance(() => recorder.stop());'));
+  assert.match(voice, /utteranceStart = \{ source: 'open', startedAt: performance\.now\(\) - \(this\.loud \|\| 0\) \}/);
+  // Regression (review): a talk-key tap during a hands-free piece, or a release while one was still being
+  // written down, made the open microphone's words count as the talk key's.
+  assert.match(voice, /this\.seg = \{[^}]*start: utteranceStart \};/, 'the hands-free piece keeps its own start');
+  const handsFreeEnd = voice.indexOf('finishUtterance(() => toMono16k(concat(seg.chunks), this.rate)');
+  assert.ok(handsFreeEnd > 0 && voice.lastIndexOf('utteranceStart = seg.start;', handsFreeEnd) > voice.lastIndexOf('const seg = this.seg;', handsFreeEnd), 'and gets it back right before its words are written down');
+  assert.match(voice, /if \(!busy\) utteranceStart = \{ source: 'ptt'/, 'a release never takes over a piece still being written down');
+});
+
+test('"stop asking" says what still asks', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/commands.js'), 'utf8');
+  const line = src.split('\n').find((l) => l.includes('stop asking('));
+  assert.match(line, /I still ask before changing my code, running commands, publishing, sending invitations and using services you haven’t allowed/);
+  assert.match(line, /after reading outside content, before deleting or inviting in your services or opening new websites/);
+});

@@ -13,7 +13,7 @@ const COMMANDS = [
   { re: /^(switch to |use )?(the )?(deep|smart|big|thinking) model$/, run: async () => (await saveSettings({ llm: { modelMode: 'deep' } }), 'Switched to the deep model.') },
   { re: /^(switch to |use )?(the )?(fast|quick|small) model$/, run: async () => (await saveSettings({ llm: { modelMode: 'fast' } }), 'Switched to the fast model.') },
   { re: /^(switch to |use )?(the )?default model$/, run: async () => (await saveSettings({ llm: { modelMode: 'default' } }), 'Back to the default model.') },
-  { re: /^stop asking( for permission)?$/, run: async () => (await saveSettings({ safety: { permissionMode: 'auto' } }), 'Okay — I’ll stop asking, except before changing my code after reading web pages or documents, and before running commands.') },
+  { re: /^stop asking( for permission)?$/, run: async () => (await saveSettings({ safety: { permissionMode: 'auto' } }), 'Okay, I’ll stop asking. I still ask before changing my code, running commands, publishing, sending invitations and using services you haven’t allowed, and, after reading outside content, before deleting or inviting in your services or opening new websites.') },
   { re: /^start asking( again)?( for permission)?$/, run: async () => (await saveSettings({ safety: { permissionMode: 'ask' } }), 'I’ll ask before changing my code, settings or deleting things.') },
   // "New chat", "start a new conversation", "let's start a fresh chat please", "clear the chat".
   { re: NEW_CHAT, run: async (ctx) => (ctx.newChat(), 'New chat.') },

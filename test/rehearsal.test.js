@@ -89,3 +89,48 @@ test('a run plays until everyone is done, debriefs, saves and records it', async
   assert.strictEqual(recorded[0].title, 'Raise talk');
   assert.match(streamed[0].text, /Rehearsed "Raise talk"/);
 });
+
+// ------------------------------------------------------------- Stop (the turn's signal)
+// A scripted model per test (rehearsal.js requires ./llm when it runs); every prompt is counted.
+function scripted(answer) {
+  const prompts = [];
+  stub({ './llm': { complete: (_s, prompt) => (prompts.push(prompt), answer(prompts.length, prompt)) } });
+  return prompts;
+}
+const isDebrief = (p) => /sharp, kind coach/.test(p);
+
+test('Stop after the second line: no more turns, no debrief, and the two lines are kept', async () => {
+  const prompts = scripted(async (n) => `Line ${n}`);
+  const ac = new AbortController();
+  const seen = [];
+  const r = await rehearsal.run({ ...SPEC, title: 'Stopped after two' }, { onTurn: (l) => (seen.push(l), seen.length === 2 && ac.abort()), signal: ac.signal });
+  assert.strictEqual(prompts.length, 2, 'no third turn');
+  assert.ok(!prompts.some(isDebrief), 'no debrief');
+  assert.strictEqual(r.stopped, 'stopped by the user');
+  assert.strictEqual(r.debrief, null);
+  assert.deepStrictEqual(r.transcript.map((l) => l.text), ['Line 1', 'Line 2']);
+  assert.match(notes.get(r.note), /Line 1[\s\S]*Line 2/);
+  assert.doesNotMatch(notes.get(r.note), /Line 3/);
+});
+
+test('Stop while a turn is being written ends the scene at once, with what was said', async () => {
+  const ac = new AbortController();
+  const prompts = scripted((n) => {
+    if (n < 3) return Promise.resolve(`Line ${n}`);
+    setImmediate(() => ac.abort());
+    return new Promise(() => {}); // the model never answers this one
+  });
+  const r = await rehearsal.run({ ...SPEC, title: 'Stopped mid-turn' }, { signal: ac.signal });
+  assert.strictEqual(prompts.length, 3);
+  assert.ok(!prompts.some(isDebrief));
+  assert.strictEqual(r.stopped, 'stopped by the user');
+  assert.deepStrictEqual(r.transcript.map((l) => l.text), ['Line 1', 'Line 2']);
+});
+
+test('a rehearsal stopped before it began asks nothing and writes nothing', async () => {
+  const prompts = scripted(async () => 'Line');
+  const before = { notes: notes.size, recorded: recorded.length, streamed: streamed.length };
+  await assert.rejects(rehearsal.run({ ...SPEC, title: 'Never started' }, { signal: AbortSignal.abort() }), { name: 'AbortError' });
+  assert.strictEqual(prompts.length, 0);
+  assert.deepStrictEqual({ notes: notes.size, recorded: recorded.length, streamed: streamed.length }, before);
+});
