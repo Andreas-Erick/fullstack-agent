@@ -126,7 +126,7 @@
                 <div class="seg small" id="layoutSeg" role="group" aria-label="Layout">
                   <button data-layout="chat" title="Chat only (Ctrl+Shift+1)">▤ Chat</button>
                   <button data-layout="split" title="Chat and face side by side (Ctrl+Shift+2)">◧ Split</button>
-                  <button data-layout="face" title="Face full size, chat underneath (Ctrl+Shift+3)">◉ Face</button>
+                  <button data-layout="face" title="Face full size; the latest reply shows on a card (Ctrl+Shift+3)">◉ Face</button>
                 </div>
                 <button class="chip-btn" id="windowFull" title="Full screen (F11)">⛶</button>
                 <div class="dropdown">
@@ -157,6 +157,15 @@
               </div>
             </div>
             <button class="scroll-latest hidden" id="scrollLatest" title="Jump to the latest message (End)">↓ Latest</button>
+            <!-- The Face layout hides the conversation: the latest reply shows here, over the face (js/chat.js showCard). -->
+            <section class="reply-card hidden" id="replyCard" role="region" aria-label="Latest reply" tabindex="-1">
+              <div class="reply-card-head">
+                <span class="reply-card-kicker">Latest reply</span>
+                <button class="chip-btn" id="replyCardOpen" title="Show the whole conversation (Split layout)">Open in chat</button>
+                <button class="icon-btn" id="replyCardClose" aria-label="Close the reply card" title="Close (Esc)">✕</button>
+              </div>
+              <div class="bubble reply-card-body" id="replyCardBody"></div>
+            </section>
             <div class="composer glass">
               <img class="screen-thumb hidden" id="screenThumb" alt="Shared screen" title="This is what the assistant sees with your next message" />
               <button class="mic-btn" id="micBtn" title="Hold to talk">

@@ -5,6 +5,8 @@ import { practiceLanguage, quoteFilter } from './practice.js';
 import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
 import * as chatcore from './chatcore.js';
+import { showNote } from './notes.js';
+import { showVaultNote, searchVault } from './knowledge.js';
 import { speaker } from './voice.js';
 import { handoffSlot } from './handoff.js';
 
@@ -34,6 +36,9 @@ export function initChat() {
   $('#newChatTop').onclick = newChat; // the history panel (and its ＋) is hidden in the Face layout and narrow windows
   $('#convSearch').addEventListener('input', renderConvList);
   $('#chatTitle').ondblclick = renameCurrent;
+  // [[Note]] links in replies open the note (click, or Enter on a focused one).
+  for (const box of [messagesEl(), $('#replyCard')]) for (const type of ['click', 'keydown']) box.addEventListener(type, onNoteLink);
+  initReplyCard();
   document.querySelectorAll('.suggestion').forEach((b) => (b.onclick = () => send(b.textContent)));
 
   $('#speakToggle').onclick = async () => {
@@ -156,6 +161,7 @@ async function renameCurrent() {
 
 export function newChat() {
   if (active) stop();
+  closeCard(); // closed, not just hidden: the stopped reply's last text and its 'aborted' must not bring it back
   currentId = null;
   earlier = [];
   $('#chatTitle').textContent = 'New conversation';
@@ -181,6 +187,7 @@ export async function openConversation(id) {
   if (active) return toast('Wait for the current reply to finish (or press stop).');
   const conv = await api.conv.get(id).catch(() => null);
   if (!conv) return newChat();
+  hideCard();
   currentId = conv.id;
   $('#chatTitle').textContent = conv.title;
   const box = messagesEl();
@@ -395,7 +402,7 @@ function messageNode(m) {
   if (m.toolCalls?.length) body.append(el('div', { class: 'tools' }, m.toolCalls.map(toolChip)));
   const bubble = el('div', { class: 'bubble' });
   if (d.markdown) {
-    bubble.innerHTML = renderMarkdown(d.text);
+    bubble.innerHTML = renderMarkdown(d.text, { wikilinks: 'open' });
     bubble.dataset.stamp = stamp(m);
   } else bubble.textContent = d.text;
   if (d.tags.length) body.append(el('div', { class: 'msg-tag' }, d.tags.map((t) => el('span', {}, t))));
@@ -434,6 +441,94 @@ function scrollToBottom(force = false) {
   if (force || box.scrollHeight - box.scrollTop - box.clientHeight < 160) box.scrollTop = box.scrollHeight;
 }
 
+// ---------------------------------------------------------------- reply card
+// The Face layout hides the conversation, so the latest reply shows on a card over the face: as it is
+// written when it isn't spoken (voice off or muted, or past voice.speakLimit: "the rest is on the screen"),
+// else when it is done. It goes away with the next message, ✕, Esc, "Open in chat" or another layout.
+const faceLayout = () => $('#view-chat').classList.contains('layout-face');
+const replyCard = () => $('#replyCard');
+
+function initReplyCard() {
+  $('#replyCardClose').onclick = closeCard;
+  $('#replyCardOpen').onclick = openCardInChat;
+  replyCard().addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation(); // only the card: the window's Esc (stop speaking, leave full screen) waits for the next press
+    closeCard();
+  });
+  // Leaving the Face layout puts it away; it comes back with the next reply, not with the layout.
+  on('settings', (s) => s?.ui?.chatLayout !== 'face' && hideCard());
+  // The card sits between the header (two rows in a narrow window) and the composer, however tall a draft
+  // makes it (the box grows to 220px): the room they take, as --header-clear and --composer-clear
+  // (styles.css). Layout offsets, not screen boxes, so a view's entrance transform doesn't skew them.
+  const main = replyCard().parentElement;
+  const header = main.querySelector('.chat-header');
+  const composer = main.querySelector('.composer');
+  const clear = () => {
+    if (!main.clientHeight) return; // the view is hidden
+    main.style.setProperty('--header-clear', `${Math.ceil(header.offsetTop + header.offsetHeight)}px`);
+    main.style.setProperty('--composer-clear', `${Math.ceil(main.clientHeight - composer.offsetTop)}px`);
+  };
+  const watch = new ResizeObserver(clear);
+  for (const node of [header, composer, $('#voiceStatus')]) watch.observe(node);
+}
+
+// follow: a live card keeps the newest text in view (as the caption it replaces did), unless the user
+// scrolled up to read; a card that just appeared starts at the top. error: in the error colour, like the bubble.
+function showCard(md, { follow = false, error = false } = {}) {
+  const body = $('#replyCardBody');
+  const shown = !replyCard().classList.contains('hidden');
+  const atEnd = shown && body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+  body.innerHTML = renderMarkdown(md, { wikilinks: 'open' });
+  body.classList.toggle('error-bubble', error);
+  replyCard().classList.remove('hidden');
+  if (!shown) body.scrollTop = 0;
+  else if (follow && atEnd) body.scrollTop = body.scrollHeight;
+}
+
+function hideCard() {
+  const card = replyCard();
+  const focused = card.contains(document.activeElement);
+  card.classList.add('hidden');
+  if (focused) $('#input').focus({ preventScroll: true });
+}
+
+// Put away by the user: it stays away for the rest of this reply.
+function closeCard() {
+  if (active) active.cardClosed = true;
+  hideCard();
+}
+
+// The whole conversation instead (Split; the setting as the voice command saves it, so no layout.js import),
+// opened at the latest reply at once (.messages scrolls smoothly; a layout switch must not). The 'settings'
+// event has applied the layout by the time saveSettings resolves.
+async function openCardInChat() {
+  hideCard();
+  await saveSettings({ ui: { chatLayout: 'split', showVisualizerInChat: true } });
+  const box = messagesEl();
+  box.scrollTo({ top: box.scrollHeight, behavior: 'instant' });
+}
+
+// A [[note]] link: the note in Notes (the user's own, Notes/ and Inbox/) or in the Vault (any other note),
+// or a vault search when there is no such note. A click in the chat never creates one.
+function onNoteLink(e) {
+  const a = e.target.closest('a.wikilink');
+  if (!a || (e.type === 'keydown' && e.key !== 'Enter')) return;
+  e.preventDefault();
+  openNoteLink(a.dataset.note);
+}
+
+async function openNoteLink(ref) {
+  const n = await api.obsidian.read(ref).catch(() => null);
+  if (!n) {
+    toast(`No note called “${ref}” in your vault yet.`);
+    return searchVault(ref);
+  }
+  // Notes/Notes.md and Inbox/Inbox.md are the folders' own lists (main/notebookcore.js isNotePath).
+  if (/^(Notes|Inbox)\//.test(n.path) && !/^(Notes\/Notes|Inbox\/Inbox)\.md$/.test(n.path)) showNote(n.path);
+  else showVaultNote(n.path);
+}
+
 // --------------------------------------------------------------------- send
 // Spoken input: interrupts a reply in progress (the old turn is stopped and drained), then sends.
 export function sendVoice(text) {
@@ -462,6 +557,7 @@ export async function send(text, { voice = false, hidden = false } = {}) {
     return;
   }
   speaker.stop();
+  hideCard();
   $('#emptyState')?.remove();
   messagesEl().querySelector('.empty-state')?.remove();
 
@@ -516,7 +612,11 @@ function renderActive() {
   requestAnimationFrame(() => {
     if (!active) return;
     active.renderQueued = false;
-    active.bubble.innerHTML = renderMarkdown(active.text);
+    active.bubble.innerHTML = renderMarkdown(active.text, { wikilinks: 'open' });
+    // Read on the card as it is written when it isn't spoken (cardLive) or no longer is (speakLimit reached);
+    // once up it follows the text, also after a retract (whose speaker.stop() clears capped).
+    const onCard = !replyCard().classList.contains('hidden');
+    if (faceLayout() && !active.cardClosed && (active.cardLive || speaker.capped || onCard)) showCard(active.text, { follow: true });
     scrollToBottom();
   });
 }
@@ -533,7 +633,10 @@ function handleEvent(ev) {
       active.text += ev.delta;
       if (!state.streamingText) setFlag('streamingText', true);
       if (ttsActive() && !active.muted) speaker.feed(active.speech(ev.delta));
-      else setCaption(active.text.slice(-280), 'assistant');
+      else {
+        active.cardLive = true; // not spoken: in the Face layout it is read on the card as it comes
+        setCaption(active.text.slice(-280), 'assistant');
+      }
       renderActive();
       break;
     case 'retract':
@@ -602,7 +705,13 @@ function handleEvent(ev) {
     case 'done': {
       const m = ev.message;
       active.bubble.classList.remove('streaming');
-      active.bubble.innerHTML = renderMarkdown(m.content || '');
+      active.bubble.innerHTML = renderMarkdown(m.content || '', { wikilinks: 'open' });
+      // The finished reply on the card (the voice, if on, goes on reading; the mini caption steps aside).
+      // A turn that only used tools has nothing to read: no empty card.
+      if (faceLayout() && !active.cardClosed) {
+        if ((m.content || '').trim()) showCard(m.content);
+        else hideCard();
+      }
       announce(`${agentName()}: ${active.bubble.textContent}`);
       active.bubble.dataset.stamp = stamp(m);
       active.body.append(metaNode(m));
@@ -618,19 +727,25 @@ function handleEvent(ev) {
       break;
     }
     case 'error':
-    case 'aborted':
+    case 'aborted': {
       active.bubble.classList.remove('streaming');
+      const md = ev.type === 'error' ? `${active.text ? `${active.text}\n\n---\n` : ''}**Error:** ${ev.message}` : active.text || '*(stopped)*';
+      active.bubble.innerHTML = renderMarkdown(md, { wikilinks: 'open' });
+      // On the card: an error always (the Face layout shows nothing else); a stop only where it was being read.
+      const onCard = !replyCard().classList.contains('hidden');
+      if (faceLayout() && !active.cardClosed && (ev.type === 'error' || onCard)) showCard(md, { error: ev.type === 'error' });
       if (ev.type === 'error') {
         active.bubble.classList.add('error-bubble');
-        active.bubble.innerHTML = renderMarkdown(`${active.text ? `${active.text}\n\n---\n` : ''}**Error:** ${ev.message}`);
         toastError(new Error(ev.message));
         announce(`Error: ${ev.message}`);
         raiseAlert(ev.message);
-        logEvent('error', 'reply failed', ev.message);
-      } else active.bubble.innerHTML = renderMarkdown(active.text || '*(stopped)*');
+        // 'info': main.js already logs the failed turn as an error, with its stack (one problem report, not two).
+        logEvent('info', 'reply failed', ev.message);
+      }
       finish();
       refreshList();
       break;
+    }
   }
 }
 
