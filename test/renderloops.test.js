@@ -83,7 +83,9 @@ test('chat: a streamed frame renders once, and in the Face layout only what the 
   assert.match(init, /requestAnimationFrame\(\(\) => active && scrollToBottom\(true\)\);/);
   assert.ok(!/active\.bubble\.innerHTML = renderMarkdown\(active\.text, \{ wikilinks: 'open' \}\);\n\s+scrollToBottom\(true\);/.test(init), 'not in the same task');
   const app = read('renderer/js/app.js');
-  assert.ok(at(app, 'initChat();') < at(app, "on('settings', applySettings)"), 'the order the next frame waits out');
+  // boot() starts each part through start(name, fn), which calls fn at once (settings' boot boundary).
+  assert.ok(at(app, "start('chat', initChat, 'chat');") < at(app, "on('settings', applySettings)"), 'the order the next frame waits out');
+  assert.match(slice('renderer/js/app.js', 'function start(name, fn, view = null) {', '\n}\n'), /try \{\n\s+const r = fn\(\);/);
   assert.match(render, /active\.behind = face;/);
   // The end of a reply still renders its bubble in every layout.
   assert.match(slice(file, "case 'done': {", "case 'error':"), /active\.bubble\.innerHTML = renderMarkdown\(m\.content \|\| '', \{ wikilinks: 'open' \}\);/);

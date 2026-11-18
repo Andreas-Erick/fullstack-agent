@@ -1,11 +1,11 @@
 // Configuration dashboard. Every control auto-saves to settings.json (secrets are encrypted at rest).
-import { $, api, el, escapeHtml, toast, toastError, confirmDialog, debounce, on, emit, modal } from './util.js';
+import { $, api, el, escapeHtml, toast, toastError, confirmDialog, on, emit, modal, logEvent } from './util.js';
 import { state, saveSettings, loadSettings } from './state.js';
 import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice, forgetVoiceLines } from './voice.js';
 import { KOKORO_VOICES } from './kokorotext.js';
 import { refreshList, newChat } from './chat.js';
 import { FONTS, PATTERNS, CORE_SHAPES, TRACE_STYLES, normalizeTheme, extractPalette } from './theme.js';
-import { switchView } from './nav.js';
+import { switchView, currentView } from './nav.js';
 import { previewThinkingSound, thinkingStyle } from './sounds.js';
 import { BUILT_IN } from './faces/host.js';
 import { setZoom } from './layout.js';
@@ -17,6 +17,7 @@ import { detect } from './perf.js';
 import { profile, speechPlan } from './perfcore.js';
 import { checkNow as checkUpdatesNow } from './updates.js';
 import { TABS, tabFor, validTab, stepTab, matches } from './settingstabs.js';
+import { stale, staleNow, createSaves } from './settingsave.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -41,27 +42,46 @@ function patchFor(p, value) {
 }
 
 let savedTimer;
-async function save(p, value) {
+let renderedPersona = null; // the persona the cards on screen were drawn for (render)
+
+// Main's active persona. This window's copy lags behind a switch made on the phone, the watch or by a
+// routine: the window hears of it only when it reads the settings again.
+const liveActive = async () => (await api.settings.get())?.personas?.active;
+
+// A change made in cards drawn for one persona never lands in another (switched in the title bar, by the
+// agent, on the phone or the watch, or by a routine while Settings was open): it is dropped with a notice.
+// A switch only main knew of brings this window up to date, which redraws the studio for the new persona.
+async function dropped(path, persona = renderedPersona) {
+  const active = state.settings.personas?.active;
+  if (!(await staleNow(path, persona, active, liveActive))) return false;
+  toast('Not saved: the persona changed meanwhile.', 'error');
+  if (!stale(path, persona, active)) loadSettings().catch(() => {});
+  return true;
+}
+
+// Saves one setting; whether it was saved (switches and selects flip back when it wasn't).
+async function save(p, value, persona = renderedPersona) {
   try {
+    if (await dropped(p, persona)) return false;
     await saveSettings(patchFor(p, value));
     const s = $('#saveState');
     s.textContent = '✓ Saved';
     s.classList.add('show');
     clearTimeout(savedTimer);
     savedTimer = setTimeout(() => s.classList.remove('show'), 1400);
+    return true;
   } catch (err) {
     toastError(err);
+    return false;
   }
 }
-const saveDebounced = {};
-function queueSave(p, value) {
-  saveDebounced[p] ||= debounce((v) => save(p, v), 400);
-  saveDebounced[p](value);
-}
+const saves = createSaves({ save });
+const queueSave = (p, value) => saves.queue(p, value, renderedPersona);
+const flushSaves = () => saves.flushAll();
 
 // ---------------------------------------------------------- field builders
 function text(p, label, { type = 'text', placeholder = '', hint = '', onChange } = {}) {
-  const input = el('input', { class: 'input', type, value: get(p) ?? '', placeholder, spellcheck: 'false', step: type === 'number' ? 'any' : null });
+  const input = el('input', { class: 'input', type, value: get(p) ?? '', placeholder, spellcheck: 'false', step: type === 'number' ? 'any' : null, 'data-setting': p });
   input.addEventListener('input', () => {
     const v = type === 'number' ? Number(input.value) : input.value;
     queueSave(p, v);
@@ -71,27 +91,27 @@ function text(p, label, { type = 'text', placeholder = '', hint = '', onChange }
 }
 
 function area(p, label, { rows = 6, hint = '' } = {}) {
-  const t = el('textarea', { class: 'input', rows });
+  const t = el('textarea', { class: 'input', rows, 'data-setting': p });
   t.value = get(p) ?? '';
   t.addEventListener('input', () => queueSave(p, t.value));
   return field(label, t, hint);
 }
 
 function toggle(p, label, onChange) {
-  const input = el('input', { type: 'checkbox' });
+  const input = el('input', { type: 'checkbox', 'data-setting': p });
   input.checked = Boolean(get(p));
   input.addEventListener('change', async () => {
-    await save(p, input.checked);
+    if (!(await save(p, input.checked))) return void (input.checked = Boolean(get(p)));
     onChange?.(input.checked);
   });
   return el('label', { class: 'toggle' }, input, el('span', { class: 'sw' }), el('span', {}, label));
 }
 
 function select(p, label, options, { hint = '', onChange } = {}) {
-  const s = el('select', { class: 'input' });
+  const s = el('select', { class: 'input', 'data-setting': p });
   fillSelect(s, options, get(p));
   s.addEventListener('change', async () => {
-    await save(p, s.value);
+    if (!(await save(p, s.value))) return void (s.value = get(p) ?? '');
     onChange?.(s.value);
   });
   return field(label, s, hint);
@@ -117,7 +137,7 @@ function field(label, control, hint) {
 }
 
 function folder(p, label, { hint = '', placeholder = '', onChange } = {}) {
-  const input = el('input', { class: 'input', value: get(p) || '', placeholder, spellcheck: 'false' });
+  const input = el('input', { class: 'input', value: get(p) || '', placeholder, spellcheck: 'false', 'data-setting': p });
   input.addEventListener('change', async () => {
     await save(p, input.value.trim());
     onChange?.();
@@ -177,11 +197,18 @@ export function initSettings() {
   });
   on('view', ({ name, section }) => {
     if (name !== 'settings') return;
-    // A link to one card ("brain" from the title bar's pill) opens its tab, then scrolls to it once
-    // the cards exist (several of them load data first).
-    if (section) (activeTab = tabFor(section)), (query = '');
-    render().then(() => section && $(`#set-${section}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    // A link to one card ("brain" from the title bar's pill) opens its tab at once, then scrolls to it
+    // once the new cards are in (several of them load data first).
+    if (section) (activeTab = tabFor(section)), (query = ''), drawTabsKeepingSearch(), showCards();
+    scrollTarget = section || null;
+    // Read again first: a persona switched on the phone, the watch or by a routine never reached this
+    // window, and the studio would show (and save into) the one before.
+    render({ reload: true }).catch((err) => logEvent('warn', 'settings render failed', { message: String(err?.message || err) }));
   });
+  // The persona changed (the title bar, the agent, or found by a reload): the studio shows the new one.
+  // Only a persona change redraws: the user's own saves keep the same active persona. Compared with the
+  // latest render's persona, so a switch back while a redraw is under way redraws once more.
+  on('settings', (s) => currentView === 'settings' && s?.personas?.active !== drawingFor && render());
 }
 
 // ------------------------------------------------------------------- tabs
@@ -284,16 +311,70 @@ function showCards() {
   } else empty?.remove();
 }
 
-async function render() {
+// Every card, in order: [id as passed to card() (settingstabs.js tabs), title for its error card, builder].
+// A builder that keeps a module-level reference (sttProgressEl, refreshRemote…) sets it before its first
+// await, so the latest render's cards are the ones it points to.
+const CARDS = [
+  ['agent', 'Persona studio', agentCard], ['brain', 'AI brain', brainCard], ['extensions', 'Extensions', extensionsCard],
+  ['voice', 'Voice output', voiceCard], ['stt', 'Voice input', sttCard], ['learning', 'Learning', learningCard],
+  ['helperapps', 'Helper apps', helperAppsCard], ['safety', 'Safety & permissions', safetyCard], ['remote', 'Remote access', remoteCard],
+  ['obsidian', 'Obsidian vault', obsidianCard], ['web', 'Internet', webCard], ['code', 'Self-improvement', selfCard],
+  ['health', 'Health & the mechanic', healthCard], ['calendar', 'Calendar', calendarCard], ['github', 'GitHub', githubCard],
+  ['documents', 'Documents & folder access', docsCard], ['data', 'Memory & history', dataCard], ['world', 'Inner World', worldCard], ['ui', 'Interface', uiCard],
+];
+let renderGen = 0;
+let drawingFor = null; // the persona the latest render draws for
+let scrollTarget = null; // the card a link opened (a status light), brought into view when the latest render lands
+let refocus = null; // { path, persona }: the field that had the keyboard focus when a redraw began
+// Builds every card at once (the slow ones in parallel) and swaps them in together: the old cards stay
+// until the new ones exist, and only the latest render lands (two renders used to show every card twice).
+// Meanwhile the old cards can't be changed (inert): a value typed into them would show older in the new
+// cards and be saved over. What still waits to be saved goes in first, so the new cards show it.
+async function render({ reload = false } = {}) {
+  const mine = ++renderGen;
   const root = $('#settingsRoot');
-  const scroll = root.parentElement.scrollTop;
-  root.innerHTML = '';
-  root.setAttribute('role', 'tabpanel');
-  root.append(agentCard(), brainCard(), extensionsCard(), voiceCard(), sttCard(), learningCard(), helperAppsCard(), safetyCard(), remoteCard(), await obsidianCard(), webCard(), await selfCard(), await healthCard(), await calendarCard(), await githubCard(), await docsCard(), await dataCard(), worldCard(), uiCard());
-  if (!document.querySelector('#settingsTabs .settings-tablist')) drawTabs();
-  else drawTabsKeepingSearch();
-  showCards();
-  root.parentElement.scrollTop = scroll;
+  const focused = document.activeElement?.closest?.('#settingsRoot [data-setting]');
+  if (focused) refocus = { path: focused.dataset.setting, persona: renderedPersona };
+  root.inert = true;
+  root.setAttribute('aria-busy', 'true');
+  try {
+    if (!root.childElementCount) root.replaceChildren(el('p', { class: 'muted' }, 'Loading settings…'));
+    await flushSaves();
+    if (reload) await loadSettings().catch(() => {}); // a changed persona redraws once more (the settings listener)
+    if (mine !== renderGen) return false;
+    const persona = (drawingFor = state.settings.personas?.active); // the cards below are drawn for this persona
+    const cards = await Promise.all(CARDS.map(([id, title, build]) => safeCard(id, title, build)));
+    if (mine !== renderGen) return false;
+    const scroll = root.parentElement.scrollTop;
+    root.replaceChildren(...cards);
+    root.inert = false;
+    root.removeAttribute('aria-busy');
+    root.setAttribute('role', 'tabpanel');
+    renderedPersona = persona;
+    if (!document.querySelector('#settingsTabs .settings-tablist')) drawTabs();
+    else drawTabsKeepingSearch();
+    showCards();
+    root.parentElement.scrollTop = scroll;
+    // A switch toggled with Space (or a select) keeps the keyboard focus, unless the cards are another persona's.
+    const back = refocus?.persona === persona && root.querySelector(`[data-setting="${CSS.escape(refocus.path)}"]`);
+    if (back && (!document.activeElement || document.activeElement === document.body)) back.focus({ preventScroll: true });
+    refocus = null;
+    if (scrollTarget) $(`#set-${scrollTarget}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    scrollTarget = null;
+    return true;
+  } finally {
+    if (mine === renderGen) (root.inert = false), root.removeAttribute('aria-busy');
+  }
+}
+
+// A card whose builder throws shows its own error with Try again; the others still render.
+async function safeCard(id, title, build) {
+  try {
+    return await build();
+  } catch (err) {
+    logEvent('warn', 'settings card failed', { id, message: String(err?.message || err).slice(0, 200) });
+    return card(id, title, '', el('div', { class: 'test-result err', role: 'alert' }, `This section couldn’t load: ${err?.message || err}`), el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => render() }, '⟳ Try again')));
+  }
 }
 
 // Persona Studio: master prompt + image + aesthetic → the agent's behaviour, look & feel and voice.
@@ -304,9 +385,10 @@ function agentCard() {
   const pick = el('button', {
     class: 'btn',
     onclick: async () => {
+      const persona = renderedPersona; // the picker can stay open while the persona changes elsewhere
       const dataUrl = await api.dialog.pickImage();
       if (!dataUrl) return;
-      await save('agent.avatar', await shrinkImage(dataUrl, 384));
+      await save('agent.avatar', await shrinkImage(dataUrl, 384), persona);
       setPreview();
     },
   }, 'Choose image…');
@@ -316,9 +398,11 @@ function agentCard() {
   const gen = el('button', {
     class: 'btn primary',
     onclick: async () => {
+      const persona = renderedPersona; // the model takes a minute: the result belongs to this persona
       gen.disabled = true;
-      showResult(out, true, `Designing ${state.settings.agent.name}'s look & feel… (this can take a minute)`);
       try {
+        if (await dropped('appearance.theme', persona)) return; // drawn for a persona no longer active: nothing asked
+        showResult(out, true, `Designing ${state.settings.agent.name}'s look & feel… (this can take a minute)`);
         const [palette, voices] = await Promise.all([extractPalette(state.settings.agent.avatar), api.tts.voices().catch(() => [])]);
         const res = await api.persona.generate({
           masterPrompt: state.settings.agent.personality,
@@ -329,12 +413,15 @@ function agentCard() {
           options: { fonts: Object.keys(FONTS), patterns: PATTERNS, cores: CORE_SHAPES, traces: TRACE_STYLES },
         });
         const theme = normalizeTheme(res.theme);
-        await saveSettings({ appearance: { theme, personaNotes: res.personaNotes, greeting: res.greeting } });
-        if (res.voice && state.settings.appearance.applyVoice) await saveSettings({ voice: { voice: res.voice } });
-        const applied = `✓ Applied “${theme.name}”${res.voice && state.settings.appearance.applyVoice ? ` · voice: ${res.voice}` : ''}.`;
+        if (await dropped('appearance.theme', persona)) return showResult(out, false, '✕ Not applied: the persona changed meanwhile.');
+        // The voice (persona-synced too) goes in the same save, so no switch can land between the two.
+        const voice = res.voice && state.settings.appearance.applyVoice ? res.voice : '';
+        await saveSettings({ appearance: { theme, personaNotes: res.personaNotes, greeting: res.greeting }, ...(voice ? { voice: { voice } } : {}) });
+        const applied = `✓ Applied “${theme.name}”${voice ? ` · voice: ${voice}` : ''}.`;
         showResult(out, true, `${applied} Drawing the scene behind the face…`);
-        const scene = await drawScene().catch((err) => (showResult(out, true, `${applied} The scene couldn't be drawn (${err.message}); try ↻ Draw the scene below.`), null));
+        const scene = await drawScene(persona).catch((err) => (showResult(out, true, `${applied} The scene couldn't be drawn (${err.message}); try ↻ Draw the scene below.`), undefined));
         if (scene) showResult(out, true, `${applied} Scene: ${scene.caption || 'drawn'}. Fine-tune it below.`);
+        else if (scene === null) showResult(out, true, `${applied} The scene wasn’t saved: the persona changed meanwhile.`);
         setTimeout(render, 900);
       } catch (err) {
         showResult(out, false, `✕ ${err.message}`);
@@ -387,7 +474,18 @@ function summaryRow() {
         }
       },
     }, st.text ? '↻ Write it again' : '✨ Write it now');
-    const keep = el('button', { class: 'btn', onclick: async () => (show(await api.persona.setSummary(textBox.value)), toast(textBox.value.trim() ? 'Saved: local models read your version.' : 'Back to the written version.')) }, 'Save my version');
+    const keep = el('button', {
+      class: 'btn',
+      onclick: async () => {
+        try {
+          if (await dropped('agent.personaSummary')) return;
+          show(await api.persona.setSummary(textBox.value));
+          toast(textBox.value.trim() ? 'Saved: local models read your version.' : 'Back to the written version.');
+        } catch (err) {
+          toastError(err);
+        }
+      },
+    }, 'Save my version');
     box.replaceChildren(
       el('label', {}, 'Short version for local models'),
       textBox,
@@ -404,10 +502,12 @@ let showSummary = null;
 api.on('persona:summary', (st) => showSummary?.(st));
 
 // The scene behind the face, drawn by the model from the persona and the theme's colors, saved with
-// the persona (appearance.scene) and shown by js/scene.js.
-async function drawScene() {
+// the persona (appearance.scene) and shown by js/scene.js. null when the persona changed while it was
+// drawn (nothing saved).
+async function drawScene(persona = renderedPersona) {
   const s = state.settings;
   const scene = await api.persona.scene({ masterPrompt: s.agent.personality, aesthetic: s.agent.aesthetic, theme: normalizeTheme(s.appearance?.theme) });
+  if (await dropped('appearance.scene', persona)) return null;
   await saveSettings({ appearance: { scene } });
   return scene;
 }
@@ -421,7 +521,8 @@ function sceneRow() {
       draw.disabled = true;
       showResult(out, true, 'Drawing the scene… (half a minute)');
       try {
-        const r = await drawScene();
+        const r = await drawScene(renderedPersona);
+        if (!r) return showResult(out, false, '✕ Not saved: the persona changed meanwhile.');
         showResult(out, true, `✓ ${r.caption || 'Drawn'}.`);
         setTimeout(render, 700);
       } catch (err) {
@@ -431,27 +532,33 @@ function sceneRow() {
       }
     },
   }, scene ? '↻ Draw the scene again' : '✨ Draw the scene');
-  const remove = scene ? el('button', { class: 'btn', onclick: async () => (await saveSettings({ appearance: { scene: null } }), render()) }, 'Remove') : '';
+  const remove = scene ? el('button', { class: 'btn', onclick: async () => (await dropped('appearance.scene')) || (await saveSettings({ appearance: { scene: null } }), render()) }, 'Remove') : '';
   return field('Scene behind the face', el('div', {}, el('div', { class: 'row' }, el('span', { class: 'hint' }, scene ? `“${scene.caption || 'A scene'}” · ${Math.round(scene.svg.length / 1024)} KB${scene.portrait ? ` wide + ${Math.round(scene.portrait.length / 1024)} KB tall` : ' (wide only: narrow panels crop it)'}` : 'None yet: a drawing of the place the persona lives in, in the theme’s colors.'), draw, remove), out), 'Drawn by the AI from the persona and aesthetic, wide and tall (for the chat’s face panel); its layers drift slowly and it dims while the face sleeps.');
 }
 
-// The saved personas: pick the one to edit (and be), add, duplicate, delete.
+// The saved personas: pick the one to edit (and be), add, duplicate, delete. Each saves what was just
+// typed first (into the persona it was typed for); the new active persona redraws the studio (initSettings).
 function personaBar() {
   const p = state.settings.personas;
   const sel = el('select', { class: 'input', title: 'The persona you are editing is the active one' });
   fillSelect(sel, p.list.map((x) => [x.id, x.name || 'Unnamed']), p.active);
-  sel.addEventListener('change', async () => (await switchPersona(sel.value), render()));
-  const add = el('button', { class: 'btn', title: 'A fresh persona with the default prompt and look', onclick: async () => (await createPersona(), render()) }, '＋ New');
+  sel.addEventListener('change', async () => {
+    await flushSaves();
+    await switchPersona(sel.value);
+    sel.value = state.settings.personas.active;
+  });
+  const add = el('button', { class: 'btn', title: 'A fresh persona with the default prompt and look', onclick: async () => (await flushSaves(), await createPersona()) }, '＋ New');
   const fromTemplate = el('button', { class: 'btn', title: 'Ready-made personas: a STEM tutor, a polyglot coach…', onclick: () => pickTemplate() }, '🎓 Templates…');
-  const dup = el('button', { class: 'btn', title: 'A copy of this persona to change', onclick: async () => (await createPersona({ copy: true }), render()) }, '⧉ Duplicate');
+  const dup = el('button', { class: 'btn', title: 'A copy of this persona to change', onclick: async () => (await flushSaves(), await createPersona({ copy: true })) }, '⧉ Duplicate');
   const del = el('button', {
     class: 'btn danger',
     disabled: p.list.length < 2,
     title: p.list.length < 2 ? 'Your only persona can’t be deleted' : 'Delete this persona',
     onclick: async () => {
+      await flushSaves();
+      const id = state.settings.personas.active; // the one named in the question, even if a switch lands meanwhile
       if (!(await confirmDialog(`Delete “${state.settings.agent.name}”?`, 'Its master prompt, image, theme, face and voice choice are removed. Memory, notes and conversations stay.', 'Delete'))) return;
-      await removePersona(state.settings.personas.active);
-      render();
+      await removePersona(id);
     },
   }, 'Delete');
   return field('Persona', el('div', { class: 'row', style: { flexWrap: 'wrap' } }, el('div', { style: { flex: 1, minWidth: '160px' } }, sel), add, fromTemplate, dup, del), 'Everything below belongs to the selected persona and is saved with it.');
@@ -470,8 +577,8 @@ async function pickTemplate() {
     );
   });
   if (!id) return;
+  await flushSaves();
   await createPersona({ template: id });
-  render();
 }
 
 // The VoiceStudio voice of this persona (and its offline voice), with a sample in its greeting.
@@ -508,6 +615,7 @@ function themeEditor() {
   const theme = normalizeTheme(state.settings.appearance?.theme);
   const isDefault = !state.settings.appearance?.theme;
   const update = async (mutate) => {
+    if (await dropped('appearance.theme')) return;
     const t = normalizeTheme(state.settings.appearance?.theme);
     mutate(t);
     await saveSettings({ appearance: { theme: t } });
@@ -547,7 +655,7 @@ function themeEditor() {
     sceneRow(),
     field('Voice & tone notes (from the aesthetic)', notes, 'Added to the system prompt so the agent writes in the matching style.'),
     text('appearance.greeting', 'Welcome greeting'),
-    isDefault ? '' : el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => (await saveSettings({ appearance: { theme: null } }), render()) }, '↺ Reset to the default theme')),
+    isDefault ? '' : el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => (await dropped('appearance.theme')) || (await saveSettings({ appearance: { theme: null } }), render()) }, '↺ Reset to the default theme')),
   );
 }
 
@@ -583,7 +691,10 @@ async function setLevel(key, level) {
 function permissionLevel(key, { disabled = false, name = key } = {}) {
   const level = levelOf(key);
   const box = el('select', { class: 'input allow-level', disabled, 'aria-label': `Permission for ${name}` }, ...[['ask', 'Ask every time'], ['read', 'Allow reading'], ['write', 'Allow all but deleting'], ['all', 'Allow everything']].map(([v, l]) => el('option', { value: v, selected: v === level }, l)));
-  box.addEventListener('change', () => setLevel(key, box.value));
+  box.addEventListener('change', () => setLevel(key, box.value).catch((err) => {
+    box.value = levelOf(key);
+    toastError(err);
+  }));
   return box;
 }
 
@@ -702,7 +813,7 @@ function connectorsSection() {
           el('span', { class: `dot ${cls}` }),
           el('span', { class: 'name', title: c.name }, title),
           el('span', { class: `meta ${cls}` }, `${source} · ${label}`),
-          el('label', { class: 'allow', title: 'Allow reading: tools that only look things up (list, get, search…) run without asking; anything that creates, sends, changes or deletes still asks. Allow all but deleting: creating and changing run on their own, deleting, removing or archiving still asks. Allow everything: no questions at all, so only for services where nothing can go wrong.' }, box),
+          el('label', { class: 'allow', title: 'Allow reading: tools that only look things up (list, get, search…) run without asking; anything that creates, sends, changes or deletes still asks. Allow all but deleting: creating and changing run on their own, deleting, removing or archiving still asks. Allow everything: no questions, except that deleting or inviting people asks once a turn has read outside content (Settings → Safety), so only for services where nothing can go wrong.' }, box),
         ),
       );
     }
@@ -767,6 +878,10 @@ function brainCard() {
   const test = el('button', {
     class: 'btn primary',
     onclick: async () => {
+      // A real model call (every provider in multi-provider mode): one at a time.
+      if (test.disabled) return;
+      test.disabled = true;
+      test.textContent = '⏳ Testing…';
       showResult(out, true, 'Testing…');
       try {
         const r = await api.llm.test();
@@ -776,6 +891,9 @@ function brainCard() {
         emit('status-refresh');
       } catch (err) {
         showResult(out, false, `✕ ${err.message}`);
+      } finally {
+        test.disabled = false;
+        test.textContent = '⚡ Test connection';
       }
     },
   }, '⚡ Test connection');
@@ -792,15 +910,21 @@ function brainCard() {
       line.className = 'test-result';
       line.textContent = 'Checking Claude Code…';
       actions.innerHTML = '';
-      const st = await api.claude.status({ fresh: true }).catch((e) => ({ installed: false, error: e.message }));
+      // A check that failed (timed out, crashed) says nothing about the sign-in: it isn't "not installed".
+      const st = await api.claude.status({ fresh: true }).catch((e) => ({ installed: true, checked: false, error: e.message }));
+      const connect = (cls) => el('button', { class: cls, onclick: async () => (await api.claude.login(), toast('Finish signing in in the terminal/browser window, then click Refresh.', 'info', 8000)) }, 'Connect Claude account');
       if (!st.installed) {
         const hint = await api.claude.installHint();
         line.className = 'test-result err';
         line.textContent = `✕ Claude Code is not installed (or not found on PATH).\nInstall it with:\n  ${hint}\nthen click Refresh — or set the path to the claude executable below.`;
+      } else if (st.checked === false) {
+        line.className = 'test-result err';
+        line.textContent = `Couldn’t check your Claude account: ${st.error}`;
+        actions.append(connect('btn'));
       } else if (!st.loggedIn) {
         line.className = 'test-result err';
         line.textContent = `Claude Code ${st.version} found, but no Claude account is connected.`;
-        actions.append(el('button', { class: 'btn primary', onclick: async () => (await api.claude.login(), toast('Finish signing in in the terminal/browser window, then click Refresh.', 'info', 8000)) }, 'Connect Claude account'));
+        actions.append(connect('btn primary'));
       } else {
         line.className = 'test-result ok';
         line.textContent = `✓ Connected as ${st.email || 'your Claude account'} · ${st.subscription ? `${st.subscription} plan` : st.authMethod} · Claude Code ${st.version}`;
@@ -1022,7 +1146,7 @@ function providerRow(p, index, rows, opened, redraw) {
     await save('routing.order', next);
     redraw();
   };
-  const enabled = el('input', { type: 'checkbox' });
+  const enabled = el('input', { type: 'checkbox', 'aria-label': `Use ${p.name}` });
   enabled.checked = p.enabled;
   enabled.addEventListener('click', (e) => e.stopPropagation());
   enabled.addEventListener('change', async () => {
@@ -1138,14 +1262,17 @@ function voiceCard() {
   loadVoices(true);
   const sample = el('input', { class: 'input', value: `Hello, I'm ${state.settings.agent.name}. All systems are online.` });
   const out = result();
-  const test = el('button', {
+  // "Test voice" asks the voice service in use (VoiceStudio or the cloud); the offline voice has its own test.
+  const engine = state.settings.voice.engine;
+  const service = engine === 'cloud' ? (state.settings.cloudVoice?.provider === 'openai' ? 'OpenAI' : 'Groq') : 'VoiceStudio';
+  const test = engine === 'local' ? '' : el('button', {
     class: 'btn primary',
     onclick: async () => {
       showResult(out, true, 'Synthesizing…');
       try {
         const t0 = performance.now();
         await api.tts.speak('test');
-        showResult(out, true, `✓ VoiceStudio responded in ${Math.round(performance.now() - t0)} ms — playing sample.`);
+        showResult(out, true, `✓ ${service} responded in ${Math.round(performance.now() - t0)} ms — playing sample.`);
         speaker.say(sample.value);
         emit('status-refresh');
       } catch (err) {
@@ -1155,7 +1282,7 @@ function voiceCard() {
   }, '🔊 Test voice');
   ttsProgressEl = el('div', { class: 'hint' });
   const testLocal = el('button', {
-    class: 'btn',
+    class: engine === 'local' ? 'btn primary' : 'btn',
     onclick: async () => {
       ttsProgressEl.textContent = 'Loading the offline voice…';
       try {
@@ -1289,7 +1416,9 @@ async function calendarCard() {
   const st = await api.calendar.status().catch(() => ({}));
   const line = !st.vault
     ? el('div', { class: 'test-result err' }, '✕ The schedule lives in the vault, which is off. Turn the vault on above.')
-    : el('div', { class: `test-result ${st.problems ? 'err' : 'ok'}` }, `✓ Schedule.md in your vault · ${st.recurring || 0} repeating, ${st.events || 0} single entries${st.problems ? ` · ${st.problems} line(s) couldn’t be read` : ''}`);
+    : st.unreadable
+      ? el('div', { class: 'test-result err' }, `✕ Schedule.md couldn’t be read: ${st.unreadable}`)
+      : el('div', { class: `test-result ${st.problems ? 'err' : 'ok'}` }, `✓ Schedule.md in your vault · ${st.recurring || 0} repeating, ${st.events || 0} single entries${st.problems ? ` · ${st.problems} line(s) couldn’t be read` : ''}`);
   return card(
     'calendar',
     'Calendar',
@@ -1300,16 +1429,42 @@ async function calendarCard() {
   );
 }
 
-async function githubCard() {
-  const st = await api.github.status().catch((e) => ({ connected: false, error: e.message }));
-  const line = el('div', { class: `test-result ${st.connected ? 'ok' : 'err'}` }, st.connected ? `✓ Connected as ${st.login} (through the GitHub CLI)` : `✕ ${st.error || 'Not connected'}`);
+// The GitHub line fills in by itself once gh answers (a network call): the card never holds up the page.
+let ghStatus = null; // { at, promise }: Settings redraws often; gh is asked at most once a minute
+function githubCard() {
+  const line = el('div', { class: 'test-result' }, 'Checking GitHub…');
+  const repos = folder('github.workspace', 'Repos folder', { placeholder: '~/SirenRepos', hint: 'Where repositories are cloned. Keep it out of OneDrive/Dropbox.' });
+  // Written even before the card is on screen: the answer can come before the render lands, and a
+  // card that was superseded is simply never shown. Only this card's latest check writes the line.
+  let asked = 0;
+  const check = async (fresh) => {
+    const mine = ++asked;
+    if (state.settings.github?.enabled === false) return ((line.className = 'test-result'), (line.textContent = 'GitHub is off.'));
+    if (fresh) (line.className = 'test-result'), (line.textContent = 'Checking GitHub…');
+    if (fresh || !ghStatus || Date.now() - ghStatus.at > 60000) ghStatus = { at: Date.now(), promise: api.github.status().catch((e) => ({ connected: false, error: e.message })) };
+    const st = await ghStatus.promise;
+    if (mine !== asked) return;
+    line.className = `test-result ${st.connected ? 'ok' : 'err'}`;
+    line.textContent = st.connected ? `✓ Connected as ${st.login} (through the GitHub CLI)` : `✕ ${st.error || 'Not connected'}`;
+    if (st.workspace) repos.querySelector('input').placeholder = st.workspace;
+  };
+  check(false);
+  const again = el('button', {
+    class: 'btn small',
+    onclick: async () => {
+      again.disabled = true; // gh is a network call: one at a time
+      await check(true);
+      again.disabled = false;
+    },
+  }, '⟳ Check again');
   return card(
     'github',
     'GitHub',
     `Lets ${state.settings.agent.name} read your repositories, issues and pull requests, and work on them when you ask: it clones a repo into the folder below, changes it on a new branch and commits there (approved per your permission mode). <b>Pushing and opening a pull request always ask you first</b>, it never touches the default branch directly and never merges. Uses the GitHub CLI: install it and run <code>gh auth login</code> once.`,
     toggle('github.enabled', 'Enable GitHub', () => render()),
-    folder('github.workspace', 'Repos folder', { placeholder: st.workspace || '~/SirenRepos', hint: 'Where repositories are cloned. Keep it out of OneDrive/Dropbox.' }),
+    repos,
     line,
+    el('div', { class: 'row' }, again),
   );
 }
 
@@ -1452,8 +1607,29 @@ function worldCard() {
 
 async function dataCard() {
   const [mems, convs, info, memDir] = await Promise.all([api.memory.list().catch(() => []), api.conv.list().catch(() => []), api.app.info(), api.memory.dir().catch(() => '')]);
-  const danger = (label, title, msg, fn) =>
-    el('button', { class: 'btn danger', onclick: async () => (await confirmDialog(title, msg, label)) && (await fn(), render()) }, label);
+  // A destructive action: asked first, once at a time, and it says whether it worked.
+  const danger = (label, title, msg, fn) => {
+    const b = el('button', {
+      class: 'btn danger',
+      onclick: async () => {
+        if (b.disabled || !(await confirmDialog(title, msg, label))) return;
+        b.disabled = true;
+        try {
+          toast((await fn()) || `${label}: done.`);
+        } catch (err) {
+          toastError(err);
+        } finally {
+          render();
+        }
+      },
+    }, label);
+    return b;
+  };
+  // An export returns where the file went (null when the save dialog was cancelled).
+  const exporter = (what, run) => async () => {
+    const p = await run().catch(toastError);
+    if (p) toast(`${what} exported to ${p}`);
+  };
   return card(
     'data',
     'Memory & history',
@@ -1467,15 +1643,24 @@ async function dataCard() {
       'div',
       { class: 'row', style: { flexWrap: 'wrap' } },
       el('button', { class: 'btn', onclick: () => api.memory.openDir() }, 'Open vault folder'),
-      el('button', { class: 'btn', onclick: async () => (await api.memory.export('md')) && toast('Memory exported') }, 'Export memory'),
-      el('button', { class: 'btn', onclick: async () => (await api.conv.export()) && toast('History exported') }, 'Export history'),
+      el('button', { class: 'btn', onclick: exporter('Memory', () => api.memory.export('md')) }, 'Export memory'),
+      el('button', { class: 'btn', onclick: exporter('History', () => api.conv.export()) }, 'Export history'),
     ),
     el(
       'div',
       { class: 'row', style: { flexWrap: 'wrap' } },
-      danger('Clear history', 'Clear all conversations', 'Delete every conversation? This cannot be undone.', async () => (await api.conv.clear(), newChat(), refreshList())),
-      danger('Clear memory', 'Clear memory vault', 'Delete every memory? This cannot be undone.', async () => (await api.memory.clear(), emit('memory-changed'))),
-      danger('Reset settings', 'Reset settings', 'Restore all settings to defaults (memories and history are kept)?', async () => (await api.settings.reset(), await loadSettings())),
+      danger('Clear history', 'Clear all conversations', 'Delete every conversation? This cannot be undone.', async () => (await api.conv.clear(), newChat(), refreshList(), 'All conversations deleted.')),
+      danger('Clear memory', 'Clear memory vault', 'Delete every memory? This cannot be undone.', async () => (await api.memory.clear(), emit('memory-changed'), 'Memory cleared.')),
+      danger(
+        'Reset settings',
+        'Reset settings',
+        'Your personas (their master prompts, looks and voices), your API keys, and your connector and folder permissions go back to the defaults, and the setup wizard opens the next time the app starts. Memories, notes and conversations are kept, and so is a copy of your old settings, in the data folder.',
+        async () => {
+          const r = await api.settings.reset();
+          await loadSettings();
+          return r?.kept ? `Settings reset. Your old settings are in ${r.kept.split(/[\\/]/).pop()} in the data folder.` : 'Settings reset.';
+        },
+      ),
     ),
     toggle('updates.check', 'Check for new versions once a day (one request to GitHub; nothing is downloaded until you click Download)'),
     toggle('privacy.reportIssues', 'Offer anonymized problem reports for the Siren project on GitHub when something breaks (you see the text and send it yourself)'),
@@ -1563,8 +1748,8 @@ function safetyCard() {
     'safety',
     'Safety & permissions',
     'What the agent may do without asking. Approve requests by clicking or by saying a yes on its own — “yes”, “yeah”, “okay”, “go ahead” (anything else declines; no answer counts as no).',
-    select('safety.permissionMode', 'Permission mode', [['ask', 'Ask me first — self-changes, settings changes, deletions (recommended)'], ['auto', 'Just do it — still asks before self-changes, commands and anything that reaches other people or services']], { hint: 'Also by voice: “stop asking for permission” / “start asking again”.' }),
-    toggle('safety.taintGuard', 'Always ask before self-modification in a turn that read web pages or documents'),
+    select('safety.permissionMode', 'Permission mode', [['ask', 'Ask me first — self-changes, settings changes, deletions (recommended)'], ['auto', 'Just do it — still asks before code changes, commands, publishing to GitHub, invitations and services you haven’t allowed (and, after reading outside content, before deleting or inviting in your services, opening new websites or saving routines and skills)']], { hint: 'Also by voice: “stop asking for permission” / “start asking again”.' }),
+    toggle('safety.taintGuard', 'After reading outside content (web pages, documents, your services’ data), warn on every approval and ask before changing my code, deleting or inviting through a service, opening a website nobody named, or saving a routine or skill — also in “Just do it” mode and at “Allow everything”'),
     toggle('screen.attachToMessages', 'While I share my screen, include a screenshot with each message (otherwise only when the agent asks to look)'),
     text('safety.approvalTimeoutSec', 'Approval timeout (seconds)', { type: 'number' }),
     el('div', { class: 'hint' }, 'External content (web pages, documents, tool results) is always treated as data — the agent is instructed never to follow instructions inside it.'),
