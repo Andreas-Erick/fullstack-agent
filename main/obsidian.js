@@ -300,7 +300,7 @@ async function readNote(ref, maxChars = 40000) {
   };
 }
 
-async function readOptional(rel) {
+async function readOptional(rel, { strict = false } = {}) {
   const root = await vaultPath();
   if (!root) return '';
   const g = lockedNote(root, path.join(root, rel));
@@ -308,7 +308,9 @@ async function readOptional(rel) {
     const { text, stat } = await readCached(path.join(root, rel));
     if (g && g.mtime === undefined) g.mtime = stat.mtimeMs;
     return text;
-  } catch {
+  } catch (err) {
+    // strict (the calendar): only a missing note is empty; a locked or cloud-only one is an error.
+    if (strict && err?.code !== 'ENOENT') throw Object.assign(new Error(`Couldn't read ${rel} (${err?.code || 'read error'}): the file is locked or not available offline. Try again in a moment.`), { code: 'UNREADABLE', cause: err });
     if (g && g.mtime === undefined) g.mtime = null;
     return '';
   }

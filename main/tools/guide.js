@@ -71,8 +71,8 @@ module.exports = [
         source: { type: 'string', enum: ['todoist', 'ticktick'], description: 'Which service the tasks came from' },
         tasks: {
           type: 'array',
-          description: 'The tasks: [{ id, title, due ("YYYY-MM-DD" or "YYYY-MM-DDTHH:MM"), project, priority (1-4, 4 = most urgent), url, done }]',
-          items: { type: 'object', properties: { id: str('The task id in that app'), title: str('The task'), due: str('YYYY-MM-DD or YYYY-MM-DDTHH:MM'), project: str('Project or list name'), priority: { type: 'integer', description: '1-4, 4 = most urgent' }, url: str('Link to the task (https)'), done: bool('Completed') }, required: ['title'], additionalProperties: false },
+          description: 'The tasks: [{ id, title, due ("YYYY-MM-DD" all day, or "YYYY-MM-DDTHH:MM" local time; a time with Z or +0000 as the app gives it is converted), project, priority (1-4, 4 = most urgent), url, done }]',
+          items: { type: 'object', properties: { id: str('The task id in that app'), title: str('The task'), due: str('YYYY-MM-DD (all day) or YYYY-MM-DDTHH:MM local; Z/+0000 times are converted'), project: str('Project or list name'), priority: { type: 'integer', description: '1-4, 4 = most urgent' }, url: str('Link to the task (https)'), done: bool('Completed') }, required: ['title'], additionalProperties: false },
         },
       },
       ['source', 'tasks'],

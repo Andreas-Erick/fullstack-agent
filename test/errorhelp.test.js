@@ -121,6 +121,37 @@ test('refusals and server errors; anything else by its first line', () => {
   assert.strictEqual(help('').text, 'The reply failed.');
 });
 
+// The Claude CLI's own offline wording (2.1.327) read "Something went wrong"; a certificate or proxy
+// problem is not the connection being down.
+test('the CLI’s offline errors read as the connection; certificate and proxy problems don’t', () => {
+  for (const m of [
+    'Unable to connect to API. Check your internet connection',
+    'Unable to connect to API (ECONNRESET)',
+    'Connection dropped (ECONNRESET)',
+    'Can’t reach the API server — check your internet or DNS (ENOTFOUND)',
+    "Can't reach the API server — check your internet or DNS (ENOTFOUND)",
+    'No internet route — check your connection or VPN (ENETUNREACH)',
+    'connect ENETDOWN 1.2.3.4:443',
+    'connect EHOSTDOWN 1.2.3.4:443',
+  ]) {
+    const r = help(m);
+    assert.strictEqual(r.kind, 'network', m);
+    assert.strictEqual(r.title, 'Couldn’t reach the brain', m);
+  }
+  for (const m of ['Unable to connect to API: SSL certificate has expired', 'Unable to connect to API: Self-signed certificate detected', "Couldn't connect through your proxy (ERR_PROXY_TUNNEL) — the proxy refused the tunnel"])
+    assert.notStrictEqual(help(m).kind, 'network', m);
+});
+
+// A page of CLI output, or the same phrase thousands of times, is read in one pass (no backtracking blow-up).
+test('long and hostile error texts are read at once', () => {
+  const t0 = performance.now();
+  // (errorHelp reads the first 2000 characters: 36 of these and "Unable to connect to", never a bare "…API".)
+  assert.notStrictEqual(help('Unable to connect to API: SSL certificate has expired. '.repeat(20000)).kind, 'network', 'a certificate problem, many times over');
+  assert.strictEqual(help(`Connection dropped (ECONNRESET) ${'x'.repeat(200000)}`).kind, 'network');
+  assert.notStrictEqual(help('can’t reach the ap'.repeat(20000)).kind, 'network');
+  assert.ok(performance.now() - t0 < 2000, `took ${Math.round(performance.now() - t0)} ms`);
+});
+
 test('the phone can load it: no imports', () => {
   const src = fs.readFileSync(path.join(ROOT, 'renderer/js/chatcore.js'), 'utf8');
   assert.ok(!/^import /m.test(src));

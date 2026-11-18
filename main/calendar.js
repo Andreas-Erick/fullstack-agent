@@ -14,7 +14,9 @@ let queue = Promise.resolve(); // read-modify-write, one change at a time
 async function read() {
   const root = await obsidian.vaultPath();
   if (!root) return null;
-  return { root, text: await obsidian.readOptional(FILE) };
+  // Strict: a Schedule.md that is there but can't be read is an error, never an empty schedule that the
+  // next add would overwrite with a template.
+  return { root, text: await obsidian.readOptional(FILE, { strict: true }) };
 }
 
 async function load() {
@@ -25,16 +27,23 @@ async function load() {
 
 async function status() {
   const s = await store.getSettings();
-  const r = await read().catch(() => null);
+  let r = null;
+  let unreadable = '';
+  try {
+    r = await read();
+  } catch (err) {
+    unreadable = err.message; // Schedule.md is there but can't be read (locked, only in the cloud)
+  }
   const parsed = r ? core.parse(r.text) : { entries: [], problems: [] };
   return {
     enabled: s.calendar.enabled,
-    vault: Boolean(r),
-    connected: Boolean(s.calendar.enabled && r), // the tools and the view are available
+    vault: Boolean(r || unreadable),
+    connected: Boolean(s.calendar.enabled && (r || unreadable)), // the tools and the view are available
     file: FILE,
     recurring: parsed.entries.filter((e) => e.repeat).length,
     events: parsed.entries.filter((e) => !e.repeat).length,
     problems: parsed.problems.length,
+    ...(unreadable ? { unreadable } : {}),
   };
 }
 
@@ -83,6 +92,12 @@ function add(input, { source = 'agent' } = {}) {
     const e = core.normalize({ ...input, id: '' });
     // A rule repeating every 2+ weeks/days/months counts from its first day: today unless given.
     if (e.repeat && e.repeat.interval > 1 && !e.from) e.from = core.ymd(new Date());
+    // The same thing at the same time, added again (Enter and a click, a tool call repeated): one entry.
+    const same = list.find((x) => x.title.toLowerCase() === e.title.toLowerCase() && core.formatWhen(x) === core.formatWhen(e) && (x.from || '') === (e.from || '') && (x.until || '') === (e.until || ''));
+    if (same) {
+      log.info('schedule add: already there', { id: same.id });
+      return { ...forList(same), existing: true };
+    }
     e.id = newId(e, new Set(list.map((x) => x.id)));
     await save(core.addEntry(text || core.template(s.agent.name || 'Siren'), e), `${source}: schedule add`);
     log.info('schedule add', { id: e.id, repeats: Boolean(e.repeat) });

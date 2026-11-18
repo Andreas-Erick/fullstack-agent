@@ -248,21 +248,36 @@ function toWindow(channel, payload) {
 // result, and Windows shows a notification while the app is in the background.
 function startRoutines() {
   routines.start({
-    run: ({ routine, text, limitMs }) =>
+    run: ({ routine, text, limitMs, signal, onTurn }) =>
       new Promise((resolve) => {
         const requestId = `rt${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+        // The log tag its turn runs under (startTurn's tags): a delete or pause from this turn's own tools
+        // doesn't stop it (routines.js stopRun).
+        onTurn?.(requestId.slice(-6));
+        let conversationId = ''; // once startTurn has it (a first run makes one): a stopped run keeps it
         // A run that takes too long (a hung tool, an approval nobody answers…) is stopped.
         const timer = setTimeout(() => {
           activeRequests.get(requestId)?.abort();
           done({ ok: false, error: `Stopped after ${Math.round(limitMs / 60000)} minutes.` });
         }, limitMs);
         let settled = false;
+        let stopRequested = false;
         const done = (r) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
+          signal?.removeEventListener('abort', stop);
           resolve(r);
         };
+        // Stopped from outside (the chat reply that ran it, a delete, a switch-off): the turn is aborted, also
+        // when it was still being set up (startTurn registers the request after a few awaits).
+        const stop = () => {
+          stopRequested = true;
+          activeRequests.get(requestId)?.abort();
+          done({ ok: false, error: 'Stopped', stopped: true, ...(conversationId ? { conversationId } : {}) });
+        };
+        if (signal?.aborted) return stop();
+        signal?.addEventListener('abort', stop, { once: true });
         // The user's own chat (routinecore.takenOver) isn't the routine's any more: a new conversation.
         const startIn = async () => {
           const conv = routine.conversationId ? await store.getConversation(routine.conversationId).catch(() => null) : null;
@@ -270,7 +285,13 @@ function startRoutines() {
           log.info('routine gets its own conversation', { routine: routine.name, was: routine.conversationId });
           return '';
         };
-        startIn().then((conversationId) => startTurn({ conversationId, text, requestId, display: `⏰ ${routine.name}`, routine: routine.id, onFinish: done })).catch((err) => done({ ok: false, error: err.message }));
+        startIn()
+          .then((id) => (stopRequested ? null : startTurn({ conversationId: id, text, requestId, display: `⏰ ${routine.name}`, routine: routine.id, onFinish: done })))
+          .then((started) => {
+            conversationId = started?.conversationId || '';
+            if (stopRequested) activeRequests.get(requestId)?.abort();
+          })
+          .catch((err) => done({ ok: false, error: err.message }));
       }),
     notify: (ev) => {
       toWindow('routine:event', ev);
@@ -1060,8 +1081,10 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       if (!fresh.setup && after.claudeCode?.warmOnLaunch && llm.sessionConfigKey(after) !== llm.sessionConfigKey(settings)) llm.prewarm(after, fresh).catch((error) => log.warn('prewarm failed', { error }));
     } catch (err) {
       const aborted = controller.signal.aborted || err?.name === 'AbortError';
-      // A routine whose brain isn't ready yet waits and runs again (routinecore.retryPlan): not a fault.
-      const notReady = !aborted && routine && require('./routinecore').brainNotReady(err);
+      // A routine whose brain isn't ready yet, or that ran while the computer was offline, waits and
+      // runs again (routinecore.retryPlan): not a fault.
+      const rc = require('./routinecore');
+      const notReady = !aborted && routine && (rc.brainNotReady(err) || rc.offline(err));
       if (aborted) log.info('turn interrupted', { conversation: conv.id });
       else log[notReady ? 'warn' : 'error'](notReady ? 'turn not ready' : 'turn failed', { provider: settings.llm.provider, model: settings.llm.provider === 'claude-code' ? settings.claudeCode.model : undefined, voice: viaVoice, ms: Date.now() - startedAt, error: err });
       const attempt = own && !deletedConversations.has(conv.id) ? redo.attemptFrom({ aborted, err, ran, firstTextMs }) : null;

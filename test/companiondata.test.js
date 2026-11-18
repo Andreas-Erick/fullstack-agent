@@ -73,6 +73,29 @@ test('trimmed copies: no private fields, long texts clipped', async () => {
   assert.strictEqual(t.notesToday, 2, 'a count of today’s notes, never their titles or paths');
 });
 
+// states-phone-7: the phone's list said "every undefined min", "weekly (5)" and showed a failed run like a good one.
+test('routines: the desktop’s wording and the last run’s status, nothing else', async () => {
+  stub({
+    './routines': {
+      list: async () => [
+        { id: 'r1', name: 'Plaud check', enabled: true, when: 'every 3 hours', schedule: { kind: 'interval', hours: 3 }, instructions: 'secret steps', lastRun: 5, lastStatus: 'error', lastSummary: 'TickTick returned 500', conversationId: 'c1' },
+        { id: 'r2', name: 'Briefing', enabled: false, when: 'weekdays at 07:30', schedule: { kind: 'weekdays', time: '07:30' }, instructions: 'x', lastRun: 0, lastStatus: '' },
+        { id: 'r3', name: 'Broken', enabled: true, when: 'schedule needs fixing', schedule: { kind: 'weekly', time: '08:00' }, broken: 'A weekly routine needs days', instructions: 'x' },
+      ],
+    },
+  });
+  const { routines } = await data.routines();
+  assert.deepStrictEqual(routines.map((r) => [r.name, r.when, r.lastStatus]), [
+    ['Plaud check', 'every 3 hours', 'error'],
+    ['Briefing', 'weekdays at 07:30', ''],
+    ['Broken', 'schedule needs fixing', ''],
+  ]);
+  for (const r of routines) assert.deepStrictEqual(Object.keys(r).sort(), ['enabled', 'lastRun', 'lastStatus', 'name', 'schedule', 'when'], 'no instructions, summaries or ids');
+  const screens = require('fs').readFileSync(require('path').join(__dirname, '..', 'renderer', 'remote', 'screens.js'), 'utf8');
+  assert.ok(!screens.includes('s.minutes || s.every'), 'the phone no longer makes up its own wording');
+  assert.match(screens, /r\.enabled \? r\.when/);
+});
+
 test('what a device can ask for: readers only, nothing that writes', () => {
   assert.deepStrictEqual(Object.keys(data).sort(), ['arch', 'learn', 'memories', 'note', 'notes', 'routines', 'skills', 'stream', 'today', 'world']);
 });

@@ -1,7 +1,7 @@
 // Voice I/O: VoiceStudio playback (sentence-chunked, in order, with the offline Kokoro voice or the
 // OS voice as fallback), microphone capture (push-to-talk or hands-free with voice-activity
 // detection), speech-to-text.
-import { api, emit, on, speakable, toastError, logEvent } from './util.js';
+import { api, el, emit, on, speakable, toastError, pushToast, logEvent } from './util.js';
 import { state, setFlag, setCaption, ttsActive } from './state.js';
 import { KOKORO_SAMPLE_RATE } from './kokorotext.js';
 import { takeSentences, splitSentences, firstCut, cutWorth, paceAfter, warmStep, sayChunks, offlineVoiceSpeaks, createLineOrder, LONE_CHARS } from './speechplan.js';
@@ -1292,8 +1292,9 @@ const heldPiece = {
 async function finishUtterance(getSamples, { join = false, limit = false, pauseMs = 0 } = {}) {
   utteranceEndedAt = performance.now() - pauseMs;
   busy = true;
+  let samples = null;
   try {
-    const samples = await getSamples();
+    samples = await getSamples();
     if (!samples?.length) {
       setCaption(heldPiece.pending);
       if (join && heldPiece.pending) return heldPiece.later();
@@ -1317,13 +1318,46 @@ async function finishUtterance(getSamples, { join = false, limit = false, pauseM
   } catch (err) {
     emit('barge-in-over');
     logEvent('error', 'speech-to-text failed', err.message);
-    toastError(new Error(`Speech-to-text: ${err.message}`));
     setCaption('');
+    if (samples?.length) {
+      // The words aren't lost: the recording waits for Try again (only the latest one is kept).
+      lastFailed = samples;
+      offerRetry(`Couldn’t write down what you said: ${plainMessage(err)}`);
+    } else toastError(new Error(`Speech-to-text: ${err.message}`));
     if (join && joiner.pending) heldPiece.later(); // what was heard before still goes out
   } finally {
     setFlag('transcribing', false);
     busy = false;
   }
+}
+
+let lastFailed = null; // the latest recording speech-to-text couldn't write down
+let retryOffer = null; // its notice: one on screen, since only the latest recording is kept
+const plainMessage = (err) => String(err?.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+function offerRetry(why) {
+  retryOffer?.remove();
+  const t = el('div', { class: 'toast' }, el('div', {}, `${/[.!?…]$/.test(why) ? why : `${why}.`} The recording is kept.`));
+  const close = () => {
+    t.remove();
+    if (retryOffer === t) retryOffer = null;
+  };
+  const later = () => {
+    close();
+    lastFailed = null; // let go: nothing else offers it again
+  };
+  t.append(el('div', { class: 'toast-actions' }, el('button', { class: 'btn small', onclick: () => (close(), retryLastRecording()) }, 'Try again'), el('button', { class: 'btn small', onclick: later }, 'Later')));
+  retryOffer = t;
+  pushToast(t, 120000);
+}
+function retryLastRecording() {
+  if (!lastFailed) return;
+  // Words said before an approval appeared are never its answer: they wait until it is answered.
+  if (state.approvalPending) return offerRetry('Answer the open approval first.');
+  // Another recording is being made or written down: the kept one waits (its button comes back).
+  if (busy || recorder.active) return offerRetry('Still busy with another recording.');
+  const samples = lastFailed;
+  lastFailed = null; // kept again if this attempt fails too
+  finishUtterance(() => samples); // one piece: never joined to a hands-free piece that has moved on
 }
 
 // A press while the last utterance is still being transcribed waits for it (a moment) instead of
@@ -1366,6 +1400,7 @@ export async function startListening() {
     clearTimeout(pttLimit);
     pttLimit = setTimeout(() => mine === press && recorder.active && (logEvent('warn', 'push-to-talk held at the limit; stopped', { min: PTT_MAX_MS / 60000 }), stopListening()), PTT_MAX_MS);
   } catch (err) {
+    emit('barge-in-over'); // the press already silenced the reply; nothing was recorded
     logEvent('error', 'microphone failed', err.message);
     toastError(new Error(`Microphone: ${err.message}`));
   }

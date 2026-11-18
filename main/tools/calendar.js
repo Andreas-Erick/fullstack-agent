@@ -50,6 +50,7 @@ module.exports = [
     ),
     run: async (a, ctx) => {
       const e = await calendar.add(a);
+      if (e.existing) return { already: `${e.description}: ${e.title} is already in the schedule; nothing added.`, entry_id: e.id };
       ctx.emit({ type: 'calendar_changed' });
       return { added: `${e.description}: ${e.title}${e.location ? ` @ ${e.location}` : ''}`, entry_id: e.id };
     },

@@ -118,7 +118,9 @@ async function arch() {
 }
 
 async function routines() {
-  return { routines: (await require('./routines').list()).map((r) => ({ name: r.name, enabled: r.enabled, schedule: r.schedule, lastRun: r.lastRun || 0, lastStatus: r.lastStatus || '' })) };
+  // `when` is the desktop's own wording ('schedule needs fixing' for a broken record); `schedule` stays for an
+  // older cached phone client.
+  return { routines: (await require('./routines').list()).map((r) => ({ name: r.name, enabled: r.enabled, when: r.when, schedule: r.schedule, lastRun: r.lastRun || 0, lastStatus: r.lastStatus || '' })) };
 }
 
 module.exports = { today, learn, memories, stream, notes, note, world, skills, routines, arch };

@@ -34,6 +34,9 @@ function normalizeSchedule(s = {}) {
   return out;
 }
 
+// A time from routines.json a Date can use (an edit by hand may leave it out or garble it).
+const usableTime = (t) => Boolean(t) && !Number.isNaN(new Date(t).getTime());
+
 /** A routine from the user or the agent, validated. */
 function normalize(r, { newId, now = Date.now() } = {}) {
   const name = String(r.name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -47,8 +50,8 @@ function normalize(r, { newId, now = Date.now() } = {}) {
     instructions,
     enabled: r.enabled !== false,
     notify: r.notify !== false,
-    createdAt: r.createdAt || now,
-    lastRun: r.lastRun || 0,
+    createdAt: usableTime(r.createdAt) ? r.createdAt : now,
+    lastRun: usableTime(r.lastRun) ? r.lastRun : 0,
     lastStatus: r.lastStatus || '',
     lastSummary: r.lastSummary || '',
     conversationId: r.conversationId || '',
@@ -105,7 +108,8 @@ const CONNECTOR_CHECK = 'If a service you need (a connector such as TickTick or 
 
 function prompt(routine, now = new Date()) {
   const last = routine.lastRun ? new Date(routine.lastRun).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'never (this is the first run)';
-  return `⏰ Routine "${routine.name}" (runs ${describe(routine.schedule)}). Now: ${now.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}. Last run: ${last}.
+  const cut = routine.lastStatus === 'interrupted' ? ` The previous run (${last}) was cut off when the app closed before it finished: check what it already did (the schedule, notes, saved tasks) before doing anything again.` : '';
+  return `⏰ Routine "${routine.name}" (runs ${describe(routine.schedule)}). Now: ${now.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}. Last run: ${last}.${cut}
 
 ${routine.instructions}
 
@@ -134,14 +138,20 @@ const RETRY_MIN = 10;
 const MAX_RETRIES = 3;
 const NOT_READY = /no model selected|no ai provider is ready|econnrefused|fetch failed|is not installed|connect your claude account|not logged in|log ?in to claude|helper app did not come up|server is not running/i;
 const brainNotReady = (error) => NOT_READY.test(String(error?.message || error || ''));
+// The network, not the brain: the CLI's own wording (2.1.327) and Node's codes. A certificate or proxy
+// problem ("Unable to connect to API: SSL…", "…: Self-signed…", "Couldn't connect through your proxy")
+// is not an outage, so it isn't waited out.
+const OFFLINE = /enotfound|eai_again|enetunreach|enetdown|ehostunreach|ehostdown|etimedout|econnreset|connection error|connection dropped|no internet route|can['’]t reach the api server|unable to connect to api(?!:)/i;
+const offline = (error) => OFFLINE.test(String(error?.message || error || ''));
 
-/** What a failed run means: { retryAt, retries, summary } to wait, or null to fail as before. */
+/** What a failed run means: { retryAt, retries, summary, waitsFor: 'brain' | 'internet' } to wait, or null to fail as before. */
 function retryPlan(routine, error, now = Date.now()) {
-  if (!brainNotReady(error)) return null;
+  const brain = brainNotReady(error);
+  if (!brain && !offline(error)) return null;
   const retries = (Number(routine?.retries) || 0) + 1;
   if (retries > MAX_RETRIES) return null;
   const why = String(error?.message || error || '').replace(/\s+/g, ' ').trim().slice(0, 160);
-  return { retryAt: now + RETRY_MIN * 60000, retries, summary: `Waiting for the AI brain (${why}). Tries again in ${RETRY_MIN} minutes (${retries} of ${MAX_RETRIES}).` };
+  return { retryAt: now + RETRY_MIN * 60000, retries, waitsFor: brain ? 'brain' : 'internet', summary: `Waiting for ${brain ? 'the AI brain' : 'the internet connection'} (${why}). Tries again in ${RETRY_MIN} minutes (${retries} of ${MAX_RETRIES}).` };
 }
 
-module.exports = { KINDS, normalize, normalizeSchedule, nextRun, check, describe, prompt, CONNECTOR_CHECK, takenOver, brainNotReady, retryPlan, RETRY_MIN, MAX_RETRIES };
+module.exports = { KINDS, normalize, normalizeSchedule, usableTime, nextRun, check, describe, prompt, CONNECTOR_CHECK, takenOver, brainNotReady, offline, retryPlan, RETRY_MIN, MAX_RETRIES };
