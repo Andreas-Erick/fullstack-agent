@@ -2,11 +2,13 @@
 // OS voice as fallback), microphone capture (push-to-talk or hands-free with voice-activity
 // detection), speech-to-text.
 import { api, emit, speakable, toastError, logEvent } from './util.js';
-import { state, setFlag, setCaption } from './state.js';
+import { state, setFlag, setCaption, ttsActive } from './state.js';
 import { KOKORO_SAMPLE_RATE } from './kokorotext.js';
-import { mathOpen } from './mathtext.js';
+import { takeSentences, splitSentences, firstCut, warmStep } from './speechplan.js';
+import { createJobs } from './ttsjobs.js';
+import { allFillers } from './chatcore.js';
 import { practiceLanguage, pickVoice, languageName } from './practice.js';
-import { BALANCED, profile, speechPlan, voiceOnGpu, preloadSpeech } from './perfcore.js';
+import { BALANCED, profile, speechPlan, voiceOnGpu, preloadSpeech, effectsLevel } from './perfcore.js';
 import { perfReady } from './perf.js';
 import { onset, segmentEnd, endSilence, createJoiner, HOLD_MS, PTT_MAX_MS } from './utterance.js';
 
@@ -30,34 +32,20 @@ export const fallbackMode = () => state.settings.voice.fallback || 'local';
 const localVoice = {
   worker: null,
   ready: null, // resolves when the model is loaded, rejects if it can't be
+  loaded: false,
   device: '',
   seq: 0,
-  pending: new Map(),
+  pending: new Map(), // id → { done, fail, quiet, postedAt, readyAt, begunAt }
+  jobs: createJobs(), // ttsjobs.js: which sentences wait, run, ran too long
+  timer: 0,
   lastWarn: 0,
 
   start() {
     if (this.ready) return this.ready;
+    this.startedAt = performance.now();
     this.worker = new Worker(new URL('./tts-worker.js', import.meta.url), { type: 'module' });
     this.ready = new Promise((resolve, reject) => {
-      this.worker.onmessage = (e) => {
-        const msg = e.data;
-        if (msg.type === 'progress') emit('tts-progress', msg);
-        else if (msg.type === 'ready') {
-          this.device = msg.device;
-          logEvent('info', 'offline voice ready', { device: msg.device });
-          emit('tts-progress', { status: 'ready', device: msg.device });
-          this.keepFor(); // Balanced: the idle clock starts at load, not only after the first sentence
-          resolve();
-        } else if (msg.id && this.pending.has(msg.id)) {
-          const { done, fail } = this.pending.get(msg.id);
-          this.pending.delete(msg.id);
-          if (msg.type === 'audio') {
-            // The first sentences after a load, to see what a sentence costs (tts-worker.js generate).
-            if (msg.timing && (this.timed = (this.timed || 0) + 1) <= 40) logEvent('info', 'offline voice sentence', { ...msg.timing, device: this.device });
-            done(msg.samples);
-          } else fail(new Error(msg.message));
-        } else if (msg.type === 'error') this.reset(msg.message, reject);
-      };
+      this.worker.onmessage = (e) => this.onMessage(e.data, resolve, reject);
       this.worker.onerror = (e) => this.reset(e.message || 'the offline voice failed to load', reject);
     });
     this.ready.catch(() => {});
@@ -68,16 +56,71 @@ const localVoice = {
     return this.ready;
   },
 
+  onMessage(msg, resolve, reject) {
+    if (msg.type === 'progress') emit('tts-progress', msg);
+    else if (msg.type === 'ready') this.onReady(msg, resolve);
+    else if (msg.id) this.onJob(msg);
+    else if (msg.type === 'error') this.reset(msg.message, reject);
+  },
+
+  onReady(msg, resolve) {
+    const now = performance.now();
+    this.loaded = true;
+    this.device = msg.device;
+    for (const job of this.pending.values()) job.readyAt ||= now;
+    // Where the load's time went (tts-worker.js load), to compare the app with the voice on its own.
+    logEvent('info', 'offline voice ready', { device: msg.device, ...msg.timing, sinceStartMs: Math.round(now - this.startedAt) });
+    emit('tts-progress', { status: 'ready', device: msg.device });
+    this.keepFor(); // Balanced: the idle clock starts at load, not only after the first sentence
+    resolve();
+  },
+
+  // A sentence's messages: begin (its run limit starts), then audio, error or skipped (cancelled).
+  onJob(msg) {
+    this.jobs.heard(); // alive, even about a sentence given up on (checkJobs)
+    const job = this.pending.get(msg.id);
+    if (!job) return; // given up on already (a stop, a time limit)
+    if (msg.type === 'begin') {
+      job.begunAt = performance.now();
+      return this.jobs.begin(msg.id, job.begunAt);
+    }
+    this.pending.delete(msg.id);
+    this.jobs.done(msg.id);
+    if (msg.type === 'audio') {
+      this.logSentence(job, msg.timing);
+      job.done({ samples: msg.samples, timing: msg.timing });
+    } else if (msg.type === 'skipped') job.done(null);
+    else job.fail(new Error(msg.message));
+  },
+
+  // The first sentences after a load, to see what a sentence costs and what the window was doing
+  // meanwhile (the voice is slower in the app than on its own). Filler warm-ups don't count.
+  logSentence(job, timing) {
+    if (!timing || job.quiet || (this.timed = (this.timed || 0) + 1) > 40) return;
+    const s = state.settings;
+    const view = document.querySelector('.view.active')?.id.replace(/^view-/, '');
+    logEvent('info', 'offline voice sentence', { ...timing, device: this.device, view, layout: s.ui?.chatLayout, fx: effectsLevel(s), lite: profile(s) === 'balanced', focused: document.hasFocus(), visible: document.visibilityState });
+  },
+
   // Frees the model (the memory section's button, or Balanced performance after a while unused).
-  unload() {
+  unload(reason = 'the offline voice was unloaded') {
     clearTimeout(this.idle);
     if (!this.worker) return;
     this.worker.terminate();
     this.worker = null;
     this.ready = null;
     this.device = '';
-    for (const { fail } of this.pending.values()) fail(new Error('the offline voice was unloaded'));
+    this.dropJobs(reason);
+  },
+
+  // Every sentence still waiting fails with `reason`.
+  dropJobs(reason) {
+    this.loaded = false;
+    for (const { fail } of this.pending.values()) fail(new Error(reason));
     this.pending.clear();
+    this.jobs = createJobs();
+    clearInterval(this.timer);
+    this.timer = 0;
   },
 
   keepFor() {
@@ -89,8 +132,7 @@ const localVoice = {
   reset(reason, reject) {
     this.worker?.terminate();
     this.worker = null;
-    for (const { fail } of this.pending.values()) fail(new Error(reason));
-    this.pending.clear();
+    this.dropJobs(reason);
     emit('tts-progress', { status: 'error', message: reason });
     reject?.(new Error(reason));
     // Also after a crash once loaded: until the retry, sentences go straight to the system voice.
@@ -99,23 +141,67 @@ const localVoice = {
     setTimeout(() => (this.ready = null), 60000);
   },
 
-  // Gives up (returns null) while the model is still downloading, so the system voice fills in.
-  async speak(text, { waitMs = 8000 } = {}) {
+  // Posted at once, also while the model still loads (the worker waits for it). Resolves null if it
+  // never began because the model is still downloading after waitMs (the system voice may fill in), or
+  // if a stop cancelled it (cancelQueued; never a `keep` one). quiet: a filler made ahead, not logged.
+  async speak(text, { waitMs = 8000, keep = false, quiet = false } = {}) {
     const ready = this.start();
-    const loaded = await Promise.race([ready.then(() => true), new Promise((r) => setTimeout(() => r(false), waitMs))]);
-    if (!loaded) return null;
+    if (!this.worker) return ready.then(() => null); // a failed load: its reason, until the retry
     const v = state.settings.voice;
     const id = ++this.seq;
-    const samples = await new Promise((done, fail) => {
-      this.pending.set(id, { done, fail });
-      this.worker.postMessage({ type: 'speak', id, text, voice: v.localVoice, speed: Number(v.speed) || 1 });
-      // Generous: a sentence pair takes well under a second on the GPU, a few seconds on the CPU.
-      setTimeout(() => this.pending.has(id) && (this.pending.delete(id), fail(new Error('the offline voice took too long'))), 30000);
+    const postedAt = performance.now();
+    const job = { quiet, postedAt, readyAt: this.loaded ? postedAt : 0, begunAt: 0 };
+    const out = await new Promise((done, fail) => {
+      Object.assign(job, { done, fail });
+      this.pending.set(id, job);
+      this.jobs.post(id, { now: postedAt, keep, waitMs });
+      this.worker.postMessage({ type: 'speak', id, keep, text, voice: v.localVoice, speed: Number(v.speed) || 1 });
+      this.timer ||= setInterval(() => this.checkJobs(), 1000);
     });
+    if (!out) return null;
     this.keepFor();
-    const buf = ctx().createBuffer(1, samples.length, KOKORO_SAMPLE_RATE);
-    buf.copyToChannel(samples, 0);
+    const buf = ctx().createBuffer(1, out.samples.length, KOKORO_SAMPLE_RATE);
+    buf.copyToChannel(out.samples, 0);
+    const ms = (n) => Math.max(0, Math.round(n));
+    buf.timing = { loadWaitMs: ms(job.readyAt - postedAt), queueMs: ms(job.begunAt - Math.max(postedAt, job.readyAt)), modelMs: out.timing?.modelMs };
     return buf;
+  },
+
+  // Every second while sentences are out. The run limit is generous: a sentence pair takes well under
+  // a second on the GPU, a few seconds on the CPU, counted from its begin. A worker that then stays
+  // silent hangs (what waits behind it would never begin): it is restarted, the model loads again.
+  checkJobs() {
+    const now = performance.now();
+    for (const id of this.jobs.expired(now, { loaded: this.loaded })) {
+      const job = this.pending.get(id);
+      this.jobs.done(id);
+      this.pending.delete(id);
+      if (job?.begunAt) job.fail(new Error('the offline voice took too long'));
+      else if (job) {
+        this.worker?.postMessage({ type: 'cancel', ids: [id] }); // not to be made once the model is in
+        job.done(null);
+      }
+    }
+    if (this.jobs.stalled(now)) {
+      logEvent('warn', 'offline voice stopped responding; restarting it', { waiting: this.pending.size });
+      this.unload('the offline voice stopped responding');
+    }
+    if (!this.jobs.size) {
+      clearInterval(this.timer);
+      this.timer = 0;
+    }
+  },
+
+  // A stop: the sentences not begun yet are dropped, so the next reply doesn't wait behind them (the
+  // one being made finishes: an ONNX run can't be interrupted). The phone's WAVs (`keep`) stay.
+  cancelQueued() {
+    if (!this.worker) return;
+    this.worker.postMessage({ type: 'cancel', upTo: this.seq });
+    for (const id of this.jobs.cancel(this.seq)) {
+      const job = this.pending.get(id);
+      this.pending.delete(id);
+      job?.done(null);
+    }
   },
 
   warn(err) {
@@ -125,15 +211,21 @@ const localVoice = {
   },
 };
 
-/** At launch: load the offline voice when it is the main voice, so the greeting needn't wait for it. */
+/**
+ * At launch: load the offline voice when it is the main voice, so the greeting needn't wait for it.
+ * Once it is in, the filler lines are made in the first quiet moment (speaker.filler plays only those),
+ * when replies are spoken: with auto-speak off no filler plays, and making them is CPU work for nothing.
+ */
 export function preloadOfflineVoice() {
   const v = state.settings?.voice;
-  if (v?.ttsEnabled && v.engine === 'local') localVoice.start();
+  if (!v?.ttsEnabled || v.engine !== 'local') return;
+  const idle = () => !state.generating && !state.recording;
+  localVoice.start().then(() => ttsActive() && state.settings.voice.filler && speaker.warmFillers(allFillers(), idle), () => {});
 }
 
-/** A paired phone's reply in the offline voice, as a WAV (remote.js). */
+/** A paired phone's reply in the offline voice, as a WAV (remote.js). Never cancelled by a stop here. */
 export async function offlineVoiceWav(text) {
-  const buf = await localVoice.speak(speakable(text), { waitMs: 180000 });
+  const buf = await localVoice.speak(speakable(text), { waitMs: 180000, keep: true });
   if (!buf) throw new Error('The offline voice is not ready');
   return encodeWav(buf.getChannelData(0), buf.sampleRate);
 }
@@ -150,6 +242,14 @@ export async function testLocalVoice(text) {
 }
 
 // ----------------------------------------------------------------- Speaker
+// The filler warm-up on the cloud voice: its per-minute limit is shared with the replies, so one line
+// every few seconds instead of seventeen requests back to back.
+const CLOUD_WARM_GAP_MS = 8000;
+
+// Language practice speaks with a Windows voice for that language: the language, or '' when the usual
+// voice speaks (synthesize; chunk doesn't cut a sentence that voice says at once).
+const practiceVoiceFor = (override) => (override?.engine !== 'local' && !override?.voice && state.settings.learning?.practiceVoice !== 'assistant' && practiceLanguage(state.settings)) || '';
+
 class Speaker {
   constructor() {
     this.queue = []; // [{ text, audio: Promise<AudioBuffer|'system'|null> }]
@@ -203,14 +303,20 @@ class Speaker {
     this.started = false;
   }
 
-  // The first sentence of a reply goes out alone so the voice starts fast; after that sentences go
-  // in pairs, because the voice gives fuller chunks livelier delivery than single short sentences.
+  // The first sentence of a reply goes out alone so the voice starts fast (a long one in two parts,
+  // speechplan.js firstCut: the second is made while the first plays; not for a practice language's
+  // Windows voice, which speaks at once: there a cut only adds a pause); after that sentences go in
+  // pairs, because the voice gives fuller chunks livelier delivery than single short sentences.
   // A lone sentence never waits longer than a moment for its partner.
   chunk(text, override) {
     if (!text) return;
     if (!this.started) {
       this.started = true;
-      return this.enqueue(text, override, { first: true });
+      const practice = practiceVoiceFor(override);
+      const [head, tail] = practice && pickVoice(speechSynthesis.getVoices(), practice) ? [text, ''] : firstCut(text);
+      this.enqueue(head, override, { first: true });
+      if (tail) this.enqueue(tail, override);
+      return;
     }
     this.batch.push(text);
     this.batchOverride = override;
@@ -237,23 +343,50 @@ class Speaker {
     return true;
   }
 
-  // Makes the filler lines' audio one at a time, only while `idle()` and nothing is being said.
+  // Makes the filler lines' audio one at a time, only while `idle()` and nothing is being said. The
+  // wish is kept: a speaker that is talking resumes it when it goes quiet (pump), a reply or a
+  // recording when it is over (chat.js finish). Before, it gave up whenever the reply was still being
+  // spoken, which after all but the shortest replies it was, so fillers were hardly ever made.
   warmFillers(lines, idle) {
-    if (this.warming) return;
-    const todo = lines.filter((t) => !this.fillers.has(fillerKey(t)));
-    if (!todo.length) return;
+    if (!this.warmWant) (this.warmMade = 0), (this.warmFrom = performance.now());
+    this.warmWant = { lines, idle };
+    if (!this.warming) this.warmSoon(1500);
+  }
+
+  warmSoon(ms) {
     this.warming = true;
-    const next = async () => {
-      const text = todo.shift();
-      if (!text || !idle() || this.busy) return void (this.warming = false);
-      const buf = await this.synthesize(text, undefined, this.gen).catch(() => null);
-      // The system voice ('system') is instant anyway; a failure stops until the next quiet moment.
-      if (!buf || typeof buf !== 'object') return void (this.warming = false);
-      if (this.fillers.size > 80) this.fillers.clear(); // a few voices' worth
-      this.fillers.set(fillerKey(text), buf);
-      setTimeout(next, 600);
-    };
-    setTimeout(next, 1500);
+    clearTimeout(this.warmTimer);
+    this.warmTimer = setTimeout(() => this.warmNext(), ms);
+  }
+
+  async warmNext() {
+    const want = this.warmWant;
+    if (!want) return void (this.warming = false);
+    const todo = want.lines.filter((t) => !this.fillers.has(fillerKey(t)));
+    // Not while local Whisper writes a recording down (one processor for both), and not while the main
+    // voice is unreachable (a filler is made in the main voice or not at all: synthesize, quiet).
+    const idle = want.idle() && !state.transcribing;
+    const step = warmStep({ todo: todo.length, idle, busy: this.busy, away: this.mainVoiceAway() });
+    if (step === 'done') {
+      this.warmWant = null;
+      this.warming = false;
+      if (this.warmMade) logEvent('info', 'offline voice fillers ready', { n: this.warmMade, ms: Math.round(performance.now() - this.warmFrom), engine: state.settings.voice?.engine });
+      return;
+    }
+    if (step !== 'warm') return void (this.warming = false);
+    const key = fillerKey(todo[0]); // the voice it is made in, even if the settings change meanwhile
+    const buf = await this.synthesize(todo[0], undefined, this.gen, { quiet: true }).catch(() => null);
+    // The system voice ('system') is instant anyway; a failure or a stop waits for the next quiet moment.
+    if (!buf || typeof buf !== 'object') return void (this.warming = false);
+    if (this.fillers.size > 80) this.fillers.clear(); // a few voices' worth
+    this.fillers.set(key, buf);
+    this.warmMade++;
+    this.warmSoon(state.settings.voice?.engine === 'cloud' ? CLOUD_WARM_GAP_MS : 600);
+  }
+
+  // VoiceStudio or the cloud voice failed and the fallback speaks, until a reply reaches it again.
+  mainVoiceAway() {
+    return this.onFallback && state.settings.voice?.engine !== 'local';
   }
 
   enqueue(text, override, { first = false } = {}) {
@@ -264,13 +397,17 @@ class Speaker {
     this.pump();
   }
 
-  async synthesize(text, override, gen) {
-    if (override?.engine === 'local') return localVoice.speak(text, { waitMs: 600000 }).catch((err) => (this.reportError(err), null));
+  // quiet: a filler made ahead, kept out of the sentence log and best effort in the main voice only.
+  // Made by the fallback, it would be kept under the main voice's key and play in the wrong voice once
+  // VoiceStudio is back; failing, it shows nothing (no toast, no red face, no switch to the fallback)
+  // and the next quiet moment tries again. Never part of override, which goes to VoiceStudio as it is.
+  async synthesize(text, override, gen, { quiet = false } = {}) {
+    if (override?.engine === 'local') return localVoice.speak(text, { waitMs: 600000, quiet }).catch((err) => (this.reportError(err), null));
     // Language practice speaks with a Windows voice for that language (if one is installed).
-    const practice = practiceLanguage(state.settings);
-    if (practice && !override?.voice && state.settings.learning?.practiceVoice !== 'assistant') {
+    const practice = practiceVoiceFor(override);
+    if (practice) {
       if (pickVoice(speechSynthesis.getVoices(), practice)) return 'system';
-      if (this.noPracticeVoice !== practice) {
+      if (!quiet && this.noPracticeVoice !== practice) {
         this.noPracticeVoice = practice;
         toastError(new Error(`No ${languageName(practice)} voice on this computer, so the usual voice speaks. Add one in Windows Settings → Time & language → Speech → Add voices.`));
       }
@@ -280,10 +417,10 @@ class Speaker {
     // fails (too slow, crashed), the rest of the reply stays silent, on screen; the system voice only
     // fills in when the user chose it as the fallback.
     if (state.settings.voice.engine === 'local' && !override?.voice) {
-      return localVoice.speak(text, { waitMs: 180000 }).catch((err) => (localVoice.warn(err), gen === this.gen ? this.systemIfChosen() : null));
+      return localVoice.speak(text, { waitMs: 180000, quiet }).catch((err) => (quiet ? quietFail(err) : (localVoice.warn(err), gen === this.gen ? this.systemIfChosen() : null)));
     }
     const mode = fallbackMode();
-    if (this.onFallback && mode !== 'off' && Date.now() - this.fallbackSince < 120000) return this.fallback(text, gen);
+    if (this.onFallback && mode !== 'off' && Date.now() - this.fallbackSince < 120000) return quiet ? null : this.fallback(text, gen);
     try {
       const { audio } = await api.tts.speak(text, override);
       const bytes = audio instanceof Uint8Array ? audio : new Uint8Array(audio);
@@ -293,6 +430,7 @@ class Speaker {
       return buf;
     } catch (err) {
       if (gen !== this.gen) return null;
+      if (quiet) return quietFail(err);
       logEvent('warn', `${engineName()} failed`, err.message);
       if (mode === 'off') {
         this.reportError(err);
@@ -339,7 +477,7 @@ class Speaker {
       if (!buf || item.gen !== this.gen) continue;
       setFlag('playing', true);
       setCaption(item.text, 'assistant');
-      if (item.first) logFirstAudio(item);
+      if (item.first) logFirstAudio(item, buf);
       if (buf === 'system') await this.playSystem(item.text);
       else {
         await new Promise((resolve) => {
@@ -359,6 +497,8 @@ class Speaker {
     this.running = false;
     setFlag('playing', false);
     emit('speech-idle');
+    // A filler warm-up that waited for the speaker goes on now that it is quiet.
+    if (this.warmWant && !this.warming) this.warmSoon(1500);
   }
 
   // OS speech synthesis fallback. The face gets a synthetic level so it still "speaks".
@@ -390,9 +530,12 @@ class Speaker {
     });
   }
 
+  // Barge-in, a new message, say(), the spoken approval prompt: the old reply's sentences still waiting
+  // to be made are dropped too, so the next words don't queue behind them.
   stop() {
     this.gen++;
     this.queue = [];
+    localVoice.cancelQueued();
     this.buffer = '';
     clearTimeout(this.batchTimer);
     this.batch = [];
@@ -417,29 +560,10 @@ class Speaker {
 // A filler's audio belongs to the voice that made it (engine, voice, speed…).
 const fillerKey = (text) => `${JSON.stringify([state.settings.voice?.engine, state.settings.voice?.voice, state.settings.voice?.localVoice, state.settings.voice?.speed, state.settings.cloudVoice])}|${text}`;
 
-function splitSentences(text, all = false) {
-  const { done, rest } = takeSentences(text);
-  if (all && rest.trim()) done.push(rest);
-  return done;
-}
-
-// Pull complete sentences out of a streaming buffer. Short fragments are merged to avoid choppy audio.
-function takeSentences(buf) {
-  const done = [];
-  let rest = buf;
-  const re = /([\s\S]*?[.!?…:;](?=\s|$)|[\s\S]*?\s[—–]\s|[\s\S]*?\n\s*\n)/;
-  let m;
-  let acc = '';
-  while ((m = rest.match(re)) && m[0].length < rest.length) {
-    acc += m[0];
-    rest = rest.slice(m[0].length);
-    // Never split inside a formula: "$$a. b$$" would be spoken as raw LaTeX.
-    if ((acc.trim().length >= 24 || /\n\s*\n/.test(m[0])) && !mathOpen(acc)) {
-      done.push(acc.trim());
-      acc = '';
-    }
-  }
-  return { done, rest: acc + rest };
+// A filler made ahead that failed (a cloud limit, a timeout): a line in the log, nothing on screen.
+function quietFail(err) {
+  logEvent('info', 'filler not made', { engine: state.settings.voice?.engine, error: err?.message });
+  return null;
 }
 
 export const speaker = new Speaker();
@@ -1003,11 +1127,14 @@ let busy = false;
 // which the log didn't count) to the reply's first audio.
 let utteranceEndedAt = 0;
 
-function logFirstAudio(item) {
+// synthMs is the whole wait; for the offline voice, its parts: the model loading, sentences ahead of
+// it in the worker, and the run itself (localVoice.speak).
+function logFirstAudio(item, buf) {
   const now = performance.now();
   const sinceSpeechEndMs = utteranceEndedAt && now - utteranceEndedAt < 120000 ? Math.round(now - utteranceEndedAt) : undefined;
   utteranceEndedAt = 0;
-  logEvent('info', 'first audio', { synthMs: Math.round(now - item.queuedAt), sinceSpeechEndMs, chars: item.text.length });
+  const t = buf?.timing || {};
+  logEvent('info', 'first audio', { synthMs: Math.round(now - item.queuedAt), loadWaitMs: t.loadWaitMs, queueMs: t.queueMs, modelMs: t.modelMs, sinceSpeechEndMs, chars: item.text.length });
 }
 
 // Hands-free pieces of one message (utterance.js): a recording that hit the length limit, or a
