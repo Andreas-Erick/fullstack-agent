@@ -1298,7 +1298,8 @@ async function finishUtterance(getSamples, { join = false, limit = false, pauseM
     const started = performance.now();
     const text = await transcribe(samples);
     setCaption(text || '(didn’t catch that)', 'user');
-    if (text) logEvent('info', 'heard', { text, sttMs: Math.round(performance.now() - started), audioSec: +(samples.length / 16000).toFixed(1), pauseMs: pauseMs || undefined });
+    if (text) logEvent('info', 'heard', { chars: text.length, sttMs: Math.round(performance.now() - started), audioSec: +(samples.length / 16000).toFixed(1), pauseMs: pauseMs || undefined });
+    if (text && state.settings?.logging?.debug) logEvent('debug', 'heard text', { text: text.slice(0, 200) });
     if (join) {
       const whole = joiner.add(text, { limit, now: performance.now() });
       if (whole) emit('voice-input', whole);

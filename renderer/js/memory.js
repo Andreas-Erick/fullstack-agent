@@ -2,6 +2,8 @@
 import { $, api, el, escapeHtml, timeAgo, toast, toastError, modal, confirmDialog, debounce, on } from './util.js';
 
 let entries = [];
+// What main said, without Electron's "Error invoking remote method '…': Error: " in front.
+const ipcMessage = (err) => String(err?.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
 export function initMemory() {
   $('#memSearch').addEventListener('input', debounce(render, 120));
@@ -20,8 +22,8 @@ export function initMemory() {
         const p = await api.memory.export(act === 'export-json' ? 'json' : 'md');
         if (p) toast(`Exported to ${p}`);
       } else if (act === 'import') {
-        const n = await api.memory.import();
-        if (n) toast(`Imported ${n} memories`);
+        const r = await api.memory.import(); // null: the file picker was closed
+        if (r) toast(r.imported ? `Imported ${r.imported} ${r.imported === 1 ? 'memory' : 'memories'}${r.skipped ? ` (${r.skipped} skipped)` : ''}` : 'Nothing to import from this file');
         refresh();
       } else if (act === 'open-dir') await api.memory.openDir();
       else if (act === 'clear') {
@@ -31,7 +33,7 @@ export function initMemory() {
         }
       }
     } catch (err) {
-      toastError(err);
+      toastError(ipcMessage(err)); // e.g. "This file isn't a memory export…"
     }
   };
   $('#streamReflect').onclick = reflectNow;
@@ -84,8 +86,19 @@ async function reflectNow() {
   }
 }
 
+let failed = null; // the last list() error: shown instead of the grid until a read works
+let reads = 0; // only the latest read is shown: an older one can answer last
+let retried = false; // Try again was pressed: a read that fails again puts the focus on the new button
+
 export async function refresh() {
-  entries = await api.memory.list().catch(() => []);
+  const read = ++reads;
+  const got = await api.memory.list().then((list) => ({ list }), (err) => ({ err }));
+  if (read !== reads) return;
+  if (got.err) failed = got.err; // the previous entries stay for the category list and the editor
+  else {
+    entries = got.list;
+    failed = null;
+  }
   const cats = [...new Set(entries.map((e) => e.category))].sort();
   const sel = $('#memCategory');
   const cur = sel.value;
@@ -101,12 +114,26 @@ function highlight(text, terms) {
 }
 
 function render() {
+  const grid = $('#memGrid');
+  const wasRetry = retried;
+  retried = false;
+  if (failed) {
+    // The old button had the focus (or lost it when Try again disabled it): the new one gets it, unless the
+    // user has moved to another control meanwhile.
+    const active = document.activeElement;
+    const refocus = grid.contains(active) || (wasRetry && (!active || active === document.body));
+    $('#memSummary').textContent = 'Memories couldn’t be read just now.';
+    grid.innerHTML = '';
+    const again = el('button', { class: 'btn small', onclick: (ev) => ((ev.currentTarget.disabled = true), (retried = true), refresh()) }, 'Try again');
+    grid.append(el('div', { class: 'test-result err', role: 'alert' }, `Couldn’t read your memories: ${ipcMessage(failed)} `, again));
+    if (refocus) again.focus();
+    return;
+  }
   const q = $('#memSearch').value.trim().toLowerCase();
   const terms = q.split(/\s+/).filter(Boolean);
   const cat = $('#memCategory').value;
   const list = entries.filter((e) => (!cat || e.category === cat) && terms.every((t) => `${e.title} ${e.content} ${e.category}`.toLowerCase().includes(t)));
   $('#memSummary').textContent = `${entries.length} memories in the vault${list.length !== entries.length ? ` · ${list.length} shown` : ''} · every memory is injected into the agent's system prompt.`;
-  const grid = $('#memGrid');
   grid.innerHTML = '';
   if (!list.length) {
     grid.append(el('div', { class: 'muted' }, entries.length ? 'No memories match.' : 'The vault is empty. Tell the agent about yourself, or add a memory manually.'));
@@ -134,8 +161,13 @@ function render() {
                 class: 'btn small danger',
                 onclick: async () => {
                   if (await confirmDialog('Delete memory', `Forget “${e.title}”?`, 'Delete')) {
-                    await api.memory.delete(e.id);
-                    refresh();
+                    try {
+                      await api.memory.delete(e.id);
+                    } catch (err) {
+                      toastError(ipcMessage(err));
+                    } finally {
+                      refresh();
+                    }
                   }
                 },
               },

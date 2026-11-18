@@ -1,5 +1,6 @@
-// Diagnostic log (<userData>/logs/nexus.log): what was heard and said, tool calls, fallbacks, session
-// spawns, timings, errors. The agent reads it through read_app_log to diagnose itself ("the mechanic").
+// Diagnostic log (<userData>/logs/nexus.log): what happened in each turn (lengths, timings, tools; the words
+// only with Detailed logging on), tool calls, fallbacks, session spawns, errors. The agent reads it through
+// read_app_log to diagnose itself ("the mechanic").
 //
 // One line per event:  <ISO time> <LEVEL> [turn=… conv=…] <event> <JSON detail>
 // - Lines written while a turn runs carry its id (AsyncLocalStorage), so `turn=ab12cd` pulls out
@@ -183,7 +184,9 @@ function write(level, event, data) {
   try {
     const ctx = als.getStore();
     const tags = ctx ? Object.entries(ctx).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(' ') : '';
-    let detail = redact(serialize(data));
+    // One event, one line: a string detail with line breaks (JSON never has raw ones) would become lines the
+    // level and turn filters drop.
+    let detail = redact(serialize(data)).replace(/\r?\n/g, ' | ');
     const cap = level === 'ERROR' ? 6000 : 2500;
     if (detail.length > cap) detail = `${detail.slice(0, cap)}… (${detail.length} chars)`;
     const body = `${level.padEnd(5)} ${tags ? `[${tags}] ` : ''}${event}${detail ? ` ${detail}` : ''}`;

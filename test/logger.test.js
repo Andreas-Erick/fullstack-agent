@@ -117,3 +117,51 @@ test('stack frames are short real paths, never the user folder', () => {
   assert.strictEqual(log.shortFile('c:/users/some one/appdata/local/programs/siren assistant/resources/app/preload.js', installed), 'preload.js', 'the drive and folders in any case');
   assert.strictEqual(log.shortFile(`${installed}-old\\main\\x.js`, installed), 'x.js', 'a neighbouring folder is outside the app');
 });
+
+// Regression: the crash handlers logged err.stack as a string: several physical lines (the level and turn
+// filters dropped all but the first), the user's folders in them, and no code location for analyze_errors.
+test('a crash is one line with short app paths and a code location', () => {
+  log.flush();
+  const start = fs.existsSync(log.file()) ? fs.statSync(log.file()).size : 0;
+  const e = new Error('first line of the message\nsecond line of it');
+  e.stack = [`Error: ${e.message}`, `    at onTick (${path.join(ROOT, 'main', 'journal.js')}:41:7)`, `    at listOnTimeout (${path.join(ROOT, 'main', 'helperapps.js')}:9:3)`].join('\n');
+  log.error('uncaught exception', { error: e });
+  log.flush();
+  const added = fs.readFileSync(log.file()).subarray(start).toString('utf8');
+  assert.strictEqual(added.trimEnd().split('\n').length, 1, added);
+  const parent = path.dirname(ROOT);
+  for (const p of [ROOT, parent, require('os').homedir()]) {
+    assert.ok(!added.includes(p) && !added.includes(p.replace(/\\/g, '/')), `no ${p} in ${added}`);
+  }
+  const [group] = require('../main/errorinsight').analyze(added);
+  assert.ok(group.locations.includes('main/journal.js:41'), JSON.stringify(group));
+});
+
+test('a detail with line breaks stays on its line', () => {
+  log.flush();
+  const start = fs.statSync(log.file()).size;
+  log.info('setup complete', 'a\nb\r\nc');
+  log.flush();
+  const added = fs.readFileSync(log.file()).subarray(start).toString('utf8');
+  assert.strictEqual(added.trimEnd().split('\n').length, 1, added);
+  assert.match(added.trimEnd(), /setup complete a \| b \| c$/);
+});
+
+// The words of messages, replies and transcripts stay out of the INFO lines (DEBUG lines carry them only
+// with Detailed logging on); the crash handlers log the Error itself.
+test('the turn, reply and heard lines carry lengths, not words', () => {
+  const lineOf = (rel, start) => fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n').find((l) => l.includes(start));
+  for (const [rel, start] of [
+    ['main/llm.js', "log.info('turn', {"],
+    ['main/main.js', "log.info('reply', {"],
+    ['renderer/js/voice.js', "logEvent('info', 'heard', {"],
+  ]) {
+    const line = lineOf(rel, start);
+    assert.ok(line, `${rel}: ${start}`);
+    assert.match(line, /\bchars:/, rel);
+    assert.doesNotMatch(line, /\btext:/, rel);
+  }
+  const main = fs.readFileSync(path.join(ROOT, 'main/main.js'), 'utf8');
+  assert.match(main, /process\.on\('uncaughtException', \(err\) => \(log\.error\('uncaught exception', \{ error: err/);
+  assert.match(main, /process\.on\('unhandledRejection', \(err\) => \(log\.error\('unhandled rejection', \{ error: err/);
+});
