@@ -23,7 +23,7 @@ const channels = {
   notes: ['quick'],
   notebook: ['list', 'read', 'create', 'save', 'remove', 'pin', 'polish'],
   hardware: ['scan'],
-  chat: ['send', 'abort', 'endSession', 'redoCheck', 'redo'],
+  chat: ['send', 'abort', 'endSession', 'redoCheck', 'redo', 'attach'],
   approval: ['respond'],
   remote: ['status', 'pair', 'cancelPair', 'revoke', 'revokeAll', 'setReadOnly', 'transcribed', 'spoken', 'detectTailscale', 'checkSecure', 'setupTailscale'],
   handoff: ['get', 'dismiss'],

@@ -31,6 +31,7 @@ const faces = require('./faces');
 const facelinks = require('./facelinks');
 const facecapture = require('./facecapture');
 const synccore = require('./synccore');
+const attachcore = require('./attachcore');
 
 const ROOT = path.join(__dirname, '..');
 // URL path -> file (relative to the app root). Nothing else is served.
@@ -447,12 +448,14 @@ function chatForDevice(ev) {
 // what was typed rather than the expanded steps. A failed attempt shows only how it ended.
 function messageForDevice(m) {
   if (!m) return m;
-  const { raw, toolCalls, display, content, attempt, ...rest } = m;
+  const { raw, toolCalls, display, content, attempt, attachments, ...rest } = m;
   return {
     ...rest,
-    content: display ?? content,
+    // A message with attachments carries the files' text in its content: devices get only what was typed.
+    content: attachments?.length ? display || '' : display ?? content,
     ...(toolCalls?.length ? { toolCalls: toolCalls.map((t) => ({ name: t.name, ok: t.ok })) } : {}),
     ...(attempt?.outcome ? { attempt: { outcome: attempt.outcome } } : {}),
+    ...(attachments?.length ? { attachments: attachcore.forDevice(attachments) } : {}),
   };
 }
 

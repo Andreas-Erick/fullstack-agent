@@ -5,16 +5,22 @@ const { app } = require('electron');
 const store = require('./store');
 const obsidian = require('./obsidian');
 const { isInside } = require('./files');
+const doctext = require('./doctext');
+const attachcore = require('./attachcore');
 
-const TEXT_EXTS = ['.txt', '.log', '.csv', '.tsv', '.json', '.xml', '.yml', '.yaml', '.ini', '.toml', '.js', '.ts', '.py', '.css', '.sh', '.bat', '.ps1', '.java', '.c', '.cpp', '.h', '.cs', '.go', '.rs', '.rb', '.php', '.sql'];
 const MD_EXTS = ['.md', '.markdown'];
 const HTML_EXTS = ['.html', '.htm'];
 const IMG_EXTS = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.bmp': 'image/bmp' };
+// Every type the chat accepts as text (attachcore.TEXT_EXTS) is read as text here too, so a copy of an
+// attached file opens and reads again; .svg and .html files elsewhere keep their own kind.
+const TEXT_EXTS = [...new Set(['.txt', '.log', '.csv', '.tsv', '.json', '.xml', '.yml', '.yaml', '.ini', '.toml', '.js', '.ts', '.py', '.css', '.sh', '.bat', '.ps1', '.java', '.c', '.cpp', '.h', '.cs', '.go', '.rs', '.rb', '.php', '.sql', ...attachcore.TEXT_EXTS.map((e) => `.${e}`)])].filter((e) => !MD_EXTS.includes(e) && !HTML_EXTS.includes(e) && !IMG_EXTS[e]);
 const SUPPORTED = ['.pdf', '.docx', ...TEXT_EXTS, ...MD_EXTS, ...HTML_EXTS, ...Object.keys(IMG_EXTS)];
 const MAX_BYTES = 80 * 1024 * 1024;
 
 const userApproved = new Set(); // files the user explicitly picked in a dialog this session
-let pdfjsPromise = null;
+// Copies of files attached in the chat (main/attachments.js): reached through their conversation.
+const attachmentsRoot = () => require('./datadir').attachmentsFolder();
+const isAttachment = (full) => isInside(attachmentsRoot(), full);
 
 function kindOf(ext) {
   if (ext === '.pdf') return 'pdf';
@@ -42,13 +48,14 @@ function userFolders(settings) {
   return [...new Set(list.map((p) => path.resolve(p.trim())))];
 }
 
-// Plus the vault (the agent's own memory) and Documents/Siren Exports (only PDFs the app made, when no
-// workspace folder is set).
+// Plus the vault (the agent's own memory), Documents/Siren Exports (only PDFs the app made, when no
+// workspace folder is set) and the copies of files attached in the chat (the app's own folder).
 async function allowedRoots() {
   const roots = userFolders(await store.getSettings());
   const vault = await obsidian.vaultPath();
   if (vault) roots.push(vault);
   roots.push(require('./datadir').exportsFolder());
+  roots.push(require('./datadir').attachmentsFolder());
   return [...new Set(roots.filter(Boolean))];
 }
 
@@ -90,35 +97,14 @@ async function load(p, opts = {}) {
   if (kind === 'pdf') doc.data = new Uint8Array(buf);
   else if (kind === 'image') doc.data = `data:${IMG_EXTS[ext]};base64,${buf.toString('base64')}`;
   else if (kind === 'docx') {
+    doctext.checkDocx(buf); // a zip bomb (a dropped file's copy opens here) is refused before it is unpacked
     const mammoth = require('mammoth');
     const res = await mammoth.convertToHtml({ buffer: buf });
     doc.data = res.value;
-  } else doc.data = buf.toString('utf8');
-  await addRecent(doc);
+  } else doc.data = doctext.asText(buf); // UTF-16 by its byte-order mark, like read_document
+  // A chat attachment's copy is reached through its conversation, not the recent list.
+  if (!isAttachment(full)) await addRecent(doc);
   return doc;
-}
-
-async function getPdfjs() {
-  pdfjsPromise ||= import('pdfjs-dist/legacy/build/pdf.mjs');
-  return pdfjsPromise;
-}
-
-async function pdfText(buf, maxChars) {
-  const pdfjs = await getPdfjs();
-  // pdf.js 6: only the loading task has destroy(); always release it, also when a page fails.
-  const task = pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, disableFontFace: true, verbosity: 0 });
-  try {
-    const pdf = await task.promise;
-    let out = '';
-    for (let i = 1; i <= pdf.numPages && out.length < maxChars; i++) {
-      const page = await pdf.getPage(i);
-      const tc = await page.getTextContent();
-      out += `\n\n--- Page ${i} ---\n` + tc.items.map((it) => it.str + (it.hasEOL ? '\n' : ' ')).join('');
-    }
-    return { text: out.trim(), pages: pdf.numPages };
-  } finally {
-    task.destroy().catch(() => {});
-  }
 }
 
 async function extractText(p, { maxChars = 30000, fromUser = false } = {}) {
@@ -127,13 +113,7 @@ async function extractText(p, { maxChars = 30000, fromUser = false } = {}) {
   const kind = kindOf(ext);
   if (!kind) throw new Error(`Unsupported file type "${ext}"`);
   const buf = await fsp.readFile(full);
-  let text = '';
-  let pages;
-  if (kind === 'pdf') ({ text, pages } = await pdfText(buf, maxChars));
-  else if (kind === 'docx') text = (await require('mammoth').extractRawText({ buffer: buf })).value;
-  else if (kind === 'image') text = '[Image file — no text content available]';
-  else if (kind === 'html') text = buf.toString('utf8').replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-  else text = buf.toString('utf8');
+  const { text, pages } = await doctext.textOf(buf, kind, { maxChars });
   const truncated = text.length > maxChars;
   return {
     path: full,
@@ -227,7 +207,8 @@ async function findDocuments(query, { limit = 8 } = {}) {
   const queryWords = all.filter((w) => !FILLER.has(w) && !KIND_WORDS[w]);
   if (!queryWords.length) throw new Error('Say what the file is called or what it is about.');
   const ws = await workspace();
-  const roots = await allowedRoots();
+  // Not the copies of chat attachments: those are reached through their conversation, not by name.
+  const roots = (await allowedRoots()).filter((r) => !isAttachment(r));
   const searched = [];
   const hits = new Map();
   for (const root of roots) {
@@ -253,6 +234,14 @@ async function findDocuments(query, { limit = 8 } = {}) {
   return { workspace: ws || '(not set)', searched, matches };
 }
 
+/** A file the system's own app may open (docs:openExternal): any allowed file, but from the attachments
+ *  folder only documents and data (attachcore.OPENABLE), never a page, a picture with code or a script. */
+async function externalPath(p) {
+  const full = await resolveAllowed(p);
+  if (isAttachment(full) && !attachcore.canOpenExternally(full)) throw new Error('Siren opens this attached file only inside the app.');
+  return full;
+}
+
 // The document windows and monitors (docwindows.js, set up by main.js).
 let popup = null;
 const setPopup = (p) => (popup = p);
@@ -261,4 +250,4 @@ const getPopup = () => {
   return popup;
 };
 
-module.exports = { load, extractText, recent, clearRecent, userFolders, allowedRoots, resolveAllowed, workspace, findDocuments, SUPPORTED, setPopup, popup: getPopup };
+module.exports = { load, extractText, recent, clearRecent, userFolders, allowedRoots, resolveAllowed, externalPath, workspace, findDocuments, kindOf, SUPPORTED, setPopup, popup: getPopup };

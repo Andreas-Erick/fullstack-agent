@@ -173,6 +173,9 @@
               <div class="reply-card-actions" id="replyCardActions"></div>
             </section>
             <div class="composer glass">
+              <div class="attach-tray hidden" id="attachTray" role="list" aria-live="polite" aria-label="Attachments for your next message"></div>
+              <button class="icon-btn attach-btn" id="attachBtn" aria-label="Attach images or files" title="Attach images or files (you can also paste or drop them on the chat)">📎</button>
+              <input type="file" id="attachInput" multiple hidden aria-label="Attach files" />
               <img class="screen-thumb hidden" id="screenThumb" alt="Shared screen" title="This is what the assistant sees with your next message" />
               <button class="mic-btn" id="micBtn" title="Hold to talk">
                 <svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8" /></svg>
@@ -464,6 +467,7 @@
 
     <div class="onboarding hidden" id="onboarding"></div>
     <div class="toasts" id="toasts"></div>
+    <div class="drop-overlay hidden" id="dropOverlay" aria-hidden="true"><div class="drop-card"><b>Drop to attach</b><span>Images · text and code · PDF · Word, up to 6 files</span></div></div>
     <div class="modal hidden" id="modal"><div class="modal-card glass" id="modalCard"></div></div>
   </body>
 </html>

@@ -45,12 +45,15 @@ const atLeast = (level, min) => (EFFORTS.indexOf(level) >= EFFORTS.indexOf(min) 
  * The pace for a turn and what it changes: { pace, mode, effort }. mode is the model mode to use
  * ('fast' for quick turns, else the configured one); effort is the level for this provider's
  * configured effort `base` ('default' = the provider's own default, left alone unless lowered).
+ * attached: characters of files and images attached to the message: never a quick turn, and not the fast
+ * model for a spoken one either ("summarise this" about a lecture PDF needs more than the fast model).
  */
-function plan(settings, { text = '', voice = false, setup = false, engineering = false, base = 'default' } = {}) {
+function plan(settings, { text = '', voice = false, setup = false, engineering = false, base = 'default', attached = 0 } = {}) {
   const configured = settings.llm?.modelMode || 'default';
-  const fastVoice = voice && settings.llm?.voiceUsesFast;
+  const fastVoice = voice && settings.llm?.voiceUsesFast && !(attached > 0);
   if (setup || settings.llm?.autoPace === false || configured !== 'default') return { pace: 'off', mode: fastVoice ? 'fast' : configured, effort: base };
-  const pace = engineering ? 'deep' : classify(text);
+  const pace0 = engineering ? 'deep' : classify(text);
+  const pace = pace0 === 'quick' && attached > 0 ? 'normal' : pace0;
   if (pace === 'quick') return { pace, mode: 'fast', effort: 'low' };
   // Deep goes to the provider's deep model (llm.js effectiveModel: the main one when none is set) and
   // raises an explicit low/medium effort; 'default' already lets the model think as much as it likes.

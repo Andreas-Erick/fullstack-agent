@@ -40,4 +40,7 @@ function documentsFolder(name, legacyName) {
 
 const exportsFolder = () => documentsFolder('Siren Exports', 'Nexus Exports');
 
-module.exports = { setup, plan, documentsFolder, exportsFolder, LEGACY_NAME };
+// Copies of the files the user attached in the chat, one folder per conversation (main/attachments.js).
+const attachmentsFolder = () => path.join(app.getPath('userData'), 'attachments');
+
+module.exports = { setup, plan, documentsFolder, exportsFolder, attachmentsFolder, LEGACY_NAME };

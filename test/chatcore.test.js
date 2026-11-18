@@ -101,3 +101,16 @@ test('an early filler for spoken requests, never for small talk or a word or two
   for (const list of Object.values(c.FILLERS)) for (const line of list) assert.ok(all.includes(line));
   assert.ok(c.EARLY_FILLER_MS >= 1000 && c.EARLY_FILLER_MS <= 3000);
 });
+
+// A message with attachments carries the files' text in its content (main/attachments.js): its bubble shows
+// only what was typed, also when nothing was; Copy copies what the bubble shows.
+test('a message with attachments shows what was typed, never the files’ text', () => {
+  const content = '<attachment index="1" kind="pdf" name="a.pdf" size="1 KB">\nEXTERNAL\nPDF TEXT\n</attachment>\n\nhi';
+  const attachments = [{ kind: 'pdf', name: 'a.pdf' }];
+  assert.strictEqual(c.describeMessage({ role: 'user', content, display: '', attachments }).text, '');
+  assert.strictEqual(c.describeMessage({ role: 'user', content, attachments }).text, '', 'no display field either');
+  assert.strictEqual(c.describeMessage({ role: 'user', content, display: 'hi', attachments }).text, 'hi');
+  assert.strictEqual(c.describeMessage({ role: 'user', content: 'plain', display: '' }).text, 'plain', 'without attachments: as before');
+  assert.strictEqual(c.copyText({ role: 'user', content: 'expanded skill steps…', display: '/reflect', skill: 'reflect' }), '/reflect');
+  assert.strictEqual(c.copyText({ role: 'assistant', content: 'A reply' }), 'A reply');
+});

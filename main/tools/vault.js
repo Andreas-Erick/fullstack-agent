@@ -4,6 +4,7 @@ const memory = require('../memory');
 const obsidian = require('../obsidian');
 const store = require('../store');
 const vaultgit = require('../vaultgit');
+const attachcore = require('../attachcore');
 const { arr, obj, str, int, requireApproval } = require('./common');
 
 module.exports = [
@@ -175,7 +176,8 @@ module.exports = [
           const day = new Date(m.createdAt || conv.updatedAt);
           const ymd = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
           if (a.date && ymd !== a.date) continue;
-          const text = String(m.content || '');
+          // Attached files' old text never comes back here untainted: their names and saved copies do.
+          const text = m.attachments?.length ? attachcore.summaryLine(m) : String(m.content || '');
           const lower = text.toLowerCase();
           if (terms.length && !terms.every((t) => lower.includes(t))) continue;
           const at = terms.length ? Math.max(0, lower.indexOf(terms[0]) - 80) : 0;

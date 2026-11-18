@@ -366,3 +366,31 @@ test('a failed tool is logged once, and a declined one is not a fault', async ()
     'warn tool failed mcp__claude_ai_Consensus__search',
   ]);
 });
+
+// Files the user attached in the chat (main/attachments.js): a session may read its own conversation's
+// copies, as outside content, and nothing else in the app's folder; its folders and key don't change.
+test('a session reads its own conversation’s attachments (tainted), not another’s, not the app’s data', async () => {
+  const p = require('path');
+  const userData = p.join(require('os').tmpdir(), 'siren-userdata-test');
+  const attachedRoot = p.join(userData, 'attachments');
+  const tainted = [];
+  stub({ './datadir': { attachmentsFolder: () => attachedRoot }, './approvals': { gate: async () => ({ allow: true }), markTainted: (_turn, source) => tainted.push(source) } });
+  const cc = load('main/claudecode.js'); // again, with the stand-in that records the taint
+  const sess = new cc.Session('cabc123');
+  sess.spec = { cwd: '/app', readRoots: ['/app'] };
+  sess.turn = { ctx: { turn: { taintSources: [] } } };
+  const ask = (tool_name, input, s = sess) => s.approve({ tool_name, input }).then((r) => r.behavior);
+  const own = p.join(attachedRoot, 'cabc123', 'lecture-03.pdf');
+  assert.strictEqual(await ask('Read', { file_path: own }), 'allow');
+  assert.deepStrictEqual(tainted, [`Read ${own}`]);
+  assert.strictEqual(await ask('Grep', { pattern: 'x', path: p.join(attachedRoot, 'cabc123') }), 'allow');
+  assert.strictEqual(await ask('Read', { file_path: p.join(attachedRoot, 'cother', 'secret.pdf') }), 'deny', 'another conversation’s copies');
+  assert.strictEqual(await ask('Read', { file_path: p.join(attachedRoot, 'cabc123', '..', 'cother', 'x.pdf') }), 'deny', 'no escaping with ..');
+  assert.strictEqual(await ask('Read', { file_path: p.join(userData, 'settings.json') }), 'deny');
+  assert.strictEqual(await ask('Write', { file_path: p.join(attachedRoot, 'cabc123', 'x.txt') }), 'deny', 'never written by the agent');
+  const odd = new cc.Session('../x');
+  odd.spec = { cwd: '/app', readRoots: [] };
+  assert.strictEqual(await ask('Read', { file_path: p.join(attachedRoot, 'x', 'a.pdf') }, odd), 'deny', 'an odd session id reads nothing there');
+  const spec = cc.sessionSpec({ settings: { claudeCode: { effort: 'default' }, web: { enabled: false }, code: { allowSelfModify: false } }, configKey: 'k', activeTools: [], cwd: '/app', vault: '/vault', repos: '', folders: [], model: 'default' });
+  assert.ok(![...(spec.readRoots || []), ...(spec.addDirs || [])].some((d) => d.startsWith(attachedRoot)), 'not a session folder: the session key stays the same');
+});

@@ -9,6 +9,10 @@
 const path = require('path');
 const store = require('./store');
 const log = require('./logger');
+const attachcore = require('./attachcore');
+
+// What a message says in the note's sources: with attachments, what was typed and the files' names.
+const said = (m) => (m?.attachments?.length ? attachcore.plainText(m) : m?.display ?? m?.content);
 
 const TIME_LIMIT_MS = 20000;
 const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // older notes are no longer offered
@@ -61,7 +65,7 @@ function basicNote(conv, interrupted) {
   const lastUser = [...conv.messages].reverse().find(own);
   return {
     topic: clip(conv.title, 60),
-    summary: `We were in “${clip(conv.title, 80)}”. The last thing you asked: “${clip(lastUser?.display ?? lastUser?.content, 220)}”.${interrupted ? ' A reply was still running when the app closed.' : ''}`,
+    summary: `We were in “${clip(conv.title, 80)}”. The last thing you asked: “${clip(said(lastUser), 220)}”.${interrupted ? ' A reply was still running when the app closed.' : ''}`,
     openThreads: [],
     nextSteps: [],
   };
@@ -72,7 +76,7 @@ async function summarize(settings, conv, interrupted) {
   const transcript = conv.messages
     .filter((m) => !m.hidden)
     .slice(-30)
-    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${clip(m.display ?? m.content, 1500)}${m.toolCalls?.length ? `\n[tools: ${m.toolCalls.map((t) => t.name).join(', ')}]` : ''}`)
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${clip(said(m), 1500)}${m.toolCalls?.length ? `\n[tools: ${m.toolCalls.map((t) => t.name).join(', ')}]` : ''}`)
     .join('\n\n')
     .slice(-20000);
   // The note goes into every persona's prompt next time: "who I am … as Siren" in it made the

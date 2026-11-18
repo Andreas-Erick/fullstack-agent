@@ -6,6 +6,7 @@ const path = require('path');
 const { app, BrowserWindow, session } = require('electron');
 const store = require('./store');
 const log = require('./logger');
+const attachcore = require('./attachcore');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -136,7 +137,8 @@ async function create({ title, markdown, html, embeds, dir, file }) {
 /** A conversation as a printable transcript. */
 async function conversationHtml(conv) {
   const turns = (conv.messages || []).filter((m) => !m.hidden && (m.role === 'user' || m.role === 'assistant'));
-  const bodies = await Promise.all(turns.map((m) => (m.role === 'user' ? esc(m.display || m.content) : markdownHtml(m.content))));
+  // A message with attachments prints what was typed and the files' names, not the files' text.
+  const bodies = await Promise.all(turns.map((m) => (m.role === 'user' ? esc(m.attachments?.length ? attachcore.plainText(m) : m.display || m.content) : markdownHtml(m.content))));
   return turns
     .map((m, i) => `<div class="turn ${m.role}"><div class="who">${m.role === 'user' ? 'You' : 'Assistant'} · ${esc(new Date(m.createdAt || conv.updatedAt).toLocaleString())}</div><div class="body">${bodies[i]}</div></div>`)
     .join('\n');

@@ -3,6 +3,7 @@
 // were never journaled are reconstructed on startup, so the daily notes stay continuous.
 const store = require('./store');
 const log = require('./logger');
+const attachcore = require('./attachcore');
 
 let timer = null;
 let running = false;
@@ -42,8 +43,9 @@ async function journalConversation(conv, from, settings) {
   const obsidian = require('./obsidian');
   const msgs = conv.messages.slice(from);
   const last = new Date(msgs[msgs.length - 1].createdAt || conv.updatedAt);
+  // A message with attachments: what was typed and the files' names (attachcore.plainText), not their text.
   const transcript = msgs
-    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').slice(0, 1200)}${m.toolCalls?.length ? `\n[tools: ${m.toolCalls.map((t) => `${t.name}${t.input?.path ? ` ${t.input.path}` : ''}`).join(', ')}]` : ''}`)
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${(m.attachments?.length ? attachcore.plainText(m) : String(m.content || '')).slice(0, 1200)}${m.toolCalls?.length ? `\n[tools: ${m.toolCalls.map((t) => `${t.name}${t.input?.path ? ` ${t.input.path}` : ''}`).join(', ')}]` : ''}`)
     .join('\n\n')
     .slice(-24000);
   const prompt = `Summarize this conversation between a user and their AI assistant as a daily-note session entry. Respond with ONLY a JSON object:

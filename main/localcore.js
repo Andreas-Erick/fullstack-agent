@@ -203,12 +203,13 @@ const READ_TOOL = /(^|_)(get|search|read|list|status|overview|options|recall|lin
 const isReadTool = (name) => READ_TOOL.test(String(name || ''));
 
 /**
- * Why a message should go to Claude without asking the local model, or ''. Only the obvious: code
- * work, a connected service by name (the local brain has no connectors), a very long text.
- * services = the names of the user's connectors ("TickTick", "Google Calendar"…).
+ * Why a message should go to Claude without asking the local model, or ''. Only the obvious: a picture
+ * (a local model can't see it), code work, a connected service by name (the local brain has no
+ * connectors), a very long text. services = the names of the user's connectors ("TickTick"…).
  */
-function handOverHint(text, { services = [], engineering = false } = {}) {
+function handOverHint(text, { services = [], engineering = false, images = 0 } = {}) {
   const t = String(text || '');
+  if (images > 0) return 'an image';
   if (engineering) return 'code work';
   if (t.length > 4000) return 'a long text';
   const named = neededService(t, services);

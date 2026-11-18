@@ -62,22 +62,25 @@ function cooling(id) {
   return null;
 }
 
-function classifyTask(text, { voice = false, mode = 'default' } = {}) {
+// attachedChars: the text of files attached to the message (llm.js runTurn): a long one is a long input,
+// also when the message itself is a short spoken question.
+function classifyTask(text, { voice = false, mode = 'default', attachedChars = 0 } = {}) {
   const t = String(text || '');
   if (mode === 'deep') return 'deep';
   if (/```|\b(code|coding|function|bug|debug|refactor|compile|stack ?trace|regex|script|typescript|javascript|python|sql|pull request)\b/i.test(t)) return 'code';
   const personal = /\b(calendar|schedule|meeting|appointment|my notes?|vault|memory|remember|document|pdf|file|monitor|window|skill)\b/i.test(t);
   if (!personal && /\b(latest|news|headlines|today'?s|this week|currently|right now|price of|stock|weather|score|who won|search (the )?(web|internet|online)|look (it |that )?up)\b/i.test(t)) return 'search';
-  if (t.length > 6000) return 'long';
+  if (t.length > 6000 || attachedChars > 6000) return 'long';
   if (voice) return 'quick';
   return 'general';
 }
 
 /**
  * Providers to try for one turn, in order: [{ id, reason }]. Unconfigured, disabled and cooling-down
- * providers are left out (a cooling one is still tried last if nothing else is left).
+ * providers are left out (a cooling one is still tried last if nothing else is left). needsVision: the
+ * message carries a picture, so the providers that see go first (in the same order among themselves).
  */
-async function plan(settings, { text = '', voice = false, needsTools = false } = {}) {
+async function plan(settings, { text = '', voice = false, needsTools = false, needsVision = false, attachedChars = 0 } = {}) {
   const disabled = new Set(settings.routing?.disabled || []);
   const list = order(settings).filter((id) => !disabled.has(id));
   const ready = [];
@@ -90,12 +93,17 @@ async function plan(settings, { text = '', voice = false, needsTools = false } =
   let picked = ready;
   let reason = 'your priority order';
   if (settings.routing?.smart !== false) {
-    const task = classifyTask(text, { voice, mode: settings.llm.modelMode });
+    const task = classifyTask(text, { voice, mode: settings.llm.modelMode, attachedChars });
     const prefer = (PREFER[task] || []).filter((id) => ready.includes(id));
     if (prefer.length && prefer[0] !== ready[0]) {
       picked = [...prefer, ...ready.filter((id) => !prefer.includes(id))];
       reason = `best for ${TASK_LABEL[task]}`;
     }
+  }
+  if (needsVision) {
+    const sees = [...picked.filter((id) => PROVIDERS[id].vision), ...picked.filter((id) => !PROVIDERS[id].vision)];
+    if (sees[0] !== picked[0]) reason = 'can see your image';
+    picked = sees;
   }
   return [...picked.map((id, i) => ({ id, reason: i === 0 ? reason : 'fallback' })), ...resting.map((id) => ({ id, reason: 'every other provider is unavailable' }))];
 }
