@@ -234,11 +234,15 @@ async function findDocuments(query, { limit = 8 } = {}) {
   return { workspace: ws || '(not set)', searched, matches };
 }
 
-/** A file the system's own app may open (docs:openExternal): any allowed file, but from the attachments
- *  folder only documents and data (attachcore.OPENABLE), never a page, a picture with code or a script. */
+// "Open in its default app" (docs:openExternal): documents, data and pictures, from any allowed folder.
+// Never a page or a script, which Windows' default verb runs (wscript for .js, cmd for .bat, Python for
+// .py), whatever folder it is in. From the attachments folder only documents and data (attachcore.OPENABLE).
+// Other text the app shows (YAML, XML, code) isn't on the list: Show in folder opens those.
+const EXTERNAL_KINDS = new Set([...attachcore.OPENABLE, 'markdown', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']);
 async function externalPath(p) {
   const full = await resolveAllowed(p);
   if (isAttachment(full) && !attachcore.canOpenExternally(full)) throw new Error('Siren opens this attached file only inside the app.');
+  if (!EXTERNAL_KINDS.has(path.extname(full).slice(1).toLowerCase())) throw new Error('Siren opens this kind of file only inside the app. Use “Show in folder” to open it yourself.');
   return full;
 }
 

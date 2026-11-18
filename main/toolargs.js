@@ -2,7 +2,9 @@
 // them: skill_run takes `name`, its sibling skill_file takes `skill`, and the model called
 // skill_run({ skill }) twice in a turn, each time told "No skill called "undefined"".
 //  - a required parameter that is missing, sent under an obvious other name (ALIASES), is renamed;
-//  - else the call stops with what the tool takes and what it was sent, so the model fixes it in one go.
+//  - else the call stops with what the tool takes and what it was sent, so the model fixes it in one go;
+//  - a top-level string enum: another case or spacing is the listed value, an empty optional one is left
+//    out, anything else stops the call.
 // Pure (test/toolargs.test.js).
 
 // Other names a model uses for a parameter. Only ever applied to a parameter the tool has, that is
@@ -45,11 +47,33 @@ function checkArgs(tool, args) {
     renamed.push([from, key]);
   }
   const missing = required.filter((k) => blank(input[k]));
-  if (!missing.length) return { args: input, renamed };
-  const sent = Object.keys(args || {});
-  return {
-    error: `${tool.name} needs ${missing.map((m) => `"${m}"`).join(' and ')}. It takes: ${describe(props, required)}. You sent: ${sent.length ? sent.join(', ') : 'nothing'}. Call it again with those names.`,
-  };
+  if (missing.length) {
+    const sent = Object.keys(args || {});
+    return {
+      error: `${tool.name} needs ${missing.map((m) => `"${m}"`).join(' and ')}. It takes: ${describe(props, required)}. You sent: ${sent.length ? sent.join(', ') : 'nothing'}. Call it again with those names.`,
+    };
+  }
+  // A top-level string enum: the listed value in another case or with spaces around it is that value; an
+  // optional one sent empty is left out (the tool's default, as `a.mode || 'overwrite'` did); anything
+  // else stops the call like a missing argument (a write mode 'add' overwrote the whole note).
+  for (const [k, p] of Object.entries(props)) {
+    const allowed = Array.isArray(p?.enum) && p.enum.length && p.enum.every((v) => typeof v === 'string') ? p.enum : null;
+    if (!allowed || blank(input[k]) || allowed.includes(input[k])) continue;
+    const sent = typeof input[k] === 'string' ? input[k].trim() : null; // never String() an array: a deep one overflows
+    if (sent === '' && !required.includes(k)) {
+      delete input[k];
+      continue;
+    }
+    const hit = sent === null ? undefined : allowed.find((v) => v.toLowerCase() === sent.toLowerCase());
+    if (hit !== undefined) {
+      input[k] = hit;
+      continue;
+    }
+    const kind = Array.isArray(input[k]) ? 'list' : typeof input[k];
+    const what = sent === null ? `${kind === 'object' ? 'an' : 'a'} ${kind}` : `"${sent.slice(0, 60)}"`;
+    return { error: `${tool.name}: "${k}" must be one of ${allowed.map((v) => `"${v}"`).join(', ')}. You sent ${what}.` };
+  }
+  return { args: input, renamed };
 }
 
 module.exports = { checkArgs, ALIASES };

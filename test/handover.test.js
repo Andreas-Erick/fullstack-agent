@@ -53,7 +53,7 @@ stub({
   './prompt': { buildCompact: async (s, names, opts) => ((calls.promptOpts = opts), { system: 'rules', stable: 'rules', context: 'now', reminder: 'r' }), build: async () => ({ system: 's', stable: 's', context: 'c' }) },
   './claudecode': {
     runTurn: async () => (calls.claude++, { text: 'From Claude', toolCalls: [], contextTokens: calls.contextTokens || 20000 }),
-    needsRollover: (n, fresh = 0) => n > Math.max(100000, fresh + 80000),
+    needsRollover: (n, fresh = 0) => n > Math.max(100000, fresh + 50000),
     rollover: (id, n) => calls.rolled.push([id, n]),
     prewarm: async (conv) => calls.prewarmed.push(conv),
     epochOf: () => 0, // no message was run again (claudecode.forget)

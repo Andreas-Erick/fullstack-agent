@@ -340,8 +340,10 @@ function touchUpdated(text) {
   return text.replace(fm[0], `---\n${body}\n---`);
 }
 
-/** mode: "create" (fails if it exists), "overwrite", "append", "prepend" */
+const WRITE_MODES = new Set(['create', 'overwrite', 'append', 'prepend']);
+/** mode: "create" (fails if it exists), "overwrite", "append", "prepend"; anything else throws. */
 async function writeNote(ref, content, mode = 'overwrite', { source = 'agent' } = {}) {
+  if (!WRITE_MODES.has(mode)) throw new Error(`Unknown write mode "${String(mode).slice(0, 30)}" (create, overwrite, append or prepend).`);
   const root = await requireVault();
   const rel = normalizeRef(ref);
   if (hasReservedPart(rel, IGNORE)) throw new Error('That folder is reserved');

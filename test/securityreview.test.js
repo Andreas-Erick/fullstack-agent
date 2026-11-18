@@ -126,3 +126,76 @@ test('Access: a token with an unknown key fetches the certificates at most once 
   const src = fs.readFileSync(path.join(ROOT, 'main/tunnel.js'), 'utf8');
   assert.match(src, /if \(c && fresh && Date\.now\(\) - c\.at < 60 \* 1000\) return c\.keys;/);
 });
+
+// Round 3: a relative link in a reply or a Markdown document ([x](Notes/a.md)) navigated the window to
+// app://…/Notes/a.md, a "Not found" page with no way back short of a restart.
+test('a window stays on its own page; web links go to the browser; anything else is blocked', () => {
+  const { navDecision } = load('main/navguard.js');
+  const home = 'app://bundle/renderer/index.html';
+  const table = [
+    [home, 'app://bundle/renderer/Notes/x.md', 'block'],
+    [home, 'app://bundle/x.md', 'block'], // a ../ link
+    [home, home, 'allow'], // a reload
+    [home, `${home}#a`, 'allow'],
+    [home, `${home}?b`, 'block'],
+    [home, 'https://x.org', 'external'],
+    [home, 'http://x', 'external'],
+    [home, `https://x.org/${'a'.repeat(10000)}`, 'external'],
+    [home, 'HTTPS://X.ORG/', 'external'],
+    [home, 'file:///C:/x', 'block'],
+    [home, 'smb://h/s', 'block'],
+    [home, 'javascript:alert(1)', 'block'],
+    [home, 'ms-settings:', 'block'],
+    [home, 'data:text/html,x', 'block'],
+    [home, 'app://other/renderer/index.html', 'block'],
+    [home, 'faces://siren/index.html', 'block'],
+    [home, '', 'block'],
+    [home, 'not a url', 'block'],
+    [home, 'Notes/a.md', 'block'],
+    [home, '<script>alert(1)</script>', 'block'],
+    ['app://bundle/renderer/viewer.html?path=C%3A%5Cx.md', 'app://bundle/renderer/viewer.html?path=C%3A%5Cx.md', 'allow'],
+    ['app://bundle/renderer/viewer.html?path=C%3A%5Cx.md', home, 'block'],
+    ['app://bundle/renderer/viewer.html?path=C%3A%5Cx.md', 'app://bundle/renderer/viewer.html?path=C%3A%5Cy.md', 'block'],
+    ['', home, 'block'], // nothing loaded yet
+    ['about:blank', home, 'block'],
+    ['https://x.org/', 'https://x.org/', 'external'], // never inside the app, whatever the window shows
+  ];
+  for (const [from, to, want] of table) assert.strictEqual(navDecision(from, to), want, `${from.slice(0, 60)} → ${to.slice(0, 60)}`);
+  const main = fs.readFileSync(path.join(ROOT, 'main/main.js'), 'utf8');
+  assert.match(main, /const d = navDecision\(wc\.getURL\(\), url\);/, 'guardNavigation decides with it');
+});
+
+// Round 3: a vault write with a mode the tool didn't know ('add', 'Append') replaced the whole note.
+test('a vault write with an unknown mode throws and leaves the note as it was', async () => {
+  const dir = tmpDir('siren-modes-');
+  const vault = path.join(dir, 'vault');
+  stub({
+    electron: { app: { getPath: () => dir } },
+    './logger': quietLog,
+    './vaultgit': { commitSoon() {}, ensure: async () => {} },
+    './store': require('./helpers').fileStore(dir, { getSettings: async () => ({ obsidian: { enabled: true, vaultPath: vault }, agent: { name: 'Nexus' } }) }),
+  });
+  const obsidian = load('main/obsidian.js');
+  try {
+    await obsidian.writeNote('Diary.md', 'first entry\n', 'overwrite');
+    const full = path.join(vault, 'Diary.md');
+    const before = fs.readFileSync(full);
+    for (const mode of ['bogus', 'Append ', 'APPEND', '', null, 'add', '__proto__', 'toString', 'x'.repeat(10000)]) {
+      await assert.rejects(obsidian.writeNote('Diary.md', 'REPLACED', mode), /Unknown write mode/, JSON.stringify(String(mode).slice(0, 20)));
+      assert.ok(fs.readFileSync(full).equals(before), `${JSON.stringify(String(mode).slice(0, 20))}: the note is byte-identical`);
+    }
+    await obsidian.writeNote('Diary.md', 'second entry', 'append');
+    await obsidian.writeNote('Diary.md', 'zeroth entry', 'prepend');
+    const text = fs.readFileSync(full, 'utf8');
+    assert.ok(text.indexOf('zeroth') < text.indexOf('first') && text.indexOf('first') < text.indexOf('second'), text);
+    await obsidian.writeNote('Diary.md', 'only this', 'overwrite');
+    assert.doesNotMatch(fs.readFileSync(full, 'utf8'), /first entry/);
+    await obsidian.writeNote('Fresh.md', 'new', 'create');
+    await assert.rejects(obsidian.writeNote('Fresh.md', 'again', 'create'), /already exists/);
+    await obsidian.writeNote('Diary.md', 'by default', undefined);
+    assert.match(fs.readFileSync(full, 'utf8'), /by default/);
+    assert.doesNotMatch(fs.readFileSync(full, 'utf8'), /only this/, 'no mode: overwrite, as before');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

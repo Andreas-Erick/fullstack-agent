@@ -1,6 +1,7 @@
 // Minimal MCP server (stdio, JSON-RPC 2.0) that Claude Code launches for the "Claude account"
 // provider. It exposes the app's tools by forwarding every call to the app's local tool bridge.
 // Runs under Electron's bundled Node (ELECTRON_RUN_AS_NODE=1); no dependencies.
+const http = require('http');
 const readline = require('readline');
 
 const BRIDGE = process.env.NEXUS_BRIDGE_URL;
@@ -8,15 +9,38 @@ const TOKEN = process.env.NEXUS_BRIDGE_TOKEN;
 const TURN = process.env.NEXUS_TURN;
 const SET = process.env.NEXUS_TOOLSET || ''; // core | more | '' (every tool): see claudecode.js
 
-async function bridge(route, payload) {
-  const res = await fetch(`${BRIDGE}${route}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
-    body: JSON.stringify({ turn: TURN, ...payload }),
+// A tool may run for minutes (a rehearsal, a clone, running a routine): fetch gave up after 300 s (undici's
+// headers timeout) while the tool ran on. The bridge (always http://127.0.0.1:<port>, bridge.js) answers
+// only when the tool is done, so the socket's idle limit is the tool's limit: above every tool's own.
+// The connection closing after the answer began ends the call too (the response's own error and close:
+// nothing else fires then, and with the socket gone the limit can't either).
+const TOOL_LIMIT_MS = 20 * 60000;
+function bridge(route, payload, { limitMs = TOOL_LIMIT_MS } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(`${BRIDGE}${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` } }, (res) => {
+      let text = '';
+      const cut = () => reject(new Error('The app closed the connection before the tool finished.'));
+      res.setEncoding('utf8');
+      res.on('error', cut);
+      res.on('close', () => {
+        if (!res.complete) cut();
+      });
+      res.on('data', (c) => (text += c));
+      res.on('end', () => {
+        let json = {};
+        try {
+          json = JSON.parse(text || '{}');
+        } catch {
+          return reject(new Error(`Bridge error ${res.statusCode}`));
+        }
+        if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(json.error || `Bridge error ${res.statusCode}`));
+        resolve(json);
+      });
+    });
+    req.setTimeout(limitMs, () => req.destroy(new Error(`The app’s tool didn’t finish in ${Math.round(limitMs / 60000)} minutes.`)));
+    req.on('error', reject);
+    req.end(JSON.stringify({ turn: TURN, ...payload }));
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error || `Bridge error ${res.status}`);
-  return json;
 }
 
 function send(msg) {
@@ -58,13 +82,18 @@ async function handle(msg) {
   }
 }
 
-const rl = readline.createInterface({ input: process.stdin });
-rl.on('line', (line) => {
-  if (!line.trim()) return;
-  try {
-    handle(JSON.parse(line));
-  } catch {
-    /* ignore malformed input */
-  }
-});
-rl.on('close', () => process.exit(0));
+// Only when Claude Code runs this file: a test that requires it never reads stdin or exits.
+if (require.main === module) {
+  const rl = readline.createInterface({ input: process.stdin });
+  rl.on('line', (line) => {
+    if (!line.trim()) return;
+    try {
+      handle(JSON.parse(line));
+    } catch {
+      /* ignore malformed input */
+    }
+  });
+  rl.on('close', () => process.exit(0));
+}
+
+module.exports = { bridge, TOOL_LIMIT_MS };

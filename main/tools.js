@@ -7,6 +7,7 @@ const approvals = require('./approvals');
 const store = require('./store');
 const log = require('./logger');
 const github = require('./github');
+const braincore = require('./braincore');
 const { FACES, obj, str, UNTRUSTED_NOTICE, requireApproval } = require('./tools/common');
 
 // Settings the agent may change itself (to fix its own tools). Never safety, permissions, code
@@ -32,6 +33,37 @@ const SETTABLE = {
 };
 const SETTABLE_DESCRIPTION = () => Object.fromEntries(Object.entries(SETTABLE).map(([s, keys]) => [s, keys.join(',')]));
 const SECRET_KEYS = /key|secret|token|password/i;
+
+// What a value may look like, for the keys whose value reaches a command line (claudeCode, through
+// claudecode.js cliValue) or a provider's model field. Checked before anything is read or asked.
+const CLAUDE_MODEL = /^(default|opus|sonnet|haiku|fable|opusplan|claude-[\w.-]+)(\[1m\])?$/;
+const API_MODEL = /^claude-[\w.-]+$/;
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']; // as Settings' effort selects and pace.js
+const modelId = (v) => {
+  try {
+    braincore.cleanModel(v); // '' allowed: the provider's default
+    return true;
+  } catch {
+    return false;
+  }
+};
+const VALUE_CHECKS = {
+  'claudeCode.model': (v) => CLAUDE_MODEL.test(v),
+  'claudeCode.fastModel': (v) => v === '' || CLAUDE_MODEL.test(v), // '' = the main model
+  'claudeCode.normalModel': (v) => v === '' || CLAUDE_MODEL.test(v),
+  'claudeCode.deepModel': (v) => v === '' || CLAUDE_MODEL.test(v),
+  'claudeCode.effort': (v) => v === 'default' || EFFORTS.includes(v),
+  'anthropic.effort': (v) => EFFORTS.includes(v), // no 'default' on the API path (Settings doesn't offer it; turnEffort would send it)
+  'anthropic.model': (v) => API_MODEL.test(v),
+  'anthropic.fastModel': (v) => v === '' || API_MODEL.test(v),
+  'anthropic.normalModel': (v) => v === '' || API_MODEL.test(v),
+  'anthropic.deepModel': (v) => v === '' || API_MODEL.test(v),
+};
+/** '' when the agent may set section.key to value, else why not (settings_update). Pure. */
+function settingValueError(section, key, value) {
+  const check = VALUE_CHECKS[`${section}.${key}`] || (/^(model|fastModel|normalModel|deepModel)$/.test(key) ? modelId : null);
+  return check && !check(String(value ?? '')) ? `"${String(value ?? '').slice(0, 60)}" isn't a valid ${section}.${key}.` : '';
+}
 
 function redact(settings) {
   const out = JSON.parse(JSON.stringify(settings));
@@ -61,6 +93,8 @@ const SETTINGS_TOOLS = [
     parameters: obj({ section: str('Settings section, e.g. voice'), key: str('Key, e.g. baseUrl'), value: { type: ['string', 'number', 'boolean'], description: 'New value' } }, ['section', 'key', 'value']),
     run: async (a, ctx) => {
       if (!SETTABLE[a.section]?.includes(a.key)) throw new Error(`"${a.section}.${a.key}" cannot be changed by the agent.`);
+      const bad = settingValueError(a.section, a.key, a.value);
+      if (bad) throw new Error(bad);
       const s = await store.getSettings();
       const old = s[a.section][a.key];
       if (typeof old === 'number') a.value = Number(a.value);
@@ -369,4 +403,4 @@ function stringifyResult(result) {
   return s.length > 60000 ? `${s.slice(0, 60000)}\n…[truncated]` : s;
 }
 
-module.exports = { TOOLS, activeTools, execute, stringifyResult };
+module.exports = { TOOLS, activeTools, execute, stringifyResult, settingValueError };

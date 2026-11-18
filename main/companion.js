@@ -439,6 +439,8 @@ function chatForDevice(ev) {
       return { ...base, id: ev.id, name: ev.name, ok: ev.ok };
     case 'done':
       return { ...base, message: messageForDevice(ev.message) };
+    case 'error':
+      return { ...base, message: forDevice({ message: ev.message }, 'The reply failed on the computer') };
     default:
       return { ...base, message: ev.message };
   }
@@ -490,9 +492,15 @@ function json(res, code, body) {
 }
 
 // An error's message for a device, without paths on this computer (a file error names the full path,
-// e.g. C:\Users\…\vault\note.md: EBUSY). The log keeps the whole error.
+// e.g. C:\Users\…\vault\note.md: EBUSY). The log keeps the whole error. A quoted path is cut up to its
+// closing quote (folder names have spaces, even apostrophes), a bare one on through spaced words as long
+// as a slash follows them (C:\Users\Anna Maria Berg\npm\claude.cmd, Program Files (x86)\…); a ")" right
+// after a path ends it, and the s:/ of https:// is not a drive. Each spaced word starts with its one space
+// and holds no other, so the match never backtracks far. Only the first 2,000 characters are looked at.
+const QUOTED_PATH = /(['"`])(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|var|tmp)\/).*?\1(?=$|[\s,;:.)\]])/g;
+const BARE_PATH = /(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|var|tmp)\/)[^\s'"`)]*(?:(?: [^\s'"`\\/]*)+[\\/][^\s'"`)]*)*/g;
 function forDevice(err, fallback) {
-  const msg = String(err?.message || '').replace(/(?:[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|var|tmp)\/)[^\s'"`)]*/g, '…').slice(0, 300).trim();
+  const msg = String(err?.message || '').slice(0, 2000).replace(QUOTED_PATH, '…').replace(BARE_PATH, '…').slice(0, 300).trim();
   return msg && msg !== '…' ? msg : fallback;
 }
 
@@ -506,6 +514,11 @@ function fail(res, code, message, err) {
   else res.end();
 }
 
+// A body field as text: a string (or a number), else ''. Never String() what a client sent: an array
+// 30,000 deep overflowed the stack (a 500 with a logged stack, before pairing on /api/pair).
+const bodyText = (v) => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
+
+// A request's body: raw bytes, or a JSON object (an empty body is {}); anything else is a 4xx.
 function readBody(req, { raw = false, max = MAX_BODY } = {}) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -521,11 +534,14 @@ function readBody(req, { raw = false, max = MAX_BODY } = {}) {
     });
     req.on('end', () => {
       if (raw) return resolve(Buffer.concat(chunks));
+      let v;
       try {
-        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {});
+        v = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
       } catch {
-        reject(Object.assign(new Error('Invalid JSON'), { status: 400 }));
+        return reject(Object.assign(new Error('Invalid JSON'), { status: 400 }));
       }
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return reject(Object.assign(new Error('Send a JSON object'), { status: 400 }));
+      resolve(v);
     });
     req.on('error', reject);
   });
@@ -698,7 +714,7 @@ async function info() {
 async function speak(req, res) {
   const body = await readBody(req).catch((e) => e);
   if (body instanceof Error) return fail(res, body.status || 400, body.message);
-  const text = String(body.text || '').trim().slice(0, 4000);
+  const text = bodyText(body.text).trim().slice(0, 4000);
   if (!text) return fail(res, 400, 'Nothing to say');
   const s = await store.getSettings();
   // The offline voice (the default) runs in the desktop window; VoiceStudio and the cloud voice fall back to it when chosen.
@@ -825,7 +841,7 @@ async function route(req, res) {
   }
   let m = /^\/api\/conversations\/([\w-]+)$/.exec(p);
   if (req.method === 'GET' && m) {
-    const conv = await store.getConversation(m[1]);
+    const conv = await store.getConversation(m[1]).catch(() => null); // 'index' throws (store.js safeConvId)
     if (!conv || conv.setup) return fail(res, 404, 'Conversation not found');
     // running: replies still being written here (the device follows them; one missing from it has ended).
     return json(res, 200, { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, messages: conv.messages.filter((x) => !x.hidden).map(messageForDevice), running: running.in(conv.id) });
@@ -909,7 +925,8 @@ async function dataRoute(req, res, url, device) {
     if (req.method === 'GET' && Object.hasOwn(DATA_GET, name)) return json(res, 200, await DATA_GET[name](url));
     return fail(res, 404, 'Not found');
   } catch (err) {
-    return fail(res, err.status || (/vault|not found/i.test(err.message) ? 404 : 500), forDevice(err, 'Something went wrong on the computer'), err);
+    // The status from the error's code first (a path with "vault" in it made an EBUSY a 404), then its cleaned text.
+    return fail(res, err.status || (err.code === 'ENOENT' ? 404 : err.code ? 500 : /vault|not found/i.test(forDevice(err, '')) ? 404 : 500), forDevice(err, 'Something went wrong on the computer'), err);
   }
 }
 
@@ -950,7 +967,7 @@ async function pair(req, res, kind) {
   if (body instanceof Error) return fail(res, body.status || 400, body.message);
   if (body.move != null) {
     if (kind !== 'tunnel') return fail(res, 403, 'Open the secure address to finish the switch');
-    return finishMove(res, String(body.move));
+    return finishMove(res, bodyText(body.move));
   }
   if (!pairing || pairing.expiresAt < Date.now()) return fail(res, 403, 'No pairing in progress. Start pairing on the desktop.');
   // Wrong tries count per address: anyone could otherwise cancel the user's pairing with five bad
@@ -959,8 +976,8 @@ async function pair(req, res, kind) {
   const ip = clientAddress(req, kind).ip;
   pairing.byIp ||= new Map();
   if ((pairing.byIp.get(ip) || 0) >= PAIR_TRIES) return fail(res, 429, 'Too many wrong codes from this device. Start pairing again on the desktop.');
-  const code = String(body.code || '').trim();
-  const secret = String(body.secret || '');
+  const code = bodyText(body.code).trim();
+  const secret = bodyText(body.secret);
   // The typed code (six ASCII digits) or the QR code's secret; anything else counts as a wrong try.
   const ok = secret
     ? /^[A-Za-z0-9_-]{43}$/.test(secret) && crypto.timingSafeEqual(Buffer.from(hash(secret), 'hex'), Buffer.from(pairing.secretHash, 'hex'))
@@ -974,7 +991,7 @@ async function pair(req, res, kind) {
   pairing = null;
   const token = crypto.randomBytes(32).toString('base64url');
   const from = clientAddress(req, kind);
-  const device = { id: store.newId('dev'), name: String(body.name || 'Device').replace(/[^\w .()-]/g, '').slice(0, 40) || 'Device', tokenHash: hash(token), createdAt: Date.now(), lastSeen: Date.now(), lastVia: from.via, lastIp: from.ip, nets: netOf(from.ip) ? [netOf(from.ip)] : [] };
+  const device = { id: store.newId('dev'), name: (bodyText(body.name) || 'Device').replace(/[^\w .()-]/g, '').slice(0, 40) || 'Device', tokenHash: hash(token), createdAt: Date.now(), lastSeen: Date.now(), lastVia: from.via, lastIp: from.ip, nets: netOf(from.ip) ? [netOf(from.ip)] : [] };
   await updateDevices((list) => [...list, device]);
   log.info('remote device paired', { device: device.name });
   hooks.notify({ type: 'paired', name: device.name, via: from.via });
@@ -999,12 +1016,14 @@ function openStream(req, res, device) {
 async function chat(req, res, device) {
   const body = await readBody(req).catch((e) => e);
   if (body instanceof Error) return fail(res, body.status || 400, body.message);
-  const text = String(body.text || '').trim();
+  const text = bodyText(body.text).trim();
   if (!text) return fail(res, 400, 'Empty message');
   if (text.length > 20000) return fail(res, 413, 'Message too long');
   if (!underLimit('turn', device.id, TURNS_PER_MIN)) return fail(res, 429, 'Too many messages; wait a minute');
-  if (body.conversationId) {
-    const conv = await store.getConversation(String(body.conversationId));
+  const convId = body.conversationId == null || body.conversationId === '' ? null : bodyText(body.conversationId);
+  if (convId !== null) {
+    if (!/^[\w-]+$/.test(convId)) return fail(res, 400, 'Invalid conversation id');
+    const conv = await store.getConversation(convId).catch(() => null); // 'index' throws (store.js safeConvId)
     if (!conv) return fail(res, 404, 'Conversation not found');
     if (conv.setup) return fail(res, 403, 'The setup conversation can only be used on the desktop');
   }
@@ -1014,8 +1033,8 @@ async function chat(req, res, device) {
   // voice: the question was spoken (the watch, push-to-talk): a short, speakable reply on the fast model.
   const voice = body.voice === true;
   const remote = body.via === 'watch' ? `${device.name} · watch` : device.name;
-  const r = await hooks.startTurn({ conversationId: body.conversationId || null, text, requestId, remote, voice });
+  const r = await hooks.startTurn({ conversationId: convId, text, requestId, remote, voice });
   return json(res, 200, { requestId, conversationId: r.conversationId });
 }
 
-module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged, infoChanged, dataChanged, presenceTracker };
+module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged, infoChanged, dataChanged, presenceTracker, forDevice, chatForDevice };

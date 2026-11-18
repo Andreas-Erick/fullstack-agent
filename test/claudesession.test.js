@@ -394,3 +394,138 @@ test('a session reads its own conversation’s attachments (tainted), not anothe
   const spec = cc.sessionSpec({ settings: { claudeCode: { effort: 'default' }, web: { enabled: false }, code: { allowSelfModify: false } }, configKey: 'k', activeTools: [], cwd: '/app', vault: '/vault', repos: '', folders: [], model: 'default' });
   assert.ok(![...(spec.readRoots || []), ...(spec.addDirs || [])].some((d) => d.startsWith(attachedRoot)), 'not a session folder: the session key stays the same');
 });
+
+// Regression (security review, round 3): claudeCode.model is a setting the agent may change, and with the
+// npm shim (claude.cmd) the CLI's command line goes through cmd.exe, which expands %…% even inside quotes:
+// "sonnet%CMDCMDLINE:~-1%&calc&rem " broke out of quoteWin's quotes and ran a program.
+function rng(seed) {
+  let x = seed >>> 0 || 1;
+  return () => ((x ^= x << 13), (x ^= x >>> 17), (x ^= x << 5), (x >>> 0) / 2 ** 32);
+}
+
+test('only plain model and effort ids reach the CLI’s command line', () => {
+  const warned = [];
+  const saved = quietLog.warn;
+  quietLog.warn = (event, data) => warned.push({ event, data });
+  try {
+    for (const ok of ['opus', 'sonnet[1m]', 'opusplan', 'claude-opus-5-5', 'default', 'haiku', 'claude-sonnet-5-5[1m]']) assert.strictEqual(claudecode.cliValue('model', ok), ok, ok);
+    assert.strictEqual(claudecode.cliValue('model', '  opus '), 'opus', 'spaces around it are not part of it');
+    const bad = ['sonnet%CMDCMDLINE:~-1%&calc&rem ', '"&x', 'a\nb', 'x y', '../x', '<script>alert(1)</script>', 'مدل', '👨‍👩‍👧‍👦', 'a'.repeat(101), '-opus', 'opus!', 'a^b', 'a|b', 'claude-x[1m]x', 'x'.repeat(10000)];
+    for (const v of bad) assert.strictEqual(claudecode.cliValue('model', v), '', JSON.stringify(v.slice(0, 40)));
+    for (const v of ['', '   ', null, undefined]) assert.strictEqual(claudecode.cliValue('model', v), '', `${JSON.stringify(v)}: nothing to check, nothing logged`);
+    for (const ok of ['default', 'low', 'medium', 'high', 'xhigh', 'max']) assert.strictEqual(claudecode.cliValue('effort', ok), ok);
+    for (const v of ['high&x', 'High', 'MAX', 'extreme', 'low medium', '%x%']) assert.strictEqual(claudecode.cliValue('effort', v), '', v);
+    assert.strictEqual(warned.length, bad.length + 6, 'each refused value is logged once');
+    assert.ok(warned.every((w) => w.event === 'claude setting ignored' && Object.keys(w.data).join() === 'field'), 'the log names the field, never the value');
+  } finally {
+    quietLog.warn = saved;
+  }
+});
+
+test('a session never gets a model or effort that fails the check; a good one still goes on', () => {
+  const spec = { connectors: false, builtins: ['Read'], allowed: ['mcp__nexus'], addDirs: [] };
+  const args = claudecode.sessionArgs({ ...spec, model: 'sonnet%X%&calc', effort: 'max|x' }, { sysFile: 's', mcpFile: 'm', settingsFile: 'x' });
+  assert.ok(!args.includes('--model') && !args.includes('--effort'), args.join(' '));
+  assert.ok(!args.some((a) => /[%&|]/.test(a)), 'nothing of the values on the line');
+  const good = claudecode.sessionArgs({ ...spec, model: 'sonnet[1m]', effort: 'high' }, { sysFile: 's', mcpFile: 'm', settingsFile: 'x' });
+  assert.strictEqual(good[good.indexOf('--model') + 1], 'sonnet[1m]');
+  assert.strictEqual(good[good.indexOf('--effort') + 1], 'high');
+  const plain = claudecode.sessionArgs({ ...spec, model: 'default', effort: 'default' }, { sysFile: 's', mcpFile: 'm', settingsFile: 'x' });
+  assert.ok(!plain.includes('--model') && !plain.includes('--effort'), 'default: the CLI’s own');
+});
+
+test('the .cmd shim refuses a quote or a line break in any argument before anything starts', () => {
+  for (const a of ['a"b', 'a\nb', 'a\rb', '"']) {
+    assert.throws(() => claudecode.spawnCli('C:/x/claude.cmd', ['--model', a]), /command shell would misread/, JSON.stringify(a));
+    assert.throws(() => claudecode.spawnCli('C:/x/CLAUDE.BAT', ['-p', a]), /command shell would misread/, `${JSON.stringify(a)} (.bat)`);
+  }
+});
+
+test('seeded: whatever passes the check carries nothing cmd.exe reads, and checking twice changes nothing', () => {
+  const seed = 20261118;
+  const rand = rng(seed);
+  const alphabet = [...'%!^&|<>"\'\r\n', ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', ...'.-[]', ' ', '\t', 'é', 'ש'];
+  const saved = quietLog.warn;
+  quietLog.warn = () => {};
+  try {
+    for (let i = 0; i < 200; i++) {
+      const n = Math.floor(rand() * 24);
+      let s = '';
+      for (let j = 0; j < n; j++) s += alphabet[Math.floor(rand() * alphabet.length)];
+      if (i % 5 === 0) s = `sonnet${s}`; // near misses of real ids
+      for (const kind of ['model', 'effort']) {
+        const out = claudecode.cliValue(kind, s);
+        assert.ok(!/[%!^&|<>"\r\n]/.test(out), `seed ${seed} case ${i} ${kind}: ${JSON.stringify(s)} → ${JSON.stringify(out)}`);
+        assert.strictEqual(claudecode.cliValue(kind, out), out, `seed ${seed} case ${i} ${kind}: idempotent for ${JSON.stringify(s)}`);
+      }
+    }
+  } finally {
+    quietLog.warn = saved;
+  }
+});
+
+test('rollover limits are fixed numbers, not an environment setting', () => {
+  assert.strictEqual(claudecode.ROLLOVER_TOKENS, 100000);
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main', 'claudecode.js'), 'utf8');
+  assert.doesNotMatch(src, /NEXUS_ROLLOVER/);
+});
+
+// Regression (round 3 review): complete() (persona and theme generation, journaling) is the second place a
+// model goes on the CLI's line, and nothing tested it. Run with a stand-in spawn that records the line.
+test('a one-shot completion never puts a model that fails the check on the command line', async () => {
+  const realCp = require('child_process');
+  const { EventEmitter } = require('events');
+  const lines = [];
+  let settings = {};
+  stub({
+    child_process: {
+      ...realCp,
+      spawn(cmd, args) {
+        lines.push(args);
+        const child = new EventEmitter();
+        Object.assign(child, { stdout: new EventEmitter(), stderr: new EventEmitter(), exitCode: null, pid: 1 });
+        child.stdin = {
+          end() {
+            setImmediate(() => {
+              child.stdout.emit('data', JSON.stringify({ result: 'ok' }));
+              child.exitCode = 0;
+              child.emit('close', 0);
+            });
+          },
+        };
+        return child;
+      },
+    },
+    './store': { getSettings: async () => settings },
+  });
+  const saved = quietLog.warn;
+  quietLog.warn = () => {};
+  try {
+    const cc = load('main/claudecode.js'); // again, with the stand-in spawn
+    const modelOf = (args) => (args.includes('--model') ? args[args.indexOf('--model') + 1] : null);
+    const run = async (model, option) => {
+      settings = { claudeCode: { cliPath: __filename, model } }; // an existing file that isn't a .cmd: spawn(cli, args)
+      assert.strictEqual(await cc.complete('hi', option === undefined ? {} : { model: option }), 'ok');
+      return modelOf(lines.at(-1));
+    };
+    assert.strictEqual(await run('sonnet%X%&calc'), null, 'a bad setting is left out');
+    assert.strictEqual(await run('opus', 'sonnet%CMDCMDLINE:~-1%&calc&rem '), null, 'a bad model passed in is left out');
+    assert.strictEqual(await run('"&x'), null);
+    assert.strictEqual(await run('sonnet[1m]'), 'sonnet[1m]', 'a good setting still goes on');
+    assert.strictEqual(await run('opus', 'claude-opus-5-5'), 'claude-opus-5-5', 'a good model passed in wins');
+    assert.strictEqual(await run('default'), null, 'default: the CLI’s own');
+    assert.ok(lines.every((args) => !args.some((a) => /[%&|"]/.test(a))), JSON.stringify(lines));
+  } finally {
+    quietLog.warn = saved;
+    stub({ child_process: realCp, './store': { getSettings: async () => ({}) } });
+  }
+});
+
+test('every --model and --effort on a CLI line is a value that went through cliValue', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main', 'claudecode.js'), 'utf8');
+  const flags = [...src.matchAll(/'--(model|effort)'/g)];
+  const pushes = [...src.matchAll(/args\.push\('--(model|effort)', (\w+)\)/g)];
+  assert.ok(pushes.length >= 3, 'the reader finds the sessionArgs and complete() pushes');
+  assert.strictEqual(pushes.length, flags.length, 'each flag is pushed with a plain variable');
+  for (const [line, kind, v] of pushes) assert.ok(new RegExp(`const ${v} = cliValue\\('${kind}', `).test(src), `${line}: ${v} must come from cliValue('${kind}', …)`);
+});
