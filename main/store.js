@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { app, safeStorage } = require('electron');
 const personas = require('./personacore');
 const brand = require('./brand');
+const log = require('./logger');
 
 // The master prompt of installs from before 2.0 that never edited theirs (see brand.LEGACY).
 const NEXUS_PERSONALITY = `You are warm, sharp and concise. You speak like a capable co-pilot: direct, a little playful, never robotic.
@@ -183,8 +184,8 @@ const DEFAULTS = {
     allowSelfModify: true, // the agent may change its own code (tracked in git, revertible)
   },
   safety: {
-    permissionMode: 'ask', // ask = confirm self-changes, settings changes and deletions; auto = only when external content was read
-    taintGuard: true, // always ask before self-modification in a turn that read web pages or documents
+    permissionMode: 'ask', // ask = every gated action asks (self-changes, settings, deletions, commands…); auto = only approvals.js ALWAYS_ASK and, after outside content, the taint guard's
+    taintGuard: true, // after outside content was read: a warning on every approval, and asking before self-changes, changing where the brain or voice connects, deleting or inviting through a connector, a new web address, or saving routines and skills (approvals.js TAINT_ASKS, taintAsks)
     approvalTimeoutSec: 75,
   },
   remote: {
@@ -318,17 +319,27 @@ function decrypt(value) {
 }
 
 function isPlainObject(v) {
-  return v && typeof v === 'object' && !Array.isArray(v);
+  return Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 }
+
+// A top-level settings section (agent, ui, calendar…): DEFAULTS holds an object for it. Own keys only, so
+// '__proto__' or 'constructor' in a file or a patch is never taken for one.
+const isSection = (k) => Object.hasOwn(DEFAULTS, k) && isPlainObject(DEFAULTS[k]);
 
 function deepMerge(base, patch) {
   const out = Array.isArray(base) ? [...base] : { ...base };
   for (const [k, v] of Object.entries(patch || {})) {
+    // JSON.parse makes '__proto__' an own key; assigned, it would run the prototype setter.
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
     if (isPlainObject(v) && isPlainObject(base?.[k])) out[k] = deepMerge(base[k], v);
     else if (v !== undefined) out[k] = v;
   }
   return out;
 }
+
+// A JSON parse error's message can quote the file's first characters (a conversation's words): the log
+// gets its kind and position, never that quote.
+const parseFailure = (err) => ({ name: err?.name, message: String(err?.message || err).replace(/".*"/s, '"…"') });
 
 // A missing file gives the fallback. A file that exists but can't be parsed also gives the
 // fallback, unless onCorrupt is passed (then it decides), and it is reported, never silently lost.
@@ -343,7 +354,8 @@ async function readJson(file, fallback, { onCorrupt } = {}) {
     return JSON.parse(text);
   } catch (err) {
     if (onCorrupt) return onCorrupt(err);
-    console.error(`[store] unreadable JSON in ${file}: ${err.message}`);
+    // Damaged data, not a fault in the code: a warning, by the file's name (userData holds the user's name).
+    log.warn('unreadable JSON', { file: path.basename(file), error: parseFailure(err) });
     return fallback;
   }
 }
@@ -422,39 +434,71 @@ function settingsFile() {
 }
 
 let settingsLoad = null;
-let settingsRecovered = null; // set when the settings file was damaged and restored from backup
+let settingsRecovered = null; // set when the settings file was damaged (restored from backup) or a section of it reset
 
 // A damaged settings file must not silently reset everything (and lose the encrypted keys): it is
 // kept as settings.corrupt-<time>.json and the last good copy (settings.backup.json) is used.
-async function loadSettingsFile() {
+async function restoreFromBackup(err) {
   const file = settingsFile();
-  const backup = path.join(dataDir(), 'settings.backup.json');
-  const raw = await readJson(file, {}, {
-    onCorrupt: async (err) => {
-      const kept = path.join(dataDir(), `settings.corrupt-${Date.now()}.json`);
-      await fsp.copyFile(file, kept).catch(() => {});
-      const good = await readJson(backup, null, { onCorrupt: () => null });
-      settingsRecovered = { error: err.message, kept, restored: Boolean(good) };
-      if (good) await writeJsonAtomic(file, good).catch(() => {});
-      return good || {};
-    },
-  });
-  // Remember this launch's settings as the last good copy.
-  if (Object.keys(raw).length) await writeJsonAtomic(backup, raw).catch(() => {});
-  return raw;
+  const kept = path.join(dataDir(), `settings.corrupt-${Date.now()}.json`);
+  await fsp.copyFile(file, kept).catch(() => {});
+  const saved = await readJson(path.join(dataDir(), 'settings.backup.json'), null, { onCorrupt: () => null });
+  const good = isPlainObject(saved) ? saved : null; // a backup of the wrong shape is no good copy either
+  settingsRecovered = { error: err.message, kept, restored: Boolean(good) };
+  log.warn('settings file damaged', { restored: Boolean(good), kept: path.basename(kept), error: parseFailure(err) });
+  if (good) await writeJsonAtomic(file, good).catch(() => {});
+  return good || {};
+}
+
+// The active persona's saved entry, found as personacore.ensure finds it (the first valid one when the
+// active id names none): the one the next save's personacore.sync writes over.
+function savedPersona(raw) {
+  const list = isPlainObject(raw.personas) && Array.isArray(raw.personas.list) ? raw.personas.list.filter((x) => isPlainObject(x) && typeof x.id === 'string') : [];
+  return list.find((x) => x.id === raw.personas.active) || list[0] || null;
+}
+
+// A section of the wrong shape (null, a string, a list) goes back to its defaults, the rest of the file is
+// kept, and the user is told (the same notice as a damaged file). What a persona keeps in it (personacore.FIELDS:
+// name, master prompt, look, face, voice) comes back from the persona's saved entry instead: with the defaults,
+// the next save would copy them over that entry. The file is kept as settings.corrupt-<time>.json.
+async function repairSections(raw) {
+  const dropped = Object.keys(raw).filter((k) => isSection(k) && !isPlainObject(raw[k]));
+  if (!dropped.length) return dropped;
+  for (const k of dropped) delete raw[k];
+  const persona = savedPersona(raw);
+  const fromPersona = persona ? dropped.filter((k) => personas.FIELDS.some(([section]) => section === k)) : [];
+  if (fromPersona.length) {
+    const patch = personas.patchFor(persona, DEFAULTS);
+    for (const k of fromPersona) raw[k] = patch[k];
+  }
+  // After a restore from the backup, the damaged file was kept already.
+  const copy = path.join(dataDir(), `settings.corrupt-${Date.now()}.json`);
+  const kept = settingsRecovered ? '' : await fsp.copyFile(settingsFile(), copy).then(() => copy, () => '');
+  settingsRecovered ||= { error: 'wrong shape', kept, restored: false, dropped, fromPersona };
+  log.warn('settings sections reset', { dropped, fromPersona, kept: path.basename(kept) });
+  return dropped;
+}
+
+// Inside the one shared load: concurrent first callers wait for its repairs (and the kept copy) together.
+async function loadSettingsFile() {
+  let raw = await readJson(settingsFile(), {}, { onCorrupt: restoreFromBackup });
+  // Valid JSON that isn't an object (null, a list, a number) is as damaged as broken JSON.
+  if (!isPlainObject(raw)) raw = await restoreFromBackup(new Error('settings.json is not an object'));
+  return { raw, dropped: await repairSections(raw) };
 }
 
 async function getSettings() {
   if (settingsCache) return settingsCache;
   // Concurrent first calls share one load (and one recovery).
   settingsLoad ||= loadSettingsFile().finally(() => (settingsLoad = null));
-  const raw = await settingsLoad;
+  const { raw, dropped } = await settingsLoad;
   if (settingsCache) return settingsCache;
   // Installs from before the setup wizard existed are already configured.
   if (Object.keys(raw).length && raw.onboarded === undefined) raw.onboarded = true;
-  // Installs from before the rename (Nexus Agent) keep their name, look, face and voice (brand.LEGACY).
+  // Installs from before the rename (Nexus Agent) keep their name, look, face and voice (brand.LEGACY);
+  // a section that was just reset gets the defaults (and its persona's fields), as the notice says.
   if (Object.keys(raw).length) {
-    for (const [section, key, value] of LEGACY) if (raw[section]?.[key] === undefined) raw[section] = { ...raw[section], [key]: value };
+    for (const [section, key, value] of LEGACY) if (!dropped.includes(section) && raw[section]?.[key] === undefined) raw[section] = { ...raw[section], [key]: value };
   }
   const merged = deepMerge(DEFAULTS, raw);
   // The thinking sound used to be on/off; it is now a style.
@@ -467,7 +511,12 @@ async function getSettings() {
   }
   // Google Calendar and iCal links were replaced by the schedule in the vault (1.3).
   for (const k of ['clientId', 'clientSecret', 'allCalendars', 'allowWrite', 'icsUrls']) delete merged.calendar[k];
-  for (const [section, key] of SECRET_FIELDS) merged[section][key] = decrypt(merged[section][key]);
+  for (const [section, key] of SECRET_FIELDS) {
+    const stored = merged[section][key];
+    merged[section][key] = decrypt(stored);
+    // Another user's keychain, a reset keychain: the key is gone here; the log says which, never the value.
+    if (stored && !merged[section][key]) log.warn('secret unreadable', { field: `${section}.${key}` });
+  }
   // Installs from before personas (1.4) get their current persona as the first saved one. A tall scene
   // drawing that 2.6.0–2.6.3 copied into another persona goes (personacore.repairScenes), from the live
   // scene too when it is the active persona's.
@@ -478,6 +527,9 @@ async function getSettings() {
   else if (live?.portrait && act?.scene && act.scene.svg === live.svg && !act.scene.portrait) merged.appearance.scene = { ...live, portrait: '' };
   settingsCache = merged;
   setSealing(merged.privacy?.encryptConversations !== false);
+  // Only a copy that loaded without any repair becomes the last good one: after a restore the backup already
+  // is that copy, and a file with a damaged section is never one.
+  if (Object.keys(raw).length && !settingsRecovered) await writeJsonAtomic(path.join(dataDir(), 'settings.backup.json'), raw).catch(() => {});
   return merged;
 }
 
@@ -510,6 +562,9 @@ async function applySettings(patchOrFn, { replace = [] } = {}) {
   const current = await getSettings();
   const patch = typeof patchOrFn === 'function' ? patchOrFn(current) : patchOrFn;
   if (patch == null) return current;
+  if (!isPlainObject(patch)) throw new Error('A settings change must be an object.');
+  const bad = Object.keys(patch).filter((k) => isSection(k) && patch[k] !== undefined && !isPlainObject(patch[k]));
+  if (bad.length) throw new Error(`Settings section${bad.length > 1 ? 's' : ''} ${bad.join(', ')} must be an object.`);
   const next = deepMerge(current, patch);
   for (const [section, key] of replace) {
     if (!isPlainObject(patch?.[section]) || !Object.hasOwn(patch[section], key)) continue;
@@ -520,27 +575,38 @@ async function applySettings(patchOrFn, { replace = [] } = {}) {
   }
   // Whatever changed in the live persona (name, prompt, theme, face, voice…) is saved with it.
   next.personas = personas.sync(next);
-  settingsCache = next;
+  // Built before the cache changes: a value that can't be stored (a BigInt; a number as an API key with the
+  // real keychain) refuses the save and changes nothing.
   const onDisk = JSON.parse(JSON.stringify(next));
   for (const [section, key] of SECRET_FIELDS) onDisk[section][key] = encrypt(onDisk[section][key]);
+  settingsCache = next;
   await writeJsonAtomic(settingsFile(), onDisk);
   setSealing(next.privacy?.encryptConversations !== false);
   for (const fn of changeListeners) {
     try {
       fn(next, patch);
     } catch (err) {
-      // The logger requires the store; a listener's problem is its own, not the save's.
-      console.warn('settings listener failed', err);
+      // A listener's problem is its own, not the save's.
+      log.warn('settings listener failed', { error: err });
     }
   }
   return next;
 }
 
-async function resetSettings() {
-  settingsCache = null;
-  settingsLoad = null;
-  await fsp.rm(settingsFile(), { force: true });
-  return getSettings();
+// Reset: settings.json is moved aside (settings.before-reset-<time>.json), never deleted: it holds every
+// persona, the encrypted keys and the permissions. Inside the save queue, like every other save.
+function resetSettings() {
+  const run = saving.then(async () => {
+    const kept = path.join(dataDir(), `settings.before-reset-${Date.now()}.json`);
+    const moved = await fsp.rename(settingsFile(), kept).then(() => kept, (err) => (err.code === 'ENOENT' ? '' : Promise.reject(err)));
+    settingsCache = null;
+    settingsLoad = null;
+    const settings = await getSettings();
+    log.info('settings reset', { kept: moved ? path.basename(moved) : '' });
+    return { settings, kept: moved };
+  });
+  saving = run.catch(() => {});
+  return run;
 }
 
 // ---------- Encrypted blobs ----------
@@ -550,6 +616,7 @@ async function getSecretBlob(name) {
   try {
     return JSON.parse(decrypt(raw.data));
   } catch {
+    log.warn('secret blob unreadable', { name });
     return null;
   }
 }
@@ -579,7 +646,7 @@ function setSealing(on) {
   sealing = on;
   if (resealedFor === canSeal()) return;
   clearTimeout(resealTimer);
-  resealTimer = setTimeout(() => resealConversations().catch((err) => console.error(`[store] resealing conversations: ${err.message}`)), 5000);
+  resealTimer = setTimeout(() => resealConversations().catch((err) => log.error('conversations not resealed', { error: err })), 5000);
   resealTimer.unref?.();
 }
 
@@ -594,7 +661,7 @@ function unseal(raw, file) {
     return JSON.parse(safeStorage.decryptString(Buffer.from(String(raw.data), 'base64')));
   } catch (err) {
     // Another Windows user, a reset keychain: unreadable here, reported, never overwritten.
-    console.error(`[store] can't decrypt ${path.basename(file)}: ${err.message}`);
+    log.warn('conversation unreadable', { file: path.basename(file), error: parseFailure(err) });
     return null;
   }
 }
@@ -618,7 +685,7 @@ async function resealConversations() {
     if (done) changed++;
   }
   resealedFor = want;
-  if (changed) console.log(`[store] ${want ? 'sealed' : 'unsealed'} ${changed} conversation files`);
+  if (changed) log.info('conversations resealed', { changed, sealed: want });
   return changed;
 }
 
@@ -626,8 +693,10 @@ function newId(prefix = '') {
   return prefix + Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
 }
 
+// 'index' (in any letter case: Windows' file names ignore it) is the conversation index's file; newId gives
+// every conversation a prefix and a time, so none is called that.
 function safeConvId(id) {
-  if (!/^[a-z0-9_-]+$/i.test(String(id))) throw new Error('Invalid conversation id');
+  if (!/^[a-z0-9_-]+$/i.test(String(id)) || String(id).toLowerCase() === 'index') throw new Error('Invalid conversation id');
   return id;
 }
 
@@ -648,15 +717,23 @@ const TASKS_SYNC_DISPLAY = '🔄 Sync my tasks for the calendar';
 // The user's own words: not a hidden prompt, a routine's run or a turn the app started (auto: 'tasks').
 const ownMessage = (m) => m.role === 'user' && !m.hidden && !m.routine && !m.auto && m.display !== TASKS_SYNC_DISPLAY;
 
+// A conversation file as the app uses it: an object with an id and a list of message objects (a hand edit,
+// an older version or a bug can leave `messages: {}` or nulls in it). Not for index.json, which has no id.
+function asConversation(v) {
+  if (!isPlainObject(v) || typeof v.id !== 'string') return null;
+  return { ...v, messages: Array.isArray(v.messages) ? v.messages.filter(isPlainObject) : [] };
+}
+
 function summarize(c) {
-  const shown = (c.messages || []).filter((m) => m.role === 'user' && !m.hidden);
+  const all = Array.isArray(c.messages) ? c.messages : [];
+  const shown = all.filter((m) => m && m.role === 'user' && !m.hidden);
   const own = shown.filter(ownMessage);
   return {
     id: c.id,
     title: c.title,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
-    count: c.messages?.length || 0,
+    count: all.length,
     journaledUpTo: c.journaledUpTo || 0,
     // When the user last wrote here (the launch chat, the handoff note), 0 = never.
     lastOwnAt: own.length ? Number(own[own.length - 1].createdAt) || Number(c.updatedAt) || 0 : 0,
@@ -666,7 +743,8 @@ function summarize(c) {
 }
 
 function loadIndex() {
-  indexLoad ||= (async () => {
+  if (indexLoad) return indexLoad;
+  const run = (async () => {
     await fsp.mkdir(convDir(), { recursive: true });
     const saved = await readConvFile(path.join(convDir(), INDEX), null);
     const stale = (saved?.version || 0) < INDEX_VERSION;
@@ -676,15 +754,22 @@ function loadIndex() {
     for (const id of map.keys()) if (!ids.has(id)) (map.delete(id), (changed = true));
     for (const id of ids) {
       if (map.has(id) && !stale) continue;
-      // null: sealed for another user, broken JSON. A saved entry stays; it is never dropped for that.
-      const c = await readConvFile(path.join(convDir(), `${id}.json`), null);
-      if (c?.id) (map.set(c.id, summarize(c)), (changed = true));
+      // null: sealed for another user, broken JSON, not a conversation. A saved entry stays; it is never dropped for that.
+      const c = asConversation(await readConvFile(path.join(convDir(), `${id}.json`), null));
+      if (c) (map.set(c.id, summarize(c)), (changed = true));
     }
     convIndex = map;
     if (changed) saveIndexSoon();
     return map;
   })();
-  return indexLoad;
+  indexLoad = run;
+  // A failed load is tried again by the next caller (one failed mkdir/readdir broke History until a restart),
+  // unless a newer one already took its place (Clear all starts over while a load runs). The caller still
+  // gets the rejection.
+  run.catch(() => {
+    if (indexLoad === run) indexLoad = null;
+  });
+  return run;
 }
 
 function saveIndexSoon() {
@@ -701,7 +786,7 @@ async function listConversations() {
 }
 
 async function getConversation(id) {
-  return readConvFile(path.join(convDir(), `${safeConvId(id)}.json`), null);
+  return asConversation(await readConvFile(path.join(convDir(), `${safeConvId(id)}.json`), null));
 }
 
 // Full tool exchanges (`raw`: tool calls, results, thinking) are only replayed to the model for the
@@ -733,7 +818,7 @@ async function updateConversation(id, fn, { touch = false } = {}) {
   const file = path.join(convDir(), `${safeConvId(id)}.json`);
   let saved = null;
   await updateInQueue(file, async () => {
-    const conv = await readConvFile(file, null);
+    const conv = asConversation(await readConvFile(file, null));
     const next = conv && (await fn(conv));
     if (!next) return null;
     if (touch) next.updatedAt = Date.now();

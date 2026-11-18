@@ -341,7 +341,8 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   if (again?.taint) approvals.markTainted(ctx.turn, 'the earlier attempt at this message');
   ctx.imageNoun = imageNoun || 'the shared screen';
   const model = effectiveModel(settings, { voice, mode: paced.mode });
-  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', pace: paced.pace, effort: paced.effort, voice, setup, engineering: engineering || undefined, images: images.length || undefined, attachments: history[history.length - 1]?.attachments?.length || undefined, conversation: conv.id, text: lastText.slice(0, 200) });
+  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', pace: paced.pace, effort: paced.effort, voice, setup, engineering: engineering || undefined, images: images.length || undefined, attachments: history[history.length - 1]?.attachments?.length || undefined, conversation: conv.id, chars: lastText.length });
+  log.debug('turn text', { text: lastText.slice(0, 200) });
   if (settings.llm.provider === 'claude-code') {
     // routine: background work keeps the session's warm model (claudecode.chooseModel, pace.warmModel).
     const opts = { ...(await claudeCodeOptions(settings, active, model)), effort: paced.effort, routine };

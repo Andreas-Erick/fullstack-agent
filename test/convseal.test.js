@@ -59,3 +59,44 @@ test('turning it off writes them back as plain JSON; a file that cannot be decry
   safeStorage.decryptString = (b) => flip(b).toString('utf8');
   await store.setSettings({ privacy: { encryptConversations: true } });
 });
+
+// Store problems go to the log (store.js holds the logger object, so swapping its warn records them),
+// by the file's name only and without the file's words.
+async function warningsWhile(fn) {
+  const seen = [];
+  const warn = quietLog.warn;
+  quietLog.warn = (event, data) => seen.push({ event, data });
+  try {
+    await fn();
+  } finally {
+    quietLog.warn = warn;
+  }
+  return seen;
+}
+
+test('a conversation that can’t be decrypted is logged by its file name, never the folder', async () => {
+  fs.writeFileSync(path.join(convDir, 'calien2.json'), JSON.stringify({ sealed: 'v1', data: 'not-for-this-key' }));
+  const decrypt = safeStorage.decryptString;
+  safeStorage.decryptString = () => {
+    throw new Error('wrong key');
+  };
+  let got;
+  const seen = await warningsWhile(async () => (got = await store.getConversation('calien2'))).finally(() => (safeStorage.decryptString = decrypt));
+  assert.strictEqual(got, null);
+  const rec = seen.find((r) => r.event === 'conversation unreadable');
+  assert.ok(rec, JSON.stringify(seen));
+  assert.strictEqual(rec.data.file, 'calien2.json');
+  assert.ok(!JSON.stringify(rec).includes(path.basename(dir)), 'no folder in the log');
+});
+
+test('a conversation file that isn’t JSON is logged without its words', async () => {
+  fs.writeFileSync(path.join(convDir, 'cplain2.json'), 'my blood test results');
+  let got;
+  const seen = await warningsWhile(async () => (got = await store.getConversation('cplain2')));
+  assert.strictEqual(got, null);
+  const rec = seen.find((r) => r.event === 'unreadable JSON');
+  assert.ok(rec, JSON.stringify(seen));
+  assert.strictEqual(rec.data.file, 'cplain2.json');
+  assert.ok(!/blood/.test(JSON.stringify(rec)), JSON.stringify(rec));
+  assert.ok(!JSON.stringify(rec).includes(path.basename(dir)));
+});

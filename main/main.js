@@ -49,8 +49,9 @@ const { UNTRUSTED_NOTICE } = require('./tools/common');
 const ROOT = path.join(__dirname, '..');
 
 // Last-resort safety net: an unexpected error in the main process is logged, never fatal.
-process.on('uncaughtException', (err) => (log.error('uncaught exception', err?.stack || String(err)), smoke.noteError(err)));
-process.on('unhandledRejection', (err) => (log.error('unhandled rejection', err?.stack || String(err)), smoke.noteError(err)));
+// An Error goes through the logger's errorInfo: message, code and short frames, on one line.
+process.on('uncaughtException', (err) => (log.error('uncaught exception', { error: err ?? String(err) }), smoke.noteError(err)));
+process.on('unhandledRejection', (err) => (log.error('unhandled rejection', { error: err ?? String(err) }), smoke.noteError(err)));
 const isDev = process.argv.includes('--dev');
 // Laptops with integrated + dedicated graphics: run WebGPU (local Whisper) on the dedicated GPU.
 app.commandLine.appendSwitch('force_high_performance_gpu');
@@ -185,11 +186,15 @@ function createWindow() {
   captureConsole(win.webContents, 'window');
   win.webContents.on('unresponsive', () => log.warn('window not responding'));
   win.webContents.on('responsive', () => log.info('window responding again'));
-  // Tell the user once if their settings had to be restored from the backup.
+  // Tell the user once if their settings had to be restored from the backup, or a part of them reset (read
+  // after the load is done: one still in flight would be missed).
   win.webContents.on('did-finish-load', () => {
-    store.getSettings().then((s) => win && !win.isDestroyed() && win.webContents.setZoomFactor(clampZoom(s.ui.zoom))).catch(() => {});
-    const r = store.settingsRecovery();
-    if (r) send('app:notice', { kind: 'error', message: r.restored ? 'Your settings file was damaged and has been restored from the last good copy.' : 'Your settings file was damaged; defaults are used. The damaged file was kept for recovery.' });
+    store.getSettings().then((s) => {
+      if (win && !win.isDestroyed()) win.webContents.setZoomFactor(clampZoom(s.ui.zoom));
+      const r = store.settingsRecovery();
+      const reset = r?.dropped?.length && `Some of your settings (${r.dropped.join(', ')}) were damaged and went back to their defaults${r.fromPersona?.length ? ', except what belongs to your persona' : ''}.${r.kept ? ' The damaged file was kept for recovery.' : ''}`;
+      if (r) send('app:notice', { kind: 'error', message: reset || (r.restored ? 'Your settings file was damaged and has been restored from the last good copy.' : 'Your settings file was damaged; defaults are used. The damaged file was kept for recovery.') });
+    }).catch(() => {});
     scheduleChangeVerification(Date.now());
   });
 }
@@ -311,9 +316,14 @@ async function registerShortcut() {
   const accel = s.stt.globalShortcut;
   if (!accel) return;
   try {
-    globalShortcut.register(accel, () => showMain(() => send('voice:toggle', {})));
+    // false: another app holds the keys (Electron doesn't throw for that).
+    const ok = globalShortcut.register(accel, () => showMain(() => send('voice:toggle', {})));
+    if (ok) log.info('voice shortcut registered', { accel });
+    else log.warn('voice shortcut not registered', { accel, reason: 'in use by another app' });
   } catch (err) {
-    console.warn('Could not register global shortcut', accel, err.message);
+    // Keys Electron can't read ("Foo+Bar", a half-typed "Ctrl+Alt+"): the user's value, not a fault in the code,
+    // so no Error (its stack points here and would count against a change to main.js).
+    log.warn('voice shortcut not registered', { accel, reason: String(err?.message || err) });
   }
 }
 
@@ -379,7 +389,7 @@ function registerIpc() {
   handle('settings:get', () => store.getSettings());
   handle('settings:set', async (patch) => {
     const s = await store.setSettings(patch);
-    if (patch?.stt?.globalShortcut !== undefined) registerShortcut();
+    if (patch?.stt?.globalShortcut !== undefined) registerShortcut().catch((error) => log.warn('voice shortcut not registered', { error }));
     if (patch?.logging) log.setDebug(s.logging.debug);
     if (patch?.remote) await companion.apply(s);
     // A newly used or re-enabled helper app (VoiceStudio, FreeLLMAPI) starts now.
@@ -525,8 +535,15 @@ function registerIpc() {
   });
   handle('memory:import', async () => {
     const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] });
-    if (r.canceled || !r.filePaths[0]) return 0;
-    return memory.importEntries(JSON.parse(await fsp.readFile(r.filePaths[0], 'utf8')));
+    if (r.canceled || !r.filePaths[0]) return null;
+    const text = await fsp.readFile(r.filePaths[0], 'utf8');
+    let entries;
+    try {
+      entries = JSON.parse(text.replace(/^\uFEFF/, '')); // Notepad may save a byte-order mark
+    } catch {
+      throw new Error(memory.NOT_AN_EXPORT);
+    }
+    return memory.importEntries(entries);
   });
 
   // Voice
@@ -758,7 +775,7 @@ function registerIpc() {
 
   // Mechanic: diagnostics + log
   handle('diag:run', () => diagnostics.run());
-  handle('log:write', (level, event, data) => log[['info', 'warn', 'error'].includes(level) ? level : 'info'](`ui: ${event}`, data));
+  handle('log:write', (level, event, data) => log[['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info'](`ui: ${event}`, data));
   handle('log:tail', (n, filter) => log.tail(n || 300, filter || ''));
   handle('log:open', () => shell.showItemInFolder(log.file()));
   handle('issues:pending', () => require('./issues').pending());
@@ -1029,7 +1046,8 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       await store.saveConversation(fresh);
       emit({ type: 'done', message: stripRaw(assistantMsg) });
       onFinish?.({ ok: true, text: assistantMsg.content, conversationId: conv.id });
-      log.info('reply', { model: result.model, voice: viaVoice, remote: Boolean(remote), firstTextMs, totalMs: Date.now() - startedAt, chars: assistantMsg.content.length, tools: (result.toolCalls || []).map((t) => t.name).join(','), text: assistantMsg.content.slice(0, 160) });
+      log.info('reply', { model: result.model, voice: viaVoice, remote: Boolean(remote), firstTextMs, totalMs: Date.now() - startedAt, chars: assistantMsg.content.length, tools: (result.toolCalls || []).map((t) => t.name).join(',') });
+      log.debug('reply text', { text: assistantMsg.content.slice(0, 160) });
       // The turn switched persona (or another setting that defines the session): the next session
       // starts now, while the reply is read or heard, not when the user speaks again.
       const after = await store.getSettings();
@@ -1155,7 +1173,7 @@ app.whenReady().then(async () => {
 
   if (!isDev) Menu.setApplicationMenu(process.platform === 'darwin' ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]) : null);
   createWindow();
-  registerShortcut();
+  registerShortcut().catch((error) => log.warn('voice shortcut not registered', { error }));
 
   // Make sure the change history exists before the agent can modify itself.
   const s = await store.getSettings();

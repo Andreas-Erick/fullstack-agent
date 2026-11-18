@@ -10,17 +10,36 @@ const store = require('./store');
 
 const AUTHOR = ['-c', 'user.name=Siren Assistant', '-c', 'user.email=nexus-agent@localhost', '-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false'];
 const PREFIX = '[self-change]';
+// The check takes ~15 s; the tests run under scripts/test.js's own 9-minute limit, this one is the backstop.
+const CHECK_LIMIT_MS = 2 * 60000;
+const TESTS_LIMIT_MS = 10 * 60000;
 
 async function root() {
   const s = await store.getSettings();
   return path.resolve(s.code.rootPath || app.getAppPath());
 }
 
-function run(cmd, args, cwd, extraEnv = {}) {
+// limitMs: a check or test run that never ends is stopped, with every process it started (the test runner
+// runs one per test file), and returns as timed out. git calls get no limit.
+function run(cmd, args, cwd, extraEnv = {}, { limitMs = 0 } = {}) {
   return new Promise((resolve) => {
-    execFile(cmd, args, { cwd, maxBuffer: 20 * 1024 * 1024, env: { ...process.env, ...extraEnv }, windowsHide: true }, (err, stdout, stderr) => {
+    let timer = null;
+    const child = execFile(cmd, args, { cwd, maxBuffer: 20 * 1024 * 1024, env: { ...process.env, ...extraEnv }, windowsHide: true }, (err, stdout, stderr) => {
+      clearTimeout(timer);
       resolve({ ok: !err, code: err?.code ?? 0, stdout: String(stdout), stderr: String(stderr) });
     });
+    if (!limitMs) return;
+    timer = setTimeout(() => {
+      let fallback = null;
+      const done = () => (clearTimeout(fallback), resolve({ ok: false, code: 'ETIMEDOUT', stdout: '', stderr: `Timed out after ${Math.round(limitMs / 1000)} s` }));
+      if (child.exitCode !== null || child.signalCode !== null) return done();
+      child.once('exit', done); // resolved once it is really gone
+      // The whole tree on Windows; elsewhere only the process itself (its own children may outlive it).
+      if (process.platform === 'win32') execFile('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true }, (err) => err && child.kill('SIGKILL'));
+      else child.kill('SIGKILL');
+      fallback = setTimeout(done, 10000); // a process that can't be ended still never holds the caller
+      fallback.unref?.();
+    }, limitMs);
   });
 }
 
@@ -95,7 +114,7 @@ async function check() {
   const r = await root();
   const script = path.join(r, 'scripts', 'check.js');
   if (!fs.existsSync(script)) return { ok: true, output: 'No check script found; skipped.' };
-  const res = await run(process.execPath, [script], r, { ELECTRON_RUN_AS_NODE: '1' });
+  const res = await run(process.execPath, [script], r, { ELECTRON_RUN_AS_NODE: '1' }, { limitMs: CHECK_LIMIT_MS });
   const output = (res.stdout + res.stderr).split('\n').filter((l) => !/^ok\s/.test(l)).join('\n').trim();
   return { ok: res.ok, output: output || 'All files passed the syntax check.' };
 }
@@ -105,7 +124,8 @@ async function runTests(filter = '') {
   const r = await root();
   const script = path.join(r, 'scripts', 'test.js');
   if (!fs.existsSync(script)) return { ok: true, output: 'No test runner found; skipped.' };
-  const res = await run(process.execPath, [script, ...(filter ? [String(filter)] : [])], r, { ELECTRON_RUN_AS_NODE: '1' });
+  const res = await run(process.execPath, [script, ...(filter ? [String(filter)] : [])], r, { ELECTRON_RUN_AS_NODE: '1' }, { limitMs: TESTS_LIMIT_MS });
+  if (res.code === 'ETIMEDOUT') return { ok: false, summary: 'Tests timed out after 10 minutes', failures: res.stderr };
   const output = (res.stdout + res.stderr).trim();
   // Keep the summary and the failures; passing tests are noise for the agent.
   const lines = output.split('\n');
@@ -275,4 +295,4 @@ async function discard() {
   return status();
 }
 
-module.exports = { root, status, ensureRepo, dirtyFiles, fingerprint, check, runTests, diff, commit, touchedBy, log, show, revert, restore, discard, impact, lastVerification, verifyAfterLoad };
+module.exports = { root, status, ensureRepo, dirtyFiles, fingerprint, check, runTests, diff, commit, touchedBy, log, show, revert, restore, discard, impact, lastVerification, verifyAfterLoad, run };

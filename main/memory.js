@@ -4,6 +4,7 @@ const fsp = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const store = require('./store');
+const log = require('./logger');
 
 const LEGACY_DIR = () => path.join(store.dataDir(), 'memory-vault');
 let migrated = false;
@@ -106,28 +107,32 @@ const CACHE_MS = 60000;
 let cache = null;
 const forget = () => (cache = null);
 
+// A list with a file skipped is not cached: a file locked for a moment comes back on the next read. The
+// log gets a count, never names (a memory's file name is its title).
 async function list() {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.entries.map((e) => ({ ...e }));
-  const entries = await readAll();
-  cache = { at: Date.now(), entries };
+  const { entries, skipped } = await readAll();
+  if (skipped) log.warn('memory unreadable', { count: skipped });
+  else cache = { at: Date.now(), entries };
   return entries.map((e) => ({ ...e }));
 }
 
+async function readOne(dir, f) {
+  const full = path.join(dir, f);
+  const [text, stat] = await Promise.all([fsp.readFile(full, 'utf8'), fsp.stat(full)]);
+  const e = parseEntry(f.slice(0, -3), text);
+  e.created ||= stat.birthtimeMs;
+  e.updated ||= stat.mtimeMs;
+  return e;
+}
+
+// Each file on its own: one that can't be read (locked for a moment, a folder named x.md) is skipped.
 async function readAll() {
   const dir = await vaultDir();
   const files = (await fsp.readdir(dir)).filter(isMemoryFile);
-  const entries = await Promise.all(
-    files.map(async (f) => {
-      const id = f.slice(0, -3);
-      const full = path.join(dir, f);
-      const [text, stat] = await Promise.all([fsp.readFile(full, 'utf8'), fsp.stat(full)]);
-      const e = parseEntry(id, text);
-      e.created ||= stat.birthtimeMs;
-      e.updated ||= stat.mtimeMs;
-      return e;
-    }),
-  );
-  return entries.sort((a, b) => b.updated - a.updated);
+  const read = await Promise.all(files.map((f) => readOne(dir, f).catch(() => null)));
+  const entries = read.filter(Boolean).sort((a, b) => b.updated - a.updated);
+  return { entries, skipped: read.length - entries.length };
 }
 
 async function get(id) {
@@ -198,15 +203,25 @@ async function exportMarkdown() {
     .join('\n');
 }
 
-async function importEntries(entries) {
-  let n = 0;
-  for (const e of entries || []) {
-    if (e && e.content) {
-      await save(e);
-      n++;
+const NOT_AN_EXPORT = "This file isn't a memory export (a JSON list of memories).";
+const IMPORT_MAX = 2000;
+// One memory from an export (memory:export's JSON): an object with text content; title and category text when present.
+const isEntry = (e) => e !== null && typeof e === 'object' && !Array.isArray(e) && typeof e.content === 'string' && e.content.trim() !== '' && ['title', 'category'].every((k) => e[k] == null || typeof e[k] === 'string');
+
+/** Saves the memories of an export (a list); returns { imported, skipped }. Anything but a list is refused. */
+async function importEntries(entries, { max = IMPORT_MAX } = {}) {
+  if (!Array.isArray(entries)) throw new Error(NOT_AN_EXPORT);
+  let imported = 0;
+  let skipped = 0;
+  for (const e of entries) {
+    if (!isEntry(e) || imported >= max) {
+      skipped++;
+      continue;
     }
+    await save({ title: e.title, category: e.category, content: e.content });
+    imported++;
   }
-  return n;
+  return { imported, skipped };
 }
 
 async function clear() {
@@ -227,4 +242,4 @@ async function relevant(query, k = 8) {
   return top.map((r) => r.entry);
 }
 
-module.exports = { vaultDir, list, get, save, update, remove, search, exportMarkdown, importEntries, clear, relevant };
+module.exports = { vaultDir, list, get, save, update, remove, search, exportMarkdown, importEntries, clear, relevant, NOT_AN_EXPORT };

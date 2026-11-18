@@ -1,7 +1,7 @@
 // Agent tools: Long-term memory facts (memory.js): what is true about the user.
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
 const memory = require('../memory');
-const { obj, str } = require('./common');
+const { obj, str, requireApproval } = require('./common');
 
 module.exports = [
   {
@@ -39,7 +39,11 @@ module.exports = [
     group: 'memory',
     description: 'Delete a memory by id when it is wrong, obsolete, or the user asks you to forget it.',
     parameters: obj({ id: str('Memory id') }, ['id']),
+    // Asks like every other deletion (approval kind 'delete').
     run: async (a, ctx) => {
+      const e = await memory.get(a.id); // null for an unknown id; a malformed one throws 'Invalid memory id'
+      if (!e) throw new Error(`No memory with id "${String(a.id).slice(0, 80)}".`);
+      await requireApproval(ctx, 'delete', `Forget “${String(e.title || e.id).slice(0, 80)}”`, String(e.content || '').slice(0, 300));
       const r = await memory.remove(a.id);
       ctx.emit({ type: 'memory_changed' });
       return r;
