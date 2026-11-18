@@ -10,7 +10,7 @@
 //   sleeping  – dim, barely moving, with drifting "z"s
 import { hexToRgb } from './themecore.js';
 import { env, LITE_FRAME_MS } from './faces/env.js';
-import { audio, faceState, paletteFor as themedPalette } from './faces/common.js';
+import { audio, faceState, capFrame, paletteFor as themedPalette } from './faces/common.js';
 
 const POLY = { octagon: [8, Math.PI / 8], hexagon: [6, 0], diamond: [4, 0], triangle: [3, -Math.PI / 2] };
 const DIRS = Array.from({ length: 8 }, (_, i) => [Math.cos((i * Math.PI) / 4), Math.sin((i * Math.PI) / 4)]);
@@ -289,6 +289,9 @@ export class CircuitFace {
     }
     if (env.lite() !== this.lite) this.resize();
     if (this.lite && now - this.last < LITE_FRAME_MS) return;
+    const d = capFrame(this.due || 0, now, env.maxFps());
+    if (d === null) return;
+    this.due = d;
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     this.t += dt;

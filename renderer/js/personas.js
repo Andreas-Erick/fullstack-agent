@@ -10,7 +10,7 @@ function took(settings, { greet = false } = {}) {
   const name = settings.agent.name || 'Siren';
   toast(`🎭 ${name}`);
   // The new persona says hello in its own voice.
-  if (greet && settings.voice.ttsEnabled && settings.voice.autoSpeak) speaker.say(settings.appearance.greeting || `Hi, ${name} here.`);
+  if (greet && settings.voice.ttsEnabled && settings.voice.autoSpeak) speaker.say(settings.appearance.greeting || `Hi, ${name} here.`, undefined, { remember: true });
   return settings;
 }
 

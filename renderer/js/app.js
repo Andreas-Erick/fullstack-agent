@@ -34,6 +34,7 @@ import { applyTheme } from './theme.js';
 import { switchPersona } from './personas.js';
 import { practiceLanguage, languageName } from './practice.js';
 import { initPerf, perfReady } from './perf.js';
+import { launchGreeting, HANDOFF_LATE_MS } from './phrasecore.js';
 
 // Safety net: an unexpected error anywhere in the UI is logged (repeats at most once a minute)
 // instead of disappearing; the app keeps running.
@@ -246,12 +247,18 @@ async function refreshFaceList() {
 function greetOnLaunch() {
   const s = state.settings;
   if (s.voice.ttsEnabled && s.voice.greetOnLaunch) {
-    const name = s.agent.name || 'Siren';
-    // With a note from last time, the greeting says where we left off (one short sentence).
+    // The greeting plays from its kept audio (phrases.js) as the window opens. With a note from last
+    // time, one short line about it follows from the voice (never kept: it holds conversation content),
+    // unless you started typing or it would come too late.
+    let typed = false;
+    $('#input').addEventListener('input', () => (typed = true), { once: true });
     handoffNote().then((n) => {
-      const greeting = s.appearance.greeting || `Hello, I'm ${name}. What are we working on today?`;
-      const recent = n && Date.now() - n.at < 3 * 24 * 60 * 60 * 1000;
-      setTimeout(() => speaker.say(recent ? `${greeting} Last time we were on ${n.topic || n.title}; say the word and we continue.` : greeting), 900);
+      const { greeting, handoff } = launchGreeting(s, n);
+      setTimeout(() => {
+        const at = performance.now();
+        speaker.say(greeting, undefined, { remember: true });
+        if (handoff) speaker.follow(handoff, { skipIf: () => typed || performance.now() - at > HANDOFF_LATE_MS });
+      }, 900);
     });
   }
   setTimeout(() => {

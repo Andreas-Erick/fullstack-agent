@@ -27,6 +27,77 @@ export function splitSentences(text, all = false) {
   return done;
 }
 
+// A sentence this long goes out without waiting for a partner (Speaker.chunk), and closes a pair here.
+export const LONE_CHARS = 110;
+
+/**
+ * A whole text's chunks, the way the speaker groups a reply: the first sentence alone (`firstAlone`), the
+ * rest in pairs, where a long sentence closes its pair; a last odd one alone. Always the same chunks for
+ * the same text, unlike a reply's timing-dependent grouping: what kept lines (phrases.js) are keyed by.
+ */
+export function sayChunks(sentences, { firstAlone = true } = {}) {
+  const out = [];
+  let pair = [];
+  const close = () => {
+    if (pair.length) out.push(pair.join(' '));
+    pair = [];
+  };
+  for (const s of sentences.map((x) => String(x || '').trim()).filter(Boolean)) {
+    if (firstAlone && !out.length && !pair.length) {
+      out.push(s);
+      continue;
+    }
+    pair.push(s);
+    if (pair.length >= 2 || s.length >= LONE_CHARS) close();
+  }
+  close();
+  return out;
+}
+
+/**
+ * The voice makes lines in the order they are said, although a kept line (phrases.js) is first looked
+ * up, which takes a moment: a line queued behind a lookup is made only once it is known whether the
+ * voice must make the looked-up one. Without it, the launch greeting (not kept yet) waited in the
+ * voice's queue behind its own "Last time we were on …" line.
+ *   lookup(find, make): find() → audio or null; make() runs on a miss, before what waits behind it.
+ *   after(make): make() now, or once the lookups before it are decided.
+ *   reset(): a stop; what comes next waits for nothing, and a line still waiting is never made (null):
+ *     made after the stop, it held the voice ahead of the next reply's first sentence.
+ */
+export function createLineOrder() {
+  let last = null;
+  let epoch = 0; // which stop a waiting line belongs to
+  return {
+    after(make) {
+      if (!last) return make();
+      const mine = epoch;
+      return last.then(() => (mine === epoch ? make() : null));
+    },
+    lookup(find, make) {
+      const prior = last;
+      const mine = epoch;
+      const found = Promise.resolve()
+        .then(find)
+        .catch(() => null)
+        .then(async (hit) => (await prior, hit));
+      const audio = found.then((hit) => hit || (mine === epoch ? make() : null)); // registered first: a miss is made first
+      const decided = found.then(() => {});
+      last = decided;
+      decided.then(() => last === decided && (last = null));
+      return audio;
+    },
+    reset() {
+      last = null;
+      epoch++;
+    },
+  };
+}
+
+/** Whether replies are spoken by the offline voice: as the main voice, or as the fallback now filling in. */
+export function offlineVoiceSpeaks(voice, { onFallback = false } = {}) {
+  return Boolean(voice?.ttsEnabled && voice.autoSpeak) && (voice.engine === 'local' || (onFallback && (voice.fallback || 'local') === 'local'));
+}
+
 // A reply's first sentence is made alone so the voice starts fast; a long one still took as long to
 // make as it is long. Cut at its first comma between these characters: the head plays while the
 // tail is made.

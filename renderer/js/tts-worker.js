@@ -57,6 +57,10 @@ function load() {
     }
     const t3 = performance.now();
     const engine = { model, tokenizer, phonemize };
+    // The awaits above resume as microtasks, so a 'speak' posted while the session was being built may
+    // still sit in the message queue: one task boundary lets it count (without it, 3 of 3 launches ran
+    // the warm-up with a sentence posted a second before, which then waited 1.4–1.6 s longer).
+    await nextTask();
     // The first run compiles the GPU kernels: done now so the first spoken sentence isn't slow, unless
     // a sentence already waits (the launch greeting): then that sentence is the first run.
     const warmupSkipped = waiting > 0;

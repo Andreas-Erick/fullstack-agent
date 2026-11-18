@@ -9,6 +9,16 @@ export const BALANCED = {
   faceFps: 30, // faces draw at most this many frames a second, at 1× pixel density, without glow
 };
 
+// While the offline voice loads or makes a sentence, faces draw at most this many frames a second: the
+// face and the voice share the graphics card. Measured (a custom face, a 95-token sentence on WebGPU):
+// at the screen's ~85 fps 2.8–3.1 s per sentence; capped at 60, 1.22 s; 45, 1.19; 30, 1.14; hidden, 1.08.
+export const SYNTH_FACE_FPS = 60;
+
+/** The most frames a second a face should draw now (0 = as many as the display shows). */
+export function faceFpsCap({ balanced = false, voiceWorking = false } = {}) {
+  return balanced ? BALANCED.faceFps : voiceWorking ? SYNTH_FACE_FPS : 0;
+}
+
 /** 'balanced' or 'full' for these settings (perf.mode: auto | balanced | full). */
 export function profile(settings) {
   const p = settings?.perf || {};
