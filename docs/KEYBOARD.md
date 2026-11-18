@@ -12,15 +12,18 @@ entry `keyboard` points here).
 | Ctrl+1 … Ctrl+9 | Chat, Face, Memory, Calendar, Knowledge, Documents, Evolution, Skills, Notes |
 | Ctrl+Shift+1 / 2 / 3 | Chat layout: chat only, split, face |
 | Ctrl+N | New chat (in the Notes view: a new note) |
+| Ctrl+H | History: your earlier chats and the search through them (opens the chat; again: back to the message box) |
 | Ctrl+Shift+N | ⚡ Dump: a blank page for a brain dump (Notes) |
 | Ctrl+, | Settings |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in, out, reset |
 | F11 | Full screen (on the Face view: the face alone) |
-| Esc | Stop speaking; then stop a reply that is still being written (chat and face); leave the face's full screen; close a dialog |
+| Esc | Stop speaking; then stop a reply that is still being written (chat and face); leave the face's full screen; close a dialog; close History |
 | End | Jump to the latest message (chat) |
 | Push-to-talk key (Settings → Voice input) | Hold to speak |
 
 Say “cancel”, “never mind” or “stop working” to stop a reply; “stop” or “quiet” only stops the voice.
+Say “try again” after a reply failed or was stopped: your message is sent again (not while a message waits
+for its files).
 
 **The rail:** Tab into it, then ↑ / ↓ (Home / End) move between views and Enter or Space opens one.
 The open view is marked as the current page for screen readers.
@@ -29,7 +32,8 @@ The open view is marked as the current page for screen readers.
 
 | View | Keys | Esc |
 | --- | --- | --- |
-| Chat | Enter sends, Shift+Enter a new line; `/` suggests skills (↑ ↓, Tab or Enter picks); Enter on a focused [[note]] link opens it (also on the reply card and in the Vault) | Closes the skill suggestions, else stops speaking, else stops the reply; closes the reply card (Face layout) when it has focus |
+| Chat | Enter sends, Shift+Enter a new line; `/` suggests skills (↑ ↓, Tab or Enter picks); Enter on a focused [[note]] link opens it (also on the reply card and in the Vault); ↑ in an empty message box edits your last message (Enter sends it in place of the old one; nothing while a reply is being written or a message waits for its files); Ctrl+V in the chat attaches a copied image (or copied files), while copied text is pasted as text (a browser's “Copy image” that also copies text pastes the text); Delete or Backspace on a focused attachment chip removes it | Closes the skill suggestions, else cancels editing (the box gets back what was in it), else stops speaking, else stops the reply; closes the reply card (Face layout) when it has focus |
+| Chat → History | Type to search: titles at once, words from the messages a moment later; ↓ goes into the list, ↑ ↓ Home End move, Enter opens (Enter in the search opens the first), Delete deletes the chat; while it is open over the chat, Tab stays inside it | Closes it, back to the message box; in the side panel: clears the search |
 | Calendar | ← / → previous / next, T today, N new entry; Enter on a day opens it | Closes the entry editor |
 | Notes | Ctrl+N new note, Ctrl+E edit / show rendered (or click the text to edit right there; Enter on the rendered note edits it; on a focused [[link]] it opens the link), Ctrl+S save now; while writing: Ctrl+B bold, Ctrl+I italic, Enter continues a list (on an empty item it ends it), Tab / Shift+Tab indent list items; `[[` suggests notes to link (↑ ↓, Enter or Tab picks); ↓ from the search goes into the list, ↑ ↓ move through it. In ⚡ Dump: Ctrl+Enter saves and gives a fresh page | Closes the link suggestions, else clears the search; in Dump: saves and closes |
 | Inner World | Arrows or WASD pan, + / - zoom, 0 the whole island; the side panel lists every place and resident as buttons | Leaves the timelapse, stops following, steps outside, clears the selection (in that order) |
