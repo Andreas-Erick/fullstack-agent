@@ -14,6 +14,9 @@ export const env = {
   demo: () => null, // { state, level } during the scripted demo
   onTheme: () => () => {}, // onTheme(fn) → unsubscribe; fn runs when the theme changes
   lite: () => false, // Balanced performance: draw at 30 fps, 1× pixel density, without glow
+  // The most frames a second a face should draw now; 0 = as many as the display shows. The desktop caps
+  // it while its offline voice works and on Balanced; the phone and the watch's recording keep 0.
+  maxFps: () => 0,
 };
 
 // The frame interval when lite (a little under 1/30 s, so a 60 Hz display shows every second frame).

@@ -1,7 +1,7 @@
 // Configuration dashboard. Every control auto-saves to settings.json (secrets are encrypted at rest).
 import { $, api, el, escapeHtml, toast, toastError, confirmDialog, debounce, on, emit, modal } from './util.js';
 import { state, saveSettings, loadSettings } from './state.js';
-import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice } from './voice.js';
+import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice, forgetVoiceLines } from './voice.js';
 import { KOKORO_VOICES } from './kokorotext.js';
 import { refreshList, newChat } from './chat.js';
 import { FONTS, PATTERNS, CORE_SHAPES, TRACE_STYLES, normalizeTheme, extractPalette } from './theme.js';
@@ -1203,7 +1203,14 @@ function voiceCard() {
       }),
       field('Thinking sound volume', thinkingVolume()),
     ),
-    el('div', { class: 'row' }, test, testLocal, el('button', { class: 'btn', onclick: () => speaker.stop() }, '■ Stop')),
+    el(
+      'div',
+      { class: 'row' },
+      test,
+      testLocal,
+      el('button', { class: 'btn', onclick: () => speaker.stop() }, '■ Stop'),
+      el('button', { class: 'btn', title: 'Siren keeps the audio of lines she says often (her greeting, the short "one moment" lines) so they play at once. Forget them if one ever sounds wrong; they are made again.', onclick: async () => toast((await forgetVoiceLines()) ? 'Saved voice lines forgotten; they are made again.' : 'No saved voice lines yet.') }, 'Forget saved voice lines'),
+    ),
     out,
     ttsProgressEl,
   );

@@ -1,10 +1,13 @@
 // Voice I/O: VoiceStudio playback (sentence-chunked, in order, with the offline Kokoro voice or the
 // OS voice as fallback), microphone capture (push-to-talk or hands-free with voice-activity
 // detection), speech-to-text.
-import { api, emit, speakable, toastError, logEvent } from './util.js';
+import { api, emit, on, speakable, toastError, logEvent } from './util.js';
 import { state, setFlag, setCaption, ttsActive } from './state.js';
 import { KOKORO_SAMPLE_RATE } from './kokorotext.js';
-import { takeSentences, splitSentences, firstCut, cutWorth, paceAfter, warmStep } from './speechplan.js';
+import { takeSentences, splitSentences, firstCut, cutWorth, paceAfter, warmStep, sayChunks, offlineVoiceSpeaks, createLineOrder, LONE_CHARS } from './speechplan.js';
+import { voiceIdentity, madeByOf, launchGreeting } from './phrasecore.js';
+import { getPhrase, keepPhrase, forgetPhrases } from './phrases.js';
+import { env } from './faces/env.js';
 import { createJobs } from './ttsjobs.js';
 import { allFillers } from './chatcore.js';
 import { practiceLanguage, pickVoice, languageName } from './practice.js';
@@ -45,6 +48,7 @@ const localVoice = {
     if (this.ready) return this.ready;
     this.startedAt = performance.now();
     this.worker = new Worker(new URL('./tts-worker.js', import.meta.url), { type: 'module' });
+    this.syncBusy();
     this.ready = new Promise((resolve, reject) => {
       this.worker.onmessage = (e) => this.onMessage(e.data, resolve, reject);
       this.worker.onerror = (e) => this.reset(e.message || 'the offline voice failed to load', reject);
@@ -67,6 +71,7 @@ const localVoice = {
   onReady(msg, resolve) {
     const now = performance.now();
     this.loaded = true;
+    this.syncBusy();
     this.device = msg.device;
     for (const job of this.pending.values()) job.readyAt ||= now;
     // Where the load's time went (tts-worker.js load), to compare the app with the voice on its own.
@@ -83,9 +88,11 @@ const localVoice = {
     if (!job) return; // given up on already (a stop, a time limit)
     if (msg.type === 'begin') {
       job.begunAt = performance.now();
+      job.faceFps = env.maxFps(); // the cap the faces get while this sentence is made (faces/host.js)
       return this.jobs.begin(msg.id, job.begunAt);
     }
     this.pending.delete(msg.id);
+    this.syncBusy();
     this.jobs.done(msg.id);
     if (msg.type === 'audio') {
       this.msPerChar = paceAfter(this.msPerChar, { chars: job.chars, modelMs: msg.timing?.modelMs });
@@ -101,7 +108,13 @@ const localVoice = {
     if (!timing || job.quiet || (this.timed = (this.timed || 0) + 1) > 40) return;
     const s = state.settings;
     const view = document.querySelector('.view.active')?.id.replace(/^view-/, '');
-    logEvent('info', 'offline voice sentence', { ...timing, device: this.device, view, layout: s.ui?.chatLayout, fx: effectsLevel(s), lite: profile(s) === 'balanced', focused: document.hasFocus(), visible: document.visibilityState });
+    logEvent('info', 'offline voice sentence', { ...timing, device: this.device, view, layout: s.ui?.chatLayout, fx: effectsLevel(s), lite: profile(s) === 'balanced', faceFps: job.faceFps, focused: document.hasFocus(), visible: document.visibilityState });
+  },
+
+  // Loading, or a sentence out (the phone's WAVs and the fillers made ahead too): the faces draw fewer
+  // frames meanwhile (perfcore.js faceFpsCap), so the voice gets the graphics card.
+  syncBusy() {
+    state.voiceWorking = Boolean(this.worker) && (!this.loaded || this.pending.size > 0);
   },
 
   // Frees the model (the memory section's button, or Balanced performance after a while unused).
@@ -124,6 +137,7 @@ const localVoice = {
     this.jobs = createJobs();
     clearInterval(this.timer);
     this.timer = 0;
+    this.syncBusy();
   },
 
   keepFor() {
@@ -157,6 +171,7 @@ const localVoice = {
     const out = await new Promise((done, fail) => {
       Object.assign(job, { done, fail });
       this.pending.set(id, job);
+      this.syncBusy();
       this.jobs.post(id, { now: postedAt, keep, waitMs });
       this.worker.postMessage({ type: 'speak', id, keep, text, voice: v.localVoice, speed: Number(v.speed) || 1 });
       this.timer ||= setInterval(() => this.checkJobs(), 1000);
@@ -167,6 +182,7 @@ const localVoice = {
     buf.copyToChannel(out.samples, 0);
     const ms = (n) => Math.max(0, Math.round(n));
     buf.timing = { loadWaitMs: ms(job.readyAt - postedAt), queueMs: ms(job.begunAt - Math.max(postedAt, job.readyAt)), modelMs: out.timing?.modelMs };
+    buf.madeBy = madeByOf('local', { voice: v }); // the voice as posted, for kept lines (phrases.js)
     return buf;
   },
 
@@ -193,6 +209,7 @@ const localVoice = {
       clearInterval(this.timer);
       this.timer = 0;
     }
+    this.syncBusy();
   },
 
   // A stop: the sentences not begun yet are dropped, so the next reply doesn't wait behind them (the
@@ -205,6 +222,7 @@ const localVoice = {
       this.pending.delete(id);
       job?.done(null);
     }
+    this.syncBusy();
   },
 
   warn(err) {
@@ -218,9 +236,11 @@ const localVoice = {
  * At launch: load the offline voice when it is the main voice, so the greeting needn't wait for it.
  * Once it is in, the filler lines are made in the first quiet moment (speaker.filler plays only those),
  * when replies are spoken: with auto-speak off no filler plays, and making them is CPU work for nothing.
+ * The ones kept from earlier sessions (phrases.js) are ready at once, in any voice, without the model.
  */
 export function preloadOfflineVoice() {
   const v = state.settings?.voice;
+  if (ttsActive() && v.filler) speaker.loadKept(allFillers());
   if (!v?.ttsEnabled || v.engine !== 'local') return;
   const idle = () => !state.generating && !state.recording;
   localVoice.start().then(() => ttsActive() && state.settings.voice.filler && speaker.warmFillers(allFillers(), idle), () => {});
@@ -236,6 +256,13 @@ export async function offlineVoiceWav(text) {
 /** For the system monitor's memory section. */
 export const offlineVoiceStatus = () => ({ loaded: Boolean(localVoice.worker), device: localVoice.device });
 export const unloadOfflineVoice = () => localVoice.unload();
+
+/** Settings → Voice output: the kept lines go (made again when next needed). True if there were any. */
+export async function forgetVoiceLines() {
+  speaker.fillers.clear();
+  speaker.warmWant = null;
+  return forgetPhrases();
+}
 
 // Settings → Voice output: download/load the offline voice ahead of time, then speak a sample.
 export async function testLocalVoice(text) {
@@ -265,13 +292,26 @@ class Speaker {
     this.onFallback = false; // set after VoiceStudio fails; retried periodically
     this.lastSpokeAt = 0;
     this.fillers = new Map(); // fillerKey → AudioBuffer
+    this.order = createLineOrder(); // kept lines are looked up first; the voice still makes lines in order
   }
 
-  say(text, override) {
+  // remember: a fixed line (a greeting) whose audio is kept (phrases.js) and played from there next time.
+  // Its chunks never depend on the measured pace (no first-sentence cut), or the keys would change.
+  say(text, override, { remember = false } = {}) {
     this.stop();
+    if (remember) {
+      sayChunks(splitSentences(speakable(text), true)).forEach((c, i) => this.enqueue(c, override, { first: i === 0, remember: true }));
+      return;
+    }
     for (const s of splitSentences(speakable(text), true)) this.chunk(s, override);
     this.release();
     this.started = false;
+  }
+
+  // After what is being said, without stopping it: the launch greeting's "Last time we were on …" line
+  // (skipIf: dropped if it comes too late), a new persona's hello after the reply (remember).
+  follow(text, { remember = false, skipIf = null, firstAlone = false } = {}) {
+    for (const c of sayChunks(splitSentences(speakable(text), true), { firstAlone })) this.enqueue(c, undefined, { remember, skipIf });
   }
 
   // A streamed reply: sentence by sentence, up to voice.speakLimit characters (a long result, such as
@@ -325,7 +365,7 @@ class Speaker {
     this.batch.push(text);
     this.batchOverride = override;
     clearTimeout(this.batchTimer);
-    if (this.batch.length >= 2 || text.length >= 110) this.release();
+    if (this.batch.length >= 2 || text.length >= LONE_CHARS) this.release();
     else this.batchTimer = setTimeout(() => this.release(), 450);
   }
 
@@ -357,10 +397,29 @@ class Speaker {
   // wish is kept: a speaker that is talking resumes it when it goes quiet (pump), a reply or a
   // recording when it is over (chat.js finish). Before, it gave up whenever the reply was still being
   // spoken, which after all but the shortest replies it was, so fillers were hardly ever made.
+  // The launch greeting's chunks join them: read from the kept lines, or made and kept for next launch.
   warmFillers(lines, idle) {
-    if (!this.warmWant) (this.warmMade = 0), (this.warmFrom = performance.now());
-    this.warmWant = { lines, idle };
+    if (!this.warmWant) (this.warmMade = 0), (this.warmKept = 0), (this.warmFrom = performance.now());
+    this.warmWant = { lines: [...new Set([...lines, ...this.greetingLines()])], idle };
     if (!this.warming) this.warmSoon(1500);
+  }
+
+  // Exactly what greetOnLaunch (app.js) says with say(…, { remember: true }), chunk by chunk.
+  greetingLines() {
+    const v = state.settings?.voice;
+    if (!v?.ttsEnabled || !v.greetOnLaunch) return [];
+    return sayChunks(splitSentences(speakable(launchGreeting(state.settings).greeting), true));
+  }
+
+  // At launch: the filler lines kept from earlier sessions, read without the model.
+  async loadKept(lines) {
+    for (const t of lines) {
+      const key = fillerKey(t);
+      const id = voiceIdentity(state.settings); // the voice asked for, even if the settings change meanwhile
+      if (this.fillers.has(key)) continue;
+      const buf = await getPhrase(id, t);
+      if (buf && fillerKey(t) === key) this.fillers.set(key, buf);
+    }
   }
 
   warmSoon(ms) {
@@ -380,18 +439,29 @@ class Speaker {
     if (step === 'done') {
       this.warmWant = null;
       this.warming = false;
-      if (this.warmMade) logEvent('info', 'offline voice fillers ready', { n: this.warmMade, ms: Math.round(performance.now() - this.warmFrom), engine: state.settings.voice?.engine });
+      if (this.warmMade || this.warmKept) logEvent('info', 'offline voice fillers ready', { n: this.warmMade, kept: this.warmKept, ms: Math.round(performance.now() - this.warmFrom), engine: state.settings.voice?.engine });
       return;
     }
     if (step !== 'warm') return void (this.warming = false);
     const key = fillerKey(todo[0]); // the voice it is made in, even if the settings change meanwhile
-    const buf = await this.synthesize(todo[0], undefined, this.gen, { quiet: true }).catch(() => null);
+    const id = voiceIdentity(state.settings);
+    // Kept from an earlier session (phrases.js): no model run at all.
+    const kept = await getPhrase(id, todo[0]);
+    // The lookup took a moment: a message or a recording that started meanwhile goes first (made now,
+    // the filler would hold the voice ahead of the reply's first sentence). It resumes like warmStep's
+    // wait or stop: when the speaker goes quiet (pump) or the reply or recording is over (chat.js finish).
+    if (!kept && (!want.idle() || state.transcribing || this.busy || this.mainVoiceAway())) return void (this.warming = false);
+    const buf = kept || (await this.synthesize(todo[0], undefined, this.gen, { quiet: true }).catch(() => null));
     // The system voice ('system') is instant anyway; a failure or a stop waits for the next quiet moment.
     if (!buf || typeof buf !== 'object') return void (this.warming = false);
     if (this.fillers.size > 80) this.fillers.clear(); // a few voices' worth
     this.fillers.set(key, buf);
-    this.warmMade++;
-    this.warmSoon(state.settings.voice?.engine === 'cloud' ? CLOUD_WARM_GAP_MS : 600);
+    if (kept) this.warmKept++;
+    else {
+      this.warmMade++;
+      keepPhrase(id, todo[0], buf); // for the next session
+    }
+    this.warmSoon(kept ? 20 : state.settings.voice?.engine === 'cloud' ? CLOUD_WARM_GAP_MS : 600);
   }
 
   // VoiceStudio or the cloud voice failed and the fallback speaks, until a reply reaches it again.
@@ -399,12 +469,33 @@ class Speaker {
     return this.onFallback && state.settings.voice?.engine !== 'local';
   }
 
-  enqueue(text, override, { first = false } = {}) {
+  // remember: played from the kept lines when there (else made and kept); skipIf: checked when its turn
+  // comes, true drops it. Lines are made in the order they are said (speechplan.js createLineOrder).
+  enqueue(text, override, { first = false, remember = false, skipIf = null } = {}) {
     if (!text || !/[\p{L}\p{N}]/u.test(text)) return;
     const gen = this.gen;
-    const audio = this.synthesize(text, override, gen);
-    this.queue.push({ text, audio, gen, first, queuedAt: performance.now() });
+    const audio = remember ? this.remembered(text, override, gen) : this.order.after(() => this.synthesize(text, override, gen));
+    this.queue.push({ text, audio, gen, first, skipIf, queuedAt: performance.now() });
     this.pump();
+  }
+
+  // A fixed line in the main voice: from memory (a filler made this session), from the kept lines, or
+  // made now and kept. Never for an override or a practice language's voice.
+  remembered(text, override, gen) {
+    const id = override || practiceVoiceFor(override) ? null : voiceIdentity(state.settings);
+    const key = id && fillerKey(text);
+    const mem = key && this.fillers.get(key);
+    if (mem) return Promise.resolve(Object.assign(mem, { timing: { cached: true } }));
+    const make = () => this.synthesize(text, override, gen);
+    if (!id) return this.order.after(make);
+    return this.order.lookup(
+      () => getPhrase(id, text),
+      async () => {
+        const buf = await make();
+        if (buf && typeof buf === 'object') keepPhrase(id, text, buf);
+        return buf;
+      },
+    );
   }
 
   // quiet: a filler made ahead, kept out of the sentence log and best effort in the main voice only.
@@ -431,10 +522,13 @@ class Speaker {
     }
     const mode = fallbackMode();
     if (this.onFallback && mode !== 'off' && Date.now() - this.fallbackSince < 120000) return quiet ? null : this.fallback(text, gen);
+    // The voice this request asks for, even if the settings change meanwhile (kept lines, phrases.js).
+    const madeBy = override ? null : madeByOf(state.settings.voice?.engine === 'cloud' ? 'cloud' : 'voicestudio', state.settings);
     try {
       const { audio } = await api.tts.speak(text, override);
       const bytes = audio instanceof Uint8Array ? audio : new Uint8Array(audio);
       const buf = await ctx().decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+      buf.madeBy = madeBy;
       if (this.onFallback) logEvent('info', `${engineName()} back online`);
       this.onFallback = false;
       return buf;
@@ -485,6 +579,7 @@ class Speaker {
       if (item.gen !== this.gen) continue;
       const buf = await item.audio;
       if (!buf || item.gen !== this.gen) continue;
+      if (item.skipIf?.()) continue;
       setFlag('playing', true);
       setCaption(item.text, 'assistant');
       if (item.first) logFirstAudio(item, buf);
@@ -545,6 +640,7 @@ class Speaker {
   stop() {
     this.gen++;
     this.queue = [];
+    this.order.reset(); // what comes next doesn't wait for a dropped line's lookup
     localVoice.cancelQueued();
     this.buffer = '';
     clearTimeout(this.batchTimer);
@@ -567,8 +663,8 @@ class Speaker {
   }
 }
 
-// A filler's audio belongs to the voice that made it (engine, voice, speed…).
-const fillerKey = (text) => `${JSON.stringify([state.settings.voice?.engine, state.settings.voice?.voice, state.settings.voice?.localVoice, state.settings.voice?.speed, state.settings.cloudVoice])}|${text}`;
+// A filler's audio belongs to the voice that made it (engine, voice, speed…; phrasecore.js, no keys).
+const fillerKey = (text) => `${JSON.stringify(voiceIdentity(state.settings))}|${text}`;
 
 // A filler made ahead that failed (a cloud limit, a timeout): a line in the log, nothing on screen.
 function quietFail(err) {
@@ -577,6 +673,21 @@ function quietFail(err) {
 }
 
 export const speaker = new Speaker();
+
+// On any profile, an unloaded offline voice (Balanced frees it after a quiet while; the system
+// monitor's Unload frees it anywhere) loads again as soon as a reply is coming (a message went out),
+// or at a push-to-talk press when speech-to-text runs in the cloud (with local Whisper the press
+// already loads that model on the same processor). Never on a hands-free onset (breath and room noise
+// start one) or the face demo. With the voice loaded, start() returns at once and keepFor() restarts
+// Balanced's idle clock (elsewhere it does nothing).
+on('agent-state', (s) => {
+  if (state.demo || state.transcribing || !offlineVoiceSpeaks(state.settings?.voice, { onFallback: speaker.onFallback })) return;
+  const sent = s === 'thinking' && state.generating;
+  const talking = s === 'listening' && recorder.active && state.settings.stt?.engine !== 'local';
+  if (!sent && !talking) return;
+  localVoice.start();
+  if (sent && localVoice.worker) localVoice.keepFor();
+});
 
 // ----------------------------------------------------------- microphone
 // Resolve the configured mic (label substring) to a deviceId; falls back to the default and logs why.
@@ -1138,13 +1249,13 @@ let busy = false;
 let utteranceEndedAt = 0;
 
 // synthMs is the whole wait; for the offline voice, its parts: the model loading, sentences ahead of
-// it in the worker, and the run itself (localVoice.speak).
+// it in the worker, and the run itself (localVoice.speak). cached: a kept line (phrases.js), no run.
 function logFirstAudio(item, buf) {
   const now = performance.now();
   const sinceSpeechEndMs = utteranceEndedAt && now - utteranceEndedAt < 120000 ? Math.round(now - utteranceEndedAt) : undefined;
   utteranceEndedAt = 0;
   const t = buf?.timing || {};
-  logEvent('info', 'first audio', { synthMs: Math.round(now - item.queuedAt), loadWaitMs: t.loadWaitMs, queueMs: t.queueMs, modelMs: t.modelMs, sinceSpeechEndMs, chars: item.text.length });
+  logEvent('info', 'first audio', { synthMs: Math.round(now - item.queuedAt), loadWaitMs: t.loadWaitMs, queueMs: t.queueMs, modelMs: t.modelMs, cached: t.cached || undefined, sinceSpeechEndMs, chars: item.text.length });
 }
 
 // Hands-free pieces of one message (utterance.js): a recording that hit the length limit, or a

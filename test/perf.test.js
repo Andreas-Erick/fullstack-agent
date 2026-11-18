@@ -119,6 +119,18 @@ test('a fresh install chooses its speech model; the hardware scan suggests large
   assert.strictEqual(hw.recommend(pc(32, 8), { webgpu: true }).stt.localModel, 'onnx-community/whisper-large-v3-turbo');
 });
 
+// A face drawing at the screen's full rate (85–144 fps) slowed the offline voice two to three times:
+// while it works, faces draw at most 60 frames a second; on Balanced always at most 30.
+test('faceFpsCap: 60 while the offline voice works, 30 on Balanced, else no cap', () => {
+  assert.strictEqual(r.SYNTH_FACE_FPS, 60);
+  assert.strictEqual(r.faceFpsCap({}), 0);
+  assert.strictEqual(r.faceFpsCap(), 0);
+  assert.strictEqual(r.faceFpsCap({ voiceWorking: true }), r.SYNTH_FACE_FPS);
+  assert.strictEqual(r.faceFpsCap({ balanced: true }), r.BALANCED.faceFps);
+  assert.strictEqual(r.BALANCED.faceFps, 30);
+  assert.strictEqual(r.faceFpsCap({ balanced: true, voiceWorking: true }), 30);
+});
+
 test('Balanced keeps the HUD look without motion; the other levels stay', () => {
   assert.strictEqual(r.effectsLevel(settings({ detected: 'low' })), 'subtle');
   assert.strictEqual(r.effectsLevel(settings({ detected: 'high' })), 'hud');

@@ -719,7 +719,7 @@ function handleEvent(ev) {
       // A switch by voice: the new persona greets the user in its own voice, after the reply.
       if (active.greeting) {
         const greeting = active.greeting;
-        loadSettings().then(() => ttsActive() && speaker.enqueue(greeting)).catch(() => {});
+        loadSettings().then(() => ttsActive() && speaker.follow(greeting, { remember: true, firstAlone: true })).catch(() => {});
       }
       finish();
       if (!ttsActive()) celebrate();

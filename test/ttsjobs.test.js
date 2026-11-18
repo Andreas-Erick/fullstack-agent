@@ -122,6 +122,18 @@ test('tts-worker.js: begin, skipped, cancel, the load gate and the skipped warm-
   assert.match(src, /type: 'ready', device, timing/);
 });
 
+// Found by timing launches: a sentence posted while the session was being built still sat in the
+// worker's message queue when the warm-up was decided (the awaits resume as microtasks), so the
+// "Ready." warm-up ran in front of the launch greeting (3 of 3 launches, +1.4–1.6 s).
+test('tts-worker.js: one task boundary before the warm-up decision', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/tts-worker.js'), 'utf8');
+  const load = src.slice(src.indexOf('function load()'), src.indexOf('async function style('));
+  const session = load.lastIndexOf('StyleTextToSpeech2Model.from_pretrained');
+  const yieldAt = load.indexOf('await nextTask();', session);
+  assert.ok(session > 0 && yieldAt > session, 'after the model session is built');
+  assert.ok(yieldAt < load.indexOf('waiting > 0'), 'before the waiting count is read');
+});
+
 test('voice.js: a stop cancels the queued sentences; the phone WAVs are kept', () => {
   const src = fs.readFileSync(path.join(ROOT, 'renderer/js/voice.js'), 'utf8');
   const stop = src.slice(src.indexOf('  stop() {'), src.indexOf('  get busy()'));

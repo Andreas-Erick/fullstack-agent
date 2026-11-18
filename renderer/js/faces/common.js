@@ -69,18 +69,33 @@ export function samples64() {
   return out;
 }
 
+// A frame cap that holds close to `fps` on any refresh rate (skipping frames closer than 1000/fps
+// rounds to whole display frames: 48 at 144 Hz, 42 at 85 Hz). `due` is when the next frame may draw;
+// returns the new `due`, or null when this frame is skipped. fps 0: no cap.
+export function capFrame(due, now, fps) {
+  if (!(fps > 0)) return 0;
+  if (now + 2 < due) return null;
+  const step = 1000 / fps;
+  return now - due > step ? now + step : due + step;
+}
+
 // Feeds a custom face (a sandboxed iframe, faces/core.js) the agent state once per display frame, so a
 // face made for 90, 120 or 144 Hz gets fresh voice samples on every frame it draws; ~30×/s when lite
-// (Balanced) or idle, ~20×/s when sleeping. `message()` builds what is posted. Returns stop().
+// (Balanced) or idle, ~20×/s when sleeping, at most env.maxFps(). `message()` builds what is posted.
+// Returns stop().
 export function pumpFrame(frame, message) {
   let raf = 0;
   let last = 0;
+  let due = 0;
   const tick = (now) => {
     raf = requestAnimationFrame(tick);
     if (document.hidden || !frame.contentWindow || !frame.offsetParent) return; // hidden: skip (the chat-only layout hides the face)
     const st = env.agentState();
     const minGap = st === 'sleeping' ? 50 : env.lite() || st === 'idle' ? LITE_FRAME_MS : 0;
     if (minGap && now - last < minGap) return;
+    const d = capFrame(due, now, env.maxFps());
+    if (d === null) return;
+    due = d;
     last = now;
     frame.contentWindow.postMessage(message(), '*');
   };
@@ -141,6 +156,9 @@ export class BaseFace {
     }
     if (env.lite() !== this.lite) this.resize(); // the profile changed: new pixel density
     if (this.lite && now - this.last < LITE_FRAME_MS) return;
+    const d = capFrame(this.due || 0, now, env.maxFps());
+    if (d === null) return;
+    this.due = d;
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     this.t += dt;

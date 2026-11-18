@@ -149,3 +149,204 @@ test('voice.js: a quiet synthesis never uses the fallback and fails silently', (
   const quietFn = src.slice(src.indexOf('function quietFail('), src.indexOf('export const speaker'));
   assert.doesNotMatch(quietFn, /toast|emit\(/);
 });
+
+// Kept voice lines (phrases.js) are keyed by their chunk: a fixed text must always chunk the same way.
+test('sayChunks: the first sentence alone, then pairs, a long sentence closing its pair', async () => {
+  const { sayChunks, LONE_CHARS } = await plan();
+  assert.strictEqual(LONE_CHARS, 110);
+  const L = `A long sentence ${'that goes on '.repeat(8)}to the end.`;
+  assert.ok(L.length >= LONE_CHARS);
+  assert.deepStrictEqual(sayChunks(['A', 'B', 'C', 'D']), ['A', 'B C', 'D']);
+  assert.deepStrictEqual(sayChunks(['A', L, 'B']), ['A', L, 'B']);
+  assert.deepStrictEqual(sayChunks(['A', 'B', L, 'C']), ['A', `B ${L}`, 'C']);
+  assert.deepStrictEqual(sayChunks(['A', 'B', 'C'], { firstAlone: false }), ['A B', 'C']);
+  assert.deepStrictEqual(sayChunks(['', ' A ', '  ', 'B', 'C']), ['A', 'B C'], 'empties dropped');
+  assert.deepStrictEqual(sayChunks([]), []);
+  assert.deepStrictEqual(sayChunks(['Only one.']), ['Only one.']);
+});
+
+test('offlineVoiceSpeaks: the offline voice as main voice, or as the fallback filling in', async () => {
+  const { offlineVoiceSpeaks } = await plan();
+  const v = (extra) => ({ ttsEnabled: true, autoSpeak: true, engine: 'local', fallback: 'local', ...extra });
+  assert.strictEqual(offlineVoiceSpeaks(v()), true);
+  assert.strictEqual(offlineVoiceSpeaks(v({ autoSpeak: false })), false);
+  assert.strictEqual(offlineVoiceSpeaks(v({ ttsEnabled: false })), false);
+  assert.strictEqual(offlineVoiceSpeaks(v({ engine: 'voicestudio' })), false);
+  assert.strictEqual(offlineVoiceSpeaks(v({ engine: 'voicestudio' }), { onFallback: true }), true);
+  assert.strictEqual(offlineVoiceSpeaks(v({ engine: 'cloud', fallback: undefined }), { onFallback: true }), true, 'local is the default fallback');
+  assert.strictEqual(offlineVoiceSpeaks(v({ engine: 'voicestudio', fallback: 'system' }), { onFallback: true }), false);
+  assert.strictEqual(offlineVoiceSpeaks(undefined), false);
+});
+
+// Found while building it: the launch greeting, not kept yet, is looked up first; the "Last time we were
+// on …" line behind it went to the voice at once and was made before the greeting.
+test('createLineOrder: a line behind a lookup is made after it, a miss first', async () => {
+  const { createLineOrder } = await plan();
+  const later = (v, ms = 5) => new Promise((r) => setTimeout(() => r(v), ms));
+  const run = async (hit) => {
+    const order = createLineOrder();
+    const made = [];
+    const make = (name) => () => (made.push(name), Promise.resolve(name));
+    const greeting = order.lookup(() => later(hit), make('greeting'));
+    const handoff = order.after(make('handoff'));
+    return { made, audio: await Promise.all([greeting, handoff]) };
+  };
+  assert.deepStrictEqual(await run(null), { made: ['greeting', 'handoff'], audio: ['greeting', 'handoff'] }, 'not kept: made in order');
+  assert.deepStrictEqual(await run('kept'), { made: ['handoff'], audio: ['kept', 'handoff'] }, 'kept: only the next line is made');
+
+  // Two looked-up chunks: the second waits for the first even when its own lookup is faster.
+  const order = createLineOrder();
+  const made = [];
+  const a = order.lookup(() => later(null, 20), () => made.push('a'));
+  const b = order.lookup(() => later(null, 1), () => made.push('b'));
+  const c = order.after(() => made.push('c'));
+  await Promise.all([a, b, c]);
+  assert.deepStrictEqual(made, ['a', 'b', 'c']);
+
+  // Nothing looked up: made at once, as before. A failed lookup is a miss. A stop waits for nothing.
+  const free = createLineOrder();
+  let now = false;
+  free.after(() => (now = true));
+  assert.strictEqual(now, true);
+  assert.strictEqual(await free.lookup(() => Promise.reject(new Error('blocked')), () => 'made'), 'made');
+  const stopped = createLineOrder();
+  stopped.lookup(() => later(null, 50), () => 'old');
+  stopped.reset();
+  let next = false;
+  stopped.after(() => (next = true));
+  assert.strictEqual(next, true, 'after a reset nothing waits for the dropped lookup');
+});
+
+// Found in review: a stop (the talk key, Esc, a new message) while the greeting was still being looked
+// up; the greeting (a miss) and the handoff line behind it went to the voice after the stop had
+// cancelled its queue, and the next reply's first sentence waited behind both.
+test('createLineOrder: after a reset, the lines that were waiting are never made', async () => {
+  const { createLineOrder } = await plan();
+  const later = (v, ms) => new Promise((r) => setTimeout(() => r(v), ms));
+  for (const hit of [null, 'kept']) {
+    const order = createLineOrder();
+    const made = [];
+    const make = (name) => () => (made.push(name), name);
+    const greeting = order.lookup(() => later(hit, 5), make('greeting'));
+    const handoff = order.after(make('handoff'));
+    await later(null, 1);
+    order.reset(); // speaker.stop()
+    const reply = order.after(make('reply'));
+    assert.deepStrictEqual(await Promise.all([greeting, handoff, reply]), [hit, null, 'reply'], `${hit ? 'kept' : 'not kept'}: a hit still resolves (the speaker drops it by gen)`);
+    await later(null, 10);
+    assert.deepStrictEqual(made, ['reply'], 'nothing dropped reaches the voice');
+  }
+  // A lookup started after the reset is made as usual, even while the dropped one is still pending.
+  const order = createLineOrder();
+  const made = [];
+  order.lookup(() => later(null, 20), () => made.push('old'));
+  order.reset();
+  await order.lookup(() => later(null, 1), () => (made.push('new'), 'new'));
+  await later(null, 30);
+  assert.deepStrictEqual(made, ['new']);
+});
+
+// The sources as LF text (a Windows checkout has CRLF), for the checks below that slice at line ends.
+const source = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+
+// voice.js needs the window, so the kept lines' wiring is checked in its source.
+test('voice.js: kept lines are read first, kept only when made, and fixed lines chunk the same way', () => {
+  const src = source('renderer/js/voice.js');
+  // One method's text: from its header to the next method (two-space indent) or the end of its block.
+  const method = (start) => {
+    const from = src.indexOf(start);
+    assert.ok(from >= 0, `${start} found`);
+    const rest = src.slice(from + start.length);
+    const end = rest.search(/\n {2}(?:async )?\w+\([^)]*\) \{\n|\n {2}get \w+\(\) \{|\n\}\n/);
+    assert.ok(end >= 0, `${start} ends`);
+    return src.slice(from, from + start.length + end);
+  };
+  const chunk = src.slice(src.indexOf('  chunk(text, override)'), src.indexOf('  release()'));
+  assert.match(chunk, /text\.length >= LONE_CHARS/);
+  assert.doesNotMatch(chunk, />= 110/);
+  const say = method('  say(text, override, { remember = false } = {}) {');
+  assert.match(say, /if \(remember\) \{\s*\n\s*sayChunks\(splitSentences\(speakable\(text\), true\)\)\.forEach\(\(c, i\) => this\.enqueue\(c, override, \{ first: i === 0, remember: true \}\)\);/);
+  const follow = method('  follow(text,');
+  assert.match(follow, /sayChunks\(splitSentences\(speakable\(text\), true\), \{ firstAlone \}\)/);
+  assert.doesNotMatch(follow, /this\.stop\(\)/, 'follow adds to what is being said');
+  const pump = method('  async pump() {');
+  assert.match(pump, /if \(!buf \|\| item\.gen !== this\.gen\) continue;\s*\n\s*if \(item\.skipIf\?\.\(\)\) continue;/);
+  const warm = method('  async warmNext() {');
+  const look = warm.indexOf('getPhrase(');
+  const made = warm.indexOf('synthesize(todo[0], undefined, this.gen, { quiet: true })');
+  assert.ok(look > 0 && look < made, 'the kept line is read before the voice makes one');
+  // Found in review: a message sent while the kept line was looked up got a filler made ahead of its
+  // first sentence (the idle check ran before the lookup only).
+  assert.match(warm.slice(look, made), /if \(!kept && \(!want\.idle\(\) \|\| state\.transcribing \|\| this\.busy \|\| this\.mainVoiceAway\(\)\)\) return void \(this\.warming = false\);/, 'checked again after the lookup');
+  assert.match(warm, /if \(kept\) this\.warmKept\+\+;\s*\n\s*else \{[^}]*keepPhrase\(id, todo\[0\], buf\)/, 'kept again only when made');
+  assert.strictEqual(warm.split('keepPhrase(').length, 2, 'one keepPhrase, in the made branch');
+  const remembered = method('  remembered(text, override, gen) {');
+  assert.match(remembered, /override \|\| practiceVoiceFor\(override\) \? null : voiceIdentity\(state\.settings\)/, 'never for an override or a practice voice');
+  assert.match(remembered, /this\.order\.lookup\(/);
+  assert.match(method('  enqueue(text, override'), /this\.order\.after\(\(\) => this\.synthesize\(text, override, gen\)\)/, 'a line behind a lookup waits for it');
+  assert.match(method('  stop() {'), /this\.order\.reset\(\)/);
+  assert.match(src, /buf\.madeBy = madeByOf\('local', \{ voice: v \}\);/, 'the offline voice says who made its audio');
+  assert.match(src, /buf\.madeBy = madeBy;/, 'VoiceStudio and the cloud voice too');
+  assert.match(src, /const fillerKey = \(text\) => `\$\{JSON\.stringify\(voiceIdentity\(state\.settings\)\)\}\|\$\{text\}`;/, 'the in-memory key holds no API key either');
+  assert.match(method('function logFirstAudio('), /cached: t\.cached \|\| undefined/);
+  assert.match(src, /if \(ttsActive\(\) && v\.filler\) speaker\.loadKept\(allFillers\(\)\);\s*\n\s*if \(!v\?\.ttsEnabled \|\| v\.engine !== 'local'\) return;/, 'kept fillers load at launch, before the model');
+});
+
+// The faces draw fewer frames while the offline voice works: state.voiceWorking must follow every change.
+test('voice.js: every change to the offline voice\'s jobs or load state updates voiceWorking', () => {
+  const src = source('renderer/js/voice.js');
+  const from = src.indexOf('const localVoice = {');
+  const to = src.indexOf('\n};\n', from);
+  assert.ok(from > 0 && to > from);
+  const obj = src.slice(from, to);
+  assert.match(obj, /syncBusy\(\) \{\s*\n\s*state\.voiceWorking = Boolean\(this\.worker\) && \(!this\.loaded \|\| this\.pending\.size > 0\);/);
+  // Each method of the object, split at its two-space-indented header.
+  const methods = obj.split(/\n(?= {2}(?:async )?\w+\([^)]*\) \{\n)/);
+  let checked = 0;
+  for (const m of methods) {
+    for (const change of ['this.pending.set(', 'this.pending.delete(', 'this.pending.clear()', 'this.loaded = true', 'this.worker = new Worker(']) {
+      for (let at = m.indexOf(change); at >= 0; at = m.indexOf(change, at + 1)) {
+        checked++;
+        assert.ok(m.indexOf('this.syncBusy()', at) > at, `${change} in ${m.trim().split('\n')[0]} is followed by this.syncBusy()`);
+      }
+    }
+  }
+  assert.ok(checked >= 7, `found the changes (${checked})`);
+  assert.match(obj, /job\.faceFps = env\.maxFps\(\);/, 'the sentence log has the cap the faces really got');
+  assert.match(obj, /faceFps: job\.faceFps/);
+});
+
+// An unloaded voice (Balanced's idle unload, or Unload in the system monitor on any profile) loads when
+// a reply is coming, never on hands-free noise or the face demo.
+test('voice.js: an unloaded offline voice starts when a message goes out or at a cloud push-to-talk press', () => {
+  const src = source('renderer/js/voice.js');
+  const from = src.indexOf("on('agent-state', (s) => {");
+  const to = src.indexOf('\n});\n', from);
+  assert.ok(from > 0 && to > from);
+  const handler = src.slice(from, to);
+  assert.match(handler, /if \(state\.demo \|\| state\.transcribing \|\| !offlineVoiceSpeaks\(state\.settings\?\.voice, \{ onFallback: speaker\.onFallback \}\)\) return;/);
+  assert.match(handler, /const sent = s === 'thinking' && state\.generating;/);
+  assert.match(handler, /const talking = s === 'listening' && recorder\.active && state\.settings\.stt\?\.engine !== 'local';/, 'never a hands-free onset (no recorder), never with local Whisper');
+  assert.match(handler, /if \(!sent && !talking\) return;\s*\n\s*localVoice\.start\(\);/);
+  assert.match(handler, /if \(sent && localVoice\.worker\) localVoice\.keepFor\(\);/);
+  assert.strictEqual(handler.split('keepFor(').length, 2, 'the idle clock restarts only for a sent message');
+});
+
+// The "Last time we were on …" line holds conversation content: it is never kept.
+test('app.js and chat.js: the greeting is kept, the handoff line never', () => {
+  const app = source('renderer/js/app.js');
+  const start = app.indexOf('function greetOnLaunch()');
+  const end = app.indexOf('\n}\n', start);
+  assert.ok(start > 0 && end > start);
+  const greet = app.slice(start, end);
+  assert.match(greet, /const \{ greeting, handoff \} = launchGreeting\(s, n\);/);
+  assert.match(greet, /speaker\.say\(greeting, undefined, \{ remember: true \}\);/);
+  assert.match(greet, /if \(handoff\) speaker\.follow\(handoff, \{ skipIf: \(\) => typed \|\| performance\.now\(\) - at > HANDOFF_LATE_MS \}\);/);
+  assert.doesNotMatch(greet, /follow\(handoff[^\n]*remember/, 'the handoff line is never kept');
+  assert.doesNotMatch(app, /Last time we were on/, 'phrasecore.js launchGreeting builds it');
+  assert.match(app, /import \{ launchGreeting, HANDOFF_LATE_MS \} from '\.\/phrasecore\.js';/);
+  const chat = fs.readFileSync(path.join(ROOT, 'renderer/js/chat.js'), 'utf8');
+  assert.match(chat, /ttsActive\(\) && speaker\.follow\(greeting, \{ remember: true, firstAlone: true \}\)/, 'a new persona\'s hello after the reply');
+  const personas = fs.readFileSync(path.join(ROOT, 'renderer/js/personas.js'), 'utf8');
+  assert.match(personas, /speaker\.say\(settings\.appearance\.greeting \|\| `Hi, \$\{name\} here\.`, undefined, \{ remember: true \}\)/);
+});

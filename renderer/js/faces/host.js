@@ -10,8 +10,8 @@ import { state, setFlag, alertActive } from '../state.js';
 import { on } from '../util.js';
 import { DEFAULT_THEME } from '../themecore.js';
 import { faceState, samples64, audio, theme, pumpFrame } from './common.js';
-import { configureFaces } from './env.js';
-import { profile } from '../perfcore.js';
+import { configureFaces, env } from './env.js';
+import { profile, faceFpsCap } from '../perfcore.js';
 
 // On the desktop the faces read the app's state (the phone client wires its own, see faces/env.js).
 configureFaces({
@@ -24,6 +24,8 @@ configureFaces({
   demo: () => state.demo,
   onTheme: (fn) => on('theme', fn),
   lite: () => profile(state.settings) === 'balanced',
+  // Fewer frames while the offline voice works (they share the graphics card), and on Balanced.
+  maxFps: () => faceFpsCap({ balanced: profile(state.settings) === 'balanced', voiceWorking: state.voiceWorking }),
 });
 
 export const BUILT_IN = [
@@ -91,6 +93,7 @@ export class FaceHost {
       level: audio().level,
       samples: samples64(),
       env: { name, colors: t.colors, states: t.face.states, alert: state.alert?.message || null },
+      maxFps: env.maxFps(), // core.js holds the face's own frames to it
     };
   }
 
