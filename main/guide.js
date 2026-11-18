@@ -10,8 +10,8 @@ const FEATURES = [
     id: 'talk',
     title: 'Talking with me',
     what: 'Type or talk. Push-to-talk (hold the talk key) or hands-free; I answer in a voice (the offline voice runs right in the app; a cloud voice from Groq or OpenAI needs nothing installed; VoiceStudio is an optional app with more natural, cloneable voices) and my face shows what I am doing (listening, thinking, working, speaking). Speech is recognized on this computer with Whisper by default; Groq in the cloud can stand in while it loads or replace it (Settings → Voice input, free key). Voice calibration teaches me how your names and words come through.',
-    say: ['"Calibrate my voice"', '"Switch to hands-free"', '"Speak slower"', '"Start a new chat"'],
-    where: 'Settings → Voice output and Voice input; the face (Ctrl+2); the chat layouts (Ctrl+Shift+1/2/3); ＋ New chat at the top of the chat (Ctrl+N).',
+    say: ['"Calibrate my voice"', '"Switch to hands-free"', '"Speak slower"', '"Start a new chat"', '"Cancel" (stops a reply that is still being written)'],
+    where: 'Settings → Voice output and Voice input; the face (Ctrl+2); the chat layouts (Ctrl+Shift+1/2/3; in the Face layout the latest reply shows on a card over the face, and “Open in chat” switches to Split); ＋ New chat at the top of the chat (Ctrl+N).',
     status: (s) => `${s.voice.ttsEnabled ? `voice on (${VOICE_NAMES[s.voice.engine] || 'VoiceStudio'})` : 'voice off'}; ${s.stt.enabled ? (s.stt.micMode === 'open' ? 'hands-free' : `push-to-talk (${s.stt.pttKey})`) : 'voice input off'}`,
   },
   {
@@ -25,7 +25,7 @@ const FEATURES = [
   {
     id: 'memory',
     title: 'Memory and your vault',
-    what: 'I remember what matters about you, and keep notes, a daily journal, your priorities and your profile in an Obsidian vault of plain Markdown files you own. Besides facts, I keep a memory stream of small observations (how things went, what helped) and now and then reflect on it to draw a few insights; the most relevant ones come back to me with each message. When the app closes I note where we left off. The vault keeps a version history, and 🌱 Growth in the Vault view plays it: every note appearing in its folder, from the first day to today, with lines between the notes that link to each other. Under every note the Vault view lists which notes link to it and which it links to.',
+    what: 'I remember what matters about you, and keep notes, a daily journal, your priorities and your profile in an Obsidian vault of plain Markdown files you own. Besides facts, I keep a memory stream of small observations (how things went, what helped) and now and then reflect on it to draw a few insights; the most relevant ones come back to me with each message. When the app closes I note where we left off in your latest chat (never a routine\'s run). The vault keeps a version history, and 🌱 Growth in the Vault view plays it: every note appearing in its folder, from the first day to today, with lines between the notes that link to each other. Under every note the Vault view lists which notes link to it and which it links to.',
     say: ['"Remember that I prefer mornings for deep work"', '"What have you learned about how I work?"', '"What are my priorities?"', '"What did we talk about last Tuesday?"'],
     where: 'Memory (Ctrl+3) and Knowledge (Ctrl+5); the vault in Obsidian.',
     status: (s, f) => (f.vault ? `vault at ${f.vault}` : 'no vault yet: choose one in Settings → Vault'),
@@ -57,7 +57,7 @@ const FEATURES = [
   {
     id: 'notes',
     title: 'Your notes',
-    what: 'Write your own notes in the app, like in Obsidian: it saves as you type, [[links]] to other notes, #tags, pins and notebooks (folders). ⚡ Dump (or Ctrl+Shift+N from anywhere) is a blank page for getting everything out of your head: the first line is the title, Ctrl+Enter saves and gives you a fresh page. ✨ Polish tidies a messy note up and links your related notes; you see it before anything changes. They are plain Markdown in the vault, and I find them again when you ask about something you wrote.',
+    what: 'Write your own notes in the app, like in Obsidian: it saves as you type, [[links]] to other notes, #tags, pins and notebooks (folders). ⚡ Dump (or Ctrl+Shift+N from anywhere) is a blank page for getting everything out of your head: the first line is the title, Ctrl+Enter saves and gives you a fresh page. ✨ Polish tidies a messy note up and links your related notes; you see it before anything changes. They are plain Markdown in the vault, and I find them again when you ask about something you wrote. When I name one of your notes in a reply, it is a link that opens it.',
     say: ['"What did I write about PID tuning?"', '✨ Polish on a messy note: tidied up, with links to related notes, shown before anything changes', '"Find my note on the robot arm idea"', '"Summarize this week’s notes"', '"Turn my brain dump from today into a plan"'],
     where: 'Notes (Ctrl+9); Notes/ and Inbox/ in the vault.',
     status: (_s, f) => (f.vault ? `${f.notes} note${f.notes === 1 ? '' : 's'}` : 'needs the vault'),
@@ -73,7 +73,7 @@ const FEATURES = [
   {
     id: 'routines',
     title: 'Routines (things I do on a schedule)',
-    what: 'I run instructions on a schedule while the app is open: a daily briefing, syncing Google Calendar or Todoist, summarizing new Plaud recordings, a daily language text. Each run is its own conversation and you get a notification.',
+    what: 'I run instructions on a schedule while the app is open: a daily briefing, syncing Google Calendar or Todoist, summarizing new Plaud recordings, a daily language text. Each run is its own conversation (marked ⏰ in History) and you get a notification; the app opens on the chat you last wrote in, not a routine\'s that ran after it.',
     say: ['"Every morning at 8, check my Plaud for new recordings"', '"Run my daily briefing now"', '"Which routines do I have?"'],
     where: 'Skills view → Routines.',
     status: (_s, f) => `${f.routines} routine${f.routines === 1 ? '' : 's'}${f.routinesOn !== f.routines ? ` (${f.routinesOn} on)` : ''}`,
@@ -225,7 +225,7 @@ const FEATURES = [
   {
     id: 'keyboard',
     title: 'Keyboard and screen readers',
-    what: 'Everything works from the keyboard: Ctrl+1 to Ctrl+9 open the views, Tab moves through the window with a visible focus ring, the arrow keys move along the rail, and each view has its own keys (the calendar’s arrows, the village’s WASD and zoom, Space to play a replay, Esc to go back a step). Screen readers hear each finished reply once, in full, instead of every streamed word, and the drawn views (the village, the architecture map) list their content in their side panels.',
+    what: 'Everything works from the keyboard: Ctrl+1 to Ctrl+9 open the views, Tab moves through the window with a visible focus ring, the arrow keys move along the rail, and each view has its own keys (the calendar’s arrows, the village’s WASD and zoom, Space to play a replay, Esc to go back a step). In the chat and the face, Esc stops speaking, then a reply still being written; End jumps to the latest message. Screen readers hear each finished reply once, in full, instead of every streamed word, and the drawn views (the village, the architecture map) list their content in their side panels.',
     say: ['"Which keyboard shortcuts do you have?"', '"Can I use you with a screen reader?"'],
     where: 'docs/KEYBOARD.md lists every key per view.',
     status: () => 'always on',
