@@ -46,7 +46,7 @@ public class ConnectionService extends Service {
     private final Set<String> myTurns = new HashSet<>(); // requestIds of turns started on this phone
 
     static void start(Context c) {
-        if (Prefs.token(c) == null || Prefs.server(c) == null) return;
+        if (Prefs.tokenFor(c) == null) return;
         Intent i = new Intent(c, ConnectionService.class);
         if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i);
         else c.startService(i);
@@ -81,7 +81,7 @@ public class ConnectionService extends Service {
         Notification n = statusNotification(getString(R.string.status_connecting));
         if (Build.VERSION.SDK_INT >= 34) startForeground(ID_STATUS, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING);
         else startForeground(ID_STATUS, n);
-        if (!Prefs.background(this) || Prefs.token(this) == null) {
+        if (!Prefs.background(this) || Prefs.tokenFor(this) == null) {
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -108,7 +108,7 @@ public class ConnectionService extends Service {
         long lastConnected = System.currentTimeMillis();
         while (running) {
             String server = Prefs.server(this);
-            String token = Prefs.token(this);
+            String token = Prefs.tokenFor(this);
             if (server == null || token == null) break;
             try {
                 HttpURLConnection c = open(server + "/api/events", token);

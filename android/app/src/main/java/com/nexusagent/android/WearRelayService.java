@@ -83,7 +83,7 @@ public class WearRelayService extends WearableListenerService {
 
     private void handle(String path, String node, JSONObject in) {
         String server = Prefs.server(this);
-        String token = Prefs.token(this);
+        String token = Prefs.tokenFor(this);
         if (server == null || token == null) {
             reply(node, replyPath(path), put(new JSONObject(), "id", in.optString("id")), "unpaired");
             return;
@@ -177,7 +177,7 @@ public class WearRelayService extends WearableListenerService {
         if (now - lastLookRefresh < 5_000) return;
         lastLookRefresh = now;
         String server = Prefs.server(c);
-        String token = Prefs.token(c);
+        String token = Prefs.tokenFor(c);
         if (server == null || token == null) return;
         Context app = c.getApplicationContext();
         new Thread(() -> {

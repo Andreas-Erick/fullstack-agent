@@ -2,7 +2,7 @@
 // Memory, Notes, Inner World, Architecture, Skills & routines, and the "More" menu. The data comes from
 // the computer (main/companiondata.js, /api/data/*): read-only. The page's
 // CSP allows no inline styles, so dynamic values go through CSSOM (style.setProperty).
-let ctx = null; // { api, el, icon, markdown, toast, send, prefill, showView, AuthError, state }
+let ctx = null; // { api, el, icon, markdown, toast, send, prefill, showView, AuthError, state, syncBack }
 
 export function initScreens(c) {
   ctx = c;
@@ -21,6 +21,15 @@ const MORE = [
 
 let renderSeq = 0; // only the latest drawing lands (a quiet refresh must not cover a note opened meanwhile)
 let noteOpen = false; // a note is shown in the panel (openNote) instead of the Notes list
+let backHandler = null; // Android Back on the screen shown: { view, run } (a note → the list, a building → outside)
+export const hasScreenBack = (view) => Boolean(backHandler && backHandler.view === view);
+export function screenBack() {
+  const h = backHandler;
+  backHandler = null;
+  h?.run();
+  ctx.syncBack?.();
+  return Boolean(h);
+}
 
 /**
  * Renders screen `view` into `box`. `quiet`: a refresh because the data changed on the computer
@@ -34,6 +43,7 @@ export async function render(view, box, { quiet = false } = {}) {
     stopWorld();
     stopArch();
     noteOpen = false;
+    backHandler = null;
     box.replaceChildren(el('div', { class: 'panel-loading muted' }, 'Loading…'));
   }
   try {
@@ -234,6 +244,8 @@ async function openNote(path) {
   const box = document.querySelector('#panel');
   renderSeq++; // a refresh of the list still loading must not cover the note
   noteOpen = true;
+  backHandler = { view: 'notes', run: () => ctx.showView('notes') };
+  ctx.syncBack?.();
   box.replaceChildren(el('div', { class: 'panel-loading muted' }, 'Opening…'));
   try {
     const n = await api(`/api/data/note?path=${encodeURIComponent(path)}`);
@@ -509,12 +521,16 @@ async function world() {
     });
     roomRaf = requestAnimationFrame(tickRoom);
     showPlace(info, d, id, nav);
+    backHandler = { view: 'world', run: leave };
+    ctx.syncBack?.();
   };
   const leave = () => {
     if (!data.interior) return;
+    backHandler = null;
     leaveRoom();
     data.interior = null;
     showPlace(info, d, selected, nav);
+    ctx.syncBack?.();
   };
   const leftBuilding = () => {
     if (!data.interior) return false;

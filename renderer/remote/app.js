@@ -1,7 +1,7 @@
 // Phone client for the companion server (main/companion.js, docs/ROADMAP-mobile.md step 2).
 // Talks only to the server it was loaded from. The device token lives in this browser's storage.
-import { initScreens, render as renderScreen, busy as screenBusy, TITLES } from './screens.js';
-import { streamStale, refreshPlan, reconcile, convCheck, batcher } from './sync.js';
+import { initScreens, render as renderScreen, busy as screenBusy, TITLES, screenBack, hasScreenBack } from './screens.js';
+import { streamStale, refreshPlan, reconcile, convCheck, batcher, backPlan, unsentPlan, DEADLINES, transcribeDeadline, retryAction } from './sync.js';
 // Served by the desktop from renderer/js/ (companion.js STATIC), so loaded by URL, not by file.
 let mathtext = null;
 import('./js/mathtext.js').then((m) => (mathtext = m)).catch(() => {});
@@ -16,6 +16,15 @@ const SPEAK_KEY = 'nexus.speak';
 const NAME_KEY = 'nexus.deviceName';
 // Present inside the Android app (android/): background notifications, the Talk tile, the share sheet.
 const android = window.NexusAndroid || null;
+// The Android app's bridge: what changes something takes the key the app hands this page once per load
+// (hello); a custom face's frame never gets it. Older apps have no hello and take no key.
+const keyed = typeof android?.hello === 'function';
+const bridgeKey = keyed ? String(android.hello() || '') : '';
+function bridge(name, ...args) {
+  if (typeof android?.[name] !== 'function') return undefined;
+  if (!keyed) return android[name](...args);
+  return bridgeKey ? android[name](bridgeKey, ...args) : undefined; // no key this load: skipped, never thrown
+}
 
 const store = {
   get: (k) => {
@@ -76,9 +85,11 @@ const icon = (id) => {
 };
 
 // Links in replies open outside the app (a new tab; in the Android app, the browser), never in place
-// of it, and only web and mail links stay clickable.
+// of it, and only web and mail links stay clickable. A [[link]] between notes (screens.js openNote
+// writes it as #note:<name>) stays in the page: a fragment can't run anything.
 window.DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (node.tagName !== 'A') return;
+  if ((node.getAttribute('href') || '').startsWith('#note:')) return;
   if (!/^(https?:|mailto:)/i.test(node.getAttribute('href') || '')) return node.removeAttribute('href');
   node.setAttribute('target', '_blank');
   node.setAttribute('rel', 'noopener noreferrer');
@@ -143,16 +154,31 @@ class AuthError extends Error {}
 // "can't reach your computer" card instead of the browser's "Failed to fetch".
 class NetError extends Error {}
 
-async function api(path, { method = 'GET', body, raw = false } = {}) {
+// fetch with a deadline for the answer's headers (a body being read, /api/speak's audio, is never cut
+// off): past `ms` a NetError, as if the computer were off. 0 = no deadline.
+async function fetchWithin(url, init, ms) {
+  const ctl = new AbortController();
+  const timer = ms ? setTimeout(() => ctl.abort(), ms) : 0;
+  try {
+    return await fetch(url, { ...init, signal: ctl.signal });
+  } catch (err) {
+    if (ctl.signal.aborted) throw new NetError('Your computer isn’t answering right now.');
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function api(path, { method = 'GET', body, raw = false, timeoutMs = 0 } = {}) {
   let res;
   try {
-    res = await fetch(path, {
+    res = await fetchWithin(path, {
       method,
       headers: { Authorization: `Bearer ${state.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
-    });
+    }, timeoutMs);
   } catch (err) {
-    if (err?.name === 'AbortError') throw err;
+    if (err instanceof NetError || err?.name === 'AbortError') throw err;
     throw new NetError('Can’t reach your computer right now.');
   }
   // A tunnel or proxy answering for a computer that is off (Cloudflare's or Tailscale Serve's error page);
@@ -174,6 +200,7 @@ function setConvTitle(t) {
 function show(screen) {
   $('#pair').classList.toggle('hidden', screen !== 'pair');
   $('#main').classList.toggle('hidden', screen !== 'main');
+  syncBack();
 }
 
 // ------------------------------------------------------------------ pairing
@@ -197,11 +224,35 @@ function offerApp(secret) {
 function unpair(message) {
   state.token = null;
   store.set(TOKEN_KEY, null);
-  android?.clearToken();
+  bridge('clearToken');
   state.stream?.abort();
   closeDrawer();
   show('pair');
   if (message) showPairError(message);
+}
+
+// Disconnecting deletes this device's token (the watch stops too): the first tap arms, a second one
+// within 5 s disconnects; a double tap (under 0.4 s) counts once. The note above the button says why
+// (empty until armed, so the live region exists before it speaks).
+const unpairNote = el('p', { class: 'unpair-note', role: 'status' });
+$('#unpairBtn').before(unpairNote);
+let unpairArmedAt = 0;
+let unpairTimer = 0;
+function disarmUnpair() {
+  clearTimeout(unpairTimer);
+  unpairArmedAt = 0;
+  $('#unpairBtn').classList.remove('armed');
+  $('#unpairBtn').textContent = 'Disconnect this device';
+  unpairNote.textContent = '';
+}
+function tapUnpair() {
+  if (unpairArmedAt && Date.now() - unpairArmedAt >= 400) return unpair('Disconnected. To remove this device completely, remove it in the desktop app’s Settings too.');
+  if (unpairArmedAt) return;
+  unpairArmedAt = Date.now();
+  $('#unpairBtn').classList.add('armed');
+  $('#unpairBtn').textContent = 'Tap again to disconnect';
+  unpairNote.textContent = 'You’ll need a new pairing code from the computer; the watch stops too.';
+  unpairTimer = setTimeout(disarmUnpair, 5000);
 }
 
 function showPairError(msg) {
@@ -218,11 +269,11 @@ async function pair(proof) {
   btn.disabled = true;
   btn.textContent = 'Connecting…';
   try {
-    const res = await fetch('/api/pair', {
+    const res = await fetchWithin('/api/pair', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...proof, name: $('#pairName').value.trim() || guessName() }),
-    });
+    }, DEADLINES.pair);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       if (proof.secret && res.status === 403) throw new Error('This QR code has expired or was already used. Click “Pair a device” on the computer again.');
@@ -277,7 +328,13 @@ async function openStream() {
     const ctl = new AbortController();
     state.stream = ctl;
     try {
-      const res = await fetch('/api/events', { headers: { Authorization: `Bearer ${state.token}` }, signal: ctl.signal });
+      // An attempt that never connects (a tunnel holding the request, a half-open network) is given up.
+      state.connecting = true;
+      const giveUp = setTimeout(() => ctl.abort(), DEADLINES.connect);
+      const res = await fetch('/api/events', { headers: { Authorization: `Bearer ${state.token}` }, signal: ctl.signal }).finally(() => {
+        clearTimeout(giveUp);
+        state.connecting = false;
+      });
       if (res.status === 401) return unpair('This device was disconnected from the assistant. Pair it again.');
       if (!res.ok) throw new Error(`Error ${res.status}`);
       state.lastByte = Date.now();
@@ -308,6 +365,10 @@ async function openStream() {
       if (ctl.signal.aborted && !state.token) return;
     }
     setConn(false);
+    if (state.skipWait) {
+      state.skipWait = false;
+      continue; // "Try again now" gave up a hanging attempt: the next one at once
+    }
     // "Try again now" on the offline screen ends the wait early (state.wake).
     state.retryAt = Date.now() + delay;
     await new Promise((r) => {
@@ -350,8 +411,15 @@ setInterval(checkStream, 10000);
 document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && (checkStream(), applyInfo()));
 window.addEventListener('online', () => {
   if (state.connected) state.stream?.abort(); // the old connection belongs to the network that went away
-  else state.wake?.(); // waiting to retry: try at once
+  else retryNow();
 });
+
+// "Try again now", the network back: a hanging attempt is given up for a new one, a wait ends (sync.js retryAction).
+function retryNow() {
+  const a = retryAction({ connected: state.connected, connecting: state.connecting });
+  if (a === 'abort') (state.skipWait = true), state.stream?.abort();
+  else if (a === 'wake') state.wake?.();
+}
 
 // Something the phone shows changed on the computer (a note the agent wrote, the schedule…):
 // the screen on show is drawn again in place, unless the user is busy on it; the schedule's cached weeks
@@ -373,7 +441,7 @@ function onInfoChanged() {
   clearTimeout(infoTimer);
   infoTimer = setTimeout(async () => {
     await applyInfo();
-    android?.lookChanged?.();
+    bridge('lookChanged');
     if (state.view === 'more') showView('more'); // a new app version shows up there
   }, 250);
 }
@@ -412,6 +480,7 @@ function renderOffline() {
     clearInterval(offlineTick);
     offlineTick = null;
     box?.remove();
+    syncBack();
     return;
   }
   if (!box) {
@@ -442,8 +511,8 @@ function renderOffline() {
       el(
         'div',
         { class: 'offline-actions' },
-        el('button', { class: 'btn primary', type: 'button', onclick: () => (state.wake?.(), (state.retryAt = Date.now()), tick()) }, 'Try again now'),
-        android ? el('button', { class: 'btn', type: 'button', onclick: () => android.changeServer() }, 'Change the address') : null,
+        el('button', { class: 'btn primary', type: 'button', onclick: () => (retryNow(), (state.retryAt = Date.now()), tick()) }, 'Try again now'),
+        android ? el('button', { class: 'btn', type: 'button', onclick: () => bridge('changeServer') }, 'Change the address') : null,
         el('button', { class: 'btn ghost', type: 'button', onclick: () => ((state.offlineDismissed = true), renderOffline()) }, 'Continue offline'),
       ),
     ),
@@ -451,6 +520,7 @@ function renderOffline() {
   tick();
   clearInterval(offlineTick);
   offlineTick = setInterval(tick, 1000);
+  syncBack();
 }
 
 // Plain http on another machine: the token and messages cross the network unencrypted.
@@ -745,10 +815,17 @@ const updateEmpty = () => $('#empty').classList.toggle('hidden', $('#messages').
 
 async function send(text) {
   if (!text.trim() || state.active) return;
+  // The user's messages shown so far, without those that never reached the computer: after a reload only
+  // a newer message with these words is this one (keepUnsent, sync.js unsentPlan).
+  const priorUsers = $('#messages').querySelectorAll('.msg.user:not([data-unsent])').length;
   const userNode = addMessage({ role: 'user', content: text });
   const turn = newTurnView(null, true);
   turn.userNode = userNode; // Try again takes both away and sends the same words
   turn.sentText = text;
+  // Only the latest message is kept across a reload (keepUnsent): an older failure would land below newer messages.
+  turn.convId = state.convId || null;
+  turn.priorUsers = priorUsers;
+  state.lastTurn = turn;
   state.active = turn;
   document.body.classList.add('busy');
   state.held = [];
@@ -756,7 +833,7 @@ async function send(text) {
   $('#sendBtn').classList.add('hidden');
   $('#stopBtn').classList.remove('hidden');
   try {
-    const r = await api('/api/chat', { method: 'POST', body: { text, conversationId: state.convId || undefined } });
+    const r = await api('/api/chat', { method: 'POST', body: { text, conversationId: state.convId || undefined }, timeoutMs: DEADLINES.chat });
     turn.requestId = r.requestId;
     state.mine.add(r.requestId);
     // Known now even if the stream's "start" never arrives (the link dropped): a reconnect loads this one.
@@ -766,6 +843,7 @@ async function send(text) {
     }
   } catch (err) {
     turn.requestId = 'failed';
+    userNode.dataset.unsent = ''; // not counted by a later send's priorUsers
     turn.bubble.classList.remove('streaming');
     turn.bubble.classList.add('error');
     turn.bubble.textContent = err instanceof AuthError ? 'Not sent: this device is no longer paired.' : err.message;
@@ -819,6 +897,7 @@ async function loadConversation(id) {
   if (!id) {
     setConvTitle('New conversation');
     if (state.active) $('#messages').append(state.active.wrap); // being sent: its reply view stays
+    keepUnsent(null, []);
     return updateEmpty();
   }
   state.loadingConv = true;
@@ -828,6 +907,7 @@ async function loadConversation(id) {
     setConvTitle(conv.title || 'Conversation');
     for (const m of conv.messages) addMessage(m);
     followRunning(conv.running);
+    keepUnsent(id, conv.messages);
     scrollDown(true);
   } catch (err) {
     if (err instanceof AuthError || seq !== convSeq) return;
@@ -841,6 +921,15 @@ async function loadConversation(id) {
     if (seq === convSeq) state.loadingConv = false;
   }
   updateEmpty();
+}
+
+// The message that never reached the computer stays, with its Try again, in its own conversation.
+function keepUnsent(id, messages) {
+  const t = state.lastFailed;
+  if (!t || t.requestId !== 'failed' || t !== state.lastTurn) return;
+  const plan = unsentPlan(t, id, messages);
+  if (plan === 'drop') state.lastFailed = null;
+  else if (plan === 'show') $('#messages').append(t.userNode, t.wrap);
 }
 
 // Replies still being written in the loaded conversation (the server's `running`): the phone's own
@@ -890,6 +979,7 @@ let convs = [];
 async function openDrawer() {
   $('#drawer').classList.remove('hidden');
   $('#scrim').classList.remove('hidden');
+  syncBack(); // before the list loads: Back closes it meanwhile too
   $('#convSearch').value = '';
   const list = $('#convList');
   list.replaceChildren(el('li', { class: 'muted' }, 'Loading…'));
@@ -925,6 +1015,8 @@ function dayGroup(t) {
 function closeDrawer() {
   $('#drawer').classList.add('hidden');
   $('#scrim').classList.add('hidden');
+  disarmUnpair();
+  syncBack();
 }
 
 $('#convSearch').addEventListener('input', renderConvs);
@@ -933,7 +1025,7 @@ $('#convBtn').addEventListener('click', openDrawer);
 $('#drawerClose').addEventListener('click', closeDrawer);
 $('#scrim').addEventListener('click', closeDrawer);
 $('#newBtn').addEventListener('click', () => openConversation(null));
-$('#unpairBtn').addEventListener('click', () => unpair('Disconnected. To remove this device completely, remove it in the desktop app’s Settings too.'));
+$('#unpairBtn').addEventListener('click', tapUnpair);
 
 // ------------------------------------------------------------------ approvals
 const KIND = { self_modify: 'Change its own code', settings: 'Change a setting', endpoint: 'Change where it connects', permissions: 'Get more access', delete: 'Delete something', command: 'Run a command', calendar: 'Change your calendar', invite: 'Send calendar invitations', voice: 'Change its voice', voice_clone: 'Clone a voice', repo_change: 'Change a repository', github_publish: 'Publish to GitHub', connector: 'Use a connected service', connector_trust: 'Stop asking for a service', browser: 'Act on a website', web_outbound: 'Open a web address' };
@@ -1105,8 +1197,10 @@ async function stopRecording() {
   $('#faceState').textContent = 'TRANSCRIBING';
   try {
     const wav = encodeWav(await to16k(r.chunks, r.rate));
-    const res = await fetch('/api/transcribe', { method: 'POST', headers: { Authorization: `Bearer ${state.token}`, 'Content-Type': 'audio/wav' }, body: wav });
+    const res = await fetchWithin('/api/transcribe', { method: 'POST', headers: { Authorization: `Bearer ${state.token}`, 'Content-Type': 'audio/wav' }, body: wav }, transcribeDeadline(wav.byteLength));
     if (res.status === 401) return unpair('This device was disconnected from the assistant. Pair it again.');
+    // A tunnel's error page for a computer that is off (as api() reads it): not the computer's own JSON.
+    if ([502, 503, 504, 530].includes(res.status) && !/json/i.test(res.headers.get('content-type') || '')) throw new NetError('Your computer isn’t answering right now.');
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
     setFace('idle');
@@ -1301,6 +1395,7 @@ function setFaceFull(on) {
   $('#faceFull').replaceChildren(icon(on ? 'close' : 'expand'));
   if (on) document.documentElement.requestFullscreen?.().catch(() => {});
   else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  syncBack();
 }
 $('#faceFull').addEventListener('click', () => setFaceFull(!document.body.classList.contains('face-full')));
 document.addEventListener('keydown', (e) => e.key === 'Escape' && document.body.classList.contains('face-full') && setFaceFull(false));
@@ -1474,6 +1569,30 @@ function tint(node, id) {
 
 // The tab bar's highlight: More covers every screen that has no tab of its own.
 const TABS = ['chat', 'today', 'notes', 'learn', 'more'];
+
+// Android Back (MainActivity calls nexusBack): the top layer closes first (sync.js backPlan); the app
+// hears whether there is one (backTarget), so Back leaves it from the bare chat.
+function backState() {
+  if ($('#main').classList.contains('hidden')) return {}; // the pairing screen: nothing to close, Back leaves the app
+  return { offline: Boolean($('#offline')), drawerOpen: !$('#drawer').classList.contains('hidden'), faceFull: document.body.classList.contains('face-full'), screenBack: hasScreenBack(state.view), view: state.view, tabs: TABS, wide: document.body.classList.contains('wide') };
+}
+function syncBack() {
+  const open = Boolean(backPlan(backState()));
+  if (open === state.backOpen) return;
+  state.backOpen = open;
+  android?.backTarget?.(open);
+}
+window.nexusBack = () => {
+  const plan = backPlan(backState());
+  if (plan === 'offline') (state.offlineDismissed = true), renderOffline();
+  else if (plan === 'drawer') closeDrawer();
+  else if (plan === 'face') setFaceFull(false);
+  else if (plan === 'screen') screenBack();
+  else if (plan) showView(plan);
+  syncBack();
+  return Boolean(plan);
+};
+
 function showView(v) {
   // Wide (tablet, DeX): the chat is always on screen, so the side shows Today instead of nothing.
   if (v === 'chat' && wide.matches && state.info?.share) v = 'today';
@@ -1502,6 +1621,7 @@ function showView(v) {
     sched.week = weekOf(sched.day);
     renderSchedule();
   }
+  syncBack();
 }
 
 async function weekEvents(week, fresh = false) {
@@ -1633,7 +1753,7 @@ async function moveToSecure() {
   btn.disabled = true;
   try {
     const { url, secret } = await api('/api/move', { method: 'POST', body: {} });
-    if (android?.moveTo) android.moveTo(url, secret);
+    if (android?.moveTo) bridge('moveTo', url, secret);
     else location.assign(`${url}/#move=${secret}`);
   } catch (err) {
     if (!(err instanceof AuthError)) toast(err.message);
@@ -1649,7 +1769,7 @@ async function finishMove(secret) {
   $('#pairBtn').disabled = true;
   $('#pairBtn').textContent = 'Switching…';
   try {
-    const res = await fetch('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ move: secret }) });
+    const res = await fetchWithin('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ move: secret }) }, DEADLINES.pair);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
     state.token = data.token;
@@ -1792,7 +1912,7 @@ async function start() {
   if (state.token) openSplash();
   await applyInfo();
   if (!state.token) return;
-  android?.setToken(state.token, store.get(NAME_KEY) || '');
+  bridge('setToken', state.token, store.get(NAME_KEY) || '');
   loadConversation(state.convId);
   openStream();
 }
@@ -1810,7 +1930,7 @@ if (!window.nexusTalk) window.nexusTalk = () => toast('Push-to-talk needs the se
 if (android) {
   const sw = el('input', { type: 'checkbox', id: 'bgToggle' });
   sw.checked = android.backgroundEnabled();
-  sw.addEventListener('change', () => android.setBackground(sw.checked));
+  sw.addEventListener('change', () => bridge('setBackground', sw.checked));
   window.nexusBackgroundChanged = (on) => {
     sw.checked = on;
     if (!on) toast('Notifications are off. Allow them in Android settings to get approvals while the app is closed.');
@@ -1823,7 +1943,7 @@ if (android) {
   lockSw.addEventListener('change', () => {
     const want = lockSw.checked;
     lockSw.checked = !want; // until the phone confirms it is you
-    android.setLock(want);
+    bridge('setLock', want);
   });
   window.nexusLockChanged = (on) => {
     lockSw.checked = on;
@@ -1832,7 +1952,7 @@ if (android) {
   $('#deviceBox').append(
     el('label', { class: 'switch-row' }, sw, el('span', {}, 'Notify me about approvals and replies while the app is closed')),
     el('label', { class: 'switch-row' }, lockSw, el('span', {}, canLock ? 'Lock Siren with fingerprint, face or screen lock' : 'Lock Siren with fingerprint, face or screen lock (set a screen lock on the phone first)')),
-    el('button', { class: 'btn ghost', onclick: () => android.changeServer() }, 'Change the computer’s address'),
+    el('button', { class: 'btn ghost', onclick: () => bridge('changeServer') }, 'Change the computer’s address'),
   );
 }
 
@@ -1864,7 +1984,7 @@ document.addEventListener('keydown', (e) => {
 
 // The tab bar and the screens beyond the chat (screens.js).
 for (const b of document.querySelectorAll('#tabs button')) b.addEventListener('click', () => (navigator.vibrate?.(6), showView(b.dataset.tab)));
-initScreens({ api, el, icon, markdown, toast, send, prefill, showView, AuthError, NetError, state, agentState });
+initScreens({ api, el, icon, markdown, toast, send, prefill, showView, AuthError, NetError, state, agentState, syncBack });
 
 $('#pairInsecure').classList.toggle('hidden', !insecure);
 // Offline app shell (needs HTTPS or localhost; on the plain local network the browser doesn't allow it).

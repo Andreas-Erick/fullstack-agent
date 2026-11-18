@@ -243,6 +243,9 @@ body.asleep .face-scene.on { opacity: 0.42; }
 .switch-row { display: flex; gap: 10px; align-items: flex-start; padding: 10px 6px; font-size: 14px; color: var(--muted); }
 .switch-row input { width: 20px; height: 20px; accent-color: var(--accent); flex: none; }
 .drawer .btn.ghost { margin-top: 4px; }
+/* Disconnect asks once more: the first tap arms it, the note says what a second one does. */
+#unpairBtn.armed { color: var(--danger); border-color: var(--danger); }
+.unpair-note { margin: 0 6px; font-size: 13px; color: var(--muted); } /* empty (no height) until armed, but in place for screen readers */
 
 .toast {
   position: fixed;
@@ -507,8 +510,9 @@ body:not(.wide):not(.face-full).view-panel .face-wrap, body:not(.wide).view-pane
 .bar i { display: block; height: 100%; width: var(--p); background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 6px; }
 .today-head small { color: var(--muted); }
 .today-head h2 { margin: 2px 0 0; font-size: 24px; font-weight: 600; }
-.today-ev { display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; align-items: center; font-size: 14px; }
+.today-ev { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 14px; }
 .today-ev b { color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 600; }
+.today-ev span { min-width: 0; overflow-wrap: anywhere; } /* a long meeting link wraps instead of pushing the card wide */
 .bar-row { display: grid; grid-template-columns: 1fr 90px; gap: 4px 10px; align-items: center; font-size: 14px; }
 .bar-row small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
 .deck { display: grid; grid-template-columns: 1fr 70px auto; gap: 10px; align-items: center; }
@@ -648,6 +652,10 @@ math[display='block'] { display: block; margin: 0.5em 0; overflow-x: auto; overf
 body.face-full .face-wrap { position: fixed; inset: 0; z-index: 40; height: auto; min-height: 0; display: block !important; background: var(--bg); }
 body.face-full .face-state { bottom: max(24px, env(safe-area-inset-bottom)); font-size: 13px; }
 body.face-full .face-full-btn { top: max(14px, env(safe-area-inset-top)); bottom: auto; right: 14px; width: 44px; height: 44px; }
+/* Approvals and notices stay above the full-screen face (z 40): with the HUD both live in .screen's
+   stacking context, without it in the root one, where the toast's own 10 would be under the face. */
+body.face-full .approvals:not(:empty) { position: fixed; left: 12px; right: 12px; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 45; }
+body.face-full .toast { z-index: 45; }
 
 /* Screens open like the desktop's views (screens.js enter): a beam, then the cards cascade in. */
 .fx-hud .panel.enter { position: relative; }

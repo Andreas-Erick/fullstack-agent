@@ -62,6 +62,7 @@ public class WatchActivity extends Activity {
     private static final int REQ_MIC = 2;
     private static final long REPLY_TIMEOUT_MS = 200_000; // the phone waits up to 180 s for the computer
     private static final long VOICE_TIMEOUT_MS = 60_000;
+    private static final long THINK_ON_MS = 60_000; // the screen stays on while she thinks, at most this long
     private static final int MAX_AUDIO = 12 * 1024 * 1024;
 
     private Link link;
@@ -88,6 +89,11 @@ public class WatchActivity extends Activity {
     private TextToSpeech tts;
     private boolean ttsReady;
     private boolean busy;
+    private boolean thinking; // a question is on its way: the screen stays on (updateKeepOn)
+    private final Runnable thinkingOff = () -> {
+        thinking = false;
+        updateKeepOn();
+    };
     // Listening on this screen (her face stays in view) instead of the system's speech screen.
     private SpeechRecognizer recognizer;
     private boolean listening;
@@ -96,7 +102,11 @@ public class WatchActivity extends Activity {
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
+        // The link and the voice channel live as long as this screen, not only while it is visible: an
+        // answer that arrives with the screen off (timed out, a palm over it, Today open) is still shown.
         link = new Link(this);
+        link.start();
+        Wearable.getChannelClient(getApplicationContext()).registerChannelCallback(voiceChannel);
         Look look = Look.of(this);
         accent = look.accent;
         textColor = look.text;
@@ -157,7 +167,7 @@ public class WatchActivity extends Activity {
             if (r.body != null) {
                 question.setText("");
                 answer.setText(getString(R.string.new_chat_done));
-            }
+            } else answer.setText(problem(r));
         }));
         row.addView(today);
         row.addView(fresh);
@@ -174,10 +184,8 @@ public class WatchActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        link.start();
         scroll.requestFocus();
         Wearable.getDataClient(this).addListener(dataListener);
-        Wearable.getChannelClient(this).registerChannelCallback(voiceChannel);
         // What the watch already has, at once; then ask the phone for anything newer.
         Wearable.getDataClient(this).getDataItems(Uri.parse("wear://*/siren/look")).addOnSuccessListener((items) -> {
             for (DataItem i : items) applyLook(DataMapItem.fromDataItem(i).getDataMap());
@@ -186,14 +194,12 @@ public class WatchActivity extends Activity {
         readFaceItem();
         // Ask the phone for anything newer. The first time, the computer records her face (it usually has
         // it ready); the screen stays on meanwhile, since the watch loads it only while Siren is open.
-        if (!face.hasFace()) {
-            setFaceNote(getString(R.string.face_coming));
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        }
+        if (!face.hasFace()) setFaceNote(getString(R.string.face_coming));
         faceRequested = true;
+        updateKeepOn();
         link.request("/siren/face", "/siren/face", new JSONObject(), 120_000, (r) -> {
             faceRequested = false;
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            updateKeepOn();
             Log.i(TAG, "face request answered: " + (r.body != null ? r.body.toString() : r.problem + " " + r.error));
             if (r.body != null) {
                 readFaceItem(); // in case the change arrived before the listener saw it
@@ -215,6 +221,12 @@ public class WatchActivity extends Activity {
     private void setFaceNote(String s) {
         faceNote.setText(s);
         faceNote.setVisibility(s.isEmpty() ? View.GONE : View.VISIBLE);
+    }
+
+    /** The screen stays on while her face is on its way (the first time) and while she thinks (at most THINK_ON_MS). */
+    private void updateKeepOn() {
+        if ((faceRequested && !face.hasFace()) || thinking) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
     private final DataClient.OnDataChangedListener dataListener = (events) -> {
@@ -276,6 +288,7 @@ public class WatchActivity extends Activity {
                     face.setVisibility(View.VISIBLE);
                     ring.setVisibility(View.INVISIBLE);
                     setFaceNote("");
+                    updateKeepOn();
                 } else {
                     setFaceNote(getString(R.string.face_failed));
                 }
@@ -348,22 +361,14 @@ public class WatchActivity extends Activity {
         }
     }
 
+    // Paused (the screen off, Today or the speech screen in front): a question on its way keeps waiting,
+    // and its answer is shown and spoken when it comes. Only listening here stops.
     @Override
     protected void onPause() {
-        link.stop();
         Wearable.getDataClient(this).removeListener(dataListener);
-        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        Wearable.getChannelClient(this).unregisterChannelCallback(voiceChannel);
-        voiceId = null;
-        stopPlayer();
         if (listening && recognizer != null) {
             recognizer.cancel();
             listening = false;
-            setState("idle");
-            status.setText(idleLabel());
-        }
-        if (busy) {
-            busy = false;
             setState("idle");
             status.setText(idleLabel());
         }
@@ -372,6 +377,9 @@ public class WatchActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        link.stop();
+        Wearable.getChannelClient(getApplicationContext()).unregisterChannelCallback(voiceChannel);
+        main.removeCallbacksAndMessages(null); // the "happy" moment and the keep-on cap
         tts.shutdown();
         stopPlayer();
         if (recognizer != null) recognizer.destroy();
@@ -520,6 +528,10 @@ public class WatchActivity extends Activity {
 
     private void send(String text) {
         busy = true;
+        thinking = true;
+        main.removeCallbacks(thinkingOff);
+        main.postDelayed(thinkingOff, THINK_ON_MS);
+        updateKeepOn();
         question.setText("“" + text + "”");
         answer.setText("");
         setState("thinking");
@@ -532,6 +544,9 @@ public class WatchActivity extends Activity {
         }
         link.request("/siren/ask", "/siren/reply", body, REPLY_TIMEOUT_MS, (r) -> {
             busy = false;
+            thinking = false;
+            main.removeCallbacks(thinkingOff);
+            updateKeepOn();
             if (r.body == null) {
                 setState("idle");
                 status.setText(getString(R.string.tap_to_ask));
@@ -675,8 +690,8 @@ public class WatchActivity extends Activity {
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         buttons.add(b);
         styleButton(b);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams((int) (getResources().getDisplayMetrics().widthPixels * 0.5f), dp(40));
-        lp.setMargins(0, dp(4), 0, 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams((int) (getResources().getDisplayMetrics().widthPixels * 0.5f), dp(48)); // a 48 dp touch target
+        lp.setMargins(0, dp(6), 0, 0);
         b.setLayoutParams(lp);
         b.setMinWidth(0);
         b.setPadding(dp(12), 0, dp(12), 0);
@@ -686,7 +701,7 @@ public class WatchActivity extends Activity {
     private void styleButton(Button b) {
         b.setTextColor(textColor);
         android.graphics.drawable.GradientDrawable pill = new android.graphics.drawable.GradientDrawable();
-        pill.setCornerRadius(dp(20));
+        pill.setCornerRadius(dp(24));
         pill.setColor(Color.argb(46, Color.red(accent), Color.green(accent), Color.blue(accent)));
         b.setBackground(pill);
     }

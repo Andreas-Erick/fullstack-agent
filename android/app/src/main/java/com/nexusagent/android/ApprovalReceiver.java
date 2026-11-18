@@ -34,7 +34,7 @@ public class ApprovalReceiver extends BroadcastReceiver {
         new Thread(() -> {
             try {
                 String server = Prefs.server(app);
-                String token = Prefs.token(app);
+                String token = Prefs.tokenFor(app);
                 if (server == null || token == null) return;
                 HttpURLConnection c = ConnectionService.open(server + "/api/approvals/" + id, token);
                 c.setRequestMethod("POST");

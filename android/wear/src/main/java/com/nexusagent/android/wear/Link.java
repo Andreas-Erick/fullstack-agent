@@ -21,6 +21,8 @@ import java.util.function.Consumer;
  * The watch's line to the Siren phone app (its WearRelayService): find the phone that has the
  * "siren_relay" capability, send a request, and get the answer back on the main thread. Each request
  * waits for one answer on its reply path; a request without an answer in time fails with "timeout".
+ * WatchActivity keeps one from onCreate to onDestroy, so an answer that arrives while the screen is off
+ * still lands.
  */
 final class Link {
     static final String CAPABILITY = "siren_relay";
@@ -70,35 +72,36 @@ final class Link {
     void stop() {
         Wearable.getMessageClient(context).removeListener(listener);
         waiting.clear();
+        main.removeCallbacksAndMessages(null); // this Link's own timers and answers on their way
     }
 
     /**
      * Sends {@code body} to {@code path} and calls {@code onResult} once with the answer on
-     * {@code replyPath} (matched by the body's "id", if it has one).
+     * {@code replyPath} (matched by the body's "id", if it has one). A newer request under the same key
+     * replaces this one: its timer or failure then ends nothing.
      */
     void request(String path, String replyPath, JSONObject body, long timeoutMs, Consumer<Result> onResult) {
         String key = replyPath + "#" + body.optString("id");
         waiting.put(key, onResult);
         main.postDelayed(() -> {
-            Consumer<Result> cb = waiting.remove(key);
-            if (cb != null) cb.accept(new Result(null, "timeout", null));
+            if (waiting.remove(key, onResult)) onResult.accept(new Result(null, "timeout", null));
         }, timeoutMs);
         Wearable.getCapabilityClient(context).getCapability(CAPABILITY, CapabilityClient.FILTER_REACHABLE)
                 .addOnSuccessListener((CapabilityInfo info) -> {
                     Node phone = pick(info);
                     if (phone == null) {
-                        fail(key, info.getNodes().isEmpty() ? "no_relay" : "no_phone");
+                        fail(key, onResult, info.getNodes().isEmpty() ? "no_relay" : "no_phone");
                         return;
                     }
                     Wearable.getMessageClient(context).sendMessage(phone.getId(), path, body.toString().getBytes(StandardCharsets.UTF_8))
-                            .addOnFailureListener((e) -> fail(key, "no_phone"));
+                            .addOnFailureListener((e) -> fail(key, onResult, "no_phone"));
                 })
-                .addOnFailureListener((e) -> fail(key, "no_phone"));
+                .addOnFailureListener((e) -> fail(key, onResult, "no_phone"));
     }
 
-    private void fail(String key, String problem) {
-        Consumer<Result> cb = waiting.remove(key);
-        if (cb != null) main.post(() -> cb.accept(new Result(null, problem, null)));
+    /** Ends request {@code cb} with {@code problem}, if it is still the one waiting under {@code key}. */
+    private void fail(String key, Consumer<Result> cb, String problem) {
+        if (waiting.remove(key, cb)) main.post(() -> cb.accept(new Result(null, problem, null)));
     }
 
     /** The nearby phone with the relay (Bluetooth first), else any reachable one. */

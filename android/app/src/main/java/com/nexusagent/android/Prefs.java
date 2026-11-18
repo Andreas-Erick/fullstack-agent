@@ -17,7 +17,9 @@ import javax.crypto.spec.GCMParameterSpec;
 
 /**
  * App settings. The device token is encrypted with a key that lives in the Android Keystore and
- * never leaves the phone; backups are off (allowBackup=false), so it is never copied elsewhere.
+ * never leaves the phone, and it is sent only to the computer that issued it (tokenFor). Cloud backups
+ * and transfers to a new phone carry none of the app's data (allowBackup=false, dataExtractionRules).
+ * The page also keeps a copy of the token in the WebView's storage, until a later version moves it.
  */
 final class Prefs {
     private static final String FILE = "nexus";
@@ -111,10 +113,20 @@ final class Prefs {
         }
     }
 
+    /** The token, only for the computer it was issued for; a token from before 2.7.25 adopts the current address once. */
+    static String tokenFor(Context c) {
+        String server = server(c);
+        if (server == null) return null;
+        String bound = sp(c).getString("tokenOrigin", null);
+        if (bound == null && sp(c).contains("token")) sp(c).edit().putString("tokenOrigin", bound = server).apply();
+        return server.equals(bound) ? token(c) : null;
+    }
+
+    /** Stores the token for the computer at the current address (tokenFor); null forgets it. */
     static void setToken(Context c, String token, String deviceName) {
         SharedPreferences.Editor e = sp(c).edit();
         if (token == null || token.isEmpty()) {
-            e.remove("token").remove("deviceName").apply();
+            e.remove("token").remove("tokenOrigin").remove("deviceName").apply();
             return;
         }
         try {
@@ -122,9 +134,9 @@ final class Prefs {
             cipher.init(Cipher.ENCRYPT_MODE, key());
             String enc = Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP) + ":"
                     + Base64.encodeToString(cipher.doFinal(token.getBytes(StandardCharsets.UTF_8)), Base64.NO_WRAP);
-            e.putString("token", enc).putString("deviceName", deviceName == null ? "" : deviceName).apply();
+            e.putString("token", enc).putString("tokenOrigin", server(c)).putString("deviceName", deviceName == null ? "" : deviceName).apply();
         } catch (Exception ex) {
-            e.remove("token").apply();
+            e.remove("token").remove("tokenOrigin").apply();
         }
     }
 
