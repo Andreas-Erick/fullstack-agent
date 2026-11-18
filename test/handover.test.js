@@ -24,7 +24,7 @@ test('what goes straight to Claude: code, a connected service by name, a long te
 });
 
 // ---- the real path, with a fake local server (fetch) and a fake Claude
-const calls = { claude: 0, local: 0 };
+const calls = { claude: 0, local: 0, status: 0 };
 let localReplies = [];
 const sse = (chunks) => {
   const body = chunks.map((c) => `data: ${JSON.stringify({ model: 'qwen3:8b', choices: [{ delta: c, finish_reason: null }] })}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -41,6 +41,7 @@ const toolbox = require('../main/tools/toolbox');
 const memorySave = { name: 'memory_save', group: 'memory', description: 'save', parameters: { type: 'object', properties: {} }, run: async () => ({ saved: true }) };
 const memorySearch = { name: 'memory_search', group: 'memory', description: 'search', parameters: { type: 'object', properties: {} }, run: async () => ({ results: [{ text: 'Project Atlas is due on 20 November' }] }) };
 let claudeReady = true;
+const PROVIDERS = { 'claude-code': { name: 'Claude (account)' }, anthropic: { name: 'Claude (API key)' }, local: { openai: true } };
 stub({
   './logger': quietLog,
   './tools': {
@@ -63,9 +64,11 @@ stub({
   './documents': { userFolders: () => [] },
   './approvals': { newTurn: () => ({ approved: new Set(), taintSources: [] }), markTainted() {} },
   './router': {
-    PROVIDERS: { 'claude-code': { name: 'Claude (account)' }, anthropic: { name: 'Claude (API key)' }, local: { openai: true } },
-    status: async () => [{ id: 'claude-code', configured: claudeReady, resting: null }],
-    concrete: (s, id) => ({ ...s, llm: { ...s.llm, provider: id, via: id } }),
+    PROVIDERS,
+    // Each call checks the Claude sign-in (it starts the CLI): counted.
+    status: async () => (calls.status++, [{ id: 'claude-code', configured: claudeReady, resting: null }]),
+    // As the real one: a provider on the OpenAI path (local, gemini…) runs as 'openai', the rest as themselves.
+    concrete: (s, id) => ({ ...s, llm: { ...s.llm, provider: PROVIDERS[id]?.openai ? 'openai' : id, via: id } }),
     label: (id) => ({ 'claude-code': 'Claude (account)' })[id] || id,
   },
 });
@@ -83,13 +86,18 @@ const settings = (handOver = true) => ({
   claudeCode: { model: 'default', effort: 'default', connectors: true },
   anthropic: {},
 });
+const brain = (provider, handOver = true) => {
+  const s = settings(handOver);
+  s.llm.provider = provider;
+  return s;
+};
 async function turn(text, s = settings(), { routine = false } = {}) {
   const events = [];
   const conv = { id: 'c1', messages: [{ role: 'user', content: text }] };
   const r = await llm.runTurn({ settings: s, conv, history: conv.messages, emit: (e) => events.push(e), signal: new AbortController().signal, images: [], routine });
   return { r, events };
 }
-const reset = () => Object.assign(calls, { claude: 0, local: 0, lastTools: [], contextTokens: 0, rolled: [], prewarmed: [], warmed: [] });
+const reset = () => Object.assign(calls, { claude: 0, local: 0, status: 0, lastTools: [], contextTokens: 0, rolled: [], prewarmed: [], warmed: [] });
 const callTool = (name, args) => [{ content: 'Let me see… ' }, { tool_calls: [{ index: 0, id: 't1', function: { name, arguments: JSON.stringify(args) } }] }];
 
 test('the local model hands a hard message over: its text is taken back, Claude answers', async () => {
@@ -180,6 +188,52 @@ test('a routine for a connected service runs on Claude even with the hand-over o
   localReplies = [[{ content: 'Answered locally.' }]];
   t = await turn('⏰ Routine "Evening review": fix the errors in today’s note', settings(true), { routine: true });
   assert.strictEqual(calls.claude, 0, 'a routine’s own words are not code work');
+});
+
+// A Claude brain with an old local address left in llm.baseUrl counted as local: every message first
+// checked the Claude sign-in (~300 ms), and the log had 22 "handed over" lines, each a false "Handed to
+// Claude" notice while Claude itself was answering (most of them routine runs).
+test('a Claude brain is never a local one, whatever address is left in the settings', async () => {
+  reset();
+  let t = await turn('what is on my ticktick today?', brain('claude-code'));
+  assert.strictEqual(t.r.text, 'From Claude');
+  assert.strictEqual(calls.status, 0, 'no sign-in check before the message');
+  assert.ok(!t.events.some((e) => e.type === 'notice'), 'no "Handed to Claude"');
+
+  reset();
+  t = await turn('what is on my ticktick today?', brain('claude-code', false), { routine: true });
+  assert.strictEqual(t.r.text, 'From Claude');
+  assert.strictEqual(calls.status, 0);
+  assert.ok(!t.events.some((e) => e.type === 'notice'), 'a routine on Claude is not "handed" to Claude');
+
+  // The router's local model runs on the OpenAI path (provider 'openai', via 'local'): it still hands over.
+  reset();
+  t = await turn('what is on my ticktick today?', brain('local'));
+  assert.strictEqual(calls.local, 0);
+  assert.strictEqual(t.r.provider, 'claude-code');
+  assert.match(t.events.find((e) => e.type === 'notice').message, /Handed to Claude \(account\): it needs TickTick/);
+});
+
+test('a routine’s conversation is never warmed ahead; an ordinary one is', async () => {
+  reset();
+  const s = brain('claude-code', false);
+  const ran = (marker) => ({ id: 'r1', messages: [{ role: 'user', content: '⏰ Routine "Sync TickTick": go', ...marker }, { role: 'assistant', content: 'Synced.' }, { role: 'user', content: 'nudge', hidden: true }] });
+  await llm.prewarm(s, ran({ routine: 'r1' }));
+  await llm.prewarm(s, ran({ auto: true }));
+  assert.deepStrictEqual(calls.prewarmed, [], 'no process started');
+  assert.deepStrictEqual(calls.warmed, [], 'no hidden message spent on the plan');
+
+  // A routine run that outgrew its session closes it, without warming the next one.
+  calls.contextTokens = 370000;
+  await turn('⏰ Routine "Evening review": sum up today', s, { routine: true });
+  assert.deepStrictEqual(calls.rolled, [['c1', 370000]]);
+  assert.deepStrictEqual(calls.prewarmed, []);
+
+  // The user's own conversation (also a routine's, once they wrote in it) is.
+  const own = { id: 'c2', messages: [...ran({ routine: 'r1' }).messages, { role: 'user', content: 'thanks, and what about tomorrow?' }, { role: 'assistant', content: 'Free.' }] };
+  await llm.prewarm(s, own);
+  assert.deepStrictEqual(calls.prewarmed.map((c) => c.id), ['c2']);
+  assert.deepStrictEqual(calls.warmed.map((w) => w.id), ['c2']);
 });
 
 test('the persona that wrote the last reply reaches the prompt (a switch is named)', async () => {

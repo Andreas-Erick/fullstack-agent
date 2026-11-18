@@ -400,6 +400,8 @@ async function deleteNote(ref) {
 }
 
 async function afterChange(root, rel, message, { deleted = false } = {}) {
+  statusMemo = null; // status() counts the notes again
+  vaultChanges++;
   const top = rel.split('/')[0];
   // The folder's list changes only when a note is added or removed: editing one of a thousand daily
   // notes doesn't walk the folder again.
@@ -579,12 +581,25 @@ async function search(query, limit = 10) {
   return results.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, limit);
 }
 
+// The status lights ask every few minutes, and walking a big vault for its count each time is wasted
+// work: the count is kept for STATUS_MS or until a note changes here (afterChange). Another vault path
+// misses it; a note added in Obsidian itself shows within STATUS_MS.
+const STATUS_MS = 5 * 60000;
+let statusMemo = null; // { root, at, count, registered }
+let vaultChanges = 0; // afterChange calls: a walk that overlapped one is not kept
+
 async function status() {
   const s = await store.getSettings();
   const root = await vaultPath();
   if (!root) return { enabled: s.obsidian.enabled, ok: false, count: 0, own: !s.obsidian.vaultPath };
-  const files = await walk(root, { exts: ['.md'], ignore: IGNORE });
-  return { enabled: true, ok: true, path: root, count: files.length, own: !s.obsidian.vaultPath, registered: await isRegistered(root) };
+  let m = statusMemo;
+  if (!m || m.root !== root || Date.now() - m.at > STATUS_MS) {
+    const seen = vaultChanges;
+    const files = await walk(root, { exts: ['.md'], ignore: IGNORE });
+    m = { root, at: Date.now(), count: files.length, registered: await isRegistered(root) };
+    if (seen === vaultChanges) statusMemo = m;
+  }
+  return { enabled: true, ok: true, path: root, count: m.count, own: !s.obsidian.vaultPath, registered: m.registered };
 }
 
 // Startup context: what the agent "reads at the start of a session" (loaded on demand, not the whole vault).
@@ -655,6 +670,7 @@ async function registerVault() {
   json.vaults[require('crypto').randomBytes(8).toString('hex')] = { path: root, ts: Date.now() };
   await store.writeTextAtomic(file, JSON.stringify(json));
   log.info('vault registered in obsidian.json', root);
+  statusMemo = null; // status() reports it registered at once
   return { registered: true };
 }
 

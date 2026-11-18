@@ -133,7 +133,42 @@ async function cachedConnectors({ maxAgeMs = 24 * 3600000 } = {}) {
 }
 
 // --------------------------------------------------------------- account
-async function status() {
+// The sign-in check starts the CLI, so its answer is cached: the title bar and multi-provider mode ask
+// often. Settings' check, the wizard, setup, diagnose and testConnection ask { fresh: true }; an auth
+// error in a turn and openLogin clear it.
+const STATUS_TTL_MS = 10 * 60000; // signed in
+const STATUS_RETRY_MS = 30000; // not installed or signed out: signing in shows quickly
+const VERSION_TTL_MS = 24 * 3600000;
+let statusCache = null; // { value, at }
+let statusInflight = null; // { gen, promise }: one probe at a time
+let statusGen = 0; // bumped by invalidateStatus, so a probe that started before it is not cached
+const AUTH_ERROR = /log ?in|auth|credential/i; // a turn failed on the sign-in ("Please run /login")
+
+async function status({ fresh = false, probe = probeStatus } = {}) {
+  const c = statusCache;
+  const ttl = c?.value.loggedIn ? STATUS_TTL_MS : STATUS_RETRY_MS;
+  if (!fresh && !statusInflight && c && Date.now() - c.at < ttl) return { ...c.value };
+  if (!statusInflight || statusInflight.gen !== statusGen) {
+    const gen = statusGen;
+    const promise = probe()
+      .then((value) => {
+        if (gen === statusGen) statusCache = { value, at: Date.now() };
+        return value;
+      })
+      .finally(() => {
+        if (statusInflight?.promise === promise) statusInflight = null;
+      });
+    statusInflight = { gen, promise };
+  }
+  return { ...(await statusInflight.promise) };
+}
+
+function invalidateStatus() {
+  statusCache = null;
+  statusGen++;
+}
+
+async function probeStatus() {
   const cli = await findCli();
   if (!cli) return { installed: false };
   const r = await collect(cli, ['auth', 'status', '--json'], { timeout: 20000 }).catch((e) => ({ err: e.message, out: '' }));
@@ -143,11 +178,10 @@ async function status() {
   } catch {
     /* not JSON */
   }
-  const ver = await collect(cli, ['--version'], { timeout: 15000 }).catch(() => ({ out: '' }));
   return {
     installed: true,
     cli,
-    version: ver.out.trim(),
+    version: await cliVersion(cli),
     loggedIn: Boolean(auth.loggedIn),
     authMethod: auth.authMethod || null,
     email: auth.email || null,
@@ -156,8 +190,26 @@ async function status() {
   };
 }
 
+// The version changes only when the CLI does: kept per path and modification time (a day at most).
+let versionCache = null; // { key, version, at }
+async function cliVersion(cli) {
+  let mtime = null;
+  try {
+    mtime = fs.statSync(cli).mtimeMs;
+  } catch {
+    /* can't tell whether it changed: keep what this path gave */
+  }
+  const c = versionCache;
+  if (c && (mtime === null ? c.key.startsWith(`${cli}|`) : c.key === `${cli}|${mtime}` && Date.now() - c.at < VERSION_TTL_MS)) return c.version;
+  const ver = await collect(cli, ['--version'], { timeout: 15000 }).catch(() => ({ out: '' }));
+  const version = ver.out.trim();
+  if (version) versionCache = { key: `${cli}|${mtime}`, version, at: Date.now() };
+  return version;
+}
+
 // Opens a terminal window running `claude auth login` (browser-based sign-in to the Claude account).
 async function openLogin(action = 'login') {
+  invalidateStatus(); // the next check sees the new sign-in (or sign-out)
   const cli = await findCli();
   if (!cli) throw new Error('Claude Code is not installed.');
   const env = cliEnv();
@@ -394,7 +446,9 @@ class Session {
     if (this.turn && !this.turn.settled) {
       const detail = err?.message || this.stderr.trim() || `Claude Code exited (code ${code})`;
       log.error('claude session exited mid-turn', { conversation: this.convId, code, detail: detail.slice(0, 500) });
-      this.turn.reject(new Error(/log ?in|auth|credential/i.test(detail) ? `${detail}\nConnect your Claude account in Settings → AI brain.` : detail));
+      const auth = AUTH_ERROR.test(detail);
+      if (auth) invalidateStatus(); // the title bar and multi-provider mode check the sign-in again
+      this.turn.reject(new Error(auth ? `${detail}\nConnect your Claude account in Settings → AI brain.` : detail));
     } else if (!wasDead && code) log.warn('claude session exited', { conversation: this.convId, code, stderr: this.stderr.slice(-300) });
   }
 
@@ -610,7 +664,9 @@ class Session {
       const limitHit = /usage limit reached/i.test(String(msg.result || '')) && t.text.trim().length < 200;
       if ((msg.is_error && !t.text) || limitHit) {
         if (limitHit && t.text) t.emit({ type: 'retract', chars: t.text.length });
-        t.reject(new Error(String(msg.result || msg.errors?.join('; ') || 'Claude Code error')));
+        const why = String(msg.result || msg.errors?.join('; ') || 'Claude Code error');
+        if (AUTH_ERROR.test(why)) invalidateStatus();
+        t.reject(new Error(why));
         return;
       }
       // Where the time went: the CLI's own overhead vs. waiting for the model (finding slow turns).
@@ -1080,4 +1136,4 @@ async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, warmCache, startFresh, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };
+module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, invalidateStatus, STATUS_TTL_MS, STATUS_RETRY_MS, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, warmCache, startFresh, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };

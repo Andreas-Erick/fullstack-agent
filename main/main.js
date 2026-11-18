@@ -583,7 +583,7 @@ function registerIpc() {
   });
 
   // Claude account (Claude Code CLI)
-  handle('claude:status', () => claudecode.status());
+  handle('claude:status', (opts) => claudecode.status({ fresh: Boolean(opts?.fresh) }));
   handle('claude:login', () => claudecode.openLogin('login'));
   handle('claude:logout', () => claudecode.openLogin('logout'));
   handle('claude:installHint', () => claudecode.installHint());

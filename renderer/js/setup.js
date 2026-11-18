@@ -206,7 +206,7 @@ async function bootstrapBrain() {
   }
 
   for (;;) {
-    const st = await api.claude.status().catch(() => ({ installed: false }));
+    const st = await api.claude.status({ fresh: true }).catch(() => ({ installed: false }));
     let choice;
     if (st.loggedIn) {
       choice = await ask(`I found your **Claude account** (${st.email || 'signed in'}${st.subscription ? `, ${st.subscription} plan` : ''}) through Claude Code. Shall I use it as my brain?`, {

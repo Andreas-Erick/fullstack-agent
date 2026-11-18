@@ -32,6 +32,12 @@ for (const f of modules) {
   });
 }
 
+// The Anthropic SDK takes ~125 ms to load, and only the anthropic brain uses it (llm.js requires it then).
+test('no module loads the Anthropic SDK at start', () => {
+  const sdk = `${path.sep}@anthropic-ai${path.sep}sdk${path.sep}`;
+  assert.deepStrictEqual(Object.keys(require.cache).filter((k) => k.includes(sdk)), []);
+});
+
 test('every agent tool is well-formed', () => {
   const { TOOLS } = load('main/tools.js');
   const names = new Set();

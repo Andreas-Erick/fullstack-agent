@@ -180,8 +180,13 @@ async function boot() {
     state.settings = { ...state.settings, claudeCode: { ...state.settings.claudeCode, ...lists } };
     emit('settings', state.settings);
   });
-  setInterval(refreshStatus, 60000);
-  window.addEventListener('focus', refreshStatus);
+  // Every 5 minutes, and on coming back to the window: at most every 5 minutes, every 15 s while a
+  // light shows a problem (signing in elsewhere shows quickly). The checks start programs and walk the vault.
+  setInterval(refreshStatus, STATUS_EVERY_MS);
+  window.addEventListener('focus', () => {
+    const troubled = ['#pillLlm', '#pillVoice', '#pillCal', '#pillKb'].some((id) => /\b(err|warn)\b/.test($(id).className));
+    if (Date.now() - lastStatusAt > (troubled ? 15000 : STATUS_EVERY_MS)) refreshStatus();
+  });
 
   // Check what this computer can take (once, then every 30 days), then warm up the local speech model
   // for someone who used voice input this week (perfcore.js preloadSpeech); everyone else loads it
@@ -430,7 +435,11 @@ function setPill(id, cls, title) {
 // Brains that answer on their own with their settings in their own section (main/braincore.js).
 const SINGLE = { local: 'Local model', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', perplexity: 'Perplexity' };
 
+const STATUS_EVERY_MS = 5 * 60000;
+let lastStatusAt = 0;
+
 async function refreshStatus() {
+  lastStatusAt = Date.now();
   const s = state.settings;
   // Brain
   if (s.llm.provider === 'auto') {
