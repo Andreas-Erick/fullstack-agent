@@ -396,11 +396,13 @@ async function deleteNote(ref) {
   const { root, full } = await resolveNote(ref);
   const trash = path.join(root, '.trash');
   await fsp.mkdir(trash, { recursive: true });
-  await fsp.rename(full, path.join(trash, `${Date.now()}-${path.basename(full)}`));
+  const trashed = path.join(trash, `${Date.now()}-${path.basename(full)}`);
+  await fsp.rename(full, trashed);
   contentCache.delete(full);
   const rel = toPosix(path.relative(root, full));
   await afterChange(root, rel, `delete ${rel}`, { deleted: true });
-  return { deleted: rel, movedTo: '.trash' };
+  // trashed: where it went, for an Undo (notebook.restore).
+  return { deleted: rel, movedTo: '.trash', trashed: toPosix(path.relative(root, trashed)) };
 }
 
 async function afterChange(root, rel, message, { deleted = false } = {}) {

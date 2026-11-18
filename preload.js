@@ -21,7 +21,7 @@ const channels = {
   skills: ['list', 'save', 'delete', 'openFolder', 'scan', 'import'],
   pdf: ['fromMarkdown', 'fromNote', 'fromConversation'],
   notes: ['quick'],
-  notebook: ['list', 'read', 'create', 'save', 'remove', 'pin', 'polish'],
+  notebook: ['list', 'read', 'create', 'save', 'remove', 'restore', 'pin', 'polish'],
   hardware: ['scan'],
   chat: ['send', 'abort', 'endSession', 'redoCheck', 'redo', 'attach'],
   approval: ['respond'],

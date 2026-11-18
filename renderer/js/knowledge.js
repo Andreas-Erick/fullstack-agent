@@ -6,6 +6,17 @@ import { openDocument } from './docs.js';
 
 let notes = [];
 let selected = null;
+let editing = null; // the open editor: { path, read (the note's text as opened), original (what the box held), ta }
+const dirty = () => Boolean(editing?.ta.isConnected) && editing.ta.value !== editing.original;
+
+/**
+ * Before the note pane is replaced: true when nothing is unsaved, or the user chose to discard it. It leaves
+ * `editing` alone: replacing the pane disconnects the editor, and when nothing replaces it (New note
+ * cancelled, a note that can't be read) the editor stays as it was, its Save working and its text guarded.
+ */
+async function leaveEditor() {
+  return !dirty() || Boolean(await confirmDialog('Discard your changes?', `Your edits to ${editing.path} aren’t saved.`, 'Discard'));
+}
 
 export function initKnowledge() {
   $('#kbSearch').addEventListener('input', debounce(search, 250));
@@ -22,10 +33,15 @@ export function initKnowledge() {
   $('#kbObsidian').onclick = () => api.obsidian.openInObsidian(selected || null).catch(toastError);
   $('#kbGrowth').onclick = () => import('./growth.js').then((m) => m.openGrowth()).catch(toastError);
   $('#kbFolder').onclick = () => api.obsidian.openFolder().catch(toastError);
-  // The agent wrote to its vault: refresh if the user is looking at it.
+  // The agent wrote to its vault: refresh if the user is looking at it. An open editor is never replaced
+  // under the user; when it is this note that changed, they hear about it.
   on('vault-changed', (p) => {
     if (currentView !== 'knowledge') return;
     refresh();
+    if (editing?.ta.isConnected) {
+      if (dirty() && editing.path === p) toast('This note changed elsewhere. Save to keep your version (you’ll be asked first), or Cancel to load the new one.');
+      return;
+    }
     if (p && p === selected) openNote(p);
   });
 }
@@ -50,7 +66,7 @@ export async function refresh() {
   }
   notes = await api.obsidian.list().catch((e) => (toastError(e), []));
   if (!$('#kbSearch').value.trim()) renderList(notes);
-  if (!selected) $('#kbNote').replaceChildren(el('p', { class: 'muted' }, `${notes.length} notes in `, el('code', {}, st.path), '. Select a note to read or edit it — the agent writes here too.'));
+  if (!selected && !editing?.ta.isConnected) $('#kbNote').replaceChildren(el('p', { class: 'muted' }, `${notes.length} notes in `, el('code', {}, st.path), '. Select a note to read or edit it — the agent writes here too.'));
 }
 
 /** Opens a vault note (path or name) in this view, e.g. from a [[link]] in the chat. */
@@ -94,6 +110,7 @@ function renderList(items) {
 }
 
 async function openNote(ref) {
+  if (!(await leaveEditor())) return;
   try {
     const n = await api.obsidian.read(ref);
     selected = n.path;
@@ -148,16 +165,34 @@ function editNote(n) {
   const box = $('#kbNote');
   const ta = el('textarea', { class: 'input' });
   ta.value = n.content;
+  // What the box holds, read back: a textarea turns \r\n into \n, so a CRLF note isn't "edited" untouched.
+  const mine = { path: n.path, read: n.content, original: ta.value, ta };
+  editing = mine;
+  selected = n.path; // a refresh meanwhile (New note) leaves the pane alone
+  const saveBtn = el('button', { class: 'btn small primary' }, 'Save');
+  let saving = false; // Ctrl+S pressed again while a save runs
+  // This editor's own save: it never reads the module's slot, which a later editor may hold.
   const save = async () => {
+    if (saving || !ta.isConnected) return;
+    saving = true;
+    saveBtn.disabled = true;
     try {
+      const fresh = await api.obsidian.read(n.path).catch(() => null);
+      if (fresh && fresh.content !== mine.read && !(await confirmDialog('Overwrite the newer version?', 'This note changed since you opened it (the assistant or another app wrote it). Your text replaces that version; the vault’s history keeps it.', 'Overwrite'))) return;
+      editing = null; // the save's own vault-changed reloads the pane as usual
       await api.obsidian.write(n.path, ta.value, 'overwrite');
       toast('Saved');
       await refresh();
       openNote(n.path);
     } catch (err) {
+      if (ta.isConnected) editing = mine; // still unsaved, still on screen
       toastError(err);
+    } finally {
+      saving = false;
+      saveBtn.disabled = false;
     }
   };
+  saveBtn.onclick = save;
   ta.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
@@ -169,7 +204,7 @@ function editNote(n) {
     el(
       'div',
       { class: 'kb-editor' },
-      el('div', { class: 'row', style: { justifyContent: 'space-between' } }, el('span', { class: 'muted' }, `Editing ${n.path} · Ctrl+S to save`), el('div', { class: 'row' }, el('button', { class: 'btn small', onclick: () => openNote(n.path) }, 'Cancel'), el('button', { class: 'btn small primary', onclick: save }, 'Save'))),
+      el('div', { class: 'row', style: { justifyContent: 'space-between' } }, el('span', { class: 'muted' }, `Editing ${n.path} · Ctrl+S to save`), el('div', { class: 'row' }, el('button', { class: 'btn small', onclick: () => openNote(n.path) }, 'Cancel'), saveBtn)),
       ta,
     ),
   );
@@ -205,6 +240,7 @@ async function showHistory(n) {
 }
 
 async function newNote() {
+  if (!(await leaveEditor())) return;
   const name = await promptDialog('New note (path inside the vault)', 'Notes/Untitled.md');
   if (!name) return;
   try {

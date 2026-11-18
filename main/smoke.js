@@ -493,6 +493,168 @@ const MARKDOWN_JS = (label) => `(async () => {
   }
   return found;
 })()`;
+// Dialogs and approvals (util.js holdFocus/modal, approval.js): the skill and memory editors say what is
+// missing and stay open; an approval over the memory editor with typed text keeps the text and gives the
+// focus back; Esc on the edited form asks before discarding; a confirm opened from a button focuses Cancel
+// and returns the focus; a dialog opened while an approval shows opens under it. main sends the
+// approvals, so each step is its own script with wc.send between.
+// Nothing is saved (Discard and Cancel only; main doesn't know the approvals' ids). The setup wizard is set
+// aside meanwhile; the window ends in the chat as it was (Split, csmoke01). Returns the problems found.
+async function dialogScene(wc, label) {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const found = [];
+  const ids = ['smoke-dialogs-1', 'smoke-dialogs-2'];
+  const step = async (body) => {
+    const js = `(async () => {
+      const $ = (s) => document.querySelector(s);
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const shown = (s) => !$(s).classList.contains('hidden');
+      const where = (n) => (n ? n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') + (n.className && typeof n.className === 'string' ? '.' + n.className.trim().split(/\\s+/).join('.') : '') : 'nothing');
+      const esc = () => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      // The first Esc may only silence the spoken prompt (state.playing); the next one answers.
+      const escApproval = async () => {
+        for (let i = 0; i < 2 && shown('#approvalModal'); i++) (esc(), await wait(150));
+      };
+      const cancelOf = (card) => [...card.querySelectorAll('.modal-actions .btn')].find((b) => b.textContent === 'Cancel');
+      const found = [];
+      const say = (p) => found.push(p);
+      try {
+        ${body}
+      } catch (err) {
+        say('the check stopped: ' + err.message);
+      }
+      return found;
+    })()`;
+    for (const p of await wc.executeJavaScript(js, true)) found.push(`${label}: ${p}`);
+  };
+  const hadWizard = await wc.executeJavaScript(`(() => { const w = document.querySelector('#onboarding'); const had = !w.classList.contains('hidden'); w.classList.add('hidden'); return had; })()`, true);
+  try {
+    // 0. The skill editor checks its fields before it closes: Save without steps keeps the editor and the
+    // name, says why and puts the focus on the steps; Esc on it asks, Discard closes.
+    await step(`
+      $('.rail-btn[data-view="skills"]').click();
+      await wait(300);
+      $('#skillNew').focus();
+      $('#skillNew').click();
+      await wait(100);
+      const name = $('#modalCard input');
+      if (!shown('#modal') || !name) return found.concat('the skill editor did not open');
+      name.value = 'Smoke skill';
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+      [...$('#modalCard').querySelectorAll('.modal-actions .btn.primary')].find((b) => b.textContent === 'Save skill').click();
+      await wait(100);
+      const error = $('#modalCard .test-result.err:not(.hidden)');
+      if (!shown('#modal')) return found.concat('Save without steps closed the skill editor');
+      if (error?.textContent !== 'Write its steps.') say('the skill editor did not say what is missing (' + (error ? '"' + error.textContent + '"' : 'no message') + ')');
+      if (name.value !== 'Smoke skill') say('the skill editor lost the name');
+      if (document.activeElement !== $('#modalCard textarea')) say('the focus did not go to the steps (on ' + where(document.activeElement) + ')');
+      esc();
+      await wait(100);
+      const discard = $('#modalCard .modal-discard .btn.danger');
+      if (!discard) return found.concat('Esc on the edited skill did not ask "Discard your changes?"');
+      discard.click();
+      await wait(100);
+      if (shown('#modal')) say('Discard did not close the skill editor');
+      if (document.activeElement !== $('#skillNew')) say('focus did not go back to ＋ New skill (on ' + where(document.activeElement) + ')');
+    `);
+    // 1. The memory editor, opened from its button: Save with no content says so and stays; a title typed.
+    await step(`
+      $('.rail-btn[data-view="memory"]').click();
+      await wait(300);
+      $('#memAdd').focus();
+      $('#memAdd').click();
+      await wait(100);
+      const input = $('#modalCard input');
+      if (!shown('#modal') || !input) return found.concat('the memory editor did not open');
+      if (!$('#modalCard').contains(document.activeElement)) say('focus did not move into the memory editor (on ' + where(document.activeElement) + ')');
+      const head = document.getElementById($('#modalCard').getAttribute('aria-labelledby') || '-');
+      if ($('#modalCard').getAttribute('role') !== 'dialog' || $('#modalCard').getAttribute('aria-modal') !== 'true' || head?.textContent !== 'New memory') say('the memory editor is not a dialog named by its heading');
+      [...$('#modalCard').querySelectorAll('.modal-actions .btn.primary')].find((b) => b.textContent === 'Save').click();
+      await wait(100);
+      if (!shown('#modal')) return found.concat('Save with no content closed the memory editor');
+      if ($('#modalCard .test-result.err:not(.hidden)')?.textContent !== 'Write what the agent should remember.') say('the memory editor did not say the content is missing');
+      if (document.activeElement !== $('#modalCard textarea')) say('the focus did not go to the content (on ' + where(document.activeElement) + ')');
+      input.focus();
+      input.value = 'Lab notes';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    `);
+    // 2-3. An approval over it: on its own layer, the editor kept and inert; Esc says no, the focus goes
+    // back to the field; Esc on the edited form asks, Discard closes it and the focus goes back to ＋.
+    wc.send('approval:request', { id: ids[0], kind: 'settings', title: 'Change a setting', timeoutSec: 75, sources: [] });
+    await wait(300);
+    await step(`
+      if (!shown('#approvalModal')) return found.concat('the approval did not show on its own layer');
+      if ($('#approvalCard').getAttribute('role') !== 'alertdialog') say('the approval is not an alertdialog');
+      if ($('#modalCard input')?.value !== 'Lab notes') say('the memory editor lost its text under the approval');
+      if (!$('#approvalCard').contains(document.activeElement)) say('focus is not in the approval (on ' + where(document.activeElement) + ')');
+      if (!$('.shell').inert) say('the window behind the approval is not inert');
+      if (!$('#modal').inert) say('the editor under the approval is not inert');
+      await escApproval();
+      if (shown('#approvalModal')) return found.concat('Esc did not answer the approval');
+      if (!shown('#modal')) say('the memory editor closed with the approval');
+      if (document.activeElement !== $('#modalCard input')) say('focus did not go back to the editor after the approval (on ' + where(document.activeElement) + ')');
+      esc();
+      await wait(100);
+      const discard = $('#modalCard .modal-discard .btn.danger');
+      if (!discard) return found.concat(shown('#modal') ? 'Esc on the edited form did not ask "Discard your changes?"' : 'Esc closed the edited form without asking');
+      discard.click();
+      await wait(100);
+      if (shown('#modal')) say('Discard did not close the editor');
+      if ($('.shell').inert) say('the window stayed inert after the editor closed');
+      if (document.activeElement !== $('#memAdd')) say('focus did not go back to the button that opened the editor (on ' + where(document.activeElement) + ')');
+    `);
+    // 4. A confirm opened from a focused button: the focus on Cancel, Esc gives null and the focus back.
+    await step(`
+      const util = await import('./js/util.js');
+      $('#memAdd').focus();
+      const p = util.confirmDialog('Smoke check', 'Nothing happens.', 'OK', false);
+      await wait(50);
+      if (document.activeElement !== cancelOf($('#modalCard'))) say('a confirm did not put the focus on Cancel (on ' + where(document.activeElement) + ')');
+      esc();
+      const r = await Promise.race([p, wait(1000).then(() => 'no answer')]);
+      if (r !== null) say('Esc on a confirm gave ' + r + ', not null');
+      if (document.activeElement !== $('#memAdd')) say('focus did not go back to the button after the confirm (on ' + where(document.activeElement) + ')');
+    `);
+    // 5. A confirm opened while an approval shows (as a notice or a timer would): under the approval,
+    // which keeps the focus; when the approval closes the focus moves into the confirm.
+    wc.send('approval:request', { id: ids[1], kind: 'delete', title: 'Delete a note', timeoutSec: 75, sources: [] });
+    await wait(300);
+    await step(`
+      const util = await import('./js/util.js');
+      if (!shown('#approvalModal')) return found.concat('the second approval did not show');
+      const p = util.confirmDialog('Smoke check', 'Nothing happens.', 'OK', false);
+      await wait(50);
+      if (!shown('#modal')) return found.concat('the confirm did not open');
+      if ($('#approvalModal').inert) say('the approval became inert under a dialog opened after it');
+      if (!$('#modal').inert) say('a dialog opened while an approval shows is not under it');
+      if (!$('#approvalCard').contains(document.activeElement)) say('a dialog opened while an approval shows took its focus (on ' + where(document.activeElement) + ')');
+      await escApproval();
+      if (shown('#approvalModal')) return found.concat('Esc did not answer the second approval');
+      if (document.activeElement !== cancelOf($('#modalCard'))) say('focus did not move into the confirm when the approval closed (on ' + where(document.activeElement) + ')');
+      esc();
+      const r = await Promise.race([p, wait(1000).then(() => 'no answer')]);
+      if (r !== null) say('Esc on the confirm gave ' + r + ', not null');
+      if ($('.shell').inert) say('the window stayed inert after both closed');
+    `);
+  } finally {
+    for (const id of ids) wc.send('approval:cancel', { id });
+    await wait(200);
+    await wc.executeJavaScript(`(async () => {
+      const $ = (s) => document.querySelector(s);
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      if (!$('#modal').classList.contains('hidden')) {
+        document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await wait(100);
+        $('#modalCard .modal-discard .btn.danger')?.click();
+        await wait(100);
+      }
+      if (${JSON.stringify(hadWizard)}) $('#onboarding').classList.remove('hidden');
+      $('.rail-btn[data-view="chat"]').click();
+      await wait(300);
+    })()`, true);
+  }
+  return found;
+}
 const PROMPTS = [
   ['approval:request', { kind: 'connector', title: 'Use Google Calendar: create event', detail: '{\n  "summary": "Machine Learning Q&A",\n  "calendarId": "someone.with.a.long.address@example.com"\n}', remember: [{ level: 'read', label: 'Always allow reading Google Calendar' }, { level: 'write', label: 'Always allow Google Calendar (except deleting)' }] }],
   ['approval:request', { kind: 'command', title: 'Run a command on your computer', detail: `powershell -NoProfile -Command "Get-ChildItem -Recurse ${'C:\\Users\\someone\\Documents\\a-folder-with-a-long-name'.repeat(3)} | Sort-Object Length -Descending"` }],
@@ -646,6 +808,7 @@ async function scanText() {
     for (const p of await wc.executeJavaScript(FAILED_CARD_JS(`failed reply card @${w}`), true)) found.add(p);
     if (w === 1600) {
       for (const p of await expecting(cspRefusedHandler, () => wc.executeJavaScript(MARKDOWN_JS(`markdown safety @${w}`), true))) found.add(p); // render
+      for (const p of await dialogScene(wc, `dialogs @${w}`)) found.add(p);                                                                       // dialogs
     }
   }
   return [...found];

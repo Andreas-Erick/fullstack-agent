@@ -6,7 +6,7 @@
 // microphone), or only a click. Words said before the approval appeared are not its answer: they go
 // into the message box. Each spoken answer is acknowledged ("Approved" / "Declined"). No answer within
 // the timeout counts as no. A spoken answer never starts a new turn or interrupts the paused task.
-import { api, el, logEvent, toast } from './util.js';
+import { api, el, logEvent, toast, holdFocus } from './util.js';
 import { state, ttsActive } from './state.js';
 import { speaker, recordClip, analyzeClip, utteranceInfo } from './voice.js';
 import { approvalAnswer, approvalPrompt, approvalHint } from './commandcore.js';
@@ -45,6 +45,15 @@ export function initApprovals() {
     if (i >= 0) waiting.splice(i, 1);
     if (current?.id === id) close(false, 'timed out');
   });
+  // Esc answers no (Cancel for a secret or a recording). While the voice speaks, the first Esc only
+  // silences it (app.js's window listener); the next one answers.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !current || e.isComposing || state.playing) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (current.secret || current.recording) answer(false, '');
+    else answer(false, 'The user pressed Esc.');
+  }, true);
 }
 
 export function approvalPending() {
@@ -88,8 +97,8 @@ function tell(message) {
 
 function show(req) {
   if (later(show, req)) return;
-  const wrap = document.getElementById('modal');
-  const card = document.getElementById('modalCard');
+  const wrap = document.getElementById('approvalModal');
+  const card = document.getElementById('approvalCard');
   // The main process's time limit started when the request was sent, also while it waited in line.
   let left = Math.max(1, (req.timeoutSec || 75) - Math.round((Date.now() - (req.queuedAt || Date.now())) / 1000));
   const countdown = el('span', { class: 'muted' }, `${left}s`);
@@ -100,6 +109,8 @@ function show(req) {
   current = { ...req, timer };
   state.approvalPending = req;
   card.innerHTML = '';
+  card.className = 'modal-card glass';
+  card.style.cssText = '';
   card.append(
     el('h3', {}, `⚠ ${KIND_LABEL[req.kind] || 'Permission'} — approval needed`),
     el('div', { style: { fontSize: '16px' } }, `${state.settings.agent.name} wants to: `, el('b', {}, req.title)),
@@ -113,7 +124,7 @@ function show(req) {
     el('div', { class: 'modal-actions' }, el('button', { class: 'btn danger', onclick: () => answer(false, 'The user clicked Deny.') }, 'Deny'), el('button', { class: 'btn primary', onclick: () => answer(true) }, 'Approve')),
   );
   wrap.classList.remove('hidden');
-  wrap.onclick = null;
+  current.release = holdFocus(wrap, card, { role: 'alertdialog', initial: card });
   current.shownAt = performance.now(); // speech that began before this isn't an answer to it
   if (ttsActive()) speaker.say(approvalPrompt(req));
   logEvent('info', 'approval requested', { kind: req.kind, title: req.title });
@@ -123,8 +134,8 @@ function show(req) {
 // encrypted settings in the main process — it is never shown in the chat or sent to the model.
 function showSecret(req) {
   if (later(showSecret, req)) return;
-  const wrap = document.getElementById('modal');
-  const card = document.getElementById('modalCard');
+  const wrap = document.getElementById('approvalModal');
+  const card = document.getElementById('approvalCard');
   const input = el('input', { class: 'input', type: 'password', placeholder: req.label, autocomplete: 'off' });
   current = { ...req, timer: null, secret: true };
   const submit = () => {
@@ -134,6 +145,8 @@ function showSecret(req) {
   };
   input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
   card.innerHTML = '';
+  card.className = 'modal-card glass';
+  card.style.cssText = '';
   card.append(
     el('h3', {}, `🔒 ${req.label}`),
     el('p', { class: 'muted' }, `${req.hint || ''} It is not shown in the chat and the agent never sees it.`),
@@ -141,8 +154,7 @@ function showSecret(req) {
     el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => answer(false, '') }, 'Cancel'), el('button', { class: 'btn primary', onclick: submit }, 'Save')),
   );
   wrap.classList.remove('hidden');
-  wrap.onclick = null;
-  setTimeout(() => input.focus(), 50);
+  current.release = holdFocus(wrap, card, { initial: input });
   logEvent('info', 'secret requested', req.label);
 }
 
@@ -151,8 +163,8 @@ function showSecret(req) {
 // loudness levels do, the audio never leaves this window.
 function showRecording(req) {
   if (later(showRecording, req)) return;
-  const wrap = document.getElementById('modal');
-  const card = document.getElementById('modalCard');
+  const wrap = document.getElementById('approvalModal');
+  const card = document.getElementById('approvalCard');
   const max = Math.min(60, Math.max(8, Number(req.seconds) || 20));
   const status = el('div', { class: 'test-result' }, 'Press Record, then read the text aloud in your normal voice, in a quiet room.');
   const recordBtn = el('button', { class: 'btn primary' }, '● Record');
@@ -207,6 +219,8 @@ function showRecording(req) {
   useBtn.onclick = finish;
 
   card.innerHTML = '';
+  card.className = 'modal-card glass';
+  card.style.cssText = '';
   card.append(
     el('h3', {}, `🎙 ${req.title || 'Record a voice sample'}`),
     el('p', { class: 'muted' }, req.intro || 'This becomes a cloned voice in VoiceStudio. Read this aloud:'),
@@ -215,7 +229,7 @@ function showRecording(req) {
     el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => answer(false, '') }, 'Cancel'), recordBtn, useBtn),
   );
   wrap.classList.remove('hidden');
-  wrap.onclick = null;
+  current.release = holdFocus(wrap, card, { initial: recordBtn });
   logEvent('info', 'voice recording requested');
 }
 
@@ -235,9 +249,11 @@ function close() {
   if (!current) return;
   clearInterval(current.timer);
   current.cleanup?.();
+  // Hidden and released before the next request in line is shown, so it remembers the right opener.
+  document.getElementById('approvalModal').classList.add('hidden');
+  current.release?.();
   current = null;
   state.approvalPending = null;
-  document.getElementById('modal').classList.add('hidden');
   // The next request in line, if any.
   const next = waiting.shift();
   if (next) next.fn(next.req);

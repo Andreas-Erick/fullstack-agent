@@ -4,7 +4,7 @@
 // again, reads a PDF's or Word file's text and holds the result under a one-time token
 // (main/attachments.js). Pictures are redrawn here first (≤ 1568 px, PNG or JPEG, plus a small thumbnail).
 // The rules (limits, names, chips) are the pure attachcore.mjs, shared with main.
-import { $, api, el, toast, toastError, on, emit } from './util.js';
+import { $, api, el, toast, toastError, on, emit, dialogOpen } from './util.js';
 import { state } from './state.js';
 import { currentView, switchView } from './nav.js';
 import * as core from './attachcore.mjs';
@@ -44,7 +44,7 @@ export function initAttach() {
 }
 
 // The setup conversation, a dialog or the setup wizard: nothing is attached.
-const blocked = () => Boolean(state.setupMode) || !$('#modal').classList.contains('hidden') || !$('#onboarding').classList.contains('hidden');
+const blocked = () => Boolean(state.setupMode) || dialogOpen() || !$('#onboarding').classList.contains('hidden');
 const editable = (t) => Boolean(t?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]'));
 
 function syncButton() {

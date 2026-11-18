@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { stub, load, tmpDir, quietLog } = require('./helpers');
+const { stub, load, tmpDir, quietLog, fileStore } = require('./helpers');
 const core = require('../main/notebookcore');
 
 test('a note is read: frontmatter, snippet, #tags, words', () => {
@@ -101,4 +101,112 @@ test('the notebook writes in the vault: create, save, rename with links, pin, de
   // Never outside the user's notes.
   for (const bad of ['Memory/x.md', 'Profile.md', 'Notes/../Profile.md']) await assert.rejects(nb.read(bad), /not one of your notes/);
   await assert.rejects(nb.remove('Notes/Notes.md'), /not one of your notes/);
+});
+
+// Undo of a delete in the Notes view (notebook.restore): the file itself comes back from .trash, so its
+// frontmatter (tags, aliases, pinned) is kept; a name taken meanwhile gets a number, never an overwrite.
+test('Undo of a delete brings the note back byte for byte, never over a note that took its name', async () => {
+  const dir = tmpDir('nexus-restore-');
+  const vault = path.join(dir, 'vault');
+  // The real obsidian.js this time (the stubs above stay in this file's process, so each is set again).
+  stub({
+    electron: { app: { getPath: () => dir } },
+    './logger': quietLog,
+    './vaultgit': { commitSoon() {}, ensure: async () => {} },
+    './linkindex': { forNote: async () => ({ backlinks: [] }), touched() {} },
+    './store': fileStore(dir, { getSettings: async () => ({ obsidian: { enabled: true, vaultPath: vault }, agent: { name: 'Nexus' } }) }),
+  });
+  const obsidian = load('main/obsidian.js');
+  stub({ './obsidian': obsidian });
+  const nb = load('main/notebook.js');
+  const at = (rel) => path.join(vault, ...rel.split('/'));
+  const files = (d = vault, out = []) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) files(full, out);
+      else out.push(`${path.relative(vault, full)} ${fs.statSync(full).size}`);
+    }
+    return out.sort();
+  };
+  const GONE = /isn’t in the vault’s bin \(\.trash\) any more/;
+  const rel = 'Notes/Lecture/Eigen.md';
+  const two = 'Notes/Lecture/Eigen 2.md';
+  const body = ['# Eigenvalues', 'מטריצה — λ is an eigenvalue 👨‍👩‍👧‍👦', 'x'.repeat(10000)].join('\r\n');
+  const bytes = Buffer.from(`---\ntags: [lecture, linalg]\naliases: LA\npinned: true\n---\n${body}\r\n`, 'utf8');
+  const put = (r, b) => (fs.mkdirSync(path.dirname(at(r)), { recursive: true }), fs.writeFileSync(at(r), b));
+  put(rel, bytes);
+
+  // Deleted, then back: the same bytes, still pinned, with its tags.
+  const gone = await nb.remove(rel);
+  assert.match(gone.trashed, /^\.trash\/\d+-Eigen\.md$/);
+  assert.ok(!fs.existsSync(at(rel)));
+  assert.deepStrictEqual(await nb.restore(gone.trashed, rel), { path: rel });
+  assert.ok(fs.readFileSync(at(rel)).equals(bytes), 'byte for byte');
+  const listed = (await nb.list()).notes.find((n) => n.path === rel);
+  assert.ok(listed?.pinned, 'still pinned');
+  assert.deepStrictEqual(listed.tags, ['lecture', 'linalg']);
+
+  // A name no title cleaning would produce (RTL, a ZWJ emoji) round-trips as it was.
+  const odd = 'Notes/מחברת 👨‍👩‍👧‍👦.md';
+  put(odd, 'shalom');
+  const oddGone = await nb.remove(odd);
+  assert.deepStrictEqual(await nb.restore(oddGone.trashed, odd), { path: odd });
+  assert.strictEqual(fs.readFileSync(at(odd), 'utf8'), 'shalom');
+
+  // A new note took the name meanwhile: the old one comes back next to it.
+  const t1 = (await nb.remove(rel)).trashed;
+  put(rel, 'a new note');
+  assert.deepStrictEqual(await nb.restore(t1, rel), { path: two });
+  assert.ok(fs.readFileSync(at(two)).equals(bytes));
+  assert.strictEqual(fs.readFileSync(at(rel), 'utf8'), 'a new note', 'the new note is untouched');
+  fs.rmSync(at(two));
+
+  // Undo pressed twice: one comes back, the second says the bin no longer has it, and no copy appears.
+  put(rel, bytes);
+  const t2 = (await nb.remove(rel)).trashed;
+  const twice = await Promise.allSettled([nb.restore(t2, rel), nb.restore(t2, rel)]);
+  assert.deepStrictEqual(twice.map((r) => r.status), ['fulfilled', 'rejected']);
+  assert.match(twice[1].reason.message, GONE);
+  assert.ok(!fs.existsSync(at(two)));
+
+  // Two copies of the same note restored at once (two deletes in one millisecond share a trash name, so
+  // the second is written straight into the bin): both come back, neither over the other.
+  const t3 = (await nb.remove(rel)).trashed;
+  fs.writeFileSync(path.join(vault, '.trash', '1-Eigen.md'), 'the older copy');
+  const both = await Promise.all([nb.restore(t3, rel), nb.restore('.trash/1-Eigen.md', rel)]);
+  assert.deepStrictEqual(both, [{ path: rel }, { path: two }]);
+  assert.ok(fs.readFileSync(at(rel)).equals(bytes));
+  assert.strictEqual(fs.readFileSync(at(two), 'utf8'), 'the older copy');
+
+  // Refused: anything that isn't a note in the bin, or a place that isn't one of the user's notes.
+  const t4 = (await nb.remove(two)).trashed;
+  const before = files();
+  for (const bad of ['../x.md', '.trash/../../x.md', 'Notes/a.md', '', '.trash/sub/x.md', '.trash/x.txt', `${t4}/..`]) await assert.rejects(nb.restore(bad, rel), GONE, bad);
+  await assert.rejects(nb.restore('.trash/missing.md', 'Notes/x.md'), GONE);
+  for (const bad of ['Secret/x.md', 'Notes/../x.md', '', 'Notes/Notes.md', 'Notes\\x.md', '../outside.md']) await assert.rejects(nb.restore(t4, bad), /not one of your notes/, bad);
+  assert.deepStrictEqual(files(), before, 'the refused calls changed nothing');
+  assert.deepStrictEqual(await nb.restore(t4, two), { path: two }, 'the bin still has it');
+
+  // A note written at the name after the check and before the move (the assistant, another app): it stays,
+  // and the old one takes the next free name (regression: a rename replaced it, on Windows too).
+  const t5 = (await nb.remove(rel)).trashed;
+  const mkdir = fs.promises.mkdir;
+  fs.promises.mkdir = async (...a) => {
+    const made = await mkdir(...a);
+    if (path.resolve(String(a[0])) === path.dirname(at(rel))) {
+      fs.promises.mkdir = mkdir;
+      fs.writeFileSync(at(rel), 'written meanwhile');
+    }
+    return made;
+  };
+  try {
+    assert.deepStrictEqual(await nb.restore(t5, rel), { path: 'Notes/Lecture/Eigen 3.md' });
+  } finally {
+    fs.promises.mkdir = mkdir;
+  }
+  assert.strictEqual(fs.readFileSync(at(rel), 'utf8'), 'written meanwhile', 'the note written meanwhile is untouched');
+  assert.ok(fs.readFileSync(at('Notes/Lecture/Eigen 3.md')).equals(bytes), 'the old one came back beside it');
+  assert.strictEqual(fs.readFileSync(at(two), 'utf8'), 'the older copy');
+  assert.ok(!fs.existsSync(path.join(vault, t5)), 'and left the bin');
+  fs.rmSync(dir, { recursive: true, force: true });
 });
