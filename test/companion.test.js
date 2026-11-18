@@ -49,7 +49,10 @@ stub({
     },
     getSettings: async () => ({ agent: { name: 'Nexus' }, appearance: { scene }, voice: {}, calendar: { enabled: true }, remote: { shareData: share }, ui: { face: uiFace } }),
     listConversations: async () => Object.values(convs).map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt, ...(c.setup ? { setup: true } : {}) })),
-    getConversation: async (id) => convs[id] || null,
+    getConversation: async (id) => {
+      if (id === 'index') throw new Error('Invalid conversation id'); // as store.js safeConvId refuses the index
+      return convs[id] || null;
+    },
   }),
   './voice': {},
   './companiondata': {
@@ -707,5 +710,244 @@ test('a failed message with files reaches devices as its outcome, the files’ n
     companion.publish('chat:event', { requestId: 'rR2', conversationId: 'cr', type: 'aborted' });
   } finally {
     delete convs.cr;
+  }
+});
+
+// ------------------------------------------------------------------ malformed requests (round 3)
+// What the server logged as failures while they ran (fail() with an error, the route's catch).
+async function failuresWhile(act) {
+  const warned = [];
+  const saved = quietLog.warn;
+  quietLog.warn = (event) => warned.push(event);
+  try {
+    await act();
+  } finally {
+    quietLog.warn = saved;
+  }
+  return warned.filter((e) => e === 'remote request failed');
+}
+const raw = (p, body, headers = {}) => fetch(`${base}${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+const deep = (n) => `${'['.repeat(n)}${']'.repeat(n)}`;
+
+test('before anything else: an unknown host, a foreign origin, a wrong type, bad JSON, a body too large', async () => {
+  const port = new URL(base).port;
+  for (const [method, p] of [['GET', '/'], ['GET', '/api/ping'], ['POST', '/api/pair']]) {
+    const r = await viaHost(`evil.example:${port}`, p, { method, ...(method === 'POST' ? { body: { code: '123456' } } : {}) });
+    assert.strictEqual(r.status, 403, `${method} ${p}`);
+    assert.strictEqual(r.json().error, 'Unknown host');
+  }
+  const host = new URL(base).host;
+  const evil = { Origin: 'http://evil.example' };
+  assert.strictEqual((await viaHost(host, '/api/pair', { method: 'POST', body: { code: '123456' }, headers: evil })).status, 403, 'unauthenticated');
+  const token = await pairDevice('Origin phone');
+  const before = turns.length;
+  const r = await viaHost(host, '/api/chat', { method: 'POST', body: { text: 'hi' }, headers: { ...evil, Authorization: `Bearer ${token}` } });
+  assert.strictEqual(r.status, 403);
+  assert.match(r.json().error, /Cross-origin/);
+  assert.strictEqual(turns.length, before, 'no turn started');
+
+  assert.strictEqual((await fetch(`${base}/api/pair`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}' })).status, 415);
+  const bad = await raw('/api/pair', '{');
+  assert.strictEqual(bad.status, 400);
+  assert.strictEqual((await bad.json()).error, 'Invalid JSON');
+  // Too large: a 413, or the socket closed while the rest was still being sent (fail() closes it).
+  const big = await raw('/api/pair', JSON.stringify({ code: 'x'.repeat(70 * 1024) })).then((x) => x.status, () => 'reset');
+  assert.ok(big === 413 || big === 'reset', String(big));
+  assert.strictEqual((await fetch(`${base}/api/ping`)).status, 200, 'the server still answers');
+});
+
+test('a body that is not a JSON object is a 400 everywhere, and an open approval stays open', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Body phone')}` };
+  companion.publish('approval:request', { id: 'apBody', kind: 'command', title: 'x', timeoutSec: 60 });
+  const before = turns.length;
+  const failures = await failuresWhile(async () => {
+    for (const body of ['null', '[]', '7', '"x"', '[{"text":"hi"}]', 'true']) {
+      for (const [p, headers] of [['/api/pair', {}], ['/api/chat', auth], ['/api/speak', auth], ['/api/approvals/apBody', auth]]) {
+        const r = await raw(p, body, headers);
+        assert.strictEqual(r.status, 400, `${p} ${body}`);
+        assert.strictEqual((await r.json()).error, 'Send a JSON object', `${p} ${body}`);
+      }
+    }
+    // Ten at once (a client retrying), then three real answers at once: one of them answers it.
+    const nulls = await Promise.all(Array.from({ length: 10 }, () => raw('/api/approvals/apBody', 'null', auth)));
+    assert.deepStrictEqual(nulls.map((r) => r.status), Array(10).fill(400));
+    const answers = await Promise.all(Array.from({ length: 3 }, () => raw('/api/approvals/apBody', JSON.stringify({ allow: false }), auth)));
+    assert.deepStrictEqual(answers.map((r) => r.status).sort(), [200, 404, 404], 'answered once, then gone');
+  });
+  assert.deepStrictEqual(failures, [], 'a client mistake is not a server failure');
+  assert.strictEqual(turns.length, before, 'no turn started');
+});
+
+test('fields that are not text: a deep array, a prototype key, extra fields, odd conversation ids', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Field phone')}` };
+  const failures = await failuresWhile(async () => {
+    // 30,000 deep (under 64 KB): String() of it overflowed the stack, a 500 with a logged stack.
+    const r = await raw('/api/chat', `{"text":${deep(30000)}}`, auth);
+    assert.strictEqual(r.status, 400);
+    assert.strictEqual((await r.json()).error, 'Empty message');
+    companion.startPairing();
+    for (const field of ['code', 'secret', 'name', 'move']) {
+      const p = await raw('/api/pair', `{"${field}":${deep(30000)}}`);
+      assert.strictEqual(p.status, 403, field);
+      assert.match((await p.json()).error, /Wrong code|secure address/, field);
+    }
+    companion.cancelPairing();
+    for (const v of ['{}', 'null', 'true', '["hi"]', deep(30000)]) assert.strictEqual((await raw('/api/speak', `{"text":${v}}`, auth)).status, 400, `speak ${v.slice(0, 10)}`);
+  });
+  assert.deepStrictEqual(failures, []);
+
+  const n = turns.length;
+  const proto = await raw('/api/chat', '{ "__proto__": { "admin": true }, "constructor": { "prototype": { "admin": true } }, "text": "hi" }', auth);
+  assert.strictEqual(proto.status, 200);
+  assert.strictEqual({}.admin, undefined, 'nothing reached Object.prototype');
+  assert.strictEqual(turns.length, n + 1);
+
+  // Only the fields a device may set reach the turn: never hidden, routine, display, attachments or a remote name.
+  const spoof = await (await post('/api/chat', { text: 'hi', hidden: true, routine: 'x', display: 'x', attachments: ['t'], remote: 'spoof', auto: 'tasks', conversationId: 'c1' }, auth)).json();
+  assert.strictEqual(spoof.conversationId, 'c1');
+  const t = turns.at(-1);
+  assert.deepStrictEqual(Object.keys(t).sort(), ['conversationId', 'remote', 'requestId', 'text', 'voice']);
+  assert.strictEqual(t.remote, 'Field phone');
+  assert.strictEqual(t.conversationId, 'c1');
+  const count = turns.length;
+  const status = async (conversationId) => (await post('/api/chat', { text: 'hi', conversationId }, auth)).status;
+  assert.strictEqual(await status('s1'), 403, 'the setup conversation');
+  assert.strictEqual(await status('a/b'), 400);
+  assert.strictEqual(await status('../c1'), 400);
+  assert.strictEqual(await status('index'), 404, 'the index is not a conversation');
+  assert.strictEqual(await status(['c1']), 400);
+  assert.strictEqual(await status({ id: 'c1' }), 400);
+  assert.strictEqual(await status('nope'), 404);
+  assert.strictEqual(turns.length, count, 'none of them started a turn');
+  assert.strictEqual(await status(''), 200, 'empty: a new conversation');
+  assert.strictEqual(turns.at(-1).conversationId, null);
+  assert.strictEqual((await fetch(`${base}/api/conversations/index`, { headers: auth })).status, 404);
+});
+
+// The timeout turns a stream that never brings the event into a failure instead of a hang.
+test('error messages reach devices without paths from this computer', { timeout: 20000 }, async () => {
+  const winPath = "EPERM: operation not permitted, rename 'C:\\Users\\Anna Berg\\AppData\\Roaming\\Siren Assistant\\conversations\\c1.json.tmp' -> 'C:\\Users\\Anna Berg\\x.json'";
+  const ev = companion.chatForDevice({ type: 'error', requestId: 'r', conversationId: 'c1', message: winPath });
+  assert.deepStrictEqual(Object.keys(ev).sort(), ['conversationId', 'message', 'requestId', 'type']);
+  assert.doesNotMatch(ev.message, /Users|Anna|Berg/);
+  assert.match(ev.message, /^EPERM: operation not permitted, rename … -> …$/);
+  assert.strictEqual(companion.chatForDevice({ type: 'error', requestId: 'r', message: 'C:\\x' }).message, 'The reply failed on the computer');
+  assert.strictEqual(companion.chatForDevice({ type: 'error', requestId: 'r' }).message, 'The reply failed on the computer');
+
+  const f = (message) => companion.forDevice({ message }, 'FALLBACK');
+  assert.strictEqual(f('spawn C:\\Users\\anna\\AppData\\Roaming\\npm\\claude.cmd ENOENT'), 'spawn … ENOENT');
+  assert.strictEqual(f('spawn C:\\Users\\Anna Berg\\npm\\claude.cmd ENOENT'), 'spawn … ENOENT');
+  // A folder name of three words, or with two spaces in a row (a Windows profile): all of it goes.
+  assert.strictEqual(f('spawn C:\\Users\\Anna Maria Berg\\AppData\\Roaming\\npm\\claude.cmd ENOENT'), 'spawn … ENOENT');
+  assert.strictEqual(f('Cannot find module C:\\Users\\Jo Ann Lee\\x.js'), 'Cannot find module …');
+  assert.strictEqual(f('spawn C:\\Users\\Anna  Berg\\npm\\claude.cmd ENOENT'), 'spawn … ENOENT');
+  assert.strictEqual(f('open /Users/Anna Maria Berg/Library/x.md failed'), 'open … failed');
+  assert.strictEqual(f('spawn C:\\Users\\Anna (Work)\\npm\\claude.cmd ENOENT'), 'spawn … ENOENT');
+  assert.strictEqual(f('spawn C:\\Program Files (x86)\\Claude\\claude.exe ENOENT'), 'spawn … ENOENT');
+  assert.strictEqual(f('Error (at C:\\x\\y.js:1:2) in the tool'), 'Error (at …) in the tool', 'a ")" right after a path ends it');
+  assert.strictEqual(f('open C:\\x.md failed: try again later'), 'open … failed: try again later', 'words after a path stay when no slash follows them');
+  assert.strictEqual(f('open \\\\server\\share\\x.md failed'), 'open … failed');
+  assert.strictEqual(f('cannot read /home/anna/x'), 'cannot read …');
+  assert.strictEqual(f('ENOENT: /Users/anna/Library/x.md'), 'ENOENT: …');
+  assert.strictEqual(f("open 'C:\\Users\\O'Brien\\n.md'"), 'open …');
+  assert.strictEqual(f('open "D:/Siren Vault/Notes/a b.md": EBUSY'), 'open …: EBUSY');
+  for (const keep of ['You’ve hit your usage limit · resets 8pm', "You've hit your usage limit · resets 8pm", 'nothing answers at localhost:11434', 'https://api.example.com/x failed', 'LLM error 429: rate limited', 'مرحبا بالعالم']) assert.strictEqual(f(keep), keep);
+  for (const empty of ['', '   ', 'C:\\x', '"C:\\Users\\x"', '\\\\server\\share']) assert.strictEqual(f(empty), 'FALLBACK', JSON.stringify(empty));
+  assert.strictEqual(companion.forDevice(null, 'FALLBACK'), 'FALLBACK');
+  // Pathological input returns at once and short (the patterns don't backtrack; only 2,000 characters are read).
+  const worst = f("'C:\\".repeat(50000));
+  assert.ok(worst.length <= 300);
+  assert.ok(f('C:\\a '.repeat(20000)).length <= 300);
+  assert.strictEqual(f(`C:\\x ${'word '.repeat(20000)}`), `… ${'word '.repeat(20000)}`.slice(0, 300).trim(), 'slash-less words after a path stay');
+  const rtl = 'مرحبا'.repeat(2000);
+  assert.strictEqual(f(rtl), rtl.slice(0, 300));
+  assert.ok(f('👨‍👩‍👧‍👦 C:\\Users\\x\\y '.repeat(500)).length <= 300);
+
+  // Streamed to a paired device: the same. Read until the event's whole line is in, no clock.
+  const auth = { Authorization: `Bearer ${await pairDevice('Error phone')}` };
+  const ctl = new AbortController();
+  const res = await fetch(`${base}/api/events`, { headers: auth, signal: ctl.signal });
+  const reader = res.body.getReader();
+  companion.publish('chat:event', { requestId: 'rErr', conversationId: 'c1', type: 'error', message: winPath });
+  let streamed = '';
+  try {
+    while (!/data: [^\n]*"rErr"[^\n]*\n/.test(streamed)) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      streamed += Buffer.from(value).toString();
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    ctl.abort();
+  }
+  assert.match(streamed, /"type":"error"/);
+  assert.doesNotMatch(streamed, /Users|Anna|Berg/);
+});
+
+test('seeded: a path in an error message never reaches a device, quoted or bare, whatever its folder names', () => {
+  function rng(seed) {
+    let x = seed >>> 0 || 1;
+    return () => ((x ^= x << 13), (x ^= x >>> 17), (x ^= x << 5), (x >>> 0) / 2 ** 32);
+  }
+  const seed = 20261118;
+  const rand = rng(seed);
+  const pick = (list) => list[Math.floor(rand() * list.length)];
+  const words = ['EBUSY:', 'open', 'failed', 'resource busy', 'spawn', 'ENOENT', 'at', 'reading', '·', 'مرحبا', '👨‍👩‍👧‍👦', 'x=1', 'https://api.example.com/v1', 'localhost:3001'];
+  const roots = ['C:\\', 'D:/', 'c:\\', '\\\\nas\\', '/Users/', '/home/', '/tmp/', '/var/'];
+  for (let i = 0; i < 300; i++) {
+    const secret = `Zq${i}x`;
+    const quoted = rand() < 0.5;
+    // Bare paths: a folder name may have spaces (several words, two in a row) when a slash follows; quoted
+    // ones also spaces anywhere and apostrophes inside a word (O'Brien), never the closing quote followed by
+    // a gap. A spaced folder after the name is cut too; a spaced file name at the end may leave its last word.
+    const bare = [secret, `${secret} Berg`, `Anna ${secret}`, `${secret} Maria Berg`, `Jo ${secret} Lee`, `Anna  ${secret}`, `${secret} van der Berg`, `Anna (${secret})`, `(${secret}) Berg`];
+    const name = quoted ? pick([secret, `${secret} Berg`, `O'${secret}`, `${secret}'s files`, `${secret} Maria Berg`]) : pick(bare);
+    const sep = rand() < 0.5 ? '\\' : '/';
+    const tail = Array.from({ length: 1 + Math.floor(rand() * 3) }, () => pick(['AppData', 'Siren Vault', 'npm', 'Notes', 'a.md', 'x y', 'Program Files (x86)']));
+    let p = `${pick(roots)}${name}${sep}${tail.join(sep) || 'f.md'}`;
+    if (quoted) {
+      const q = pick(["'", '"', '`']);
+      p = `${q}${p}${q}`;
+    }
+    const message = [pick(words), pick(words), p, pick(['', ',', ':', ';', '.'])].join(' ').replace(/ ([,:;.])$/, '$1') + (rand() < 0.5 ? ` ${pick(words)}` : '');
+    const out = companion.forDevice({ message }, 'FALLBACK');
+    const where = `seed ${seed} case ${i}: ${JSON.stringify(message)} → ${JSON.stringify(out)}`;
+    assert.ok(!out.includes(secret), where);
+    assert.ok(out.length <= 300, where);
+  }
+});
+
+test('a data screen’s file error is a plain 500 without the path; a codeless “vault” error is a 404', async () => {
+  // The stand-in companion.js holds: helpers.js answers this id with it (not a file next to this test).
+  const STUB_ID = './companiondata';
+  const data = require(STUB_ID);
+  const auth = { Authorization: `Bearer ${await pairDevice('Data error phone')}` };
+  const saved = data.note;
+  try {
+    data.note = async () => {
+      throw Object.assign(new Error("EBUSY: resource busy or locked, open 'C:\\Users\\x\\Siren Vault\\Notes\\a.md'"), { code: 'EBUSY' });
+    };
+    let failures = [];
+    let r;
+    failures = await failuresWhile(async () => {
+      r = await fetch(`${base}/api/data/note?path=Notes/a.md`, { headers: auth });
+    });
+    assert.strictEqual(r.status, 500, 'the vault folder in the path no longer makes it a 404');
+    const body = await r.text();
+    assert.doesNotMatch(body, /Users|Siren Vault/);
+    assert.match(body, /EBUSY/);
+    assert.deepStrictEqual(failures, ['remote request failed'], 'a real failure is still logged (with the whole error)');
+    data.note = async () => {
+      throw Object.assign(new Error("ENOENT: no such file or directory, open 'C:\\Users\\x\\a.md'"), { code: 'ENOENT' });
+    };
+    assert.strictEqual((await fetch(`${base}/api/data/note?path=a.md`, { headers: auth })).status, 404);
+    data.note = async () => {
+      throw new Error('The vault is disabled');
+    };
+    r = await fetch(`${base}/api/data/note?path=a.md`, { headers: auth });
+    assert.strictEqual(r.status, 404);
+    assert.strictEqual((await r.json()).error, 'The vault is disabled');
+  } finally {
+    data.note = saved;
   }
 });

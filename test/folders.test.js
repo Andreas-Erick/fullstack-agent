@@ -97,3 +97,17 @@ test('attachments: allowed and readable, never searched by name, opened outside 
   const doc = await documents.load(path.join(attached, 'c1', 'report.txt'));
   assert.strictEqual(doc.kind, 'text');
 });
+
+// Regression (round 3): "Open in its default app" ran a .js, .bat or .py from the workspace or the vault
+// (Windows' default verb for them runs them); only attachments were restricted.
+test('opened outside the app: documents, data and pictures from any folder, never a script or a page', async () => {
+  const refused = ['x.js', 'x.mjs', 'x.bat', 'x.cmd', 'x.ps1', 'x.py', 'x.sh', 'x.vbs', 'x.hta', 'x.lnk', 'x.exe', 'x.html', 'x.svg', 'x.pdf.lnk', 'x.js.', 'x', '.pdf', 'x.PDF.JS', 'x.scr', 'x.msi', 'x.url', 'x.jar', 'x.wsf', 'x.reg', 'x.pdf ', 'مستند.js', '👨‍👩‍👧‍👦.bat', 'x.xml', 'x.yaml'];
+  const opened = ['x.pdf', 'X.PDF', 'x.docx', 'x.md', 'x.markdown', 'x.txt', 'x.png', 'x.csv', 'x.JPG', 'x.jpeg', 'x.gif', 'x.webp', 'x.bmp', 'x.json', 'x.log', 'x.tsv', 'x.js.pdf', 'مستند.pdf', '👨‍👩‍👧‍👦.png'];
+  for (const root of [ws, vault]) {
+    for (const f of refused) await assert.rejects(documents.externalPath(path.join(root, f)), /only inside the app/, `${path.basename(root)}/${f}`);
+    for (const f of opened) assert.strictEqual(await documents.externalPath(path.join(root, f)), path.join(root, f), `${path.basename(root)}/${f}`);
+  }
+  await assert.rejects(documents.externalPath(path.join(ws, 'run.bat')), /Show in folder/, 'the message says what to do instead');
+  await assert.rejects(documents.externalPath(path.join(ws, 'x.pdf:evil.js')), /not allowed|only inside the app/, 'an alternate data stream');
+  await assert.rejects(documents.externalPath(path.join(desktop, 'secret.pdf')), /not allowed/, 'the folder check still comes first');
+});

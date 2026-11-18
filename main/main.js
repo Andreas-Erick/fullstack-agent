@@ -44,6 +44,7 @@ const companion = require('./companion');
 const helperApps = require('./helperapps');
 const attachments = require('./attachments');
 const attachcore = require('./attachcore');
+const { navDecision } = require('./navguard');
 const { UNTRUSTED_NOTICE } = require('./tools/common');
 
 const ROOT = path.join(__dirname, '..');
@@ -212,17 +213,19 @@ function scheduleChangeVerification(loadedAt) {
   verifyTimer.unref?.();
 }
 
-// External links open in the system browser, never inside the app.
+// External links open in the system browser, never inside the app; a window stays on its own page
+// (navguard.js: a relative link in a reply or a document never replaces it).
 function guardNavigation(wc) {
   wc.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
   wc.on('will-navigate', (e, url) => {
-    if (!url.startsWith('app://')) {
-      e.preventDefault();
-      if (/^https?:/i.test(url)) shell.openExternal(url);
-    }
+    const d = navDecision(wc.getURL(), url);
+    if (d === 'allow') return;
+    e.preventDefault();
+    if (d === 'external') shell.openExternal(url);
+    else log.info('navigation blocked', { scheme: String(url).split(':')[0].slice(0, 12) });
   });
 }
 
@@ -359,6 +362,7 @@ function captureConsole(wc, label) {
 function registerIpc() {
   // Per window: the zoom of the window that asks, and its title-bar button colors (they follow the theme).
   ipcMain.handle('win:zoom', (e, factor) => {
+    if (!fromApp(e)) return { ok: false, error: 'Not allowed from this page.' };
     const z = clampZoom(factor);
     e.sender.setZoomFactor(z);
     return { ok: true, data: z };
@@ -366,6 +370,7 @@ function registerIpc() {
   // Full screen is the window's own (like set_window_state), not the page's: the page may not ask for
   // it (the permission handler allows only the microphone and clipboard). true/false, or toggle.
   ipcMain.handle('win:fullscreen', (e, on) => {
+    if (!fromApp(e)) return { ok: false, error: 'Not allowed from this page.' };
     const w = BrowserWindow.fromWebContents(e.sender);
     if (!w) return { ok: false, error: 'No window' };
     const next = typeof on === 'boolean' ? on : !w.isFullScreen();
@@ -374,6 +379,7 @@ function registerIpc() {
     return { ok: true, data: next };
   });
   ipcMain.handle('win:overlay', (e, colors) => {
+    if (!fromApp(e)) return { ok: false, error: 'Not allowed from this page.' };
     const w = BrowserWindow.fromWebContents(e.sender);
     if (w && process.platform !== 'darwin' && colors?.color) {
       try {

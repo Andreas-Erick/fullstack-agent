@@ -64,9 +64,24 @@ function quoteWin(a) {
   return /[\s"&|<>^]/.test(a) ? `"${String(a).replace(/"/g, '""')}"` : a;
 }
 
+// Model and effort for the CLI's command line. With the npm shim (claude.cmd) that line goes through
+// cmd.exe, which expands %…% even inside quotes, so only plain ids pass: whatever set the value
+// (settings_update, Settings, an old stored value). A value that doesn't pass is left out.
+const MODEL_VALUE = /^[A-Za-z0-9][\w.-]{0,99}(\[1m\])?$/; // opus, sonnet[1m], opusplan, claude-opus-5-5…
+const EFFORT_VALUES = new Set(['default', 'low', 'medium', 'high', 'xhigh', 'max']);
+function cliValue(kind, v) {
+  const s = String(v ?? '').trim();
+  if (!s) return '';
+  const ok = kind === 'effort' ? EFFORT_VALUES.has(s) : MODEL_VALUE.test(s);
+  if (!ok) log.warn('claude setting ignored', { field: kind }); // never the value
+  return ok ? s : '';
+}
+
 function spawnCli(cli, args, opts = {}) {
   const isScript = /\.(cmd|bat)$/i.test(cli);
   if (isScript) {
+    // cmd.exe can't quote these safely (a quote ends the quoting, a line break ends the command).
+    if (args.some((a) => /["\r\n]/.test(String(a)))) throw new Error('Refusing an argument the command shell would misread.');
     return spawn(`${quoteWin(cli)} ${args.map(quoteWin).join(' ')}`, { ...opts, shell: true, windowsHide: true });
   }
   return spawn(cli, args, { ...opts, windowsHide: true });
@@ -799,8 +814,10 @@ function sessionArgs(spec, { sysFile, mcpFile, settingsFile, resume }) {
     '--permission-mode', 'default', '--permission-prompts', 'host', '--permission-prompt-tool', 'mcp__nexus__approval_prompt',
   ];
   for (const d of spec.addDirs) args.push('--add-dir', d);
-  if (spec.model && spec.model !== 'default') args.push('--model', spec.model);
-  if (spec.effort && spec.effort !== 'default') args.push('--effort', spec.effort);
+  const model = cliValue('model', spec.model);
+  if (model && model !== 'default') args.push('--model', model);
+  const effort = cliValue('effort', spec.effort);
+  if (effort && effort !== 'default') args.push('--effort', effort);
   if (resume) args.push('--resume', resume);
   return args;
 }
@@ -1108,10 +1125,10 @@ function endSession(convId) {
 // first word warm, 6–11 s after a restart, and plan usage). Past this size it is closed after the turn
 // and a fresh one carries on with the recent messages (transcript()); memories, notes and "where we
 // left off" keep the rest.
-const ROLLOVER_TOKENS = Number(process.env.NEXUS_ROLLOVER_TOKENS) || 100000; // the variable: tests only
+const ROLLOVER_TOKENS = 100000;
 // 50k (was 80k): a long chat carried up to ~165k tokens on every message; the recent messages, memories
 // and notes carry over to the fresh one.
-const GROWTH_TOKENS = Number(process.env.NEXUS_ROLLOVER_GROWTH) || 50000; // the variable: tests only
+const GROWTH_TOKENS = 50000;
 // Measured from how big a fresh session is in this setup (its tools, vault notes and persona: ~50k to
 // ~120k): a fresh one of 119k rolled over again after one message when the limit was a flat 100k.
 const needsRollover = (contextTokens, freshTokens = 0) => Number(contextTokens) > Math.max(ROLLOVER_TOKENS, (Number(freshTokens) || 0) + GROWTH_TOKENS);
@@ -1168,7 +1185,7 @@ async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   if (!cli) throw new Error('Claude Code is not installed.');
   const s = await store.getSettings();
   const args = ['-p', '--output-format', 'json', '--no-session-persistence', '--strict-mcp-config', '--permission-prompts', 'none'];
-  const m = model || s.claudeCode.model;
+  const m = cliValue('model', model || s.claudeCode.model);
   if (m && m !== 'default') args.push('--model', m);
   if (imagePath) args.push('--tools', 'Read', '--allowedTools', 'Read');
   else args.push('--tools', '');
@@ -1183,4 +1200,4 @@ async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, invalidateStatus, STATUS_TTL_MS, STATUS_RETRY_MS, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, warmCache, startFresh, endSession, forget, epochOf, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };
+module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, invalidateStatus, STATUS_TTL_MS, STATUS_RETRY_MS, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, warmCache, startFresh, endSession, forget, epochOf, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions, cliValue, spawnCli };
