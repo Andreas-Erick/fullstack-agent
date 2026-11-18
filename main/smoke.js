@@ -51,10 +51,19 @@ function seedChat(data) {
   ].join('\n\n');
   const now = Date.now();
   const messages = [
-    { role: 'user', content: `Summarise ${url} ${'please '.repeat(30)}`, at: now - 2000 },
-    { role: 'assistant', content: reply, at: now - 1000, model: 'claude-opus-5-5', provider: 'claude-code', toolCalls: [{ name: 'mcp__claude_ai_Google_Calendar__list_events', input: { calendarId: 'someone.with.a.very.long.address@example.com' }, ok: true }, { name: 'WebFetch', input: { url }, ok: true }] },
+    { id: 'msmoke1', role: 'user', content: `Summarise ${url} ${'please '.repeat(30)}`, createdAt: now - 2000 },
+    { id: 'msmoke2', role: 'assistant', persona: 'Siren', content: reply, createdAt: now - 1000, model: 'claude-opus-5-5', provider: 'claude-code', toolCalls: [{ name: 'mcp__claude_ai_Google_Calendar__list_events', input: { calendarId: 'someone.with.a.very.long.address@example.com' }, ok: true }, { name: 'WebFetch', input: { url }, ok: true }] },
   ];
-  fs.writeFileSync(path.join(conv, 'csmoke01.json'), JSON.stringify({ id: 'csmoke01', title: `A conversation with a very long title ${'that goes on '.repeat(8)}`, createdAt: now - 3000, updatedAt: now, messages }));
+  // journaledUpTo: already in the daily notes, so the journal (main/journal.js) never asks a real model
+  // to summarize a seeded chat (test/smokemodel.test.js).
+  fs.writeFileSync(path.join(conv, 'csmoke01.json'), JSON.stringify({ id: 'csmoke01', title: `A conversation with a very long title ${'that goes on '.repeat(8)}`, createdAt: now - 3000, updatedAt: now, journaledUpTo: messages.length, messages }));
+  // An older chat that History's search finds only by what was said ('capacitor' is not in its title).
+  const old = now - 9 * 86400000;
+  const lab = [
+    { id: 'msmoke21', role: 'user', content: 'Lab report questions', createdAt: old },
+    { id: 'msmoke22', role: 'assistant', persona: 'Siren', content: `The flux capacitor ${'needs a very long explanation '.repeat(12)} and a token ${'Q9'.repeat(80)} at the end.`, createdAt: old },
+  ];
+  fs.writeFileSync(path.join(conv, 'csmoke02.json'), JSON.stringify({ id: 'csmoke02', title: 'Lab report', createdAt: old, updatedAt: old, journaledUpTo: lab.length, messages: lab }));
 }
 
 // NEXUS_SMOKE_MEM=1: a memory profile instead of the layout and text checks. A set-up install (no
@@ -318,6 +327,116 @@ const PROMPTS = [
   ['secret:request', { label: 'Anthropic API key', hint: 'Paste the key from console.anthropic.com → API keys. It starts with sk-ant-.' }],
   ['record:request', { script: 'The quick brown fox jumps over the lazy dog. '.repeat(8), seconds: 20, title: 'Record a voice sample for your cloned voice', intro: 'This becomes a cloned voice in VoiceStudio. Read this aloud:' }],
 ];
+// History (js/history.js) in a layout at the current size: it opens over the chat where the panel has no
+// room (the Face layout, ≤ 980 px), the search finds csmoke02 by what was said ('capacitor'), the list
+// passes the clip and name checks, Tab stays inside the drawer and focus survives a redraw, a layout
+// change docks it (at 1600), Esc closes it to the message box (docked: clears the search), and a hit
+// opens the chat at the message (the Face layout: on the reply card). The setup wizard, which a fresh
+// data folder shows (History stands aside behind it), is set aside meanwhile, as on a set-up install.
+// Ends in Split with csmoke01 open, so the next size's chat scan still checks the hard content. Returns
+// the problems found.
+const HISTORY_JS = (layout, label, w) => `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const $ = (s) => document.querySelector(s);
+  const found = [];
+  const say = (p) => found.push(${JSON.stringify(label)} + ': ' + p);
+  const where = (n) => (n ? n.tagName.toLowerCase() + (n.id ? '#' + n.id : '') + (n.className && typeof n.className === 'string' ? '.' + n.className.trim().split(/\\s+/).join('.') : '') : 'nothing');
+  const { setLayout } = await import('./js/layout.js');
+  const chat = await import('./js/chat.js');
+  const history = await import('./js/history.js');
+  const layout = ${JSON.stringify(layout)};
+  const isOpen = () => $('#view-chat').classList.contains('history-open');
+  const search = $('#convSearch');
+  const type = async (q) => {
+    search.value = q;
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(900);
+  };
+  const check = async () => {
+    document.querySelector('.rail-btn[data-view="chat"]').click();
+    setLayout(layout);
+    await wait(400);
+    const drawer = layout === 'face' || innerWidth <= 980;
+    $('#historyBtn').click();
+    await wait(300);
+    await type('capacitor');
+    if (drawer && !isOpen()) return say('History did not open over the chat');
+    if (!drawer && isOpen()) say('History opened as a drawer although the side panel has room');
+    if (!$('#convList .conv-hit')) say('the search found nothing in the messages (no .conv-hit for "capacitor")');
+    const clip = await import('./js/cliptest.js');
+    for (const c of clip.findClippedText()) say('text cut off (' + c.how + ') at ' + c.where + ': "' + c.text + '"');
+    const a11y = await import('./js/a11ytest.js');
+    for (const c of a11y.findUnnamed($('#convPanel'))) say('a control without a name for screen readers: ' + c.where + ' ' + c.html);
+    if (drawer) {
+      // Tab from the last control goes back to the first.
+      const list = [...$('#convPanel').querySelectorAll(':is(button, input, [tabindex]):not([tabindex="-1"]):not(:disabled)')].filter((n) => n.getClientRects().length);
+      if (!list.length) return say('nothing in History can take the focus');
+      list[list.length - 1].focus();
+      document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      if (document.activeElement !== list[0]) say('Tab from the last control in History went to ' + where(document.activeElement) + ', not back to the first');
+      // The list is redrawn after every reply: the focused row keeps the focus.
+      const row = $('#convList .conv-open');
+      const id = row?.closest('.conv-item')?.dataset.id;
+      row?.focus();
+      await chat.refreshList();
+      await wait(100);
+      const now = document.activeElement;
+      if (!now?.classList.contains('conv-open') || now.closest('.conv-item')?.dataset.id !== id) say('focus moved to ' + where(now) + ' when the list was redrawn');
+      if (${w} === 1600) {
+        // A layout with room docks it: closed, nothing inert, focus still in it.
+        setLayout('chat');
+        await wait(400);
+        if (isOpen()) say('History stayed a drawer after the layout changed to Chat');
+        if ($('#view-chat .chat-main').inert) say('the chat stayed inert after History docked');
+        if (!$('#convPanel').contains(document.activeElement)) say('focus left History when it docked (now on ' + where(document.activeElement) + ')');
+        setLayout(layout);
+        await wait(400);
+        $('#historyBtn').click();
+        await wait(300);
+      }
+    }
+    search.focus();
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await wait(150);
+    if (drawer) {
+      if (isOpen()) say('Esc did not close History');
+      if (document.activeElement !== $('#input')) say('Esc left the focus on ' + where(document.activeElement) + ', not the message box');
+    } else if (search.value) say('Esc in the side panel did not clear the search');
+    // A message hit opens its chat at that message.
+    $('#historyBtn').click();
+    await wait(300);
+    await type('capacitor');
+    const hit = $('#convList .conv-hit .conv-open');
+    if (!hit) return say('no message hit to open');
+    hit.click();
+    await wait(600);
+    if (layout === 'face') {
+      const card = $('#replyCard');
+      const kicker = card.querySelector('.reply-card-kicker').textContent;
+      if (card.classList.contains('hidden')) say('the message found is not on the reply card');
+      else if (!/[0-9]{4}/.test(kicker)) say('the reply card does not say when the message was written: "' + kicker + '"');
+    } else if (!$('.msg.found[data-id="msmoke22"]')) say('the chat did not open at the message found (no .msg.found for msmoke22)');
+    if (isOpen()) say('History stayed open after a chat was chosen');
+  };
+  const wizard = $('#onboarding');
+  const hadWizard = !wizard.classList.contains('hidden');
+  wizard.classList.add('hidden');
+  try {
+    await check();
+  } catch (err) {
+    say('the check stopped: ' + err.message);
+  } finally {
+    history.closeHistory({ focus: false });
+    search.value = '';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    setLayout('split');
+    await wait(400);
+    await chat.openConversation('csmoke01');
+    await wait(300);
+    if (hadWizard) wizard.classList.remove('hidden');
+  }
+  return found;
+})()`;
 async function scanText() {
   const wc = win.webContents;
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -340,6 +459,8 @@ async function scanText() {
         if (w === 1600) for (const p of await wc.executeJavaScript(namesJs(`settings/${tab}`), true)) found.add(p);
       }
     }
+    // History in the Face layout (always a drawer) and the Chat layout (docked where it has room).
+    for (const layout of ['face', 'chat']) for (const p of await wc.executeJavaScript(HISTORY_JS(layout, `history ${layout} @${w}`, w), true)) found.add(p);
     for (const [i, [channel, payload]] of PROMPTS.entries()) {
       const id = `smoke-${w}-${i}`;
       wc.send(channel, { id, timeoutSec: 75, sources: [], ...payload });
@@ -417,4 +538,4 @@ function noteError(err) {
   if (active) problems.push(`main: ${String(err?.stack || err).split('\n').slice(0, 3).join(' | ')}`);
 }
 
-module.exports = { active, prepare, watch, ready, noteError };
+module.exports = { active, prepare, watch, ready, noteError, seedChat };

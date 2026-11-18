@@ -9,6 +9,8 @@ import { showNote } from './notes.js';
 import { showVaultNote, searchVault } from './knowledge.js';
 import { speaker } from './voice.js';
 import { handoffSlot } from './handoff.js';
+import * as historycore from './historycore.mjs';
+import { initHistory, closeHistory, queryChanged, messageHits, searchOlder, forgetHit, historyOpen, keepFocus, restoreFocus } from './history.js';
 
 let currentId = null;
 let conversations = [];
@@ -32,10 +34,11 @@ export function initChat() {
   });
   $('#sendBtn').onclick = sendFromInput;
   $('#stopBtn').onclick = stop;
-  $('#newChatBtn').onclick = newChat;
-  $('#newChatTop').onclick = newChat; // the history panel (and its ＋) is hidden in the Face layout and narrow windows
-  $('#convSearch').addEventListener('input', renderConvList);
+  $('#newChatBtn').onclick = () => newChat();
+  $('#newChatTop').onclick = () => newChat(); // ＋ in the header: History (and its ＋) slides over the chat where there is no room
+  $('#convSearch').addEventListener('input', () => queryChanged($('#convSearch').value));
   $('#chatTitle').ondblclick = renameCurrent;
+  initHistory({ render: renderConvList, refresh: refreshList });
   // [[Note]] links in replies open the note (click, or Enter on a focused one).
   for (const box of [messagesEl(), $('#replyCard')]) for (const type of ['click', 'keydown']) box.addEventListener(type, onNoteLink);
   initReplyCard();
@@ -106,9 +109,14 @@ export async function refreshList() {
   renderConvList();
 }
 
+// History's list (the side panel, or the drawer over the chat: history.js). Titles that hold every word
+// of the search come first, in date groups; then, once main has looked (conv:search), the chats whose
+// messages hold them, each with the sentence around the words. Returns the counts for the live region.
 function renderConvList() {
-  const q = $('#convSearch').value.toLowerCase();
+  const q = $('#convSearch').value;
+  const words = historycore.terms(q);
   const list = $('#convList');
+  const kept = keepFocus(list);
   list.innerHTML = '';
   const startToday = new Date().setHours(0, 0, 0, 0);
   const groups = [
@@ -117,37 +125,93 @@ function renderConvList() {
     ['This week', (c) => c.updatedAt >= startToday - 7 * 86400000 && c.updatedAt < startToday - 86400000],
     ['Earlier', (c) => c.updatedAt < startToday - 7 * 86400000],
   ];
-  const filtered = conversations.filter((c) => !q || (c.title || '').toLowerCase().includes(q));
+  const filtered = conversations.filter((c) => historycore.matchesAll(c.title || '', words));
   // A page at a time: years of conversations shouldn't all become list rows (search covers them all).
   const page = filtered.slice(0, listLimit);
   for (const [label, test] of groups) {
     const items = page.filter(test);
     if (!items.length) continue;
     list.append(el('li', { class: 'conv-group' }, label));
-    for (const c of items) {
-      const name = chatcore.historyTitle(c); // a routine's conversation is marked ⏰
-      list.append(
-        el(
-          'li',
-          { class: `conv-item ${c.id === currentId ? 'active' : ''}`, onclick: () => openConversation(c.id), title: name.tip },
-          el('div', { class: 't' }, name.text),
-          el('div', { class: 'd' }, `${c.count} messages · ${timeAgo(c.updatedAt)}`),
-          el('button', { class: 'x', title: 'Delete', onclick: (e) => (e.stopPropagation(), deleteConversation(c)) }, '✕'),
-        ),
-      );
-    }
+    for (const c of items) list.append(convRow(c, { words }));
   }
   if (filtered.length > page.length) {
-    list.append(el('li', {}, el('button', { class: 'btn ghost conv-more', onclick: () => ((listLimit += LIST_PAGE), renderConvList()) }, `Show more (${filtered.length - page.length} older)`)));
+    list.append(el('li', {}, el('button', { class: 'btn ghost conv-more', type: 'button', onclick: () => ((listLimit += LIST_PAGE), renderConvList()) }, `Show more (${filtered.length - page.length} older)`)));
   }
-  if (!filtered.length) list.append(el('li', { class: 'muted', style: { padding: '10px', fontSize: '13px' } }, q ? 'No matches.' : 'No conversations yet.'));
+  // What was said: the chats already found by their title aren't repeated, and one deleted since (Settings →
+  // Clear all conversations) isn't listed.
+  const byId = new Map(conversations.map((c) => [c.id, c]));
+  const h = messageHits(q, byId);
+  let shown = 0;
+  if (h) {
+    const titled = new Set(filtered.map((c) => c.id));
+    const found = h.items.filter((x) => !titled.has(x.id));
+    shown = found.length;
+    if (found.length) list.append(el('li', { class: 'conv-group' }, 'In messages'));
+    for (const hit of found) list.append(convRow(byId.get(hit.id), { words, hit }));
+    const status = historycore.hitStatus({ state: h.state, shown: h.items.length, done: h.done, capped: h.capped, scanned: h.scanned, total: h.total, unreadable: h.unreadable });
+    const older = h.state === 'done' && !h.done && h.cursor;
+    if (status || older) list.append(el('li', { class: 'conv-status' }, status ? el('span', {}, status) : null, older ? el('button', { class: 'btn ghost small', type: 'button', onclick: searchOlder }, 'Search older chats') : null));
+  }
+  list.classList.toggle('stale', Boolean(h?.stale || h?.state === 'searching'));
+  const pending = h && (h.state !== 'done' || h.cursor);
+  if (!filtered.length && !shown && !pending) list.append(el('li', { class: 'muted', style: { padding: '10px', fontSize: '13px' } }, q.trim() ? 'No matches.' : 'No conversations yet.'));
+  restoreFocus(list, kept);
+  return { titles: filtered.length, shown, found: h?.items.length || 0 };
 }
 
+// One row: the title (search words marked), for a message hit the sentence around them and who said it
+// when; ✕ deletes (Delete on the row does the same). `c` is the index entry, also for a hit (its title is
+// current after a rename, and it knows a routine's chat).
+function convRow(c, { words, hit = null }) {
+  const name = chatcore.historyTitle(c); // a routine's conversation is marked ⏰
+  const meta = hit ? `${hit.role === 'user' ? 'You' : hit.persona || agentName()} · ${timeAgo(hit.at)}${hit.hits > 1 ? ` · ${hit.hits} messages` : ''}` : `${c.count} messages · ${timeAgo(c.updatedAt)}`;
+  const open = el(
+    'button',
+    { class: 'conv-open', type: 'button', title: name.tip, 'aria-current': c.id === currentId ? 'true' : null, onclick: () => openFromHistory(c.id, hit?.messageId || null) },
+    el('span', { class: 't' }, marked(name.text, historycore.marks(name.text, words))),
+    hit ? el('span', { class: 's' }, marked(hit.snippet?.text || '', hit.snippet?.marks)) : null,
+    el('span', { class: 'd' }, meta),
+  );
+  const x = el('button', { class: 'x', type: 'button', tabindex: '-1', title: 'Delete (Del)', 'aria-label': `Delete “${name.text}”`, onclick: () => deleteConversation(c) }, '✕');
+  return el('li', { class: `conv-item${hit ? ' conv-hit' : ''}${c.id === currentId ? ' active' : ''}`, 'data-id': c.id, 'data-kind': hit ? 'hit' : 'title' }, open, x);
+}
+
+// Text with the given [start, end) ranges in <mark>s (text nodes, never HTML).
+function marked(text, ranges) {
+  const out = [];
+  let at = 0;
+  for (const [s, e] of Array.isArray(ranges) ? ranges : []) {
+    if (!(s >= at && e > s && e <= text.length)) continue;
+    if (s > at) out.push(text.slice(at, s));
+    out.push(el('mark', {}, text.slice(s, e)));
+    at = e;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return out;
+}
+
+// Deleting from History keeps it open: focus goes to the next row (else the one before, else the search).
 async function deleteConversation(c) {
-  if (!(await confirmDialog('Delete conversation', `Delete “${c.title}”? This cannot be undone.`, 'Delete'))) return;
-  await api.conv.delete(c.id);
-  if (c.id === currentId) newChat();
-  refreshList();
+  const list = $('#convList');
+  const inPanel = $('#convPanel').contains(document.activeElement);
+  const items = [...list.querySelectorAll('.conv-item')];
+  const i = items.findIndex((n) => n.dataset.id === c.id);
+  const near = items[i + 1] || items[i - 1] || null;
+  const next = near ? { id: near.dataset.id, kind: near.dataset.kind, part: 'open' } : null;
+  const back = (row) => (inPanel || historyOpen()) && restoreFocus(list, { scroll: list.scrollTop, row, button: '' });
+  if (!(await confirmDialog('Delete conversation', `Delete “${c.title || 'Untitled'}”? This cannot be undone.`, 'Delete'))) return back({ id: c.id, kind: items[i]?.dataset.kind, part: 'open' });
+  try {
+    await api.conv.delete(c.id);
+  } catch (err) {
+    return toastError(err);
+  }
+  forgetHit(c.id);
+  if (c.id === currentId) newChat({ focus: false });
+  await refreshList();
+  if (inPanel || historyOpen()) {
+    if (next) back(next);
+    else $('#convSearch').focus({ preventScroll: true });
+  }
 }
 
 async function renameCurrent() {
@@ -159,16 +223,17 @@ async function renameCurrent() {
   refreshList();
 }
 
-export function newChat() {
+export function newChat({ focus = true } = {}) {
   if (active) stop();
   closeCard(); // closed, not just hidden: the stopped reply's last text and its 'aborted' must not bring it back
+  if (focus) closeHistory({ focus: false });
   currentId = null;
   earlier = [];
   $('#chatTitle').textContent = 'New conversation';
   messagesEl().innerHTML = '';
   messagesEl().append(emptyStateNode());
   renderConvList();
-  $('#input').focus();
+  if (focus) $('#input').focus();
 }
 
 let emptyTemplate = null;
@@ -183,7 +248,9 @@ function emptyStateNode() {
   return node;
 }
 
-export async function openConversation(id) {
+// at: a message to show (History's search found it there); card: in the Face layout, it (or the latest
+// reply) on the card.
+export async function openConversation(id, { at = null, card = false } = {}) {
   if (active) return toast('Wait for the current reply to finish (or press stop).');
   const conv = await api.conv.get(id).catch(() => null);
   if (!conv) return newChat();
@@ -201,6 +268,9 @@ export async function openConversation(id) {
   box.scrollTop = box.scrollHeight;
   renderConvList();
   api.llm.prewarm(conv.id).catch(() => {});
+  const revealed = at && revealMessage(at);
+  // The Face layout's card shows one thing: the message asked for (History), else the latest reply.
+  if (faceLayout() && card) cardFor(conv, revealed ? at : null);
 }
 
 const MESSAGE_PAGE = 40;
@@ -229,6 +299,49 @@ function showEarlier() {
   box.insertBefore(frag, anchor);
   updateEarlierButton();
   box.scrollTo({ top: box.scrollTop + box.scrollHeight - before, behavior: 'instant' }); // .messages scrolls smoothly; this must not
+}
+
+// A message History's search found: earlier pages are added until it is there, then it is centred and
+// lit for a moment (.msg.found). False when it isn't in the open conversation (hidden, or no id).
+const FOUND_MS = 2600;
+function revealMessage(id) {
+  const box = messagesEl();
+  const find = () => box.querySelector(`.msg[data-id="${CSS.escape(String(id))}"]`);
+  let node = find();
+  if (!node && !earlier.some((m) => m.id === id)) return false;
+  while (!node && earlier.length && box.querySelector('.show-earlier')) {
+    showEarlier();
+    node = find();
+  }
+  if (!node) return false;
+  node.scrollIntoView({ block: 'center', behavior: 'instant' });
+  node.classList.add('found');
+  setTimeout(() => node.classList.remove('found'), FOUND_MS);
+  return true;
+}
+
+// The Face layout hides the list: the message found (or, without one, the latest reply) on the card,
+// with who said it and when.
+function cardFor(conv, at) {
+  const list = conv.messages.filter((m) => !m.hidden);
+  const m = at ? list.find((x) => x.id === at) : list.findLast((x) => x.role === 'assistant' && (x.content || '').trim());
+  if (!m) return;
+  const d = chatcore.describeMessage(m, TOOL_LABELS);
+  if (!d.text.trim()) return;
+  const who = m.role === 'user' ? 'You' : m.persona || agentName();
+  const when = new Date(Number(m.createdAt) || NaN);
+  const date = Number.isFinite(when.getTime()) ? when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const kicker = at ? `${who}${date ? ` · ${date}` : ''}` : `Latest reply${date ? ` · ${date}` : ''}`;
+  showCard(d.text, { plain: !d.markdown, kicker, at: m.id || null });
+}
+
+// A row in History: the chat opens (at the message the search found), and the drawer makes way. While a
+// reply is being written nothing opens, and the drawer stays.
+async function openFromHistory(id, at) {
+  if (active) return toast('Wait for the current reply to finish (or press stop).');
+  closeHistory({ focus: false });
+  await openConversation(id, { at, card: true });
+  $('#input').focus({ preventScroll: true });
 }
 
 // ------------------------------------------------------------------ messages
@@ -475,14 +588,23 @@ function initReplyCard() {
 
 // follow: a live card keeps the newest text in view (as the caption it replaces did), unless the user
 // scrolled up to read; a card that just appeared starts at the top. error: in the error colour, like the bubble.
-function showCard(md, { follow = false, error = false } = {}) {
+// plain: text as it is (a message of the user's); kicker: who and when (History); at: the message shown.
+let cardAt = null; // the message the card shows, for "Open in chat"
+function showCard(md, { follow = false, error = false, plain = false, kicker = 'Latest reply', at = null } = {}) {
   const body = $('#replyCardBody');
-  const shown = !replyCard().classList.contains('hidden');
-  const atEnd = shown && body.scrollHeight - body.scrollTop - body.clientHeight < 24;
-  body.innerHTML = renderMarkdown(md, { wikilinks: 'open' });
+  const visible = !replyCard().classList.contains('hidden');
+  const atEnd = visible && body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+  const k = replyCard().querySelector('.reply-card-kicker');
+  if (k.textContent !== kicker) {
+    k.textContent = kicker; // runs every frame while a reply streams: only when it changes
+    replyCard().setAttribute('aria-label', kicker);
+  }
+  if (plain) body.textContent = md;
+  else body.innerHTML = renderMarkdown(md, { wikilinks: 'open' });
   body.classList.toggle('error-bubble', error);
+  cardAt = at;
   replyCard().classList.remove('hidden');
-  if (!shown) body.scrollTop = 0;
+  if (!visible) body.scrollTop = 0;
   else if (follow && atEnd) body.scrollTop = body.scrollHeight;
 }
 
@@ -500,11 +622,14 @@ function closeCard() {
 }
 
 // The whole conversation instead (Split; the setting as the voice command saves it, so no layout.js import),
-// opened at the latest reply at once (.messages scrolls smoothly; a layout switch must not). The 'settings'
-// event has applied the layout by the time saveSettings resolves.
+// opened at the message the card showed (one History found), else at the latest reply, at once (.messages
+// scrolls smoothly; a layout switch must not). The 'settings' event has applied the layout by the time
+// saveSettings resolves.
 async function openCardInChat() {
+  const at = cardAt;
   hideCard();
   await saveSettings({ ui: { chatLayout: 'split', showVisualizerInChat: true } });
+  if (at && revealMessage(at)) return;
   const box = messagesEl();
   box.scrollTo({ top: box.scrollHeight, behavior: 'instant' });
 }
@@ -536,6 +661,7 @@ export function sendVoice(text) {
     const input = $('#input');
     input.value = (input.value ? `${input.value} ` : '') + text;
     autosize();
+    closeHistory({ focus: false }); // otherwise the composer is inert
     input.focus();
     return;
   }
@@ -558,6 +684,7 @@ export async function send(text, { voice = false, hidden = false } = {}) {
   }
   speaker.stop();
   hideCard();
+  closeHistory({ focus: false });
   $('#emptyState')?.remove();
   messagesEl().querySelector('.empty-state')?.remove();
 

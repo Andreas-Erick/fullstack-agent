@@ -1,4 +1,4 @@
-// Syntax-checks every main-process (CommonJS) and renderer (ES module) source file.
+// Syntax-checks every main-process (CommonJS) and renderer (ES module, .js and .mjs) source file.
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -39,7 +39,7 @@ function check(file, asModule) {
 }
 
 cjs.filter((f) => f.endsWith('.js')).forEach((f) => check(f, false));
-esm.filter((f) => f.endsWith('.js')).forEach((f) => check(f, true));
+esm.filter((f) => /\.m?js$/.test(f)).forEach((f) => check(f, true)); // renderer/js/*.mjs too (shared with main)
 fs.rmSync(tmp, { recursive: true, force: true });
 
 // Then the cross-file integrity checks (scripts/verify.js), once every file parses.

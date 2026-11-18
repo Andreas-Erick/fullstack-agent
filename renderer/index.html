@@ -107,19 +107,26 @@
       <main class="views">
         <!-- ============ CHAT ============ -->
         <section class="view active" id="view-chat">
-          <aside class="conv-panel glass">
+          <!-- History (js/history.js): docked beside the chat, or a drawer over it in the Face layout and narrow windows. -->
+          <div class="conv-panel glass" id="convPanel" role="region" aria-labelledby="historyHeading">
             <div class="panel-head">
-              <h3>History</h3>
+              <h3 id="historyHeading">History</h3>
               <button class="icon-btn" id="newChatBtn" title="New conversation (Ctrl+N)">＋</button>
+              <button class="icon-btn" id="historyClose" aria-label="Close History" title="Close (Esc)">✕</button>
             </div>
-            <input class="input search" id="convSearch" placeholder="Search conversations…" />
+            <input class="input search" id="convSearch" placeholder="Search titles and messages…" aria-label="Search conversations" aria-controls="convList" autocomplete="off" spellcheck="false" />
             <ul class="conv-list" id="convList"></ul>
-          </aside>
+            <p class="sr-only" id="convSearchStatus" role="status" data-clip-ok></p>
+          </div>
+          <div class="history-scrim" id="historyScrim" aria-hidden="true"></div>
+          <!-- Screen readers hear each finished reply here (js/chat.js announce()), not every streamed word. Outside .chat-main, which History makes inert. -->
+          <div class="sr-only" id="chatLive" aria-live="polite" aria-atomic="true"></div>
 
           <div class="chat-main">
             <div class="chat-header">
               <h2 id="chatTitle">New conversation</h2>
               <div class="chat-header-actions">
+                <button class="chip-btn" id="historyBtn" title="Your earlier chats, and a search through them (Ctrl+H)" aria-controls="convPanel" aria-expanded="false" aria-keyshortcuts="Control+H">🕘 History</button>
                 <button class="chip-btn" id="newChatTop" title="Start a new chat (Ctrl+N, or say &quot;new chat&quot;)">＋ New chat</button>
                 <button class="chip-btn" id="shareBtn" title="Share a screen or window so the assistant can see it">🖥 Share screen</button>
                 <button class="chip-btn" id="speakToggle" title="Speak replies aloud">🔊 Voice on</button>
@@ -139,8 +146,6 @@
                 </div>
               </div>
             </div>
-            <!-- Screen readers hear each finished reply here (js/chat.js announce()), not every streamed word. -->
-            <div class="sr-only" id="chatLive" aria-live="polite" aria-atomic="true"></div>
             <div class="messages" id="messages" role="region" aria-label="Conversation">
               <div class="empty-state" id="emptyState">
                 <div class="empty-orb"></div>

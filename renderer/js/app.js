@@ -13,6 +13,7 @@ import { initUpdates } from './updates.js';
 import { initIssues } from './issues.js';
 import { initSysmon } from './sysmon.js';
 import { handoffNote } from './handoff.js';
+import { toggleHistory } from './history.js';
 import { initHud, bootScreen } from './hud.js';
 import { tryCommand } from './commands.js';
 import { startThinkingSound, stopThinkingSound, thinkingStyle } from './sounds.js';
@@ -404,6 +405,11 @@ function setupShortcuts() {
     } else if (mod && e.key === ',') {
       e.preventDefault();
       switchView('settings');
+    } else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'h' && $('#modal').classList.contains('hidden') && $('#onboarding').classList.contains('hidden') && !$('#notesDumpLayer')) {
+      // History: the earlier chats and the search through them (history.js), from any view.
+      e.preventDefault();
+      if (currentView !== 'chat') switchView('chat');
+      toggleHistory();
     } else if (mod && e.key.toLowerCase() === 'n') {
       e.preventDefault();
       switchView('chat');
