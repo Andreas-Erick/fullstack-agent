@@ -177,3 +177,46 @@ test('Macs with Apple silicon: unified memory, lighter below 16 GB, the GPU’s 
   assert.doesNotMatch(light.hw.reason, /graphics card/, 'a Mac is never told it has no graphics card');
   assert.strictEqual(r.classify(mac(16), hw.recommend(mac(16), { webgpu: true })).detected, 'high');
 });
+
+// Nobody looking (the window unfocused and idle, or asleep): faces rest; the village and its rooms follow the
+// voice cap and rest with the window. Each cap is the lowest that applies.
+test('faceFpsCap: resting 30, asleep 20, the lowest cap wins', () => {
+  assert.strictEqual(r.REST_FACE_FPS, 30);
+  assert.strictEqual(r.SLEEP_FACE_FPS, 20);
+  assert.strictEqual(r.faceFpsCap({ resting: true }), 30);
+  assert.strictEqual(r.faceFpsCap({ sleeping: true }), 20);
+  assert.strictEqual(r.faceFpsCap({ resting: true, voiceWorking: true }), 30, 'resting beats the voice cap');
+  assert.strictEqual(r.faceFpsCap({ balanced: true, sleeping: true }), 20);
+  assert.strictEqual(r.faceFpsCap({ voiceWorking: true }), 60, 'the voice alone, as before');
+  assert.strictEqual(r.faceFpsCap({ balanced: true, voiceWorking: true }), 30, 'as before');
+  assert.strictEqual(r.faceFpsCap({ resting: false, sleeping: false, balanced: false, voiceWorking: false }), 0);
+  assert.strictEqual(r.faceFpsCap({}), 0);
+  assert.strictEqual(r.faceFpsCap(), 0);
+  // Asked on every display frame (env.maxFps): no arrays built there.
+  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/perfcore.js'), 'utf8');
+  const body = src.slice(src.indexOf('export function faceFpsCap('), src.indexOf('export const REST_CANVAS_FPS'));
+  assert.ok(body.includes('let cap = Infinity;'), 'faceFpsCap found');
+  assert.ok(!/\[|\.filter\(|\.\.\./.test(body), 'allocates nothing');
+});
+
+test('canvasFps: the chosen rate, held to the voice cap and the resting rate; anything else is auto', () => {
+  assert.strictEqual(r.REST_CANVAS_FPS, 20);
+  assert.strictEqual(r.canvasFps({ chosen: 120, voiceWorking: true }), 60);
+  assert.strictEqual(r.canvasFps({ chosen: 120, resting: true }), 20);
+  assert.strictEqual(r.canvasFps({ chosen: 120, voiceWorking: true, resting: true }), 20);
+  assert.strictEqual(r.canvasFps({ chosen: 120 }), 120);
+  assert.strictEqual(r.canvasFps({ chosen: 'auto' }), 30);
+  assert.strictEqual(r.canvasFps({ chosen: 'auto', balanced: true }), 15);
+  assert.strictEqual(r.canvasFps({ chosen: '60' }), 60, 'the view’s select saves a string');
+  assert.strictEqual(r.canvasFps({ chosen: 15, voiceWorking: true }), 15, 'a lower choice stays');
+  assert.strictEqual(r.canvasFps({ chosen: 30, balanced: true }), 30, 'a choice beats Balanced’s auto');
+  for (const chosen of ['auto', 'abc', '', 0, -1, NaN, Infinity, null, undefined, 45, '30.5', {}, []]) {
+    assert.strictEqual(r.canvasFps({ chosen }), 30, `auto for ${String(chosen)}`);
+    assert.strictEqual(r.canvasFps({ chosen, balanced: true }), 15, `Balanced auto for ${String(chosen)}`);
+  }
+  assert.strictEqual(r.canvasFps(), 30, 'no argument: auto');
+  for (const opts of [{ chosen: 120 }, { chosen: 120, voiceWorking: true }, { chosen: 'x', resting: true }, { balanced: true, resting: true }]) {
+    const fps = r.canvasFps(opts);
+    assert.ok(Number.isFinite(fps) && fps > 0, `a usable rate for ${JSON.stringify(opts)}`);
+  }
+});

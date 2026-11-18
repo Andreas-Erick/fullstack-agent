@@ -20,6 +20,22 @@ export const isStoppedReply = (m) => m?.role === 'assistant' && (m.stopped === t
 /** What the user sent, as they typed it: a /skill as typed (not its steps), a message with files its typed words. */
 export const sentText = (m) => (m?.skill && m.display ? String(m.display) : m?.attachments?.length ? String(m.display || '') : String(m?.content || ''));
 
+/** A call of an earlier attempt that never reported back (attemptRecord's ok: null): it may or may not have happened. */
+export const cutOff = (t) => t?.ok === null;
+
+/**
+ * At most n of the calls, the ones `first` picks ahead of the rest, in their original order. Every cap takes
+ * the cut-off calls first: the call in flight at a stop is the last one started, and a first-n slice dropped
+ * it into a count that every surface calls done.
+ */
+function keepFirst(list, n, first) {
+  const order = list.map((_t, i) => i);
+  const kept = new Set([...order.filter((i) => first(list[i])), ...order.filter((i) => !first(list[i]))].slice(0, n));
+  return list.filter((_t, i) => kept.has(i));
+}
+
+const count = (n) => Math.max(0, Math.floor(Number(n) || 0));
+
 /** Two messages are the same when they are after this: lower case, letters and digits, single spaces. */
 export const norm = (t) => String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
@@ -143,11 +159,14 @@ export function plan(messages, req, { title = '', hasSession = false, readOnly =
     ...(l.state === 'unanswered' && Array.isArray(a?.tools) ? a.tools.map((t) => ({ name: String(t?.name || ''), ok: t?.ok, input: t?.brief || '' })) : []),
   ];
   const acted = dropped.filter((t) => t.name && t.ok !== false && !readOnly(t.name));
-  const ask = acted.filter((t) => !harmless(t.name));
-  // Actions past the attempt record's limit (attemptRecord): known only by their number, so asked about.
-  const more = l.state === 'unanswered' ? Math.max(0, Math.floor(Number(a?.more) || 0)) : 0;
+  // Actions past the attempt record's limit (attemptRecord) are known only by their number, so asked about:
+  // the reported ones (more) as done; cut-off ones (moreCut) through the cut-off calls it names, harmless or not.
+  const more = l.state === 'unanswered' ? count(a?.more) : 0;
+  const moreCut = l.state === 'unanswered' ? count(a?.moreCut) : 0;
+  const ask = acted.filter((t) => !harmless(t.name) || (moreCut > 0 && cutOff(t)));
   const uncertain = l.state === 'unanswered' && !l.certain;
   const firstUser = list.findIndex((m) => m?.role === 'user') === l.index;
+  const listed = keepFirst(acted, LISTED, cutOff);
   return {
     ok: true,
     kind,
@@ -159,14 +178,15 @@ export function plan(messages, req, { title = '', hasSession = false, readOnly =
     state: l.state,
     replyDropped,
     resetSession,
-    acted: acted.slice(0, LISTED),
-    ask: ask.slice(0, LISTED),
+    acted: listed,
+    unsure: listed.filter(cutOff), // cut off before they reported back: a subset of acted, the same objects
+    ask: keepFirst(ask, LISTED, cutOff),
     more,
     uncertain,
     taint: !resetSession && (dropped.some((t) => tainting(t.name)) || (l.state === 'unanswered' && a?.tainted === true)),
     keepTitle: !firstUser || Boolean(user.skill) || title !== autoTitle(user),
     hadImages: Boolean(user.screen || user.attachments?.some((x) => x?.kind === 'image')),
-    note: noteFor({ kind, replyDropped, failed: !replyDropped, sameSession: !resetSession, acted, more, uncertain }),
+    note: noteFor({ kind, replyDropped, failed: !replyDropped, sameSession: !resetSession, acted, more, moreCut, uncertain }),
   };
 }
 
@@ -196,9 +216,10 @@ const CUT_OFF = 'An earlier attempt at this message was cut off (the app closed 
 
 /**
  * What the new turn is told about the earlier one (prompt.turnContext's "Answering this message again"); '' for nothing.
- * more: actions past the attempt record's limit, counted with the unnamed ones.
+ * more / moreCut: the reported and the cut-off actions past the attempt record's limit, each counted with
+ * the unnamed ones of its kind.
  */
-export function noteFor({ kind = 'again', replyDropped = false, failed = false, sameSession = false, acted = [], more = 0, uncertain = false } = {}) {
+export function noteFor({ kind = 'again', replyDropped = false, failed = false, sameSession = false, acted = [], more = 0, moreCut = 0, uncertain = false } = {}) {
   const lines = [];
   if (replyDropped) lines.push(kind === 'edit' ? EDITED : REGENERATED);
   else {
@@ -207,15 +228,22 @@ export function noteFor({ kind = 'again', replyDropped = false, failed = false, 
     else if (failed && kind !== 'edit') lines.push(UNFINISHED);
   }
   const list = Array.isArray(acted) ? acted : [];
-  const rest = Math.max(0, list.length - NOTE_LINES) + Math.max(0, Math.floor(Number(more) || 0));
-  if (list.length || rest) {
-    lines.push(uncertain ? 'These are known to have happened; there may be more:' : 'These actions from it already happened and were not undone:');
-    for (const t of list.slice(0, NOTE_LINES)) {
-      const input = typeof t.input === 'string' ? t.input : JSON.stringify(t.input ?? {});
-      lines.push(oneLine(`- ${t.name} ${input}`, BRIEF));
-    }
-    if (rest) lines.push(`…and ${rest} more`);
+  // Split before the cap, the cut-off calls named first: they are the ones to check.
+  const cutAll = list.filter(cutOff);
+  const doneAll = list.filter((t) => !cutOff(t));
+  const cut = cutAll.slice(0, NOTE_LINES);
+  const done = doneAll.slice(0, NOTE_LINES - cut.length);
+  const restCut = cutAll.length - cut.length + count(moreCut);
+  const restDone = doneAll.length - done.length + count(more);
+  const line = (t) => oneLine(`- ${t.name} ${typeof t.input === 'string' ? t.input : JSON.stringify(t.input ?? {})}`, BRIEF);
+  if (done.length || restDone) {
+    lines.push(uncertain ? 'These are known to have happened; there may be more:' : 'These actions from it already happened and were not undone:', ...done.map(line));
+    if (restDone) lines.push(`…and ${restDone} more`);
     lines.push("Don't do them again unless the user asks.");
+  }
+  if (cut.length || restCut) {
+    lines.push('These were cut off before they reported back; check whether they happened (the schedule, the repository, the service) before doing them again:', ...cut.map(line));
+    if (restCut) lines.push(`…and ${restCut} more`);
   }
   return lines.join('\n');
 }
@@ -223,24 +251,30 @@ export function noteFor({ kind = 'again', replyDropped = false, failed = false, 
 /**
  * How an attempt at a message went, as stored on it (main.js startTurn): normalized and bounded. Only the
  * calls that may have changed something are listed (reads, and calls that failed, did nothing to repeat),
- * so a long run of reads never pushes an action out: `more` counts the actions past the limit, and
- * `tainted` says whether any call brought in outside content (a kept session still holds it).
+ * so a long run of reads never pushes an action out. Those that never reported back are kept first (in
+ * their order with the rest): `more` counts the reported actions past the limit, `moreCut` the cut-off ones,
+ * and `tainted` says whether any call brought in outside content (a kept session still holds it).
  */
 export function attemptRecord({ outcome = 'failed', at = Date.now(), error = '', ran = [], output = false, partial = false, readOnly = () => false, tainting = () => false } = {}) {
   const kind = ['running', 'failed', 'stopped'].includes(outcome) ? outcome : 'failed';
   const calls = (Array.isArray(ran) ? ran : []).filter((t) => t?.name);
   const acting = calls.filter((t) => t.ok !== false && !readOnly(String(t.name)));
-  const tools = acting.slice(0, ATTEMPT_TOOLS).map((t) => ({
+  const unreported = (t) => t.ok !== true;
+  const kept = keepFirst(acting, ATTEMPT_TOOLS, unreported);
+  const tools = kept.map((t) => ({
     name: String(t.name).slice(0, 120),
     ok: t.ok === true ? true : null, // null: it never reported back
     brief: briefOf(t.input ?? t.brief),
   }));
+  const moreCut = acting.filter(unreported).length - kept.filter(unreported).length;
+  const more = acting.length - kept.length - moreCut;
   return {
     outcome: kind,
     at: Number(at) || Date.now(),
     ...(kind === 'failed' && error ? { error: String(error).slice(0, 300) } : {}),
     tools,
-    ...(acting.length > tools.length ? { more: acting.length - tools.length } : {}),
+    ...(more ? { more } : {}),
+    ...(moreCut ? { moreCut } : {}),
     ...(calls.some((t) => tainting(String(t.name))) ? { tainted: true } : {}),
     output: Boolean(output),
     ...(partial ? { partial: true } : {}),

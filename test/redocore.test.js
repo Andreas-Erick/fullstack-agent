@@ -273,6 +273,201 @@ test('attempt records are bounded; set and removed by message id', () => {
   assert.deepStrictEqual(core.withoutAttempt({ id: 'x', attempt: a }), { id: 'x' });
 });
 
+// Regression (gap-stop-cancellation-4): a call of a stopped or failed attempt that never reported back
+// (ok: null: a push waiting for approval when Stop came) was called done: the confirm said "already did
+// this, and it isn't undone", the notice "Already done", and the model was told not to repeat it.
+const CUT_HEAD = 'These were cut off before they reported back; check whether they happened (the schedule, the repository, the service) before doing them again:';
+const DONE_HEADS = ['These actions from it already happened and were not undone:', 'These are known to have happened; there may be more:'];
+const DONT = "Don't do them again unless the user asks.";
+
+/** The note's lines grouped under their headings: { heading: [lines] }. */
+function sections(note) {
+  const out = {};
+  let head = null;
+  for (const line of String(note).split('\n')) {
+    if (line === CUT_HEAD || DONE_HEADS.includes(line)) out[(head = line)] = [];
+    else if (head && (line.startsWith('- ') || line.startsWith('…and '))) out[head].push(line);
+    else head = null;
+  }
+  return out;
+}
+
+test('a call cut off before it reported back is asked about, but never called done', () => {
+  const stopped = (tools) => [user('u1', 'push it', { attempt: { outcome: 'stopped', at: 1, tools, output: true } })];
+  const p = core.plan(stopped([{ name: 'github_push', ok: null, brief: 'main' }]), { kind: 'again', messageId: 'u1' }, opts());
+  assert.deepStrictEqual(p.acted.map((t) => t.name), ['github_push']);
+  assert.deepStrictEqual(p.ask.map((t) => t.name), ['github_push'], 'still asked before a possible repeat');
+  assert.deepStrictEqual(p.unsure, [p.acted[0]], 'the same object as in acted');
+  assert.strictEqual(core.cutOff(p.unsure[0]), true);
+  const s = sections(p.note);
+  assert.deepStrictEqual(s[CUT_HEAD], ['- github_push main']);
+  for (const h of DONE_HEADS) assert.strictEqual(s[h], undefined, 'no "already happened" heading');
+  assert.ok(!p.note.includes(DONT));
+
+  const done = core.plan(stopped([{ name: 'github_push', ok: true, brief: 'main' }]), { kind: 'again', messageId: 'u1' }, opts());
+  assert.deepStrictEqual(done.unsure, []);
+  assert.deepStrictEqual(sections(done.note)[DONE_HEADS[0]], ['- github_push main']);
+  assert.ok(!done.note.includes(CUT_HEAD));
+
+  // A failed call never reaches the record (attemptRecord), so it is never listed at all.
+  const rec = core.attemptRecord({ outcome: 'failed', ran: [{ name: 'github_push', ok: false, input: { title: 'main' } }], readOnly });
+  const f = core.plan([user('u1', 'push it', { attempt: rec })], { kind: 'again', messageId: 'u1' }, opts());
+  assert.deepStrictEqual([f.acted, f.ask, f.unsure], [[], [], []]);
+  assert.ok(!f.note.includes('github_push'));
+
+  // A run that was still going (the app closed): its unreported calls under the cut-off line, the rest as known.
+  const running = core.attemptRecord({ outcome: 'running', partial: true, ran: [{ name: 'calendar_add_event', ok: true, input: { title: 'Dentist' } }, { name: 'github_push', ok: null, input: { title: 'main' } }], readOnly });
+  const r = core.plan([user('u1', 'do both', { attempt: running })], { kind: 'again', messageId: 'u1' }, opts());
+  assert.strictEqual(r.uncertain, true);
+  const rs = sections(r.note);
+  assert.deepStrictEqual(rs['These are known to have happened; there may be more:'], ['- calendar_add_event Dentist']);
+  assert.deepStrictEqual(rs[CUT_HEAD], ['- github_push main']);
+  assert.deepStrictEqual(r.unsure.map((t) => t.name), ['github_push']);
+});
+
+test('noteFor: where "…and N more" goes with done and cut-off calls', () => {
+  const both = core.noteFor({ failed: true, acted: [{ name: 'calendar_add_event', input: 'Dentist', ok: true }, { name: 'github_push', input: 'main', ok: null }], more: 2 });
+  const s = sections(both);
+  assert.deepStrictEqual(s[DONE_HEADS[0]], ['- calendar_add_event Dentist', '…and 2 more'], 'the unnamed ones count with the done ones');
+  assert.deepStrictEqual(s[CUT_HEAD], ['- github_push main']);
+  assert.ok(both.includes(DONT));
+  // more counts reported calls past the record's limit, moreCut cut-off ones (attemptRecord keeps those first).
+  const cut = core.noteFor({ failed: true, acted: [{ name: 'github_push', input: 'main', ok: null }], moreCut: 2 });
+  assert.deepStrictEqual(sections(cut)[CUT_HEAD], ['- github_push main', '…and 2 more']);
+  assert.ok(!cut.includes(DONT), 'nothing is said to be done');
+  for (const h of DONE_HEADS) assert.ok(!cut.includes(h));
+  const reported = sections(core.noteFor({ failed: true, acted: [{ name: 'github_push', input: 'main', ok: null }], more: 2, moreCut: 1 }));
+  assert.deepStrictEqual(reported[DONE_HEADS[0]], ['…and 2 more'], 'the reported ones past the limit are done');
+  assert.deepStrictEqual(reported[CUT_HEAD], ['- github_push main', '…and 1 more']);
+  // Unnamed ones alone: as before.
+  assert.match(core.noteFor({ failed: true, acted: [], more: 3 }), /These actions from it already happened and were not undone:\n…and 3 more\nDon't do them again/);
+  assert.strictEqual(core.cutOff({ ok: null }), true);
+  for (const t of [{ ok: true }, { ok: false }, {}, { ok: undefined }, null, undefined]) assert.strictEqual(core.cutOff(t), false, JSON.stringify(t));
+});
+
+// Regression: every cap took the first n calls, and the call in flight at a stop is the last one started. With
+// 9 or more actions it fell into the note's "…and N more" under "already happened … Don't do them again", from
+// 13 it left unsure and ask (the confirm and notice said done or nothing), past 20 it went into the record's
+// `more`, which every surface calls done.
+test('a call cut off after many others is still named as cut off, at every cap', () => {
+  const stopped = (ran) => {
+    const attempt = core.attemptRecord({ outcome: 'stopped', ran, readOnly, tainting });
+    return { attempt, p: core.plan([user('u1', 'do it all', { attempt })], { kind: 'again', messageId: 'u1' }, opts()) };
+  };
+  const events = (n) => Array.from({ length: n }, (_, i) => ({ name: 'calendar_add_event', ok: true, input: { title: `e${i}` } }));
+  const push = { name: 'github_push', ok: null, input: { title: 'main' } };
+  const counted = (lines) => Number(((lines || []).find((l) => l.startsWith('…and ')) || '…and 0').match(/\d+/)[0]);
+  for (const n of [7, 8, 9, 11, 12, 13, 19, 20, 21, 30]) {
+    const { attempt, p } = stopped([...events(n), push]);
+    const s = sections(p.note);
+    assert.deepStrictEqual(s[CUT_HEAD], ['- github_push main'], `${n} done before it: the push is named as cut off`);
+    const done = s[DONE_HEADS[0]];
+    assert.ok(!done.includes('- github_push main'), `${n}: never under the done heading`);
+    assert.strictEqual(done.filter((l) => l.startsWith('- ')).length + counted(done), n, `${n}: every event named or counted as done`);
+    assert.deepStrictEqual(p.unsure.map((t) => t.name), ['github_push'], `${n}: the confirm and the notice name it as cut off`);
+    assert.ok(p.ask.includes(p.unsure[0]), `${n}: still asked about`);
+    assert.strictEqual(attempt.tools.at(-1).name, 'github_push', `${n}: the record keeps it, in its order`);
+    assert.strictEqual(attempt.tools[0].brief, 'e0');
+    assert.strictEqual(attempt.moreCut, undefined);
+    assert.strictEqual(attempt.more || 0, Math.max(0, n + 1 - 20), `${n}: more counts only reported calls`);
+    assert.strictEqual(p.more, attempt.more || 0, `${n}: the window's "N more actions" are reported ones`);
+  }
+  // The reviewer's case: 22 edits, the last one cut off.
+  const edits = Array.from({ length: 22 }, (_, i) => ({ name: 'Edit', ok: i < 21 ? true : null, input: { file_path: `f${i}.js` } }));
+  const { attempt: rec, p: q } = stopped(edits);
+  assert.strictEqual(rec.more, 2);
+  assert.deepStrictEqual(q.unsure.map((t) => t.input), ['f21.js']);
+  assert.deepStrictEqual(sections(q.note)[CUT_HEAD], ['- Edit f21.js']);
+  assert.strictEqual(counted(sections(q.note)[DONE_HEADS[0]]), 14, '7 named of the 19 recorded, plus the 2 past the record');
+
+  // More cut off than the record holds (a burst of parallel calls at the stop): counted as cut off, never as
+  // done, and asked about although the named ones are harmless (their unnamed fellows may not be).
+  const burst = Array.from({ length: 25 }, (_, i) => ({ name: 'daily_note_log', ok: null, input: { title: `l${i}` } }));
+  const { attempt: b, p: bp } = stopped(burst);
+  assert.strictEqual(b.tools.length, 20);
+  assert.strictEqual(b.moreCut, 5);
+  assert.strictEqual(b.more, undefined);
+  const bs = sections(bp.note);
+  assert.strictEqual(bs[CUT_HEAD].length, 9);
+  assert.strictEqual(bs[CUT_HEAD].at(-1), '…and 17 more', '12 recorded but not named, plus the 5 past the record');
+  assert.ok(!bp.note.includes(DONT));
+  assert.strictEqual(bp.more, 0);
+  assert.strictEqual(bp.ask.length, 12);
+  assert.ok(bp.ask.every(core.cutOff));
+  // Within the record, harmless calls are still not asked about, cut off or not.
+  assert.deepStrictEqual(stopped(burst.slice(0, 5)).p.ask, []);
+  const logged = stopped(burst.map((t) => ({ ...t, ok: true })));
+  assert.deepStrictEqual(logged.p.ask, []);
+  assert.strictEqual(logged.p.more, 5, 'the reported ones past the record are counted, and asked about by number');
+});
+
+// Seeded: whatever an attempt ran, past every cap too (the note's 8, the window's 12, the record's 20), an
+// unreported call is never said to be done, and every reported action is, named or counted.
+test('attempt → plan: cut-off calls are named as cut off, done ones as done (seeded)', () => {
+  const LISTED = 12; // redocore's caps: acted/ask handed on, and the attempt record
+  const RECORD = 20;
+  const NOTE_LINES = 8;
+  const seed = 0x2545f491;
+  let s = seed >>> 0;
+  const rnd = () => {
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    s >>>= 0;
+    return s / 0x100000000;
+  };
+  const pick = (list) => list[Math.floor(rnd() * list.length)];
+  const NAMES = ['github_push', 'calendar_add_event', 'daily_note_log', 'memory_search'];
+  const named = (lines) => (lines || []).filter((l) => l.startsWith('- '));
+  const counted = (lines) => Number(((lines || []).find((l) => l.startsWith('…and ')) || '…and 0').match(/\d+/)[0]);
+  const titles = (list) => list.map((t) => (typeof t.input === 'string' ? t.input : t.input?.title)).sort();
+  for (let i = 0; i < 300; i++) {
+    const outcome = pick(['stopped', 'failed', 'running']);
+    const ran = Array.from({ length: Math.floor(rnd() * 26) }, (_, k) => ({ name: pick(NAMES), ok: pick([true, null, false]), input: { title: `c${i}-${k}` } }));
+    // Sometimes a burst of parallel calls was in flight (more than the record holds); usually the last one started.
+    if (rnd() < 0.15) for (let k = 0, n = 21 + Math.floor(rnd() * 5); k < n; k++) ran.push({ name: pick(['github_push', 'daily_note_log']), ok: null, input: { title: `c${i}-b${k}` } });
+    if (rnd() < 0.5) ran.push({ name: 'github_push', ok: null, input: { title: `c${i}-last` } });
+    const attempt = core.attemptRecord({ outcome, partial: outcome === 'running', ran, readOnly, tainting });
+    const p = core.plan([user('u1', 'do things', { attempt })], { kind: 'again', messageId: 'u1' }, opts());
+    const at = `seed ${seed} case ${i} (${outcome}, ${ran.length} calls: ${JSON.stringify(ran.map((t) => [t.name, t.ok]))})`;
+    assert.strictEqual(p.ok, true, at);
+    const acting = ran.filter((t) => t.ok !== false && !readOnly(t.name));
+    const cutCalls = acting.filter((t) => t.ok === null);
+    const doneCalls = acting.filter((t) => t.ok === true);
+    // The record: the cut-off calls kept first; what it can't hold is counted by kind.
+    const recCut = attempt.tools.filter((t) => t.ok === null).length;
+    assert.strictEqual(recCut, Math.min(cutCalls.length, RECORD), `${at}: cut-off calls are recorded first`);
+    assert.strictEqual(recCut + (attempt.moreCut || 0), cutCalls.length, `${at}: every cut-off call recorded or counted as cut off`);
+    assert.strictEqual(attempt.tools.filter((t) => t.ok === true).length + (attempt.more || 0), doneCalls.length, `${at}: every reported call recorded or counted as reported`);
+    // The note: each call under its own heading only, the rest of each kind counted there.
+    const sec = sections(p.note);
+    const under = (title) => Object.keys(sec).filter((h) => sec[h].some((l) => l.endsWith(` ${title}`)));
+    for (const t of ran) {
+      const where = under(t.input.title);
+      if (t.ok === false || readOnly(t.name)) assert.deepStrictEqual(where, [], `${at}: ${t.input.title} never appears`);
+      else if (t.ok === null) assert.ok(where.length <= 1 && where.every((h) => h === CUT_HEAD), `${at}: ${t.input.title} is cut off, never done`);
+      else assert.ok(where.length <= 1 && where.every((h) => DONE_HEADS.includes(h)), `${at}: ${t.input.title} is done`);
+    }
+    const doneHead = DONE_HEADS.find((h) => sec[h]);
+    assert.strictEqual(named(sec[CUT_HEAD]).length, Math.min(cutCalls.length, NOTE_LINES), `${at}: the cut-off calls are named first`);
+    assert.strictEqual(named(sec[CUT_HEAD]).length + counted(sec[CUT_HEAD]), cutCalls.length, `${at}: each cut-off call named or counted under the cut-off heading`);
+    assert.strictEqual(named(sec[doneHead]).length + counted(sec[doneHead]), doneCalls.length, `${at}: each reported call named or counted as done`);
+    assert.strictEqual(p.note.includes(DONT), doneCalls.length > 0, `${at}: "don't do them again" only for what happened`);
+    // The window and main: unsure is the cut-off calls handed on, first; more (the confirm's "N more
+    // actions", worded done) only reported ones.
+    assert.ok(p.unsure.every((t) => core.cutOff(t) && p.acted.includes(t)), `${at}: unsure is a part of acted`);
+    assert.strictEqual(p.unsure.length, Math.min(cutCalls.length, LISTED), `${at}: the cut-off calls are handed on first`);
+    assert.ok(p.acted.length <= LISTED && p.ask.length <= LISTED, at);
+    assert.strictEqual(p.more, attempt.more || 0, at);
+    const asked = new Set(titles(p.ask));
+    const cutToAsk = cutCalls.filter((t) => !harmless(t.name));
+    if (cutCalls.length <= RECORD && cutToAsk.length <= LISTED) for (const t of cutToAsk) assert.ok(asked.has(t.input.title), `${at}: ${t.input.title} is asked about`);
+    if (acting.length <= RECORD && acting.filter((t) => !harmless(t.name)).length <= LISTED) for (const t of acting.filter((x) => !harmless(x.name))) assert.ok(asked.has(t.input.title), `${at}: ${t.input.title} is asked about`);
+    if (attempt.moreCut) assert.ok(p.ask.length > 0, `${at}: unnamed cut-off calls are asked about`);
+  }
+});
+
 test('the tasks sync’s marker is the store’s own', () => {
   const store = fs.readFileSync(path.join(ROOT, 'main/store.js'), 'utf8');
   assert.ok(store.includes(`const TASKS_SYNC_DISPLAY = '${core.TASKS_SYNC_DISPLAY}';`));

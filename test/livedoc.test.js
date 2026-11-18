@@ -174,3 +174,36 @@ test('3D: a surface and items, turned by the view, depth-sorted, labels escaped'
   assert.throws(() => chart.render({ kind: '3d' }), /surface or items/);
   assert.throws(() => chart.render({ kind: '3d', items: [{ type: 'curve', x: 't' }] }), /x, y and z/);
 });
+
+// A playing chart re-rendered its whole SVG every display frame (9-13 ms, ~220 KB), also while its view was
+// hidden: now at most PLAY_FPS a second, and nothing while hidden.
+test('playDue: a playing chart draws at most 30 times a second, and never while hidden', () => {
+  assert.strictEqual(live.PLAY_FPS, 30);
+  assert.strictEqual(live.playDue(0, 1000, false), false, 'hidden');
+  assert.strictEqual(live.playDue(1000, 1010, true), false, '10 ms after the last draw');
+  assert.strictEqual(live.playDue(1000, 1033, true), true, '33 ms after');
+  assert.strictEqual(live.playDue(1000, 1000, true), false, 'the same frame');
+  assert.strictEqual(live.playDue(1000, 990, true), false, 'a clock that went back');
+  assert.strictEqual(live.playDue(NaN, 1000, true), false, 'NaN');
+  assert.strictEqual(live.playDue(0, NaN, true), false, 'NaN now');
+  assert.strictEqual(live.playDue(0, 1000, true), true, 'the first frame');
+  assert.strictEqual(live.playDue(1000, 1016.7, true, 60), true, 'another rate');
+  // One second of display frames (from 1000 ms), `last` the previous draw.
+  const draws = (hz) => {
+    let last = 0;
+    let n = 0;
+    for (let i = 0; i < hz; i++) {
+      const now = 1000 + (i * 1000) / hz;
+      if (!live.playDue(last, now, true)) continue;
+      last = now;
+      n++;
+    }
+    return n;
+  };
+  for (const hz of [85, 120, 144, 165, 240]) {
+    const n = draws(hz);
+    assert.ok(n >= 28 && n <= 31, `${hz} Hz: ${n} draws`);
+  }
+  assert.strictEqual(draws(60), 30, '60 Hz: every other frame');
+  assert.strictEqual(draws(30), 30, '30 Hz: every frame');
+});

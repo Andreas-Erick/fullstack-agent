@@ -20,6 +20,8 @@ import { palette, W, HZ } from './world/art.js';
 import { buildIsland, release as releaseIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf, bounds as sceneBounds } from './world/scene.js';
 import { createReplay, replayBar } from './replay.js';
 import { initRoom, openRoom, closeRoom, roomOpen, refreshRoom } from './roomview.js';
+import { canvasFps } from './perfcore.js';
+import { capFrame } from './faces/common.js';
 
 const ACTIONS = {
   library: ['Study session', () => ask('/study-session')],
@@ -454,6 +456,7 @@ function leftBuilding() {
 // zoom around the pointer, arrow keys / WASD, + and − to zoom, 0 for the whole island, Esc to step out.
 let glide = null; // { vx, vy } screen px per ms, slowing down
 let follow = null; // a resident's name while the camera follows them
+let followAt = 0; // when the follow last moved the camera (its ease goes by time)
 
 const clampZ = (z) => Math.max(home.z * 0.85, Math.min(home.z * 4.5, z));
 
@@ -613,7 +616,10 @@ function moveCamera(people) {
   if (follow && cam && !flight) {
     const p = people.find((x) => x.name === follow);
     if (!p) return stopFollowing();
-    const k = 0.12;
+    // Eased by the time since the last frame, so the camera keeps its pace at any frame rate.
+    const t = performance.now();
+    const k = 1 - Math.exp(-Math.min(100, followAt ? t - followAt : 16.7) / 120); // ≈ 0.13 a frame at 60 fps, as before
+    followAt = t;
     cam = { ...cam, x: cam.x + (p.x - cam.x) * k, y: cam.y + (p.y - 20 - cam.y) * k };
     if (Math.hypot(p.x - cam.x, p.y - 20 - cam.y) > 4) scheduleRebuild();
   }
@@ -621,6 +627,7 @@ function moveCamera(people) {
 
 function followResident(name) {
   follow = name;
+  followAt = 0;
   glide = null;
   if (cam.z < home.z * 2.2) flyTo({ ...cam, z: home.z * 2.4 });
   $('#worldFollow').classList.remove('hidden');
@@ -631,6 +638,7 @@ function followResident(name) {
 function stopFollowing() {
   if (!follow) return;
   follow = null;
+  followAt = 0;
   $('#worldFollow').classList.add('hidden');
 }
 
@@ -822,31 +830,32 @@ function positions(m) {
 
 // ------------------------------------------------------------ drawing
 let lastDrawAt = 0;
+let due = 0; // when the village's next frame may draw (capFrame)
+// The village's frame rate (perfcore.canvasFps); the room inside a building (roomview.js) uses the same.
+const villageFps = () => canvasFps({ chosen: state.settings?.innerWorld?.fps, balanced: lite(), voiceWorking: state.voiceWorking, resting: document.body.classList.contains('fx-rest') });
+const frameMs = () => 1000 / villageFps();
 // The timelapse playing (or a building still warm from it) and a fresh level-up need frames even
 // without the village's own animation.
-// The village's frame time: the user's choice (innerWorld.fps), or 30 a second (15 on Balanced).
-const frameMs = () => {
-  const fps = Number(state.settings?.innerWorld?.fps);
-  return [15, 30, 60, 120].includes(fps) ? 1000 / fps : lite() ? 66 : 33;
-};
 const busyGlowing = () => Boolean((lapse && (lapse.replay.state.playing || lapse.replay.state.heat.size)) || celebrating());
 function loop(once = false) {
   cancelAnimationFrame(frameId);
   if (currentView !== 'world' || document.hidden) return;
   const step = (now = performance.now()) => {
     if (currentView !== 'world' || document.hidden) return;
-    // Camera motion runs at the display's rate; the village's own animation at the chosen frame rate
-    // (innerWorld.fps; automatic: 30, or 15 on Balanced), on the display's own beat: frames are skipped, never put off with a timer,
-    // so each one lands on a vertical sync instead of between two.
-    const moving = flight || glide || follow;
-    const every = frameMs();
-    if (!moving && now - lastDrawAt < every - 4) {
-      frameId = requestAnimationFrame(step);
-      return;
+    // Camera flights and glides run at the display's rate; everything else (the village's own animation, a
+    // followed resident) at villageFps(), on the display's beat: frames are skipped, never put off with a
+    // timer (capFrame). Input is dispatched just before animation frames, so a frame a handler drew (drag,
+    // pinch, wheel, hover) counts as this one.
+    if (!(flight || glide)) {
+      const d = now - lastDrawAt < 4 ? null : capFrame(due, now, villageFps());
+      if (d === null) {
+        frameId = requestAnimationFrame(step);
+        return;
+      }
+      due = d;
     }
     const dt = Math.min(100, now - (lastStep || now));
     lastStep = now;
-    lastDrawAt = now;
     if (lapse && lapse.replay.tick(dt)) lapse.bar.update();
     if (flight) {
       const k = Math.min(1, (now - flight.start) / 650);
@@ -860,6 +869,7 @@ function loop(once = false) {
       }
     }
     draw();
+    lastDrawAt = now; // the loop's frame counts from its start, so the next display frame is free
     if (flight || glide || follow || animated() || busyGlowing()) frameId = requestAnimationFrame(step);
     else lastStep = 0;
   };
@@ -869,6 +879,7 @@ function loop(once = false) {
 
 function draw() {
   if (!ctx || !size.w || !data?.places) return;
+  lastDrawAt = performance.now();
   if (!cam) cam = { ...home };
   if (P && P.season !== season()) P = null; // a new season (or the setting changed): repaint
   const m = at();

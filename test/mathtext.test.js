@@ -63,3 +63,79 @@ test('speech never splits inside a formula', () => {
   assert.strictEqual(m.mathOpen('It costs $5. '), false);
   assert.strictEqual(m.mathOpen('Code `$x` here.'), false);
 });
+
+// While a reply streams, every frame rendered every formula again (KaTeX, ~1 ms each): typeset ones are kept.
+test('memoTex: a formula is typeset once, inline and display apart, and the cache clears at its cap', () => {
+  const calls = [];
+  const render = (tex, display) => (calls.push(`${display ? 'D' : 'I'}:${tex}`), `<k>${tex}${display ? '!' : ''}</k>`);
+  const memo = m.memoTex(render, 3);
+  assert.strictEqual(memo('a', false), '<k>a</k>');
+  assert.strictEqual(memo('a', false), '<k>a</k>', 'exactly what render returned');
+  assert.strictEqual(memo('a', true), '<k>a!</k>', 'display is another formula');
+  assert.deepStrictEqual(calls, ['I:a', 'D:a']);
+  assert.strictEqual(memo('', false), '<k></k>', 'an empty formula is one like any other');
+  assert.strictEqual(memo('', false), '<k></k>');
+  assert.deepStrictEqual(calls, ['I:a', 'D:a', 'I:']);
+
+  calls.length = 0;
+  const capped = m.memoTex(render, 3);
+  for (const t of ['a', 'b', 'c', 'd']) capped(t, false); // d clears a, b and c
+  capped('d', false);
+  assert.deepStrictEqual(calls, ['I:a', 'I:b', 'I:c', 'I:d'], 'd is kept');
+  capped('a', false);
+  assert.deepStrictEqual(calls.slice(4), ['I:a'], 'a is typeset again after the clear');
+  const big = m.memoTex(render);
+  calls.length = 0;
+  for (let i = 0; i < 3; i++) for (const t of ['x^2', String.raw`\frac{1}{2}`, 'y']) big(t, false);
+  assert.strictEqual(calls.length, 3, 'three formulas, three renders');
+});
+
+// A placeholder is the formula's index between the private-use characters U+E000 and U+E001 (mathtext.js).
+const OPEN = String.fromCharCode(0xe000);
+const CLOSE = String.fromCharCode(0xe001);
+const PLACEHOLDER_CHAR = new RegExp(`[${OPEN}${CLOSE}]`);
+
+test('mathSource: placeholders back to the formula’s source, for attributes', () => {
+  const { text, items } = m.extractMath('a $x^2$ b $$y$$');
+  const ph = (i) => text.match(new RegExp(`${OPEN}\\d+${CLOSE}`, 'g'))[i];
+  assert.strictEqual(m.mathSource(`a${ph(0)}b`, items), 'ax^2b');
+  assert.strictEqual(m.mathSource(text, items), 'a x^2 b y');
+  assert.strictEqual(m.mathSource(`${OPEN} stray`, items), `${OPEN} stray`, 'an opening without its pair stays');
+  assert.strictEqual(m.mathSource(`${OPEN}7${CLOSE}`, items), '', 'an index past the formulas');
+  assert.strictEqual(m.mathSource('', items), '');
+  assert.strictEqual(m.mathSource(null, []), 'null');
+  assert.strictEqual(m.mathSource(text, items), m.mathSource(text, items), 'the global pattern restarts by itself');
+});
+
+// Seeded: any Markdown's placeholders all go back to their sources, none left behind.
+test('mathSource round trip over random Markdown (seeded)', () => {
+  const seed = 0x9e3779b9;
+  let s = seed >>> 0;
+  const rnd = () => {
+    s ^= s << 13;
+    s >>>= 0;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    s >>>= 0;
+    return s / 0x100000000;
+  };
+  const pick = (list) => list[Math.floor(rnd() * list.length)];
+  const family = String.fromCodePoint(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467, 0x200d, 0x1f466); // one ZWJ emoji
+  const words = ['the', 'value', 'שלום', family, 'x', '**bold**', '_it_', '[l](u)', '\n', '  '];
+  const pieces = [
+    () => pick(words),
+    () => `$${pick(['x^2', 'a+b', String.raw`\alpha`, 'f(x)', String.raw`\frac{1}{n}`])}$`,
+    () => `$$${pick(['E=mc^2', String.raw`\sum_k k`, 'y'])}$$`,
+    () => String.raw`\(` + pick(['a', 'b_1', 'c^3']) + String.raw`\)`,
+    () => `$${Math.floor(rnd() * 100)}`,
+    () => '`$code$`',
+  ];
+  for (let i = 0; i < 100; i++) {
+    const n = 1 + Math.floor(rnd() * 12);
+    const md = Array.from({ length: n }, () => pick(pieces)()).join(' ');
+    const { text, items } = m.extractMath(md);
+    const back = m.mathSource(text, items);
+    assert.ok(!PLACEHOLDER_CHAR.test(back), `seed ${seed} case ${i}: no placeholder left in ${JSON.stringify(md)}`);
+    for (const it of items) assert.ok(back.includes(it.tex), `seed ${seed} case ${i}: ${JSON.stringify(it.tex)} is back`);
+  }
+});
