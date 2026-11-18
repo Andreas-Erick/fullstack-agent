@@ -17,6 +17,7 @@ Diagnose from the log rather than guessing.
 **Claude account:**
 - "not installed": install Claude Code (`irm https://claude.ai/install.ps1 | iex` on Windows, `curl -fsSL https://claude.ai/install.sh | bash` elsewhere), then click Refresh. If it lives somewhere unusual, set the path to the executable in Settings → AI brain.
 - "not signed in": Settings → AI brain → **Connect Claude account**. A terminal runs `claude auth login`. Choose your Claude subscription, not the Console.
+- The title bar's brain light reuses its sign-in check for 10 minutes (30 s while Claude Code is signed out or not found; an answer that fails on the sign-in clears it, so the next check is real). The lights refresh every 5 minutes and when you come back to the window (at most every 5 minutes, every 15 s while one shows a problem). Settings → AI brain → ⟳ Refresh checks at once.
 - **Usage limit reached:** the error says so. Wait for the reset, or switch the model mode to *fast*.
 - **Session exited mid-turn:** look for `claude session exited` in the log. The next message starts a new process and resumes the same conversation automatically.
 
@@ -162,9 +163,14 @@ The log is `<userData>/logs/nexus.log` (Settings → Health → Show log / Open 
 1. **Find the failure:** `read_app_log` with `level: "error"` (or `"warn"`), optionally `since_minutes`.
 2. **Trace that request:** take the `turn=` id from the failing line and read the log with `turn: "<id>"`. That shows everything the request did: the `turn` line (provider, model, voice), every tool call with its duration and arguments, approvals, Claude session start/stop/retry, the `reply` line with `firstTextMs`/`totalMs`, or `turn failed` with the error, its cause and the app's stack frames.
 3. **Know the setup:** each launch starts with `==================== app start` and an `environment` line (versions, code commit and uncommitted files, OS, CPU, RAM, GPU, monitors, the settings that change behaviour).
-4. **Voice timing:** `heard` (sttMs), `reply` (firstTextMs), `first audio` (synthMs, sinceSpeechEndMs).
+4. **Voice timing:** `heard` (sttMs), `reply` (firstTextMs), `first audio` (synthMs, the whole wait; for the offline voice also its parts: loadWaitMs = the model still loading, queueMs = sentences ahead of it in the worker, modelMs; sinceSpeechEndMs). For the offline voice:
+   - `offline voice ready`: device, importMs, phonemizerMs, tokenizerMs, sessionMs, warmupMs, warmupSkipped (a sentence was already waiting, usually the launch greeting, so that sentence's run warmed the model up), sinceStartMs.
+   - The first 40 `offline voice sentence` lines since the window opened (a reload of the voice doesn't start the count again): tokens, phonemeMs, modelMs, audioSec, ahead (sentences queued behind it), and what the window was doing (view, layout, fx, lite, focused, visible); the old newLength field is gone. Fillers made ahead don't count.
+   - `offline voice fillers ready` (n, ms, engine): the filler lines are made.
+   - `filler not made` (info): a filler made ahead failed, for example at a cloud limit; the next quiet moment tries again.
+   - The warning `offline voice stopped responding; restarting it`: a sentence ran over 30 s and the worker then stayed silent for another 30 s, so it is restarted and the model loads again.
 
-Also in the log: failed IPC calls (`ipc failed` + channel), console errors of every window, `heartbeat` every 15 minutes (memory, uptime), `tool slow` (> 5 s). A line repeated within 10 s is collapsed into "(previous line repeated N more times)". Secrets (API keys, tokens) are masked before writing.
+Also in the log: failed IPC calls (`ipc failed` + channel), console errors of every window, `heartbeat` every 15 minutes (memory, uptime), `tool slow` (> 5 s), `app restart` ("Restart now" after a change to the app's code). A line repeated within 10 s is collapsed into "(previous line repeated N more times)" at that line's level, and `analyze_errors` counts the repeats. Stack frames are short paths from the app's own folders (`main/llm.js:499:23`), never your user folder; a file outside the app shows only its name. One failure is one line. `tool declined` (INFO) is a call you said no to, not a fault. `turn not ready` (WARN) is a routine waiting for its AI brain; it tries again by itself. Secrets (API keys, tokens) are masked before writing.
 
 **Bug report:** Settings → Health → 🐞 Create bug report, or ask the agent (`create_bug_report`): one Markdown file in the log folder with the environment, health checks, all errors and warnings of the last 24 h, the last 600 log lines and the settings without secrets. That file is what to share when asking for help.
 
@@ -175,7 +181,7 @@ Also in the log: failed IPC calls (`ipc failed` + channel), console errors of ev
 - **Window crash:** the window reloads (up to 3 times a minute). The GPU/audio helper processes restart on their own (`helper process gone` in the log).
 - **Claude session:** a replaced process can no longer end its successor's turn; a process that dies before answering is retried once with a fresh session (`failed to start; retrying`). One that dies mid-work is not retried, so nothing runs twice.
 - **Speech-to-text:** a hung or failed transcription restarts the model (`timed out; restarting it` / `reloading the model`), so the mic never waits forever. If the mic stream ends (sleep, USB mic unplugged), hands-free reopens it with retries.
-- **Speaking:** playback can't get stuck "speaking" (which would keep the mic ignored): every sentence has a time limit.
+- **Speaking:** playback can't get stuck "speaking" (which would keep the mic ignored): every sentence has a time limit. The offline voice's worker is restarted if it hangs (`offline voice stopped responding; restarting it`). A stop drops the sentences of the old reply that were still waiting to be made.
 - **Deleting a conversation while it replies** stops the reply; it is not saved back.
 - **UI errors** are logged as `ui error` / `ui unhandled rejection` (once a minute per message) and never stop the app.
 - Leftover temp files (`nexus-cc-*` session folders, `*.tmp` from interrupted saves) are cleaned up at startup.
