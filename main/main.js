@@ -1026,9 +1026,12 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
   };
   emit({ type: 'start', userMessage: redo.publicMessage(userMsg), title: conv.title, ...(again ? { replaces: again.replaces } : {}) });
   if (again?.acted.length || again?.uncertain) {
-    const names = [...new Set(again.acted.map((a) => a.name.replace(/^mcp__(claude_ai_)?/, '').replace(/_+/g, ' ')))].join(', ');
+    const names = (list) => [...new Set(list.map((a) => a.name.replace(/^mcp__(claude_ai_)?/, '').replace(/_+/g, ' ')))].join(', ');
+    const cut = again.unsure || [];
+    const done = again.acted.filter((a) => !cut.includes(a));
     const who = settings.agent?.name || 'Siren';
-    emit({ type: 'notice', message: again.acted.length ? `Already done by the earlier ${again.replyDropped ? 'reply' : 'attempt'} (not undone): ${names}.` : `The earlier attempt was cut off; ${who} checks before repeating anything.`, tools: again.acted.map((a) => a.name) });
+    const said = [done.length ? `Already done by the earlier ${again.replyDropped ? 'reply' : 'attempt'} (not undone): ${names(done)}.` : '', cut.length ? `Cut off before it reported back (check before repeating): ${names(cut)}.` : ''].filter(Boolean).join(' ');
+    emit({ type: 'notice', message: said || `The earlier attempt was cut off; ${who} checks before repeating anything.`, tools: done.map((a) => a.name), cut: cut.map((a) => a.name) });
   }
   if (again?.hadImages && !images.length) emit({ type: 'notice', message: 'This message had a picture with it; pictures aren’t kept, so the new reply can’t see it.' });
 

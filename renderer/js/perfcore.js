@@ -14,9 +14,35 @@ export const BALANCED = {
 // at the screen's ~85 fps 2.8–3.1 s per sentence; capped at 60, 1.22 s; 45, 1.19; 30, 1.14; hidden, 1.08.
 export const SYNTH_FACE_FPS = 60;
 
-/** The most frames a second a face should draw now (0 = as many as the display shows). */
-export function faceFpsCap({ balanced = false, voiceWorking = false } = {}) {
-  return balanced ? BALANCED.faceFps : voiceWorking ? SYNTH_FACE_FPS : 0;
+// Unfocused and idle, a face rests (nobody is looking: body.fx-rest's rule for animations); asleep, more.
+// Never while she listens, thinks or speaks: hands-free voice with the face on another monitor is an
+// unfocused window that is busy.
+export const REST_FACE_FPS = 30;
+export const SLEEP_FACE_FPS = 20;
+
+/**
+ * The most frames a second a face should draw now (0 = as many as the display shows): the lowest cap that
+ * applies. Asked on every display frame (env.maxFps), so it allocates nothing.
+ */
+export function faceFpsCap({ balanced = false, voiceWorking = false, resting = false, sleeping = false } = {}) {
+  let cap = Infinity;
+  if (balanced) cap = Math.min(cap, BALANCED.faceFps);
+  if (voiceWorking) cap = Math.min(cap, SYNTH_FACE_FPS);
+  if (resting) cap = Math.min(cap, REST_FACE_FPS);
+  if (sleeping) cap = Math.min(cap, SLEEP_FACE_FPS);
+  return cap === Infinity ? 0 : cap;
+}
+
+export const REST_CANVAS_FPS = 20;
+
+/**
+ * The village's frames a second: the user's choice (innerWorld.fps 15/30/60/120, saved as a string by the
+ * view's select; anything else is auto: 30, 15 on Balanced), held to the faces' voice cap while the offline
+ * voice works, and to a resting rate while the window rests (body.fx-rest).
+ */
+export function canvasFps({ chosen, balanced = false, voiceWorking = false, resting = false } = {}) {
+  const pick = [15, 30, 60, 120].includes(Number(chosen)) ? Number(chosen) : balanced ? 15 : 30;
+  return Math.min(pick, voiceWorking ? SYNTH_FACE_FPS : Infinity, resting ? REST_CANVAS_FPS : Infinity);
 }
 
 /** 'balanced' or 'full' for these settings (perf.mode: auto | balanced | full). */

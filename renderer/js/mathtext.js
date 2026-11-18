@@ -46,6 +46,26 @@ export function restoreMath(html, items, render) {
   });
 }
 
+const PLACEHOLDER = new RegExp(`${PH_OPEN}(\\d+)${PH_CLOSE}`, 'g'); // replace() restarts a global regex itself
+
+/** Placeholders back to the formulas' source text, for where no markup may go (an attribute's value or name). */
+export function mathSource(s, items) {
+  return String(s).replace(PLACEHOLDER, (_m, i) => items[Number(i)]?.tex ?? '');
+}
+
+/** A typeset formula is kept: while a reply streams every frame renders it again otherwise. */
+export function memoTex(render, max = 500) {
+  const cache = new Map();
+  return (tex, display) => {
+    const key = `${display ? 'D' : 'I'}${tex}`;
+    if (cache.has(key)) return cache.get(key);
+    if (cache.size >= max) cache.clear();
+    const html = render(tex, display);
+    cache.set(key, html);
+    return html;
+  };
+}
+
 // ------------------------------------------------------------ speech
 const GREEK = 'alpha beta gamma delta epsilon varepsilon zeta eta theta vartheta iota kappa lambda mu nu xi pi varpi rho varrho sigma varsigma tau upsilon phi varphi chi psi omega Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega'.split(' ');
 

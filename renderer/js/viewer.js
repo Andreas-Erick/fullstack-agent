@@ -4,21 +4,25 @@
 // same window.
 import { $, api, el, toast, toastError } from './util.js';
 import { applyTheme } from './theme.js';
-import { renderDocument } from './docview.js';
+import { renderDocument, disposeDocument } from './docview.js';
 
 const viewer = document.getElementById('popupViewer');
 const KIND = { pdf: 'PDF', docx: 'WORD', markdown: 'MD', html: 'HTML', image: 'IMAGE', text: 'TEXT' };
 let controller = null;
+let showSeq = 0; // the latest show(): a slower load before it never lands under it
 
 const folderOf = (p) => String(p).replace(/[\\/][^\\/]*$/, '');
 
 async function show(path) {
+  disposeDocument(viewer); // one still loading stops here instead of appending under the next
+  const seq = ++showSeq;
   viewer.innerHTML = '';
   controller = null;
   const ctl = $('#docCtl');
   ctl.innerHTML = '';
   try {
     const doc = await api.docs.load(path);
+    if (seq !== showSeq) return; // another document was asked for meanwhile
     document.title = doc.name;
     $('#docKind').textContent = KIND[doc.kind] || 'FILE';
     $('#docKind').dataset.kind = doc.kind;
@@ -47,10 +51,13 @@ async function show(path) {
       );
     }
     ctl.append(actions);
-    controller = await renderDocument(doc, viewer, ctl);
+    const shown = await renderDocument(doc, viewer, ctl);
+    if (seq !== showSeq) return;
+    controller = shown;
     $('#docFoot').textContent = [doc.pages ? `${doc.pages} pages` : '', doc.size ? sizeLabel(doc.size) : '', 'Ctrl + wheel to zoom · Esc closes'].filter(Boolean).join(' · ');
     viewer.focus();
   } catch (err) {
+    if (seq !== showSeq) return;
     $('#docName').textContent = 'Could not open this document';
     viewer.append(el('p', { class: 'muted', style: { padding: '20px' } }, err.message));
   }

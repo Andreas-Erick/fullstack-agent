@@ -44,6 +44,14 @@ export function playValue(p, ms, periodMs = 6000) {
   return p.min + (p.max - p.min) * phase;
 }
 
+// A playing chart redraws its whole SVG each frame it draws: at most this many a second.
+export const PLAY_FPS = 30;
+
+/** Whether a playing chart draws this frame: its view is shown and a frame interval has passed. Pure. */
+export function playDue(last, now, shown, fps = PLAY_FPS) {
+  return Boolean(shown) && now - last >= 1000 / fps - 2;
+}
+
 const fmt = (v, step) => {
   const digits = Math.min(4, Math.max(0, -Math.floor(Math.log10(step || 1))));
   return Number(v).toFixed(digits);
@@ -112,6 +120,8 @@ export function liveChart(spec) {
   };
   let playing = null;
   let started = 0;
+  let lastDraw = 0;
+  let raf = 0; // the one tick chain (a quick pause and play never leaves two)
   const rows = ps.map((p) => {
     const out = h('output', { class: 'live-val' }, fmt(p.value, p.step));
     const range = h('input', { type: 'range', min: p.min, max: p.max, step: p.step, value: p.value, 'aria-label': p.label });
@@ -132,10 +142,12 @@ export function liveChart(spec) {
   const tick = (now) => {
     if (!playing) return;
     if (!plot.isConnected && started && now - started > 1000) return stop();
+    raf = requestAnimationFrame(tick);
+    if (!playDue(lastDraw, now, plot.offsetParent !== null)) return; // hidden (another view) or too soon
+    lastDraw = now;
     const r = rows.find((x) => x.p === playing);
-    // Starts from where the slider is: the phase that gives its current value.
+    // Starts from where the slider is: the phase that gives its current value (by time, so a hidden chart resumes in phase).
     r.set(playValue(playing, now - started + r.offset));
-    requestAnimationFrame(tick);
   };
   function start(p) {
     stop();
@@ -146,9 +158,10 @@ export function liveChart(spec) {
     r.btn.textContent = '⏸';
     r.btn.setAttribute('aria-label', `Pause ${p.label}`);
     started = performance.now();
-    requestAnimationFrame(tick);
+    raf = requestAnimationFrame(tick);
   }
   function stop() {
+    cancelAnimationFrame(raf);
     const r = rows.find((x) => x.p === playing);
     if (r) {
       r.btn.textContent = '▶';

@@ -87,6 +87,7 @@ function apply(conv, p, { forget = null } = {}) {
     replyDropped: p.replyDropped,
     keepTitle: p.keepTitle,
     acted: p.acted,
+    unsure: p.unsure,
     uncertain: p.uncertain,
     hadImages: p.hadImages,
     fresh: p.resetSession,

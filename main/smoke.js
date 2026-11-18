@@ -19,6 +19,20 @@ const problems = [];
 let app = null;
 let readyAt = 0;
 let finished = false;
+// Console errors a scene causes on purpose, while it runs: MARKDOWN_JS's hostile replies carry inline handlers
+// (onerror=…), and Chromium reports the window's CSP refusing one as soon as DOMPurify's own parse sees it.
+let expectedConsole = null; // (e) => true for such a report
+const cspRefusedHandler = (e) => /^Executing inline event handler violates the following Content Security Policy directive 'script-src /.test(String(e.message)) && /\/dompurify\/dist\/purify\.min\.js$/.test(String(e.sourceId || ''));
+
+/** Runs a scene while the console errors `expect` recognises are expected (only during that scene). */
+async function expecting(expect, run) {
+  expectedConsole = expect;
+  try {
+    return await run();
+  } finally {
+    expectedConsole = null;
+  }
+}
 
 /** Before anything reads the data folder: a fresh one, so the check never touches the user's data. */
 function prepare() {
@@ -145,7 +159,7 @@ function watch(electronApp, w) {
   // speechSynthesis, isn't muted by this; the smoke install never uses it.)
   w.webContents.setAudioMuted(true);
   w.webContents.on('console-message', (e) => {
-    if (e.level === 'error') problems.push(`console: ${String(e.message).slice(0, 300)} (${String(e.sourceId || '').replace(/^.*\/renderer\//, 'renderer/')}:${e.lineNumber})`);
+    if (e.level === 'error' && !expectedConsole?.(e)) problems.push(`console: ${String(e.message).slice(0, 300)} (${String(e.sourceId || '').replace(/^.*\/renderer\//, 'renderer/')}:${e.lineNumber})`);
   });
   w.webContents.on('preload-error', (_e, p, err) => problems.push(`preload ${p}: ${err?.message || err}`));
   w.webContents.on('did-fail-load', (_e, code, desc, url) => problems.push(`load failed: ${desc} (${code}) ${url}`));
@@ -356,6 +370,129 @@ const FAILED_CARD_JS = (label) => `(async () => {
   for (const [what, sel] of Object.entries(parts)) if (!document.querySelector(sel)) found.push(${JSON.stringify(label)} + ': the chat shows no ' + what);
   return found;
 })()`;
+// Rendered Markdown in the real window (util.js renderMarkdown with the real marked, DOMPurify and KaTeX):
+// hostile HTML in a reply comes out harmless (no styles, forms, frames, handlers, javascript: links, page
+// classes, labels for the app's controls, formulas typeset into SVG, formula placeholders in attributes),
+// while formulas keep KaTeX's styles and task lists, code languages, note links and an SVG's own references
+// stay; ids from content can't take the app's own (#modal…); then the chat opens
+// the chat asked for last, and one that can't be read says so and leaves the open one. Built here and passed
+// in as JSON, so the page code needs no escapes. Ends in Split with csmoke01 open. Returns the problems found.
+const MD_SVG_TEXT = '<svg><text>$x^2$</text></svg>'; // KaTeX's HTML there would break out of the SVG
+const MD_HOSTILE = [
+  'x\n\n<style>.rail{display:none}</style>',
+  '<div style="position:fixed;inset:0">y</div>',
+  '<div class="modal toast">c</div>',
+  '<form action="https://example.com"><input name="k"><button>b</button><select><option>o</option></select><textarea>t</textarea></form>',
+  '<img src=x onerror=alert(1)>',
+  '[x](javascript:alert(1))',
+  '<svg><a xlink:href="javascript:alert(1)"><text>t</text></a></svg>',
+  String.raw`$\href{javascript:alert(1)}{y}$`,
+  '<a href="$javascript:alert(1)$">j</a>',
+  '<span data-$x$="1">d</span>',
+  '<span class="katex"><div style="position:fixed">z</div></span>',
+  '<dialog open>d</dialog><iframe src="https://example.com"></iframe>',
+  '<a href=" JaVaScRiPt:alert(1)">s</a><button formaction="https://example.com">f</button>',
+  '<p>Answer: <label for="evoRestart">Show the full answer</label></p>', // would click Evolution's Restart now
+  MD_SVG_TEXT,
+];
+const MD_LONG = Array.from({ length: 80 }, (_, i) => `Step ${i}: ${'text that fills a long reply '.repeat(6)}$a_{${i}} + b^{${i}}$`).join('\n\n');
+// Right-to-left text, a formula and one ZWJ family emoji (built, so no invisible character sits in this file).
+const MD_FAMILY = String.fromCodePoint(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467, 0x200d, 0x1f466);
+const MD_INTL = `שלום $x$ ${MD_FAMILY}`;
+const MD_GRADIENT = '<svg width="4" height="4"><defs><linearGradient id="g"><stop offset="0"/></linearGradient></defs><rect fill="url(#g)" width="4" height="4"/></svg>';
+const MARKDOWN_JS = (label) => `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const found = [];
+  const say = (p) => found.push(${JSON.stringify(label)} + ': ' + p);
+  const { renderMarkdown, sanitizeHtml } = await import('./js/util.js');
+  const chat = await import('./js/chat.js');
+  const PH = [String.fromCharCode(0xe000), String.fromCharCode(0xe001)];
+  const parse = (html) => {
+    const t = document.createElement('template');
+    t.innerHTML = html;
+    return t.content;
+  };
+  const show = (s) => JSON.stringify(s).slice(0, 60);
+  const harmless = (src, frag) => {
+    const bad = (p) => say(show(src) + ': ' + p);
+    for (const tag of ['style', 'form', 'button', 'select', 'textarea', 'dialog', 'iframe', 'template', 'link', 'meta', 'base', 'object', 'embed', 'script']) if (frag.querySelector(tag)) bad('a <' + tag + '> got through');
+    if (frag.querySelector('input:not([type="checkbox"])')) bad('an input other than a task checkbox got through');
+    if (frag.querySelector('[for]')) bad('a label pointing at another element got through');
+    for (const n of frag.querySelectorAll('[style]')) if (!n.closest('.katex')) bad('a style outside a formula: ' + n.outerHTML.slice(0, 80));
+    for (const n of frag.querySelectorAll('*')) {
+      const inFormula = Boolean(n.closest('.katex, .katex-display'));
+      for (const a of n.attributes) {
+        if (a.value.trim().toLowerCase().startsWith('javascript:')) bad('a javascript: value in ' + a.name);
+        if (a.name.toLowerCase().startsWith('on')) bad('a handler ' + a.name);
+        if (PH.some((c) => a.name.includes(c) || a.value.includes(c))) bad('a formula placeholder left in ' + a.name);
+        if (!inFormula && (a.name.includes('<') || a.value.includes('<'))) bad('markup in an attribute ' + a.name);
+      }
+      if (!inFormula) for (const c of n.classList) if (c !== 'wikilink' && !c.startsWith('language-')) bad('a page class kept: ' + c);
+    }
+  };
+  const { classList } = document.getElementById('onboarding');
+  const hadWizard = !classList.contains('hidden');
+  classList.add('hidden');
+  const host = document.createElement('div');
+  try {
+    for (const src of ${JSON.stringify(MD_HOSTILE)}) harmless(src, parse(renderMarkdown(src, { wikilinks: 'open' })));
+    // What must keep working.
+    const formula = parse(renderMarkdown('$x^2$'));
+    if (!formula.querySelector('.katex [style]')) say('a formula lost KaTeX’s inline styles');
+    if (parse(renderMarkdown(${JSON.stringify('- [ ] task\n- [x] done')})).querySelectorAll('input[type="checkbox"]').length !== 2) say('a task list lost its checkboxes');
+    if (!parse(renderMarkdown('<a title="$x^2$">t</a>')).querySelector('a[title="x^2"]')) say('a formula in an attribute did not become its source text');
+    const i18n = parse(renderMarkdown(${JSON.stringify(MD_INTL)}));
+    if (!i18n.textContent.includes('שלום') || !i18n.textContent.includes(${JSON.stringify(MD_FAMILY)}) || i18n.querySelectorAll('.katex').length !== 1) say('RTL text, a ZWJ emoji and a formula did not all survive');
+    // Inline SVG: a formula in its text stays source text inside it; its own references follow its prefixed ids.
+    const svgText = parse(renderMarkdown(${JSON.stringify(MD_SVG_TEXT)}));
+    if (svgText.querySelector('.katex') || svgText.querySelector('svg text')?.textContent !== 'x^2') say('a formula in an SVG’s text was typeset into it (or lost)');
+    const gradient = parse(renderMarkdown(${JSON.stringify(MD_GRADIENT)}));
+    if (!gradient.querySelector('#user-content-g') || !gradient.querySelector('rect[fill="url(#user-content-g)"]')) say('an SVG’s url(#…) no longer finds its gradient');
+    const long = ${JSON.stringify(MD_LONG)};
+    const many = parse(renderMarkdown(long)).querySelectorAll('.katex').length;
+    if (many !== 80) say('a ' + long.length + '-character reply with 80 formulas rendered ' + many);
+    if (!parse(renderMarkdown('[[A Note|alias]]', { wikilinks: 'open' })).querySelector('a.wikilink[data-note="A Note"][tabindex="0"]')) say('a note link lost its class, target or keyboard stop');
+    if (!parse(renderMarkdown(${JSON.stringify('```js\nconst a = 1;\n```')})).querySelector('code.language-js')) say('a code block lost its language');
+    // Ids from content never take the app's own elements.
+    const ids = ['modal', 'modalCard', 'toasts', 'approvalModal'];
+    const before = ids.map((id) => document.getElementById(id));
+    host.hidden = true;
+    document.body.prepend(host);
+    host.innerHTML = ids.map((id) => renderMarkdown('<div id="' + id + '" name="' + id + '">x</div>')).join('');
+    ids.forEach((id, i) => document.getElementById(id) !== before[i] && say('content took the id #' + id));
+    if (!host.querySelector('#user-content-modal')) say('a content id was not prefixed');
+    if (!parse(sanitizeHtml('<a id="modal" href="#modal">b</a>')).querySelector('a#user-content-modal[href="#user-content-modal"]')) say('a Word document’s bookmark and its link were not prefixed alike');
+    // Opening chats: the last asked for wins; New chat wins over an open still loading; a chat that can't be read says so.
+    document.querySelector('.rail-btn[data-view="chat"]').click();
+    await chat.openConversation('csmoke01');
+    const title = document.querySelector('#chatTitle').textContent;
+    await chat.openConversation('smoke-no-such-chat');
+    if (document.querySelector('#chatTitle').textContent !== title) say('a chat that can’t be opened replaced the open one');
+    const notice = [...document.querySelectorAll('#toasts .toast')].find((t) => t.textContent.includes('couldn’t be opened'));
+    if (!notice) say('no notice that the chat couldn’t be opened');
+    notice?.remove();
+    // Two quick opens: whichever load comes back first, the older one is dropped (without openSeq it lands before
+    // or after the newer one's answer, and either way changes the title); the newer one can't be read, so the
+    // open chat stays and the notice shows again.
+    await Promise.all([chat.openConversation('csmoke02'), chat.openConversation('smoke-no-such-chat')]);
+    if (document.querySelector('#chatTitle').textContent !== title) say('an older open landed after a newer one was asked for');
+    const again = [...document.querySelectorAll('#toasts .toast')].find((t) => t.textContent.includes('couldn’t be opened'));
+    if (!again) say('the newer open’s notice is missing');
+    again?.remove();
+    const pending = chat.openConversation('csmoke02');
+    chat.newChat({ focus: false });
+    await pending;
+    if (document.querySelector('#chatTitle').textContent !== 'New conversation') say('an open still loading landed after New chat');
+  } catch (err) {
+    say('the check stopped: ' + err.message);
+  } finally {
+    host.remove();
+    await chat.openConversation('csmoke01');
+    await wait(300);
+    if (hadWizard) classList.remove('hidden');
+  }
+  return found;
+})()`;
 const PROMPTS = [
   ['approval:request', { kind: 'connector', title: 'Use Google Calendar: create event', detail: '{\n  "summary": "Machine Learning Q&A",\n  "calendarId": "someone.with.a.long.address@example.com"\n}', remember: [{ level: 'read', label: 'Always allow reading Google Calendar' }, { level: 'write', label: 'Always allow Google Calendar (except deleting)' }] }],
   ['approval:request', { kind: 'command', title: 'Run a command on your computer', detail: `powershell -NoProfile -Command "Get-ChildItem -Recurse ${'C:\\Users\\someone\\Documents\\a-folder-with-a-long-name'.repeat(3)} | Sort-Object Length -Descending"` }],
@@ -507,6 +644,9 @@ async function scanText() {
       await wait(200);
     }
     for (const p of await wc.executeJavaScript(FAILED_CARD_JS(`failed reply card @${w}`), true)) found.add(p);
+    if (w === 1600) {
+      for (const p of await expecting(cspRefusedHandler, () => wc.executeJavaScript(MARKDOWN_JS(`markdown safety @${w}`), true))) found.add(p); // render
+    }
   }
   return [...found];
 }

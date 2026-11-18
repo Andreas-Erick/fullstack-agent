@@ -5,6 +5,8 @@
 // back to it (a resident's day) or to the Documents view (a paper stack is a document you opened).
 import { $, el } from './util.js';
 import { openDocument } from './docs.js';
+import { currentView } from './nav.js';
+import { capFrame } from './faces/common.js';
 import { layout, createSim, draw, pick, transform } from './world/room.js';
 
 let src = null; // { palette, data, people, minute, frameMs, place, showResident }
@@ -14,7 +16,7 @@ let ctx;
 let size = { w: 0, h: 0, dpr: 1 };
 let frameId = 0;
 let last = 0;
-let lastDraw = 0;
+let due = 0; // when the room's next frame may draw (capFrame)
 const sims = new Map(); // one simulation per place, kept while the view lives (figures stay where they were)
 
 export function initRoom(source) {
@@ -39,7 +41,7 @@ export function initRoom(source) {
     if (hit.station.doc?.path) return openDocument(hit.station.doc.path);
     tip(hit, e.offsetX, e.offsetY, true);
   });
-  document.addEventListener('visibilitychange', () => open && !document.hidden && loop());
+  document.addEventListener('visibilitychange', () => open && !document.hidden && currentView === 'world' && loop());
 }
 
 export const roomOpen = () => (open ? open.id : null);
@@ -75,6 +77,7 @@ export function refreshRoom() {
   open.layout = layout(open.id, place.level, roomData(src.data()));
   open.level = place.level;
   render();
+  loop(); // back in the World view: the room moves again (elsewhere loop() returns at once)
 }
 
 function roomData(d) {
@@ -91,16 +94,19 @@ function resize() {
 
 const animated = () => !document.body.classList.contains('fx-still') && !matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+// Drawn at the village's rate (src.frameMs: the user's choice, the voice cap, resting), only while the
+// World view shows it: leaving the view stops it, refreshRoom (every return to the view) starts it again.
 function loop() {
   cancelAnimationFrame(frameId);
-  if (!open || document.hidden) return;
+  if (!open || document.hidden || currentView !== 'world') return;
   const step = (now) => {
-    if (!open || document.hidden) return;
+    if (!open || document.hidden || currentView !== 'world') return;
     frameId = requestAnimationFrame(step);
-    if (now - lastDraw < src.frameMs() - 4) return;
+    const d = capFrame(due, now, 1000 / src.frameMs());
+    if (d === null) return;
+    due = d;
     const dt = Math.min(0.1, last ? (now - last) / 1000 : 0);
     last = now;
-    lastDraw = now;
     render(dt, now / 1000);
   };
   frameId = requestAnimationFrame(step);

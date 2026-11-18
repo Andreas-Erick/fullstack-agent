@@ -24,8 +24,9 @@ configureFaces({
   demo: () => state.demo,
   onTheme: (fn) => on('theme', fn),
   lite: () => profile(state.settings) === 'balanced',
-  // Fewer frames while the offline voice works (they share the graphics card), and on Balanced.
-  maxFps: () => faceFpsCap({ balanced: profile(state.settings) === 'balanced', voiceWorking: state.voiceWorking }),
+  // Fewer frames while the offline voice works (they share the graphics card), on Balanced, and while
+  // nobody looks (unfocused and idle, or asleep).
+  maxFps: () => faceFpsCap({ balanced: profile(state.settings) === 'balanced', voiceWorking: state.voiceWorking, resting: !document.hasFocus() && state.agentState === 'idle', sleeping: state.agentState === 'sleeping' }),
 });
 
 export const BUILT_IN = [

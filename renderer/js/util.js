@@ -1,5 +1,5 @@
 // Small DOM + formatting helpers shared by all views.
-import { extractMath, restoreMath, speakableMath } from './mathtext.js';
+import { extractMath, restoreMath, speakableMath, mathSource, memoTex } from './mathtext.js';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -41,15 +41,74 @@ export function linkWikilinks(md, { open = false } = {}) {
     .join('');
 }
 
+// Rendered Markdown (replies, notes, documents, release notes) is content, not part of the page: no styles,
+// forms, frames, ids or page classes that could restyle, cover or take over the app's own elements (an
+// approval dialog among them; a <label for> would click the app's own buttons). Formulas are typeset after
+// this, by KaTeX, whose inline styles are kept.
+const MD_PURIFY = {
+  ADD_ATTR: ['data-note', 'target'],
+  FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select', 'option', 'optgroup', 'dialog', 'template', 'iframe', 'frame', 'object', 'embed', 'link', 'meta', 'base'],
+  FORBID_ATTR: ['style', 'action', 'formaction', 'form', 'for'],
+  SANITIZE_NAMED_PROPS: true, // id/name get DOMPurify's "user-content-" prefix: no clobbering
+};
+// The only classes rendered Markdown keeps: note links and marked's code languages (the page's own, such
+// as .modal or .toast, would style it as part of the app).
+const MD_CLASS = /^(wikilink|language-[\w+#.-]+)$/;
+// Word documents (mammoth's HTML): its bookmarks become ids, prefixed like Markdown's.
+const DOC_PURIFY = { FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'dialog'], FORBID_ATTR: ['style', 'for'], SANITIZE_NAMED_PROPS: true };
+const HTML_NS = 'http://www.w3.org/1999/xhtml';
+
+// A reference inside the content follows its target's prefixed id (SANITIZE_NAMED_PROPS): a #link, and an
+// inline SVG's url(#…) paint, clip, mask or marker.
+const URL_REFS = new Set(['fill', 'stroke', 'clip-path', 'mask', 'filter', 'marker-start', 'marker-mid', 'marker-end']);
+const fragmentHref = (name, value) => {
+  if ((name === 'href' || name === 'xlink:href') && /^#(?!user-content-)/.test(value)) return `#user-content-${value.slice(1)}`;
+  return URL_REFS.has(name) ? value.replace(/url\((\s*['"]?)#(?!user-content-)/g, 'url($1#user-content-') : value;
+};
+
+/** Runs fn with these DOMPurify hooks, and only then: scene.js and facecapture.js use DOMPurify too. */
+function withHooks(hooks, fn) {
+  const P = window.DOMPurify;
+  for (const [name, hook] of Object.entries(hooks)) P.addHook(name, hook);
+  try {
+    return fn(P);
+  } finally {
+    for (const [name, hook] of Object.entries(hooks)) P.removeHook(name, hook); // DOMPurify 3.4 removes this function only
+  }
+}
+
+function sanitizeMarkdown(html, items) {
+  return withHooks(
+    {
+      // Task lists (- [ ] …) are marked's <input type=checkbox>; any other input goes. A formula in an inline
+      // SVG's or MathML's text stays its source: KaTeX's HTML there would be re-parsed out of the element it
+      // was sanitized in.
+      uponSanitizeElement: (node, data) => {
+        if (data.tagName === 'input' && String(node.getAttribute('type') || '').toLowerCase() !== 'checkbox') node.remove();
+        else if (data.tagName === '#text' && node.parentNode && node.parentNode.namespaceURI !== HTML_NS) node.data = mathSource(node.data, items);
+      },
+      // Before DOMPurify checks the value: a formula's placeholder in an attribute becomes its source text (so
+      // href="$javascript:…$" is still refused as a javascript: URL), and only text ever gets typeset formulas.
+      uponSanitizeAttribute: (_node, data) => {
+        if (mathSource(data.attrName, items) !== data.attrName) data.keepAttr = false;
+        else if (data.attrName === 'class') {
+          data.attrValue = data.attrValue.split(/\s+/).filter((c) => MD_CLASS.test(c)).join(' ');
+          if (!data.attrValue) data.keepAttr = false;
+        } else data.attrValue = fragmentHref(data.attrName, mathSource(data.attrValue, items));
+      },
+    },
+    (P) => P.sanitize(html, MD_PURIFY),
+  );
+}
+
 // wikilinks: true shows [[note]] links; 'open' where the view opens them (chat, Notes, the Vault).
 export function renderMarkdown(text, { wikilinks = false } = {}) {
   let src = String(text ?? '');
   if (wikilinks) src = linkWikilinks(src, { open: wikilinks === 'open' });
   // Formulas are taken out before Markdown (which would eat their _ and *) and rendered by KaTeX.
   const math = window.katex ? extractMath(src) : { text: src, items: [] };
-  let html = window.marked.parse(math.text, markedOpts);
-  if (math.items.length) html = restoreMath(html, math.items, renderTex);
-  return window.DOMPurify.sanitize(html, { ADD_ATTR: ['data-note', 'target'] });
+  const html = sanitizeMarkdown(window.marked.parse(math.text, markedOpts), math.items);
+  return math.items.length ? restoreMath(html, math.items, renderTexMemo) : html;
 }
 
 function renderTex(tex, display) {
@@ -59,9 +118,10 @@ function renderTex(tex, display) {
     return `<code>${escapeHtml(tex)}</code>`;
   }
 }
+const renderTexMemo = memoTex(renderTex);
 
 export function sanitizeHtml(html) {
-  return window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input'], FORBID_ATTR: ['style'] });
+  return withHooks({ uponSanitizeAttribute: (_node, data) => (data.attrValue = fragmentHref(data.attrName, data.attrValue)) }, (P) => P.sanitize(html, DOC_PURIFY));
 }
 
 // Plain text for speech: formulas in words, note links by their name, strip markdown, code, URLs.

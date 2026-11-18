@@ -60,7 +60,7 @@ test('brackets in code stay code: inline, fenced, and a fence still being stream
 
 test('renderMarkdown links notes only when asked, as keyboard stops only where the view opens them', () => {
   window.marked = { parse: (s) => s };
-  window.DOMPurify = { sanitize: (h) => h };
+  window.DOMPurify = { sanitize: (h) => h, addHook() {}, removeHook() {} };
   try {
     assert.ok(u.renderMarkdown('[[A|b]]', { wikilinks: 'open' }).includes('<a class="wikilink" data-note="A" role="link" tabindex="0">b</a>'));
     assert.ok(u.renderMarkdown('[[A|b]]', { wikilinks: true }).includes('<a class="wikilink" data-note="A">b</a>'));

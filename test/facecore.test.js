@@ -231,7 +231,7 @@ test('the wiring: every face loop asks env.maxFps(); the desktop sets it, the ph
   assert.match(loop, /capFrame\(this\.due \|\| 0, now, env\.maxFps\(\)\)/, 'the Circuit face too');
   assert.match(vis, /import \{[^}]*\bcapFrame\b[^}]*\} from '\.\/faces\/common\.js'/);
   const host = read('renderer/js/faces/host.js');
-  assert.match(host, /maxFps: \(\) => faceFpsCap\(\{ balanced: profile\(state\.settings\) === 'balanced', voiceWorking: state\.voiceWorking \}\)/);
+  assert.match(host, /maxFps: \(\) => faceFpsCap\(\{ balanced: profile\(state\.settings\) === 'balanced', voiceWorking: state\.voiceWorking, resting: !document\.hasFocus\(\) && state\.agentState === 'idle', sleeping: state\.agentState === 'sleeping' \}\)/);
   const message = host.slice(host.indexOf('  message(name) {'), host.indexOf('  setAvatar(a) {'));
   assert.match(message, /maxFps: env\.maxFps\(\)/, 'custom faces get the cap with every update');
   assert.doesNotMatch(read('renderer/remote/app.js'), /maxFps/, 'the phone keeps every frame');

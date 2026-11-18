@@ -24,6 +24,7 @@ let queued = null; // message waiting for the interrupted turn to finish // { re
 let shown = []; // the open conversation's messages as stored (hidden ones too), kept in step
 let openSetup = false;
 let editing = null; // { messageId, draft }: ✎ Edit put the latest message in the box (draft: what was there)
+let openSeq = 0; // the latest openConversation (newer ones and New chat win)
 
 const messagesEl = () => $('#messages');
 
@@ -99,7 +100,7 @@ export function initChat() {
   // Open (and so warm) the user's own latest chat, not a routine's run that came after it.
   refreshList().then(() => {
     const c = chatcore.launchConversation(conversations);
-    if (c) openConversation(c.id);
+    if (c) openConversation(c.id, { quiet: true });
   });
 }
 
@@ -282,6 +283,7 @@ async function renameCurrent() {
 }
 
 export function newChat({ focus = true } = {}) {
+  openSeq++; // an open still loading must not land after this
   if (active) stop();
   closeCard(); // closed, not just hidden: the stopped reply's last text and its 'aborted' must not bring it back
   if (focus) closeHistory({ focus: false });
@@ -310,11 +312,17 @@ function emptyStateNode() {
 }
 
 // at: a message to show (History's search found it there); card: in the Face layout, it (or the latest
-// reply) on the card.
-export async function openConversation(id, { at = null, card = false } = {}) {
+// reply) on the card; quiet: the launch's open (a chat that is gone just starts a new one).
+export async function openConversation(id, { at = null, card = false, quiet = false } = {}) {
   if (active) return toast('Wait for the current reply to finish (or press stop).');
+  const seq = ++openSeq;
   const conv = await api.conv.get(id).catch(() => null);
-  if (!conv) return newChat();
+  if (seq !== openSeq || active) return; // a newer open, New chat, or a message sent meanwhile wins
+  if (!conv) {
+    if (quiet) return newChat(); // launch: the latest chat is gone, start fresh as before
+    refreshList();
+    return toast('This conversation couldn’t be opened: it was deleted, or it can’t be read on this computer.', 'error');
+  }
   hideCard();
   cancelEdit();
   currentId = conv.id;
@@ -659,7 +667,18 @@ function initReplyCard() {
     closeCard();
   });
   // Leaving the Face layout puts it away; it comes back with the next reply, not with the layout.
-  on('settings', (s) => s?.ui?.chatLayout !== 'face' && hideCard());
+  on('settings', (s) => {
+    if (s?.ui?.chatLayout === 'face') return;
+    hideCard();
+    // The bubble the Face layout left behind while the reply streams, filled at once and followed to its end as
+    // the hidden list was before. Scrolled in the next frame: app.js applies the new layout after this listener,
+    // and the narrower list makes the text taller (Open in chat scrolls there too, after saveSettings).
+    if (active?.behind) {
+      active.behind = false;
+      active.bubble.innerHTML = renderMarkdown(active.text, { wikilinks: 'open' });
+      requestAnimationFrame(() => active && scrollToBottom(true));
+    }
+  });
   // The card sits between the header (two rows in a narrow window) and the composer, however tall a draft
   // makes it (the box grows to 220px): the room they take, as --header-clear and --composer-clear
   // (styles.css). Layout offsets, not screen boxes, so a view's entrance transform doesn't skew them.
@@ -680,7 +699,7 @@ function initReplyCard() {
 // help: a failed reply (chatcore.errorHelp) with its buttons; reply: the finished one (Copy…); stopped: Try again.
 // plain: text as it is (a message of the user's); kicker: who and when (History); at: the message shown.
 let cardAt = null; // the message the card shows, for "Open in chat"
-function showCard(md, { follow = false, error = false, help = null, reply = null, stopped = false, plain = false, kicker = 'Latest reply', at = null } = {}) {
+function showCard(md, { follow = false, error = false, help = null, reply = null, stopped = false, plain = false, kicker = 'Latest reply', at = null, html = null } = {}) {
   const body = $('#replyCardBody');
   const visible = !replyCard().classList.contains('hidden');
   const atEnd = visible && body.scrollHeight - body.scrollTop - body.clientHeight < 24;
@@ -690,7 +709,7 @@ function showCard(md, { follow = false, error = false, help = null, reply = null
     replyCard().setAttribute('aria-label', kicker);
   }
   if (plain) body.textContent = md;
-  else body.innerHTML = md ? renderMarkdown(md, { wikilinks: 'open' }) : '';
+  else body.innerHTML = html ?? (md ? renderMarkdown(md, { wikilinks: 'open' }) : '');
   if (help) body.append(errorNode(help, { retry: true }));
   else if (!follow) decorateCode(body);
   body.classList.toggle('error-bubble', error);
@@ -865,12 +884,21 @@ function renderActive() {
   requestAnimationFrame(() => {
     if (!active) return;
     active.renderQueued = false;
-    active.bubble.innerHTML = renderMarkdown(active.text, { wikilinks: 'open' });
+    // The Face layout hides the message list: its bubble gets the text when the reply ends ('done', 'error',
+    // 'aborted' render it) or when the layout changes (initReplyCard); only the card, when it shows the text, renders now.
+    const face = faceLayout();
+    const onCard = !replyCard().classList.contains('hidden');
     // Read on the card as it is written when it isn't spoken (cardLive) or no longer is (speakLimit reached);
     // once up it follows the text, also after a retract (whose speaker.stop() clears capped).
-    const onCard = !replyCard().classList.contains('hidden');
-    if (faceLayout() && !active.cardClosed && (active.cardLive || speaker.capped || onCard)) showCard(active.text, { follow: true });
-    scrollToBottom();
+    const toCard = face && !active.cardClosed && (active.cardLive || speaker.capped || onCard);
+    active.behind = face;
+    if (face && !toCard) return;
+    const html = renderMarkdown(active.text, { wikilinks: 'open' });
+    if (toCard) showCard(active.text, { follow: true, html });
+    else {
+      active.bubble.innerHTML = html;
+      scrollToBottom();
+    }
   });
 }
 
@@ -924,8 +952,11 @@ function handleEvent(ev) {
       break;
     }
     case 'notice': {
-      // Tools an earlier attempt or reply ran (main.js, a message sent again): named as the chips name them.
-      const text = ev.tools?.length ? `⚠ Already done by the earlier attempt or reply (not undone): ${ev.tools.map((n) => chatcore.toolLabel(n, TOOL_LABELS)).join(', ')}` : `⚠ ${ev.message}`;
+      // Tools an earlier attempt or reply ran (main.js, a message sent again): named as the chips name them;
+      // cut: calls that never reported back, so maybe never done.
+      const label = (names) => names.map((n) => chatcore.toolLabel(n, TOOL_LABELS)).join(', ');
+      const said = [ev.tools?.length ? `Already done by the earlier attempt or reply (not undone): ${label(ev.tools)}.` : '', ev.cut?.length ? `Cut off before it reported back (check before repeating): ${label(ev.cut)}.` : ''].filter(Boolean).join(' ');
+      const text = `⚠ ${said || ev.message}`;
       active.body.insertBefore(el('div', { class: 'notice' }, text), active.bubble);
       if (ev.toast) toast(text); // the Face layout hides the list
       break;
@@ -1202,10 +1233,15 @@ async function runAgain(kind, messageId, text = '') {
     return false;
   }
   if (chk.ask?.length || chk.more) {
-    const named = (chk.ask || []).map((t) => `${chatcore.toolLabel(t.name, TOOL_LABELS)} ${typeof t.input === 'string' ? (t.input ? `· ${t.input.slice(0, 60)}` : '') : chatcore.briefInput(t.input)}`.trim());
-    const labels = [...named, ...(chk.more ? [`${chk.more} more action${chk.more === 1 ? '' : 's'}`] : [])].join(' · ');
+    const label = (t) => `${chatcore.toolLabel(t.name, TOOL_LABELS)} ${typeof t.input === 'string' ? (t.input ? `· ${t.input.slice(0, 60)}` : '') : chatcore.briefInput(t.input)}`.trim();
+    const ask = chk.ask || [];
+    // A call cut off before it reported back (redocore.cutOff) may not have happened: never called done.
+    const done = [...ask.filter((t) => !redo.cutOff(t)).map(label), ...(chk.more ? [`${chk.more} more action${chk.more === 1 ? '' : 's'}`] : [])].join(' · ');
+    const cut = ask.filter(redo.cutOff).map(label).join(' · ');
     const what = chk.replyDropped ? 'reply' : 'attempt';
-    if (!(await confirmDialog('Run it again?', `The earlier ${what} already did this, and it isn’t undone: ${labels}. ${agentName()} is told, so it shouldn’t do it twice; approvals follow your permission setting.`, 'Run again', false))) return false;
+    const said = [done ? `The earlier ${what} already did this, and it isn’t undone: ${done}.` : '', cut ? `${done ? 'It was' : `The earlier ${what} was`} cut off while doing this, so it may or may not have happened: ${cut}.` : ''].filter(Boolean).join(' ');
+    const told = cut ? `${agentName()} is told to check before doing it again` : `${agentName()} is told, so it shouldn’t do it twice`;
+    if (!(await confirmDialog('Run it again?', `${said} ${told}; approvals follow your permission setting.`, 'Run again', false))) return false;
   } else if (chk.uncertain) {
     if (!(await confirmDialog('Try again?', `The earlier attempt was cut off (the app closed or restarted), so ${agentName()} can’t be sure what it already did. She’ll be told to check before repeating anything.`, 'Try again', false))) return false;
   }
