@@ -44,6 +44,51 @@ test('the face in use comes first, ahead of example faces', async () => {
   assert.strictEqual(faceChoices('radial', OWN, BUILT)[0].value, 'radial');
 });
 
+// Regression: "Skip setup" on the first page set `onboarded` without the privacy and safety notice ever
+// being accepted, and nothing asked for it again.
+test('every way through the wizard passes the privacy step before it can finish', async () => {
+  const { STEPS, stepsFor, finishPatch } = await loadCore();
+  for (const mode of ['full', 'quick', 'missed', undefined]) {
+    const steps = stepsFor(mode);
+    assert.ok(steps.includes('privacy'), `${mode}: has the privacy step`);
+    assert.ok(steps.every((s) => STEPS.includes(s)), `${mode}: only real steps`);
+  }
+  assert.deepStrictEqual(stepsFor('quick'), ['welcome', 'privacy'], 'Quick start ends with the privacy step');
+  assert.deepStrictEqual(stepsFor('missed'), ['privacy']);
+  assert.strictEqual(finishPatch({ privacy: { acceptedAt: 0 } }), null, 'not accepted: not onboarded');
+  assert.strictEqual(finishPatch({}), null);
+  assert.deepStrictEqual(finishPatch({ privacy: { acceptedAt: 1763000000000 } }), { onboarded: true });
+});
+
+test('an install set up without accepting the notice sees that step once at launch', async () => {
+  const { launchMode } = await loadCore();
+  assert.strictEqual(launchMode({ onboarded: false, privacy: { acceptedAt: 0 } }), 'full', 'first run: the whole wizard');
+  assert.strictEqual(launchMode({ onboarded: true, privacy: { acceptedAt: 0 } }), 'missed');
+  assert.strictEqual(launchMode({ onboarded: true }), 'missed', 'an install from before the notice');
+  assert.strictEqual(launchMode({ onboarded: true, privacy: { acceptedAt: 1763000000000 } }), '', 'accepted: nothing');
+  // The memory-profile smoke run (NEXUS_SMOKE_MEM) starts set up and accepted, so it measures the app,
+  // not this screen; a plain smoke run starts with no settings and meets the whole wizard ('full').
+  assert.match(read('main/smoke.js'), /onboarded: true, privacy: \{ acceptedAt: Date\.now\(\) \}/);
+});
+
+test('the wizard saves `onboarded` only through the helper, and boots through the launch check', () => {
+  const src = read('renderer/js/onboarding.js');
+  assert.ok(!/onboarded: true/.test(src), 'no path sets onboarded by itself');
+  assert.match(src, /const patch = finishPatch\(state\.settings\);\s*if \(!patch\)/);
+  assert.match(src, /await saveSettings\(patch\);/);
+  assert.ok(!src.includes('Skip setup'), 'nothing offers to skip the privacy step');
+  // Close on the first page only once the notice is accepted; a double click moves one step, never past the last.
+  assert.match(src, /accepted\(s\) \? el\('button', \{[^}]*onclick: \(\) => finish\(\) \}, 'Close'\)/);
+  assert.match(src, /step = Math\.max\(0, Math\.min\(stepsFor\(mode\)\.length - 1, step \+ delta\)\);/);
+  // The first acceptance's time stays when the step is passed again.
+  assert.match(src, /if \(!accepted\(state\.settings\)\) await saveSettings\(\{ privacy: \{ acceptedAt: Date\.now\(\) \} \}\);/);
+  // Boot: the launch greeting waits until the missed privacy step is accepted (not spoken over it).
+  const app = read('renderer/js/app.js');
+  assert.match(app, /const setupOpen = maybeStartOnboarding\(\{ then: greetOnLaunch \}\);/);
+  assert.match(app, /if \(!setupOpen\) greetOnLaunch\(\);/);
+  assert.match(src, /if \(how\) startOnboarding\(how, how === 'missed' \? then : null\);\s*return how;/);
+});
+
 test('the wizard speaks of Settings only, and its face list comes from the helper', () => {
   const src = read('renderer/js/onboarding.js');
   assert.ok(!src.includes('Config →'));

@@ -3,6 +3,8 @@
 // voice (the offline voice by default), the vault, goals, connectors and the persona, shows a tour of
 // everything the app can do (from main/guide.js, the same entries the agent uses for "how can I use
 // you?"), and ends with a "first hello" test; then it offers the agent's get-to-know-you interview.
+// "Quick start" is the welcome and the privacy step only; an install set up without accepting the notice
+// sees that step alone at launch (onboardcore.js stepsFor / launchMode).
 import { $, api, el, toast, toastError, on } from './util.js';
 import { state, saveSettings, loadSettings } from './state.js';
 import { ROUTINE_TEMPLATES } from './routines.js';
@@ -12,9 +14,8 @@ import { scanInto } from './hwscan.js';
 import { KOKORO_VOICES } from './kokorotext.js';
 import { localFinder } from './settings.js';
 import { speechPlan } from './perfcore.js';
-import { faceChoices } from './onboardcore.js';
+import { faceChoices, stepsFor, finishPatch, launchMode, accepted } from './onboardcore.js';
 
-const STEPS = ['welcome', 'privacy', 'hardware', 'brain', 'voice', 'vault', 'goals', 'connect', 'persona', 'tour', 'hello'];
 const STEP_NAMES = { welcome: 'Welcome', privacy: 'Privacy & safety', hardware: 'Your computer', brain: 'Brain', voice: 'Voice', vault: 'Memory & files', goals: 'What you want', connect: 'Connectors & extras', persona: 'Personality & face', tour: 'What I can do', hello: 'First hello' };
 const PRIVACY_URL = 'https://github.com/Andreas-Erick/fullstack-agent/blob/main/PRIVACY.md';
 const CONNECTORS_URL = 'https://claude.ai/settings/connectors';
@@ -31,15 +32,32 @@ const GOALS = [
 // Icons for the tour (main/guide.js FEATURES ids).
 const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '🎓', languages: '🗣', coaching: '🌱', innerworld: '🏡', routines: '⏰', schedule: '📅', connectors: '🔌', documents: '📄', folders: '📁', 'agent-window': '🌐', architecture: '🏛', performance: '⚡', system: '📊', 'local-brain': '💻', 'switch-brain': '🔀', usage: '⏳', skills: '✨', diagrams: '📐', extensions: '🧩', 'web-code': '💻', remote: '📱', watch: '⌚', keyboard: '⌨', updates: '⬆', safety: '🛡' };
 
-let step = 0;
+// How the privacy step opens, by the way through the wizard (onboardcore stepsFor).
+const PRIVACY_LEAD = {
+  full: 'Please read this once. It is the short version of the full privacy policy.',
+  quick: 'Please read this once (the short version of the full privacy policy), then you can start. Everything else can be set up later in Settings.',
+  missed: 'One thing we missed: you haven’t accepted the privacy and safety notice yet. Please read it once (the short version of the full privacy policy); everything else stays as you set it up.',
+};
+
+let step = 0; // the index in stepsFor(mode)
+let mode = 'full'; // full | quick | missed
+let afterFinish = null; // what runs once the wizard is done (the launch greeting after a missed step)
+let moving = false; // a step change in progress: a double click moves one step
 const draft = {};
 let faceHost = null;
 
-export function maybeStartOnboarding() {
-  if (!state.settings.onboarded) startOnboarding();
+// At launch: the whole wizard on a first run; an install set up without accepting the privacy notice
+// (an older one, or one that skipped it) gets that step alone, once, and `then` runs after it.
+// Returns what it opened: 'full', 'missed' or '' (nothing).
+export function maybeStartOnboarding({ then } = {}) {
+  const how = launchMode(state.settings);
+  if (how) startOnboarding(how, how === 'missed' ? then : null);
+  return how;
 }
 
-export function startOnboarding() {
+export function startOnboarding(how = 'full', after = null) {
+  mode = ['quick', 'missed'].includes(how) ? how : 'full';
+  afterFinish = after;
   step = 0;
   $('#onboarding').classList.remove('hidden');
   render();
@@ -51,9 +69,18 @@ function closeWizard() {
   $('#onboarding').classList.add('hidden');
 }
 
+// Every way out of the wizard ends here, and none without the privacy acceptance: back to that step.
 async function finish({ interview = false } = {}) {
+  const patch = finishPatch(state.settings);
+  if (!patch) {
+    step = stepsFor(mode).indexOf('privacy');
+    return render();
+  }
   closeWizard();
-  await saveSettings({ onboarded: true });
+  await saveSettings(patch);
+  const after = afterFinish;
+  afterFinish = null;
+  after?.();
   if (interview) (await import('./setup.js')).startInterview();
 }
 
@@ -90,10 +117,11 @@ async function render() {
   faceHost?.teardown();
   faceHost = null;
   const card = el('div', { class: 'ob-card glass' });
-  const id = STEPS[step];
+  const steps = stepsFor(mode);
+  const id = steps[step];
   card.append(
-    el('div', { class: 'ob-head' }, el('span', {}, `Step ${step + 1} of ${STEPS.length}`), el('b', {}, STEP_NAMES[id])),
-    el('div', { class: 'ob-steps' }, STEPS.map((_, i) => el('span', { class: i <= step ? 'on' : '' }))),
+    el('div', { class: 'ob-head' }, el('span', {}, mode === 'missed' ? 'Before you go on' : `Step ${step + 1} of ${steps.length}`), el('b', {}, STEP_NAMES[id])),
+    el('div', { class: 'ob-steps' }, steps.map((_, i) => el('span', { class: i <= step ? 'on' : '' }))),
   );
   const body = el('div', { class: 'field', style: { gap: '12px' } });
   card.append(body);
@@ -117,7 +145,7 @@ async function render() {
     const next = () => card.querySelector('.ob-nav .btn.primary');
     body.append(
       el('h2', {}, 'Privacy and safety'),
-      el('p', { class: 'muted' }, 'Please read this once. It is the short version of the full privacy policy.'),
+      el('p', { class: 'muted' }, PRIVACY_LEAD[mode] || PRIVACY_LEAD.full),
       el(
         'div',
         { class: 'ob-points' },
@@ -147,7 +175,10 @@ async function render() {
       }),
     );
     canNext = () => draft.accepted;
-    beforeNext = () => saveSettings({ privacy: { acceptedAt: Date.now() } });
+    // The time of the first acceptance stays (PRIVACY.md: the app records when you accepted).
+    beforeNext = async () => {
+      if (!accepted(state.settings)) await saveSettings({ privacy: { acceptedAt: Date.now() } });
+    };
   }
 
   if (id === 'hardware') {
@@ -445,14 +476,39 @@ async function render() {
     firstHello(list);
   }
 
-  const last = step === STEPS.length - 1;
+  const last = step === steps.length - 1;
+  const then = (next) => async () => {
+    if (moving) return;
+    moving = true;
+    try {
+      await beforeNext();
+      await next();
+    } catch (e) {
+      toastError(e);
+    } finally {
+      moving = false;
+    }
+  };
+  // Quick start: the privacy step, then done. Back from it is the whole setup again.
+  const quick = () => {
+    mode = 'quick';
+    go(1);
+  };
+  const back = () => {
+    if (mode === 'quick') mode = 'full';
+    go(-1);
+  };
+  // On the first page: Quick start, or Close once the notice is accepted (the wizard opened from Settings).
+  const first = mode !== 'full' ? el('span') : accepted(s) ? el('button', { class: 'btn', title: 'Keep everything as it is. Set things up later in Settings.', onclick: () => finish() }, 'Close') : el('button', { class: 'btn', title: 'Only the privacy step, then start. Set up the rest later in Settings.', onclick: then(quick) }, 'Quick start');
   const nav = el(
     'div',
     { class: 'ob-nav' },
-    step === 0 ? el('button', { class: 'btn', onclick: () => finish() }, 'Skip setup') : el('button', { class: 'btn', onclick: () => go(-1) }, '‹ Back'),
-    last
-      ? el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => finish() }, 'Start using her'), el('button', { class: 'btn primary', onclick: () => finish({ interview: true }) }, '💬 Let’s get to know each other'))
-      : el('button', { class: 'btn primary', disabled: !canNext(), onclick: async () => { try { await beforeNext(); go(1); } catch (e) { toastError(e); } } }, 'Next ›'),
+    step > 0 ? el('button', { class: 'btn', onclick: back }, '‹ Back') : first,
+    !last
+      ? el('button', { class: 'btn primary', disabled: !canNext(), onclick: then(() => go(1)) }, 'Next ›')
+      : mode === 'full'
+        ? el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => finish() }, 'Start using her'), el('button', { class: 'btn primary', onclick: () => finish({ interview: true }) }, '💬 Let’s get to know each other'))
+        : el('button', { class: 'btn primary', disabled: !canNext(), onclick: then(finish) }, mode === 'missed' ? 'Continue' : 'Start using her'),
   );
   card.append(nav);
   $('#onboarding').innerHTML = '';
@@ -463,7 +519,7 @@ async function render() {
 function go(delta) {
   draft.cleanup?.();
   draft.cleanup = null;
-  step += delta;
+  step = Math.max(0, Math.min(stepsFor(mode).length - 1, step + delta));
   render();
 }
 

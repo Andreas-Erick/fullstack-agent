@@ -577,9 +577,13 @@ function registerIpc() {
   handle('self:restore', (sha) => selfchange.restore(sha));
   handle('self:discard', () => selfchange.discard());
   handle('self:reload', () => win?.webContents.reloadIgnoringCache());
+  // Through the normal quit, so before-quit stops the helper processes and flushes the log; no
+  // "where we left off" note for a restart.
   handle('self:restart', () => {
+    handoffDone = true;
+    log.info('app restart');
     app.relaunch();
-    app.exit(0);
+    app.quit();
   });
 
   // Claude account (Claude Code CLI)
@@ -923,8 +927,10 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       if (!fresh.setup && after.claudeCode?.warmOnLaunch && llm.sessionConfigKey(after) !== llm.sessionConfigKey(settings)) llm.prewarm(after, fresh).catch((error) => log.warn('prewarm failed', { error }));
     } catch (err) {
       const aborted = controller.signal.aborted || err?.name === 'AbortError';
+      // A routine whose brain isn't ready yet waits and runs again (routinecore.retryPlan): not a fault.
+      const notReady = !aborted && routine && require('./routinecore').brainNotReady(err);
       if (aborted) log.info('turn interrupted', { conversation: conv.id });
-      else log.error('turn failed', { provider: settings.llm.provider, model: settings.llm.provider === 'claude-code' ? settings.claudeCode.model : undefined, voice: viaVoice, ms: Date.now() - startedAt, error: err });
+      else log[notReady ? 'warn' : 'error'](notReady ? 'turn not ready' : 'turn failed', { provider: settings.llm.provider, model: settings.llm.provider === 'claude-code' ? settings.claudeCode.model : undefined, voice: viaVoice, ms: Date.now() - startedAt, error: err });
       emit({ type: aborted ? 'aborted' : 'error', message: aborted ? 'Stopped' : err?.message || String(err) });
       onFinish?.({ ok: false, error: aborted ? 'Stopped' : err?.message || String(err), conversationId: conv.id });
     } finally {

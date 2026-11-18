@@ -708,7 +708,8 @@ class Session {
         if (WEB_TOOLS.includes(name)) approvals.markTainted(t.ctx?.turn, `${name} ${block.input?.url || block.input?.query || ''}`);
         // What a connector returns (emails, documents, tasks, web results) is external content too.
         if (connectors.isConnectorTool(name)) approvals.markTainted(t.ctx?.turn, name);
-        t.tools.set(block.id, { name, input: block.input, started: Date.now() });
+        // own: one of the app's tools (tools.js runs and logs it), not a connector or a Claude Code tool.
+        t.tools.set(block.id, { name, input: block.input, started: Date.now(), own: /^mcp__nexus(_more)?__/.test(block.name) });
         t.emit({ type: 'tool_start', id: block.id, name, input: block.input });
         log.info('tool', { name, input: JSON.stringify(block.input || {}).slice(0, 300) });
       }
@@ -725,11 +726,20 @@ class Session {
         t.emit({ type: 'tool_end', id: block.tool_use_id, name: info.name, ok: !block.is_error, preview });
         t.records.push({ name: info.name, input: info.input, ok: !block.is_error, preview });
         const ms = Date.now() - info.started;
-        if (block.is_error) log.warn('tool failed', { name: info.name, ms, input: JSON.stringify(info.input || {}).slice(0, 300), preview: preview.slice(0, 500) });
+        if (block.is_error) logToolError(info, ms, preview);
         else if (ms > 5000) log.info('tool slow', { name: info.name, ms });
       }
     }
   }
+}
+
+// One failure, one line. The app's own tools answer with tools.js's JSON result, and tools.js has logged
+// the failure already (with its arguments and stack); the CLI refusing the call (<tool_use_error>) or the
+// bridge failing ("Error: …") never reached it. A call the user declined is an outcome, not a fault.
+function logToolError(info, ms, preview) {
+  if (info.own && /^\s*\{/.test(preview)) return;
+  const declined = /^(User did not approve|Not approved by the user)/.test(preview);
+  log[declined ? 'info' : 'warn'](declined ? 'tool declined' : 'tool failed', { name: info.name, ms, input: JSON.stringify(info.input || {}).slice(0, 300), preview: preview.slice(0, 500) });
 }
 
 // Claude Code's own memory (MEMORY.md and how to write it) belongs to whoever develops the app, not to
