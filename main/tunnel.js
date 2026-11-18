@@ -67,6 +67,7 @@ async function apply(settings, port) {
   if (mode === 'tailscale') {
     if (!HOST.test(next.host)) return (update({ mode, host: '', url: '', error: 'Enter the Tailscale address (for example my-pc.tail1234.ts.net).', check: '', warning: '' }), status());
     update({ mode, running: false, connected: true, host: next.host, url: `https://${next.host}`, error: '', check: '', warning: '' });
+    watchAddress();
     verify().catch(() => {}); // in the background: the address is accepted either way
     return status();
   }
@@ -212,26 +213,42 @@ async function setupTailscaleServe(port) {
   return result;
 }
 
-// Opens the secure address from this computer, like the phone will (Tailscale and Cloudflare).
-async function verify() {
+// A Tailscale address is opened again every 5 minutes, so the Remote light notices when Tailscale is
+// switched off or Serve stops. (Not Cloudflare: Access answers this computer with its login page.)
+const RECHECK_MS = 5 * 60000;
+let recheck = null;
+function watchAddress() {
+  clearInterval(recheck);
+  recheck = setInterval(() => verify({ quiet: true }).catch(() => {}), RECHECK_MS);
+  recheck.unref?.();
+}
+
+// Opens the secure address from this computer, like the phone will (Tailscale and Cloudflare). quiet (the
+// re-check): no 'checking' state in between, nothing sent to the window when the answer didn't change,
+// and a warning in the log only when it starts failing.
+async function verify({ quiet = false } = {}) {
+  const was = { check: state.check, warning: state.warning };
   const url = state.url;
   if (!state.connected || !url) return status();
-  update({ check: 'checking', warning: '' });
+  if (!quiet) update({ check: 'checking', warning: '' });
+  const settle = (check, warning) => state.url === url && !(quiet && was.check === check && was.warning === warning) && update({ check, warning });
   try {
     const res = await fetch(`${url}/api/ping`, { signal: AbortSignal.timeout(10000) });
     const body = await res.json().catch(() => ({}));
     if (body.app !== 'nexus-agent') throw new Error(`it answered ${res.status} but not as Siren`);
-    if (state.url === url) update({ check: 'ok', warning: '' });
+    settle('ok', '');
   } catch (err) {
     const why = err.name === 'TimeoutError' ? 'no answer within 10 seconds' : err.cause?.code || err.message;
     const hint = state.mode === 'tailscale' ? ` Is Tailscale on, and did you run "tailscale serve --bg ${want?.port || 7823}"?` : '';
-    if (state.url === url) update({ check: 'fail', warning: `Couldn't open ${url} from this computer (${why}).${hint}` });
-    log.warn('secure address check failed', { mode: state.mode, reason: String(why).slice(0, 200) });
+    settle('fail', `Couldn't open ${url} from this computer (${why}).${hint}`);
+    if (!quiet || was.check !== 'fail') log.warn('secure address check failed', { mode: state.mode, reason: String(why).slice(0, 200) });
   }
   return status();
 }
 
 function stop() {
+  clearInterval(recheck);
+  recheck = null;
   clearTimeout(restartTimer);
   restartTimer = null;
   want = null;

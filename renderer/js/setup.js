@@ -218,7 +218,7 @@ async function bootstrapBrain() {
         continue;
       }
     } else if (st.installed) {
-      choice = await ask('Claude Code is installed, but no Claude account is connected. Connect yours? A window opens where you sign in.', {
+      choice = await ask(st.checked === false ? `Claude Code is installed, but I couldn’t check your Claude account (${st.error}). Connect it again? A window opens where you sign in.` : 'Claude Code is installed, but no Claude account is connected. Connect yours? A window opens where you sign in.', {
         choices: [{ label: 'Connect my Claude account', value: 'login', yes: true }, { label: 'Use something else', value: 'other' }],
       });
       if (choice === 'login') {

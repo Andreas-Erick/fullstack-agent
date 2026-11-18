@@ -3,6 +3,8 @@ import { $, api, el, timeAgo, toast, toastError, toastActions, confirmDialog, pr
 import { switchView } from './nav.js';
 
 let selected = null;
+let selfBusy = ''; // 'record' | 'discard' while it runs: the checks and tests take minutes, and a redraw mustn't offer them again
+let refreshGen = 0; // only the latest refresh() draws (Record's own and announce's used to add every banner twice)
 
 export function initEvolution() {
   $('#evoReload').onclick = () => api.self.reload();
@@ -36,7 +38,9 @@ export function announce(change) {
 }
 
 export async function refresh() {
+  const mine = ++refreshGen;
   const status = await api.self.status().catch((e) => ({ available: false, reason: e.message }));
+  if (mine !== refreshGen) return;
   const box = $('#evoStatus');
   box.innerHTML = '';
   if (!status.available) {
@@ -57,30 +61,51 @@ export async function refresh() {
         el('span', {}, `${status.dirty.length} uncommitted file change(s): ${status.dirty.slice(0, 4).map((d) => d.file).join(', ')}${status.dirty.length > 4 ? '…' : ''}`),
         el('button', {
           class: 'btn small',
+          disabled: Boolean(selfBusy),
           onclick: async () => {
+            if (selfBusy) return;
             const summary = await promptDialog('Describe these changes', 'Manual changes');
-            if (summary == null) return;
-            const r = await api.self.commit(summary).catch(toastError);
-            if (r && !r.ok) toastError(new Error(`Checks failed:\n${r.check.output}`));
-            else if (r) announce(r);
-          },
-        }, 'Record'),
-        el('button', {
-          class: 'btn small danger',
-          onclick: async () => {
-            if (await confirmDialog('Discard changes', 'Throw away all uncommitted changes to the code? This cannot be undone.', 'Discard')) {
-              await api.self.discard().catch(toastError);
+            if (summary == null || selfBusy) return;
+            selfBusy = 'record';
+            refresh();
+            try {
+              const r = await api.self.commit(summary);
+              if (r?.nothing) toast('Nothing left to record.');
+              else if (r && !r.ok) toastError(new Error(`Checks failed:\n${r.check.output}`));
+              else if (r) announce(r);
+            } catch (err) {
+              toastError(err);
+            } finally {
+              selfBusy = '';
               refresh();
-              toastActions('Changes discarded.', [['Restart app', () => api.self.restart()]]);
             }
           },
-        }, 'Discard'),
+        }, selfBusy === 'record' ? 'Checking and testing…' : 'Record'),
+        el('button', {
+          class: 'btn small danger',
+          disabled: Boolean(selfBusy),
+          onclick: async () => {
+            if (selfBusy || !(await confirmDialog('Discard changes', 'Throw away all uncommitted changes to the code? This cannot be undone.', 'Discard')) || selfBusy) return;
+            selfBusy = 'discard';
+            refresh();
+            try {
+              await api.self.discard();
+              toastActions('Changes discarded.', [['Restart app', () => api.self.restart()]]);
+            } catch (err) {
+              toastError(err);
+            } finally {
+              selfBusy = '';
+              refresh();
+            }
+          },
+        }, selfBusy === 'discard' ? 'Discarding…' : 'Discard'),
       ),
     );
   }
 
   // How the last self-change started up once it went live (checked by the app after a restart/reload).
   const v = await api.self.verification().catch(() => null);
+  if (mine !== refreshGen) return;
   if (v?.state === 'problems') {
     box.append(
       el('div', { class: 'evo-banner warn' },
@@ -107,6 +132,7 @@ export async function refresh() {
   }
 
   const log = await api.self.log(200).catch((e) => (toastError(e), []));
+  if (mine !== refreshGen) return;
   const list = $('#evoList');
   list.innerHTML = '';
   for (const c of log) {

@@ -90,6 +90,7 @@ async function testConnection(settings) {
   if (settings.llm.provider === 'claude-code') {
     const st = await claudecode.status({ fresh: true });
     if (!st.installed) throw new Error(`Claude Code is not installed. Install it with:\n${claudecode.installHint()}`);
+    if (st.checked === false) throw new Error(`Couldn't check the Claude account: ${st.error}`);
     if (!st.loggedIn) throw new Error('Claude Code is installed but not signed in. Click "Connect Claude account".');
     const reply = await claudecode.complete('Reply with the single word: online');
     return { ok: true, model: `${st.subscription ? `Claude ${st.subscription}` : 'Claude account'} · ${st.email || ''}`, reply: reply.trim(), ms: Date.now() - started };

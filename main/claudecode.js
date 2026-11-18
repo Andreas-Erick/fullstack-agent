@@ -188,22 +188,20 @@ async function probeStatus() {
   const cli = await findCli();
   if (!cli) return { installed: false };
   const r = await collect(cli, ['auth', 'status', '--json'], { timeout: 20000 }).catch((e) => ({ err: e.message, out: '' }));
-  let auth = {};
+  let auth = null;
   try {
     auth = JSON.parse(r.out);
   } catch {
     /* not JSON */
   }
-  return {
-    installed: true,
-    cli,
-    version: await cliVersion(cli),
-    loggedIn: Boolean(auth.loggedIn),
-    authMethod: auth.authMethod || null,
-    email: auth.email || null,
-    subscription: auth.subscriptionType || null,
-    error: auth.loggedIn ? null : (r.err || '').trim() || null,
-  };
+  const version = await cliVersion(cli);
+  // The CLI's own words without the folders above a file (a crash trace starts with C:\Users\<name>\…\cli.js):
+  // they reach the screen, Health and, through Test connection, the log.
+  const words = (s) => String(s || '').replace(/\b[A-Za-z]:[\\/](?:[^\\/\r\n"<>|:*?]+[\\/])+/g, '').replace(/(?<![\w/.:-])\/(?:[^\s\\/'"()<>]+\/)+/g, '').trim();
+  // A check that timed out, crashed or printed no JSON says nothing about the sign-in (it showed as "not
+  // connected"). A signed-out CLI prints its JSON and exits 1: that one is checked.
+  if (!auth || typeof auth !== 'object' || Array.isArray(auth)) return { installed: true, cli, version, checked: false, loggedIn: false, authMethod: null, email: null, subscription: null, error: (words(r.err) || 'claude auth status gave no readable answer').slice(0, 300) };
+  return { installed: true, cli, version, checked: true, loggedIn: Boolean(auth.loggedIn), authMethod: auth.authMethod || null, email: auth.email || null, subscription: auth.subscriptionType || null, error: auth.loggedIn ? null : words(r.err) || null };
 }
 
 // The version changes only when the CLI does: kept per path and modification time (a day at most).

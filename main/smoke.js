@@ -339,7 +339,7 @@ const settingsTabs = (wc) => wc.executeJavaScript(`[...document.querySelectorAll
 // Text cut off or spilling out of its box (renderer/js/cliptest.js): every view at a large and a small
 // window size, then the prompts the main process opens (approvals of every shape, a secret, a voice
 // recording), with long titles, long commands and long labels. Returns the problems found.
-const namesJs = (label) => `import('./js/a11ytest.js').then((m) => m.findUnnamed(document.querySelector('.view.active') || document.body).map((c) => ${JSON.stringify(label)} + ': a control without a name for screen readers: ' + c.where + ' ' + c.html))`;
+const namesJs = (label) => `import('./js/a11ytest.js').then((m) => { const r = document.querySelector('.view.active') || document.body; return m.findUnnamed(r).map((c) => ${JSON.stringify(label)} + ': a control without a name for screen readers: ' + c.where + ' ' + c.html).concat(m.findHiddenInLabels(r).map((c) => ${JSON.stringify(label)} + ': a control hidden from the keyboard: ' + c.where)); })`;
 const scanJs = (label) => `import('./js/cliptest.js').then((m) => m.findClippedText().map((c) => ${JSON.stringify(label)} + ': text cut off (' + c.how + ') at ' + c.where + ': "' + c.text + '"'))`;
 // The Face layout opening a conversation whose reply just failed: the card shows the reason with Try again
 // and Details (chat.js showFailedCard), nothing cut off, every control named. Back to Split afterwards.
@@ -655,6 +655,67 @@ async function dialogScene(wc, label) {
   }
   return found;
 }
+// Settings (settings.js render): two quick openings show every card once and the page never goes empty
+// while it redraws; the old cards can't be edited meanwhile; a switch takes the keyboard focus (styles.css
+// .toggle) and keeps it through a redraw. No setting is changed; the setup wizard is set aside meanwhile,
+// and the window goes back to the chat (Split, csmoke01 open).
+const SETTINGS_JS = (label) => `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const found = [];
+  const say = (p) => found.push(${JSON.stringify(label)} + ': ' + p);
+  const wizard = document.querySelector('#onboarding');
+  const hadWizard = !wizard.classList.contains('hidden');
+  wizard.classList.add('hidden');
+  try {
+    const { switchView } = await import('./js/nav.js');
+    const root = document.querySelector('#settingsRoot');
+    // Drawn: the cards are in and no redraw is under way (render marks the root aria-busy meanwhile).
+    const drawn = async (what) => {
+      const until = Date.now() + 10000;
+      while (Date.now() < until) {
+        if (root.querySelector(':scope > #set-brain') && !root.hasAttribute('aria-busy')) return true;
+        await wait(100);
+      }
+      say(what + ': Settings wasn’t drawn within 10 s');
+      return false;
+    };
+    switchView('settings');
+    await drawn('opened');
+    let emptied = 0;
+    const watch = new MutationObserver(() => {
+      if (root.childElementCount === 0) emptied++;
+    });
+    watch.observe(root, { childList: true });
+    switchView('settings', 'brain');
+    switchView('settings', 'brain');
+    if (!root.inert) say('the old cards stay editable while the new ones are built (a value typed then is lost)');
+    await drawn('opened twice');
+    watch.disconnect();
+    const cards = document.querySelectorAll('#set-brain').length;
+    if (cards !== 1) say('the AI brain card shows ' + cards + ' times after two quick openings');
+    if (emptied) say('the page went empty ' + emptied + ' time(s) while it redrew');
+    if (root.inert) say('the cards stay inert after the redraw');
+    const sw = root.querySelector(':scope > .card:not(.tab-hidden) .toggle input[data-setting]');
+    if (!sw) say('no switch on the AI brain tab');
+    else {
+      sw.focus();
+      if (document.activeElement !== sw) say('a switch can’t take the keyboard focus');
+      if (getComputedStyle(sw).display === 'none') say('a switch is display: none (no keyboard, no screen reader)');
+      // A redraw (as a switch whose change redraws the page) gives the focus back to the same switch.
+      const setting = sw.dataset.setting;
+      switchView('settings');
+      await drawn('redrawn');
+      if (document.activeElement?.dataset?.setting !== setting) say('the switch “' + setting + '” lost the keyboard focus in a redraw (now on ' + (document.activeElement?.tagName || 'nothing') + ')');
+    }
+  } catch (err) {
+    say('the check stopped: ' + err.message);
+  } finally {
+    if (hadWizard) wizard.classList.remove('hidden');
+    document.querySelector('.rail-btn[data-view="chat"]').click();
+    await wait(400);
+  }
+  return found;
+})()`;
 const PROMPTS = [
   ['approval:request', { kind: 'connector', title: 'Use Google Calendar: create event', detail: '{\n  "summary": "Machine Learning Q&A",\n  "calendarId": "someone.with.a.long.address@example.com"\n}', remember: [{ level: 'read', label: 'Always allow reading Google Calendar' }, { level: 'write', label: 'Always allow Google Calendar (except deleting)' }] }],
   ['approval:request', { kind: 'command', title: 'Run a command on your computer', detail: `powershell -NoProfile -Command "Get-ChildItem -Recurse ${'C:\\Users\\someone\\Documents\\a-folder-with-a-long-name'.repeat(3)} | Sort-Object Length -Descending"` }],
@@ -809,6 +870,7 @@ async function scanText() {
     if (w === 1600) {
       for (const p of await expecting(cspRefusedHandler, () => wc.executeJavaScript(MARKDOWN_JS(`markdown safety @${w}`), true))) found.add(p); // render
       for (const p of await dialogScene(wc, `dialogs @${w}`)) found.add(p);                                                                       // dialogs
+      for (const p of await wc.executeJavaScript(SETTINGS_JS(`settings render @${w}`), true)) found.add(p);                                     // settings
     }
   }
   return [...found];

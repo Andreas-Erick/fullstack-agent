@@ -1,5 +1,6 @@
 // Finds controls a screen reader can't name: a button with only an icon and no label, an input whose
-// label isn't tied to it, a tab without text. Pure DOM reading, run by the launch check (main/smoke.js)
+// label isn't tied to it, a tab without text; and inputs hidden from the keyboard inside a shown label
+// (a switch whose checkbox is display: none). Pure DOM reading, run by the launch check (main/smoke.js)
 // on every view and Settings tab, like cliptest.js; nothing in the app imports it.
 
 const CONTROLS = 'button, a[href], input:not([type=hidden]), select, textarea, [role=button], [role=tab], [role=switch], [role=checkbox], [role=slider], [tabindex]:not([tabindex="-1"])';
@@ -51,6 +52,17 @@ export function findUnnamed(root = document.body) {
     if (el.closest('[aria-hidden="true"], [inert]') || el.disabled || !shown(el)) continue;
     if (nameOf(el)) continue;
     out.push({ where: describe(el), html: el.outerHTML.replace(/\s+/g, ' ').slice(0, 140) });
+  }
+  return out;
+}
+
+/** Inputs inside a shown label that are themselves display: none / visibility: hidden (no keyboard, no screen reader): [{ where, html }]. */
+export function findHiddenInLabels(root = document.body) {
+  const out = [];
+  for (const el of root.querySelectorAll('label input:not([type=hidden]), label select, label textarea')) {
+    if (el.closest('[aria-hidden="true"], [inert]') || el.disabled || !shown(el.closest('label'))) continue;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden') out.push({ where: describe(el), html: el.outerHTML.replace(/\s+/g, ' ').slice(0, 140) });
   }
   return out;
 }

@@ -160,7 +160,7 @@ async function render() {
       choices(
         [
           { value: 'ask', ico: '🛡', title: 'Ask me first', desc: 'Recommended. You approve by click or by saying “yes”.' },
-          { value: 'auto', ico: '⚡', title: 'Just do it', desc: 'Still asks before self-changes, commands and anything that reaches other people or services.' },
+          { value: 'auto', ico: '⚡', title: 'Just do it', desc: 'Still asks before code changes, commands, publishing to GitHub, invitations and services you haven’t allowed.' },
         ],
         s.safety.permissionMode,
         (v) => saveSettings({ safety: { permissionMode: v } }),
@@ -199,8 +199,9 @@ async function render() {
     const drawArea = async () => {
       area.innerHTML = '';
       if (draft.provider === 'claude-code') {
-        const st = await api.claude.status({ fresh: true }).catch(() => ({}));
+        const st = await api.claude.status({ fresh: true }).catch((e) => ({ installed: true, checked: false, error: e.message }));
         if (!st.installed) area.append(el('div', { class: 'test-result err' }, `Claude Code isn’t installed. Install it, then click Re-check:\n  ${await api.claude.installHint()}`));
+        else if (st.checked === false) area.append(el('div', { class: 'test-result err' }, `Couldn’t check your Claude account: ${st.error}`), el('button', { class: 'btn', onclick: () => api.claude.login() }, 'Connect Claude account'));
         else if (!st.loggedIn) area.append(el('div', { class: 'test-result' }, `Claude Code ${st.version} found — connect your account:`), el('button', { class: 'btn primary', onclick: () => api.claude.login() }, 'Connect Claude account'));
         else area.append(el('div', { class: 'test-result ok' }, `✓ Connected as ${st.email} (${st.subscription || st.authMethod} plan)`));
         area.append(el('button', { class: 'btn', onclick: drawArea }, '⟳ Re-check'));

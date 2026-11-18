@@ -1,5 +1,25 @@
-// The pure part of the Remote pill (js/remote.js): the paired devices as tooltip lines, connected ones
-// first, each with how long ago it was seen. Tested in test/remotecore.test.js.
+// The pure part of the Remote pill (js/remote.js): what the pill says (running, reachable) and the paired
+// devices as tooltip lines, connected ones first, each with how long ago it was seen. Tested in
+// test/remotecore.test.js.
+
+/**
+ * The Remote pill: { label, cls, reach } from settings.remote's `lan`, companion.status()'s `error` and
+ * its `tunnel`. `listening` is left out on purpose: the server starts after the window, so it is false
+ * for a moment at every launch; `error` is set only when it really failed (a port in use). The tunnel's
+ * `check` is the secure address opened from this computer (tunnel.js verify; Tailscale in practice).
+ */
+export function pillState({ lan = false, error = '', tunnel = null } = {}) {
+  if (error) return { label: 'Remote: not running', cls: 'err', reach: error };
+  if (tunnel?.connected && tunnel.check === 'fail') return { label: 'Remote: unreachable', cls: 'warn', reach: tunnel.warning || `${tunnel.url} didn’t answer from this computer` };
+  if (tunnel?.connected && tunnel.url) return { label: 'Remote: online', cls: 'online', reach: `Reachable ${tunnel.mode === 'tailscale' ? 'from your tailnet' : 'from the internet'} at ${tunnel.url}` };
+  return lan ? { label: 'Remote: network', cls: '', reach: 'Reachable from your local network' } : { label: 'Remote', cls: '', reach: 'Reachable from this computer only' };
+}
+
+/** A text as the tooltip's first sentence: a full stop only when it doesn't end with one, ? or ! already. */
+export function sentence(text) {
+  const s = String(text ?? '').trimEnd();
+  return !s || /[.?!…]["'”’)]*$/.test(s) ? s : `${s}.`;
+}
 
 export function ago(ms, now) {
   const s = Math.max(0, Math.round((now - ms) / 1000));

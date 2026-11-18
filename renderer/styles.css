@@ -484,8 +484,10 @@ body.perf-lite .settings-tabs { backdrop-filter: none; }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 12px; }
 .grid2 > *, .field { min-width: 0; }
 .field .input, .field select { max-width: 100%; min-width: 0; }
-.toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13.5px; user-select: none; }
-.toggle input { display: none; }
+.toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13.5px; user-select: none; position: relative; }
+/* Visually hidden, not removed: Tab reaches the switch, Space turns it on or off, screen readers name it. */
+.toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.toggle input:focus-visible + .sw { outline: 2px solid rgba(var(--c1), 0.85); outline-offset: 2px; }
 .toggle .sw { width: 38px; height: 21px; border-radius: 999px; background: rgba(var(--text-rgb), 0.08); border: 1px solid var(--line); position: relative; transition: 0.15s; flex: none; }
 .toggle .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: var(--muted); transition: 0.15s; }
 .toggle input:checked + .sw { background: rgba(var(--c1), 0.25); border-color: rgb(var(--c1)); }
@@ -536,6 +538,7 @@ body.perf-lite .settings-tabs { backdrop-filter: none; }
 .swatches { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .swatch { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line-strong); position: relative; cursor: pointer; padding: 0; }
 .swatch input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.swatch:focus-within { outline: 2px solid rgba(var(--c1), 0.85); outline-offset: 2px; }
 .theme-preview { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: rgba(var(--well), 0.5); }
 .theme-preview .meta { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-2); }
 .theme-preview .meta b { color: var(--text); font-family: var(--font-display); letter-spacing: var(--display-spacing); }
@@ -1446,3 +1449,6 @@ body.fx-still .dump-saved.show { opacity: 1; }
 :is(.fx-hud, .fx-subtle) .note-page.polishing::after { content: ''; position: absolute; inset: 70px 0 auto; height: 3px; border-radius: 3px; background: linear-gradient(90deg, transparent, rgb(var(--c1)), transparent); animation: polish-sweep 1.4s ease-in-out infinite; }
 @keyframes polish-sweep { 0% { transform: translateX(-60%); opacity: 0.2; } 50% { opacity: 1; } 100% { transform: translateX(60%); opacity: 0.2; } }
 body.fx-still .note-page.polishing::after { animation: none; }
+
+/* A part of the window that couldn't start (app.js start): said on its view, with a way out. */
+.view-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px; padding: 10px 12px; border: 1px solid rgba(var(--err), 0.6); border-radius: var(--radius); background: rgba(var(--err), 0.08); color: var(--text); }

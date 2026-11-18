@@ -5,10 +5,11 @@ import { $, api, on, toast, logEvent } from './util.js';
 import { state, saveSettings } from './state.js';
 import { transcribe, offlineVoiceWav } from './voice.js';
 import { switchView } from './nav.js';
-import { deviceSummary } from './remotecore.js';
+import { deviceSummary, pillState, sentence } from './remotecore.js';
 
 let tunnel = null;
 let devices = [];
+let serverError = ''; // companion.status().error: the server couldn't start (a port in use)
 
 export function initRemote() {
   const pill = $('#pillRemote');
@@ -23,7 +24,9 @@ export function initRemote() {
     if (ev.type === 'connected') toast(`📱 ${ev.name} connected`);
     if (ev.type === 'disconnected') toast(`📱 ${ev.name} has been disconnected for a few minutes`);
     if (ev.type === 'open-settings') switchView('settings');
-    if (['paired', 'connected', 'disconnected', 'moved'].includes(ev.type)) refreshDevices();
+    // A tunnel update also follows every server (re)start in main (companion.apply), so the server's own
+    // state (did it start?) is read again with it.
+    if (['paired', 'connected', 'disconnected', 'moved', 'tunnel'].includes(ev.type)) refreshDevices();
     if (ev.type !== 'tunnel') return;
     tunnel = ev.tunnel;
     render();
@@ -41,6 +44,7 @@ async function refreshDevices() {
   const st = await api.remote.status().catch(() => null);
   if (!st) return;
   tunnel = st.tunnel;
+  serverError = st.error || '';
   devices = st.devices || [];
   render();
 }
@@ -50,14 +54,13 @@ function render() {
   const r = state.settings?.remote;
   pill.classList.toggle('hidden', !r?.enabled);
   if (!r?.enabled) return;
-  const online = tunnel?.connected && tunnel.url;
+  const p = pillState({ lan: r.lan, error: serverError, tunnel });
   const sum = deviceSummary(devices, Date.now());
-  pill.classList.toggle('online', Boolean(online));
+  for (const cls of ['online', 'warn', 'err']) pill.classList.toggle(cls, p.cls === cls);
   pill.classList.toggle('linked', sum.connected > 0);
-  pill.querySelector('span').textContent = online ? 'Remote: online' : r.lan ? 'Remote: network' : 'Remote';
-  const reach = online ? `Reachable from the internet at ${tunnel.url}` : r.lan ? 'Reachable from your local network' : 'Reachable from this computer only';
-  pill.title = `${reach}.\n${sum.lines.join('\n')}\nClick to turn remote access off.`;
-  pill.setAttribute('aria-label', `Remote access: ${sum.headline}. Click to turn it off.`);
+  pill.querySelector('span').textContent = p.label;
+  pill.title = `${sentence(p.reach)}\n${sum.lines.join('\n')}\nClick to turn remote access off.`;
+  pill.setAttribute('aria-label', `${p.label}: ${sum.headline}. Click to turn it off.`);
 }
 
 // The phone sends 16 kHz mono 16-bit PCM WAV (checked by the server); find the data chunk.

@@ -4,7 +4,7 @@ import { state, loadSettings, saveSettings, ttsActive, raiseAlert, noteActivity 
 import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
 import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
-import { startListening, stopListening, toggleListening, speaker, preloadSpeechIfUsed, preloadOfflineVoice, setMicMode, handsFree, warmMic } from './voice.js';
+import { startListening, stopListening, toggleListening, speaker, preloadSpeechIfUsed, preloadOfflineVoice, setMicMode, handsFree, warmMic, offlineVoiceStatus } from './voice.js';
 import { initChat, newChat, sendVoice, currentConversationId, cancelReply, retryLatest, canRetryLatest } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
@@ -72,167 +72,233 @@ async function boot() {
   state.sleeping = state.settings.onboarded && state.settings.ui.sleepOnLaunch !== false;
   state.agentState = state.sleeping ? 'sleeping' : 'idle';
   syncTheme();
-  initHud();
+  start('hud', initHud);
   const boot = bootScreen();
 
   miniFace = new FaceHost($('#miniFace'), { compact: true });
   bigFace = new FaceHost($('#bigFace'));
   await refreshFaceList();
 
-  initSettings();
-  initChat();
-  initMemory();
-  initCalendar();
-  initKnowledge();
-  initDocs();
-  initEvolution();
-  initSkills();
-  initNotes();
-  initRoutines();
-  initInnerWorld();
-  initArchMap();
-  initLayout({ miniFace });
-  initApprovals();
-  initRemote();
-  initUsage();
-  initUpdates();
-  initIssues();
-  initSysmon();
-  $('#pillAgentWin').addEventListener('click', () => api.agentWindow.open().catch((err) => toast(err.message, 'error')));
-  const showAgentWin = () => $('#pillAgentWin').classList.toggle('hidden', state.settings?.agentWindow?.enabled === false);
-  on('settings', showAgentWin);
-  showAgentWin();
-  setupVoiceRouting();
-
-  // Navigation
-  $$('.rail-btn').forEach((b) => (b.onclick = () => switchView(b.dataset.view)));
-  // Arrow keys move along the rail (Tab enters and leaves it; Enter or Space opens the view).
-  $('#rail').addEventListener('keydown', (e) => {
-    const btns = $$('.rail-btn').filter((b) => b.offsetParent);
-    const i = btns.indexOf(document.activeElement);
-    const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: btns.length - 1 }[e.key];
-    if (i < 0 || to === undefined) return;
-    e.preventDefault();
-    btns[(to + btns.length) % btns.length].focus();
-  });
-  on('view', ({ name }) => {
-    if (name === 'memory') refreshMemory();
-    if (name === 'calendar') refreshCalendar();
-    if (name === 'knowledge') refreshKnowledge();
-    if (name === 'evolution') refreshEvolution();
-    if (name === 'skills') (refreshSkills(), refreshRoutines());
-    if (name === 'notes') refreshNotes();
-    if (name === 'world') requestAnimationFrame(() => refreshInnerWorld());
-    if (name === 'arch') requestAnimationFrame(() => refreshArchMap());
-    if (name === 'chat') requestAnimationFrame(() => miniFace.resize());
-    if (name === 'face') requestAnimationFrame(() => bigFace.resize());
-    if (name !== 'face' && document.body.classList.contains('fullscreen-face')) exitFullscreen();
-  });
-
-  // Settings-driven UI
-  on('settings', applySettings);
-  on('layout', applySettings);
-  applySettings();
-
-  // Agent state → UI
-  on('agent-state', (s) => {
-    // Processing sound while thinking or running tools (only when replies are spoken, and not during the demo).
-    if ((s === 'thinking' || s === 'working') && ttsActive() && !state.demo) startThinkingSound(thinkingStyle(state.settings.voice.thinkingSound), state.settings.voice.thinkingVolume ?? 0.5);
-    else stopThinkingSound();
-    const label = s.toUpperCase();
-    const b = $('#brandState');
-    b.textContent = s;
-    b.className = `brand-state ${s}`;
-    $('#miniFaceLabel').textContent = label;
-    $('#faceState').textContent = label;
-    $$('.mic-btn').forEach((m) => {
-      m.classList.toggle('recording', s === 'listening');
-      m.classList.toggle('busy', state.transcribing);
+  // From here on every part starts on its own (start): one that throws is logged and shown on its view,
+  // and the rest still starts. First what gets you out of a broken start: the rail, the app's notices,
+  // approvals and Evolution (where a bad self-change is reverted).
+  start('rail', () => {
+    $$('.rail-btn').forEach((b) => (b.onclick = () => switchView(b.dataset.view)));
+    // Arrow keys move along the rail (Tab enters and leaves it; Enter or Space opens the view).
+    $('#rail').addEventListener('keydown', (e) => {
+      const btns = $$('.rail-btn').filter((b) => b.offsetParent);
+      const i = btns.indexOf(document.activeElement);
+      const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: btns.length - 1 }[e.key];
+      if (i < 0 || to === undefined) return;
+      e.preventDefault();
+      btns[(to + btns.length) % btns.length].focus();
     });
   });
-  on('caption', ({ text, role }) => {
-    for (const c of [$('#faceCaption'), $('#miniCaption')]) {
-      c.textContent = state.settings.ui.captions ? text : '';
-      c.classList.toggle('user', role === 'user');
-    }
+  // Vault edits by the agent refresh the open views; the main process's notices (a self-change that
+  // logged problems after going live) show as toasts.
+  start('notices', () => {
+    api.on('vault:changed', (rel) => emit('vault-changed', rel));
+    api.on('app:notice', ({ message, kind }) => toast(message, kind, 15000));
   });
-  on('speech-idle', () => {
-    if (!state.generating) setTimeout(() => !state.playing && !state.recording && !state.generating && ($('#faceCaption').textContent = $('#miniCaption').textContent = ''), 2500);
+  start('approvals', initApprovals);
+  start('evolution', initEvolution, 'evolution');
+  start('view refresh', () => {
+    on('view', ({ name }) => {
+      if (name === 'memory') refreshMemory();
+      if (name === 'calendar') refreshCalendar();
+      if (name === 'knowledge') refreshKnowledge();
+      if (name === 'evolution') refreshEvolution();
+      if (name === 'skills') (refreshSkills(), refreshRoutines());
+      if (name === 'notes') refreshNotes();
+      if (name === 'world') requestAnimationFrame(() => refreshInnerWorld());
+      if (name === 'arch') requestAnimationFrame(() => refreshArchMap());
+      if (name === 'chat') requestAnimationFrame(() => miniFace.resize());
+      if (name === 'face') requestAnimationFrame(() => bigFace.resize());
+      if (name !== 'face' && document.body.classList.contains('fullscreen-face')) exitFullscreen();
+    });
   });
 
-  setupPushToTalk();
-  setupShortcuts();
-
-  $('#fullscreenBtn').onclick = () => (document.body.classList.contains('fullscreen-face') ? exitFullscreen() : enterFullscreen());
-  on('fullscreen', () => requestAnimationFrame(() => bigFace.resize()));
-
-  refreshStatus();
-  on('status-refresh', refreshStatus);
-  // Settings can change mid-conversation (setup, voice commands, the agent fixing itself): refresh the status lights.
-  let lastProvider = state.settings.llm.provider;
-  on('settings', (st) => {
-    if (st.llm.provider !== lastProvider) {
-      lastProvider = st.llm.provider;
-      refreshStatus();
-    }
+  // The views and the title-bar parts.
+  start('settings', initSettings, 'settings');
+  start('chat', initChat, 'chat');
+  start('memory', initMemory, 'memory');
+  start('calendar', initCalendar, 'calendar');
+  start('knowledge', initKnowledge, 'knowledge');
+  start('documents', initDocs, 'docs');
+  start('skills', initSkills, 'skills');
+  start('notes', initNotes, 'notes');
+  start('routines', initRoutines, 'skills');
+  start('world', initInnerWorld, 'world');
+  start('architecture', initArchMap, 'arch');
+  start('layout', () => initLayout({ miniFace }));
+  start('remote', initRemote);
+  start('usage', initUsage);
+  start('updates', initUpdates);
+  start('issues', initIssues);
+  start('system monitor', initSysmon);
+  start('agent window', () => {
+    $('#pillAgentWin').addEventListener('click', () => api.agentWindow.open().catch((err) => toast(err.message, 'error')));
+    const showAgentWin = () => $('#pillAgentWin').classList.toggle('hidden', state.settings?.agentWindow?.enabled === false);
+    on('settings', showAgentWin);
+    showAgentWin();
   });
-  // A connector's level saved outside the window (an approval's "Always allow…", the agent's
-  // connector_permission): keep this window's copy current, so Settings shows it and never saves over it.
-  api.on('claude:connectorLevels', (lists) => {
-    state.settings = { ...state.settings, claudeCode: { ...state.settings.claudeCode, ...lists } };
-    emit('settings', state.settings);
+  start('voice routing', setupVoiceRouting);
+
+  // Settings-driven UI
+  start('settings-driven UI', () => {
+    on('settings', applySettings);
+    on('layout', applySettings);
+    applySettings();
+    // A connector's level saved outside the window (an approval's "Always allow…", the agent's
+    // connector_permission): keep this window's copy current, so Settings shows it and never saves over it.
+    api.on('claude:connectorLevels', (lists) => {
+      state.settings = { ...state.settings, claudeCode: { ...state.settings.claudeCode, ...lists } };
+      emit('settings', state.settings);
+    });
   });
-  // Every 5 minutes, and on coming back to the window: at most every 5 minutes, every 15 s while a
-  // light shows a problem (signing in elsewhere shows quickly). The checks start programs and walk the vault.
-  setInterval(refreshStatus, STATUS_EVERY_MS);
-  window.addEventListener('focus', () => {
-    const troubled = ['#pillLlm', '#pillVoice', '#pillCal', '#pillKb'].some((id) => /\b(err|warn)\b/.test($(id).className));
-    if (Date.now() - lastStatusAt > (troubled ? 15000 : STATUS_EVERY_MS)) refreshStatus();
+
+  // Agent state → UI
+  start('agent state', () => {
+    on('agent-state', (s) => {
+      // Processing sound while thinking or running tools (only when replies are spoken, and not during the demo).
+      if ((s === 'thinking' || s === 'working') && ttsActive() && !state.demo) startThinkingSound(thinkingStyle(state.settings.voice.thinkingSound), state.settings.voice.thinkingVolume ?? 0.5);
+      else stopThinkingSound();
+      const label = s.toUpperCase();
+      const b = $('#brandState');
+      b.textContent = s;
+      b.className = `brand-state ${s}`;
+      $('#miniFaceLabel').textContent = label;
+      $('#faceState').textContent = label;
+      $$('.mic-btn').forEach((m) => {
+        m.classList.toggle('recording', s === 'listening');
+        m.classList.toggle('busy', state.transcribing);
+      });
+    });
+    on('caption', ({ text, role }) => {
+      for (const c of [$('#faceCaption'), $('#miniCaption')]) {
+        c.textContent = state.settings.ui.captions ? text : '';
+        c.classList.toggle('user', role === 'user');
+      }
+    });
+    on('speech-idle', () => {
+      if (!state.generating) setTimeout(() => !state.playing && !state.recording && !state.generating && ($('#faceCaption').textContent = $('#miniCaption').textContent = ''), 2500);
+    });
+  });
+
+  start('push-to-talk', setupPushToTalk);
+  start('shortcuts', setupShortcuts);
+
+  start('fullscreen', () => {
+    $('#fullscreenBtn').onclick = () => (document.body.classList.contains('fullscreen-face') ? exitFullscreen() : enterFullscreen());
+    on('fullscreen', () => requestAnimationFrame(() => bigFace.resize()));
+  });
+
+  start('status lights', () => {
+    // Clicking a light jumps to its settings.
+    for (const [id, section] of Object.entries(pillTargets)) document.getElementById(id)?.addEventListener('click', () => switchView('settings', section));
+    // The offline voice failing to load turns its light red; loading again turns it green.
+    on('tts-progress', (p) => {
+      if (p.status === 'error') voiceError = p.message || 'unknown error';
+      else if (p.status === 'ready') voiceError = '';
+      else return;
+      if (state.settings.voice.engine === 'local' && state.settings.voice.ttsEnabled) offlineVoicePill(p.device);
+    });
+    refreshStatus();
+    on('status-refresh', refreshStatus);
+    // Settings can change mid-conversation (setup, voice commands, the agent fixing itself): refresh the status lights.
+    let lastProvider = state.settings.llm.provider;
+    on('settings', (st) => {
+      if (st.llm.provider !== lastProvider) {
+        lastProvider = st.llm.provider;
+        refreshStatus();
+      }
+    });
+    // Every 5 minutes, and on coming back to the window: at most every 5 minutes, every 15 s while a
+    // light shows a problem (signing in elsewhere shows quickly). The checks start programs and walk the vault.
+    setInterval(refreshStatus, STATUS_EVERY_MS);
+    window.addEventListener('focus', () => {
+      const troubled = ['#pillLlm', '#pillVoice', '#pillCal', '#pillKb'].some((id) => /\b(err|warn)\b/.test($(id).className));
+      if (Date.now() - lastStatusAt > (troubled ? 15000 : STATUS_EVERY_MS)) refreshStatus();
+    });
   });
 
   // Check what this computer can take (once, then every 30 days), then warm up the local speech model
   // for someone who used voice input this week (perfcore.js preloadSpeech); everyone else loads it
   // with the first press of the talk key, and Balanced never preloads.
-  initPerf();
-  preloadOfflineVoice();
-  perfReady.then(() => setTimeout(preloadSpeechIfUsed, 3000));
-  // The microphone, open before the first push-to-talk press (and again when you come back to the window).
-  setTimeout(warmMic, 1500);
-  window.addEventListener('focus', warmMic);
-
-  // Alerts turn the face red; vault edits by the agent refresh the open views.
-  on('alert', (a) => {
-    for (const n of [$('#brandState'), $('#miniFaceLabel'), $('#faceState')]) n.classList.toggle('alert', Boolean(a));
-    if (a) $('#faceState').textContent = 'ALERT';
+  start('performance', () => {
+    initPerf();
+    preloadOfflineVoice();
+    perfReady.then(() => setTimeout(preloadSpeechIfUsed, 3000));
+    // The microphone, open before the first push-to-talk press (and again when you come back to the window).
+    setTimeout(warmMic, 1500);
+    window.addEventListener('focus', warmMic);
   });
-  on('voice-fallback', (msg) => raiseAlert(`VoiceStudio unavailable: ${msg}`));
-  api.on('vault:changed', (rel) => emit('vault-changed', rel));
-  api.on('app:notice', ({ message, kind }) => toast(message, kind, 15000));
-  // Helper apps (VoiceStudio, FreeLLMAPI) started by Nexus: say so, and refresh the status lights when ready.
-  api.on('helperApps:event', (ev) => {
-    if (ev.type === 'starting') toast(`Starting ${ev.name} in the background…`);
-    else if (ev.type === 'ready') (toast(`${ev.name} is ready.`), emit('status-refresh'));
-    else if (ev.type === 'failed') toast(`${ev.name} could not be started: ${ev.error}`, 'error', 10000);
+
+  // Alerts turn the face red.
+  start('alerts', () => {
+    on('alert', (a) => {
+      for (const n of [$('#brandState'), $('#miniFaceLabel'), $('#faceState')]) n.classList.toggle('alert', Boolean(a));
+      if (a) $('#faceState').textContent = 'ALERT';
+    });
+    on('voice-fallback', (msg) => raiseAlert(`VoiceStudio unavailable: ${msg}`));
+    // Helper apps (VoiceStudio, FreeLLMAPI) started by Nexus: say so, and refresh the status lights when ready.
+    api.on('helperApps:event', (ev) => {
+      if (ev.type === 'starting') toast(`Starting ${ev.name} in the background…`);
+      else if (ev.type === 'ready') (toast(`${ev.name} is ready.`), emit('status-refresh'));
+      else if (ev.type === 'failed') toast(`${ev.name} could not be started: ${ev.error}`, 'error', 10000);
+    });
   });
 
   // Face gallery + demo
-  $('#faceSelect').onchange = () => saveSettings({ ui: { face: $('#faceSelect').value } });
-  $('#pillPractice').onclick = () => saveSettings({ learning: { practiceLanguage: '' } }).then(() => toast('Language practice ended'));
-  $('#personaSelect').onchange = async () => syncPersonaSelect((await switchPersona($('#personaSelect').value)).personas);
-  $('#faceDemo').onclick = () => runDemo();
-  $('#faceFolder').onclick = async () => (await api.faces.openFolder(), setTimeout(refreshFaceList, 1500));
+  start('face controls', () => {
+    $('#faceSelect').onchange = () => saveSettings({ ui: { face: $('#faceSelect').value } });
+    $('#pillPractice').onclick = () => saveSettings({ learning: { practiceLanguage: '' } }).then(() => toast('Language practice ended'));
+    $('#personaSelect').onchange = async () => syncPersonaSelect((await switchPersona($('#personaSelect').value)).personas);
+    $('#faceDemo').onclick = () => runDemo();
+    $('#faceFolder').onclick = async () => (await api.faces.openFolder(), setTimeout(refreshFaceList, 1500));
+  });
 
   // Hands-free mode, launch greeting (which also hides the first-turn warm-up), first-run setup.
-  if (state.settings.stt.enabled && state.settings.stt.micMode === 'open') setMicMode('open');
-  initSetup();
-  const setupOpen = maybeStartOnboarding({ then: greetOnLaunch }); // first launch: the guided setup (it ends with the agent's interview); the privacy step if never accepted, greeting after it
-  // Asleep (since before the first frame, see the top of init) until the greeting or the first thing
-  // you do wakes her (typing, the mic; any turn does too). The labels learn the state now that they listen.
-  emit('agent-state', state.agentState);
-  for (const ev of ['focus', 'pointerdown', 'keydown', 'input']) $('#input').addEventListener(ev, noteActivity);
-  for (const b of ['#micBtn', '#faceMicBtn']) $(b)?.addEventListener('pointerdown', noteActivity);
-  if (!setupOpen) greetOnLaunch();
+  start('hands-free', () => {
+    if (state.settings.stt.enabled && state.settings.stt.micMode === 'open') setMicMode('open');
+  });
+  start('setup', initSetup);
+  start('launch', () => {
+    const setupOpen = maybeStartOnboarding({ then: greetOnLaunch }); // first launch: the guided setup (it ends with the agent's interview); the privacy step if never accepted, greeting after it
+    // Asleep (since before the first frame, see the top of init) until the greeting or the first thing
+    // you do wakes her (typing, the mic; any turn does too). The labels learn the state now that they listen.
+    emit('agent-state', state.agentState);
+    for (const ev of ['focus', 'pointerdown', 'keydown', 'input']) $('#input').addEventListener(ev, noteActivity);
+    for (const b of ['#micBtn', '#faceMicBtn']) $(b)?.addEventListener('pointerdown', noteActivity);
+    if (!setupOpen) greetOnLaunch();
+  });
   boot.done();
+}
+
+// One part failing to start (a view after a bad self-change, a title-bar widget) mustn't take the window
+// down: it is logged, its view says so, and everything else still starts.
+function start(name, fn, view = null) {
+  try {
+    const r = fn();
+    if (r && typeof r.catch === 'function') r.catch((err) => startFailed(name, err, view));
+  } catch (err) {
+    startFailed(name, err, view);
+  }
+}
+
+function startFailed(name, err, view) {
+  reportUiError(`init ${name}`, err);
+  // Also on the console, as a failed boot() was: the launch check (main/smoke.js) fails on console errors,
+  // and DevTools shows the stack.
+  console.error(`${name} couldn’t start`, err);
+  const host = view && document.getElementById(`view-${view}`);
+  const box = el('div', { class: 'view-error', role: 'alert' },
+    el('b', {}, `${name} couldn’t start: ${err?.message || err}`),
+    el('button', { class: 'btn small', onclick: () => location.reload() }, '⟳ Reload'),
+    el('button', { class: 'btn small', onclick: () => switchView('evolution') }, 'Open Evolution'),
+  );
+  if (host) host.prepend(box);
+  else toast(`${name} couldn’t start: ${err?.message || err}`, 'error', 15000);
 }
 
 let faceList = BUILT_IN.map((f) => ({ id: f.id, title: f.title }));
@@ -460,6 +526,13 @@ const SINGLE = { local: 'Local model', gemini: 'Gemini', deepseek: 'DeepSeek', g
 
 const STATUS_EVERY_MS = 5 * 60000;
 let lastStatusAt = 0;
+let voiceError = ''; // why the offline voice failed to load ('' once it loads); voice.js tries again a minute later
+
+// The light of the offline voice (the main voice, running in the app).
+function offlineVoicePill(device = '') {
+  if (voiceError) setPill('#pillVoice', 'err', `The offline voice failed: ${voiceError} (it tries again with the first reply after a minute)`);
+  else setPill('#pillVoice', 'ok', `The offline voice (Kokoro, in the app${device ? ` · ${device}` : ''})`);
+}
 
 async function refreshStatus() {
   lastStatusAt = Date.now();
@@ -478,7 +551,7 @@ async function refreshStatus() {
   } else if (s.llm.provider === 'claude-code') {
     api.claude
       .status()
-      .then((c) => setPill('#pillLlm', c.loggedIn ? 'ok' : 'err', !c.installed ? 'Claude Code not installed' : c.loggedIn ? `Claude account · ${c.email || ''} (${c.subscription || c.authMethod})` : 'Claude account not connected'))
+      .then((c) => (c.installed && c.checked === false ? setPill('#pillLlm', 'warn', `Couldn’t check the Claude account: ${c.error}`) : setPill('#pillLlm', c.loggedIn ? 'ok' : 'err', !c.installed ? 'Claude Code not installed' : c.loggedIn ? `Claude account · ${c.email || ''} (${c.subscription || c.authMethod})` : 'Claude account not connected')))
       .catch((e) => setPill('#pillLlm', 'err', e.message));
   } else if (s.llm.provider === 'anthropic') {
     setPill('#pillLlm', s.anthropic.apiKey ? 'ok' : 'err', s.anthropic.apiKey ? `Claude · ${s.anthropic.model}` : 'Claude: API key missing');
@@ -496,9 +569,11 @@ async function refreshStatus() {
       .then((m) => setPill('#pillLlm', 'ok', `FreeLLMAPI · ${s.llm.model || m[0]?.id || 'default model'} (${m.length} models)`))
       .catch((e) => setPill('#pillLlm', 'err', `FreeLLMAPI unreachable: ${e.message}`));
   }
-  // The offline voice runs in the app, so there is no server to check.
-  if (s.voice.engine === 'local') setPill('#pillVoice', s.voice.ttsEnabled ? 'ok' : '', s.voice.ttsEnabled ? 'The offline voice (Kokoro, in the app)' : 'Voice disabled');
-  else if (s.voice.engine === 'cloud') {
+  // The offline voice runs in the app, so there is no server to check: red only while it failed to load.
+  if (s.voice.engine === 'local') {
+    if (s.voice.ttsEnabled) offlineVoicePill(offlineVoiceStatus().device);
+    else setPill('#pillVoice', '', 'Voice disabled');
+  } else if (s.voice.engine === 'cloud') {
     const openai = s.cloudVoice?.provider === 'openai';
     const keyed = openai ? Boolean(s.cloudVoice?.apiKey) : Boolean(s.groq?.apiKey);
     setPill('#pillVoice', !s.voice.ttsEnabled ? '' : keyed ? 'ok' : 'err', !s.voice.ttsEnabled ? 'Voice disabled' : keyed ? `Cloud voice · ${openai ? 'OpenAI' : 'Groq'}` : `Cloud voice: add a ${openai ? 'OpenAI' : 'Groq'} key in Settings → Voice`);
@@ -508,7 +583,7 @@ async function refreshStatus() {
     .catch(() => setPill('#pillVoice', 'err', 'VoiceStudio error'));
   api.calendar
     .status()
-    .then((c) => setPill('#pillCal', !c.enabled ? '' : c.connected ? (c.problems ? 'warn' : 'ok') : 'warn', !c.enabled ? 'Calendar disabled' : c.connected ? `Schedule in the vault: ${c.recurring} repeating, ${c.events} single${c.problems ? ` · ${c.problems} unreadable line(s)` : ''}` : 'Calendar needs the vault'))
+    .then((c) => (c.enabled && c.unreadable ? setPill('#pillCal', 'warn', `Schedule.md couldn’t be read: ${c.unreadable}`) : setPill('#pillCal', !c.enabled ? '' : c.connected ? (c.problems ? 'warn' : 'ok') : 'warn', !c.enabled ? 'Calendar disabled' : c.connected ? `Schedule in the vault: ${c.recurring} repeating, ${c.events} single${c.problems ? ` · ${c.problems} unreadable line(s)` : ''}` : 'Calendar needs the vault')))
     .catch(() => setPill('#pillCal', 'err', 'Calendar error'));
   api.obsidian
     .status()
@@ -516,9 +591,8 @@ async function refreshStatus() {
     .catch(() => setPill('#pillKb', 'err', 'Vault error'));
 }
 
-// Clicking a pill jumps to its settings.
+// Clicking a light jumps to its settings (wired in boot's status lights).
 const pillTargets = { pillLlm: 'brain', pillVoice: 'voice', pillCal: 'calendar', pillKb: 'obsidian' };
-for (const [id, section] of Object.entries(pillTargets)) document.getElementById(id).addEventListener('click', () => switchView('settings', section));
 
 boot().then(() => api.app.ready(performance.now()).catch(() => {}), (err) => {
   console.error(err);

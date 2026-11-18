@@ -162,3 +162,115 @@ test('the real check runs the CLI; --version again only when the CLI changed', a
   assert.deepStrictEqual(await claudecode.status({ fresh: true }), { installed: false });
   cliPath = cli;
 });
+
+// A check that failed (timed out, crashed, printed no JSON) is not "signed out": it showed as "no Claude
+// account is connected" in Settings, the title bar, Health, Test connection, the wizard and setup.
+const script2 = path.join(dir, 'fake-claude-2.js');
+const modeFile = path.join(dir, 'mode.txt');
+const traceFile = path.join(dir, 'trace.txt');
+fs.writeFileSync(script2, `const fs = require('fs');
+const args = process.argv.slice(2).join(' ');
+if (args === '--version') process.stdout.write('2.1.0 (Claude Code)\\n');
+else {
+  const mode = fs.readFileSync(${JSON.stringify(modeFile)}, 'utf8').trim();
+  if (mode === 'trace') (process.stderr.write(fs.readFileSync(${JSON.stringify(traceFile)}, 'utf8')), (process.exitCode = 1));
+  else if (mode === 'signed-out-trace') (process.stdout.write('{"loggedIn":false}'), process.stderr.write(fs.readFileSync(${JSON.stringify(traceFile)}, 'utf8')), (process.exitCode = 1));
+  else if (mode === 'signed-out') (process.stdout.write('{"loggedIn":false,"authMethod":"none"}'), (process.exitCode = 1));
+  else if (mode === 'garbage') (process.stdout.write('not json'), (process.exitCode = 1));
+  else if (mode === 'crash') (process.stderr.write('x'.repeat(10000)), (process.exitCode = 2));
+  else if (mode === 'null') process.stdout.write('null');
+  else if (mode === 'array') process.stdout.write('[]');
+  else if (mode === 'number') process.stdout.write('42');
+}
+`);
+const cli2 = path.join(dir, process.platform === 'win32' ? 'claude2.cmd' : 'claude2');
+fs.writeFileSync(cli2, process.platform === 'win32' ? `@"${process.execPath}" "${script2}" %*\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${script2}" "$@"\n`, { mode: 0o755 });
+
+async function checkAs(mode, cliFile = cli2) {
+  fs.writeFileSync(modeFile, mode);
+  cliPath = cliFile;
+  claudecode.invalidateStatus();
+  return claudecode.status({ fresh: true });
+}
+
+test('a signed-out CLI (its JSON on exit 1) is checked and not connected: Connect stays right', async (t) => {
+  t.after(() => (cliPath = cli));
+  const st = await checkAs('signed-out');
+  assert.strictEqual(st.installed, true);
+  assert.strictEqual(st.checked, true);
+  assert.strictEqual(st.loggedIn, false);
+  assert.strictEqual(st.authMethod, 'none');
+});
+
+test('a check that crashed, printed no JSON or nothing says so instead of "not connected"', async (t) => {
+  t.after(() => (cliPath = cli));
+  for (const mode of ['garbage', 'crash', 'null', 'array', 'number', 'empty']) {
+    const st = await checkAs(mode);
+    assert.strictEqual(st.installed, true, mode);
+    assert.strictEqual(st.checked, false, `${mode}: the check itself failed`);
+    assert.strictEqual(st.loggedIn, false, mode);
+    assert.strictEqual(st.email, null, mode);
+    assert.ok(typeof st.error === 'string' && st.error.length >= 1 && st.error.length <= 300, `${mode}: error ${JSON.stringify(st.error).slice(0, 80)}`);
+    assert.strictEqual(st.version, '2.1.0 (Claude Code)', mode);
+  }
+  assert.strictEqual((await checkAs('crash')).error, 'x'.repeat(300), 'the crash’s own words, cut to 300 characters');
+  assert.strictEqual((await checkAs('garbage')).error, 'claude auth status gave no readable answer');
+});
+
+// The error reaches the screen, Health and (through Test connection) the log, which never holds the folders
+// above the app: they name the user. A crash trace keeps its words and file names only.
+test('a crash trace in the check’s error keeps file names, not the folders that name the user', async (t) => {
+  t.after(() => (cliPath = cli));
+  fs.writeFileSync(traceFile, [
+    String.raw`C:\Users\Jane Doe\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js:42`,
+    '    throw err;',
+    '    ^',
+    'Error: boom (see https://docs.example.com/claude/errors/x)',
+    '    at Object.<anonymous> (/home/jane/.npm/claude-code/cli.js:1:2)',
+    String.raw`    at load (file:///C:/Users/jane/AppData/x/loader.mjs:3:4)`,
+    String.raw`spawn D:\Tools\jane's tools\claude.cmd ENOENT`,
+  ].join('\n'));
+  for (const mode of ['trace', 'signed-out-trace']) {
+    const st = await checkAs(mode);
+    assert.strictEqual(st.checked, mode === 'trace' ? false : true, mode);
+    for (const name of ['Jane', 'jane', 'Users', 'AppData', 'home/', 'npm', 'Tools']) assert.ok(!st.error.includes(name), `${mode}: “${name}” in ${st.error}`);
+    for (const kept of ['cli.js:42', 'throw err;', 'Error: boom', 'cli.js:1:2', 'loader.mjs:3:4', 'https://docs.example.com/claude/errors/x', 'ENOENT']) assert.ok(st.error.includes(kept), `${mode}: “${kept}” lost from ${st.error}`);
+    assert.ok(st.error.length <= 300 || mode === 'signed-out-trace', mode);
+  }
+});
+
+// A huge, path-heavy answer (drive paths with spaces, slashes without an end, runs with no separator) is
+// cleaned in one pass: the patterns split into disjoint pieces, so nothing backtracks without end.
+test('an oversized, path-heavy error is cleaned and cut without hanging', { timeout: 20000 }, async (t) => {
+  t.after(() => (cliPath = cli));
+  const piece = String.raw`C:\Users\Jane Doe\${'a'.repeat(60)} (/home/jane/${'b'.repeat(60)} C:\${'c '.repeat(30)}/ / x/`;
+  fs.writeFileSync(traceFile, piece.repeat(3000) + 'x'.repeat(50000));
+  const st = await checkAs('trace');
+  assert.strictEqual(st.checked, false);
+  assert.ok(st.error.length >= 1 && st.error.length <= 300, String(st.error.length));
+  for (const name of ['Jane', 'jane', 'Users', 'home/']) assert.ok(!st.error.includes(name), `“${name}” in ${st.error.slice(0, 80)}`);
+});
+
+test('a CLI that can’t be started (the path a timeout takes too) is a failed check', async (t) => {
+  t.after(() => (cliPath = cli));
+  const st = await checkAs('signed-out', modeFile); // the file exists but isn't a program
+  assert.strictEqual(st.installed, true);
+  assert.strictEqual(st.checked, false);
+  assert.strictEqual(st.loggedIn, false);
+  assert.ok(st.error && st.error.length <= 300, String(st.error));
+});
+
+test('a failed check is asked again after 30 s, like a signed-out one', async (t) => {
+  t.after(() => (cliPath = cli));
+  claudecode.invalidateStatus();
+  let n = 0;
+  const probe = async () => (n++, { installed: true, checked: false, loggedIn: false, error: 'Claude Code did not respond in time' });
+  await claudecode.status({ probe });
+  await claudecode.status({ probe });
+  assert.strictEqual(n, 1);
+  const realNow = Date.now;
+  Date.now = () => realNow() + claudecode.STATUS_RETRY_MS + 1000;
+  t.after(() => (Date.now = realNow));
+  await claudecode.status({ probe });
+  assert.strictEqual(n, 2);
+});
