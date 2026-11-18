@@ -16,8 +16,11 @@ entry `keyboard` points here).
 | Ctrl+, | Settings |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in, out, reset |
 | F11 | Full screen (on the Face view: the face alone) |
-| Esc | Stop speaking; leave the face's full screen; close a dialog |
+| Esc | Stop speaking; then stop a reply that is still being written (chat and face); leave the face's full screen; close a dialog |
+| End | Jump to the latest message (chat) |
 | Push-to-talk key (Settings → Voice input) | Hold to speak |
+
+Say “cancel”, “never mind” or “stop working” to stop a reply; “stop” or “quiet” only stops the voice.
 
 **The rail:** Tab into it, then ↑ / ↓ (Home / End) move between views and Enter or Space opens one.
 The open view is marked as the current page for screen readers.
@@ -26,7 +29,7 @@ The open view is marked as the current page for screen readers.
 
 | View | Keys | Esc |
 | --- | --- | --- |
-| Chat | Enter sends, Shift+Enter a new line; `/` suggests skills (↑ ↓, Tab or Enter picks) | Closes the skill suggestions, else stops speaking |
+| Chat | Enter sends, Shift+Enter a new line; `/` suggests skills (↑ ↓, Tab or Enter picks) | Closes the skill suggestions, else stops speaking, else stops the reply |
 | Calendar | ← / → previous / next, T today, N new entry; Enter on a day opens it | Closes the entry editor |
 | Notes | Ctrl+N new note, Ctrl+E edit / show rendered (or click the text to edit right there; Enter on the rendered note edits it), Ctrl+S save now; while writing: Ctrl+B bold, Ctrl+I italic, Enter continues a list (on an empty item it ends it), Tab / Shift+Tab indent list items; `[[` suggests notes to link (↑ ↓, Enter or Tab picks); ↓ from the search goes into the list, ↑ ↓ move through it. In ⚡ Dump: Ctrl+Enter saves and gives a fresh page | Closes the link suggestions, else clears the search; in Dump: saves and closes |
 | Inner World | Arrows or WASD pan, + / - zoom, 0 the whole island; the side panel lists every place and resident as buttons | Leaves the timelapse, stops following, steps outside, clears the selection (in that order) |

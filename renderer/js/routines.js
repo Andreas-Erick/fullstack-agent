@@ -1,6 +1,6 @@
 // Routines, in the Skills view: things the assistant does on a schedule, on its own (main/routines.js),
 // each run its own conversation with a notification. (They lived beside the habits until those went.)
-import { $, api, el, toast, toastError, modal, confirmDialog } from './util.js';
+import { $, api, el, toast, toastError, modal, confirmDialog, pushToast } from './util.js';
 import { switchView } from './nav.js';
 import { openConversation } from './chat.js';
 
@@ -45,8 +45,7 @@ export function initRoutines() {
 function toastResult(ev) {
   const t = el('div', { class: `toast ${ev.ok ? '' : 'err'}` }, el('b', {}, `${ev.ok ? '⏰' : '⚠'} ${ev.name}`), el('div', {}, (ev.summary || '').slice(0, 220)));
   if (ev.conversationId) t.append(el('div', { class: 'toast-actions' }, el('button', { class: 'btn small', onclick: () => (t.remove(), openRoutineChat(ev.conversationId)) }, 'Open')));
-  $('#toasts').append(t);
-  setTimeout(() => t.remove(), 20000);
+  pushToast(t, 20000); // a run that finished while you were away is still there when you look
 }
 
 function openRoutineChat(id) {

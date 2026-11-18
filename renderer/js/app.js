@@ -5,7 +5,7 @@ import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
 import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
 import { startListening, stopListening, toggleListening, speaker, preloadSpeechIfUsed, preloadOfflineVoice, setMicMode, handsFree, warmMic } from './voice.js';
-import { initChat, newChat, sendVoice, currentConversationId } from './chat.js';
+import { initChat, newChat, sendVoice, currentConversationId, cancelReply } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
 import { initUsage } from './usage.js';
@@ -265,7 +265,7 @@ function setupVoiceRouting() {
   on('voice-input', async (text) => {
     if (handleSpokenAnswer(text)) return emit('barge-in-over'); // an approval answer: the reply goes on speaking
     if (handleSetupVoice(text)) return;
-    if (await tryCommand(text, { newChat, stop: () => speaker.stop() })) return;
+    if (await tryCommand(text, { newChat, stop: () => speaker.stop(), cancel: () => (cancelReply(), speaker.stop()) })) return;
     sendVoice(text);
   });
   on('settings', (s) => {
@@ -408,9 +408,19 @@ function setupShortcuts() {
       e.preventDefault();
       toggleAppFullscreen();
     } else if (e.key === 'Escape' && state.playing) {
+      // Muted like talking over it (chat.js barge-in), or the next sentence of a reply still being
+      // written would speak again and the next Esc stop the voice once more instead of the reply.
+      emit('barge-in');
       speaker.stop();
     } else if (e.key === 'Escape' && isFullscreen()) {
       exitFullscreen();
+    } else if (e.key === 'Escape' && state.generating && !e.defaultPrevented && ['chat', 'face'].includes(currentView) && !state.approvalPending && $('#modal').classList.contains('hidden')) {
+      // The first Esc stops the voice (above), the next one the reply still being written.
+      cancelReply();
+    } else if (e.key === 'End' && !mod && !e.shiftKey && !e.defaultPrevented && currentView === 'chat' && !isTypingTarget(e.target)) {
+      // The ↓ Latest button's key (the rail's own End moves along the rail instead).
+      e.preventDefault();
+      $('#scrollLatest').click();
     }
   });
 }

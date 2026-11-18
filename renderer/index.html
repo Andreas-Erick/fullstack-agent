@@ -64,41 +64,42 @@
 
     <div class="shell">
       <nav class="rail" id="rail" aria-label="Views">
-        <button class="rail-btn active" data-view="chat" title="Chat (Ctrl+1)">
+        <!-- aria-label = the label under the icon, which a short window hides (styles.css, compact rail). -->
+        <button class="rail-btn active" data-view="chat" title="Chat (Ctrl+1)" aria-label="Chat">
           <svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z" /></svg><span>Chat</span>
         </button>
-        <button class="rail-btn" data-view="face" title="Agent face (Ctrl+2)">
+        <button class="rail-btn" data-view="face" title="Agent face (Ctrl+2)" aria-label="Face">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><circle cx="12" cy="12" r="8" /><path d="M12 1v3M12 20v3M1 12h3M20 12h3" /></svg><span>Face</span>
         </button>
-        <button class="rail-btn" data-view="memory" title="Memory vault (Ctrl+3)">
+        <button class="rail-btn" data-view="memory" title="Memory vault (Ctrl+3)" aria-label="Memory">
           <svg viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 7h6M9 11h6M9 15h4" /></svg><span>Memory</span>
         </button>
-        <button class="rail-btn" data-view="calendar" title="Calendar (Ctrl+4)">
+        <button class="rail-btn" data-view="calendar" title="Calendar (Ctrl+4)" aria-label="Calendar">
           <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg><span>Calendar</span>
         </button>
-        <button class="rail-btn" data-view="knowledge" title="Knowledge base (Ctrl+5)">
+        <button class="rail-btn" data-view="knowledge" title="Knowledge base (Ctrl+5)" aria-label="Vault">
           <svg viewBox="0 0 24 24"><path d="M12 2l8 5v10l-8 5-8-5V7z" /><path d="M12 12l8-5M12 12v10M12 12L4 7" /></svg><span>Vault</span>
         </button>
-        <button class="rail-btn" data-view="docs" title="Documents (Ctrl+6)">
+        <button class="rail-btn" data-view="docs" title="Documents (Ctrl+6)" aria-label="Docs">
           <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z" /><path d="M14 2v6h6M9 13h8M9 17h8" /></svg><span>Docs</span>
         </button>
-        <button class="rail-btn" data-view="skills" title="Skills — reusable workflows (Ctrl+8)">
+        <button class="rail-btn" data-view="skills" title="Skills — reusable workflows (Ctrl+8)" aria-label="Skills">
           <svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z" /></svg><span>Skills</span>
         </button>
-        <button class="rail-btn" data-view="notes" title="Your notes (Ctrl+9)">
+        <button class="rail-btn" data-view="notes" title="Your notes (Ctrl+9)" aria-label="Notes">
           <svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5" /><path d="M9 13h7M9 17h5" /></svg><span>Notes</span>
         </button>
-        <button class="rail-btn" data-view="world" title="Inner World — where your personas live">
+        <button class="rail-btn" data-view="world" title="Inner World — where your personas live" aria-label="World">
           <svg viewBox="0 0 24 24"><path d="M3 20h18" /><path d="M5 20v-7l4-3 4 3v7" /><path d="M14 20v-9l3.5-3 3.5 3v9" /><path d="M8 20v-3h2v3" /><circle cx="17.5" cy="4" r="1.2" /></svg><span>World</span>
         </button>
-        <button class="rail-btn" data-view="arch" title="Architecture — how Siren Assistant is built, part by part">
+        <button class="rail-btn" data-view="arch" title="Architecture — how Siren Assistant is built, part by part" aria-label="Arch">
           <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="5" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="8.5" y="16" width="7" height="5" rx="1" /><path d="M6.5 8v3.5h11V8M12 11.5V16" /></svg><span>Arch</span>
         </button>
-        <button class="rail-btn" data-view="evolution" title="Evolution — changes the agent made to itself (Ctrl+7)">
+        <button class="rail-btn" data-view="evolution" title="Evolution — changes the agent made to itself (Ctrl+7)" aria-label="Evolve">
           <svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="12" r="2" /><path d="M6 7v10M6 12c0-3 3-5 6-5h1a5 5 0 0 1 5 5" /></svg><span>Evolve</span>
         </button>
         <div class="rail-spacer"></div>
-        <button class="rail-btn" data-view="settings" title="Settings (Ctrl+,)">
+        <button class="rail-btn" data-view="settings" title="Settings (Ctrl+,)" aria-label="Config">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" /></svg><span>Config</span>
         </button>
       </nav>
@@ -165,7 +166,7 @@
               <button class="send-btn" id="sendBtn" title="Send">
                 <svg viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-8z" /></svg>
               </button>
-              <button class="stop-btn hidden" id="stopBtn" title="Stop">■</button>
+              <button class="stop-btn hidden" id="stopBtn" title="Stop the reply (Esc, or say “cancel”)">■</button>
             </div>
             <div class="voice-status hidden" id="voiceStatus"></div>
           </div>
