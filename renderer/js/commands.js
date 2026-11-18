@@ -1,12 +1,11 @@
 // Voice commands, handled locally (never sent to the model). They only trigger when spoken on their
-// own, so the same words inside a normal sentence still go to the agent.
+// own, so the same words inside a normal sentence still go to the agent (the words: commandcore.js).
 import { toast, api } from './util.js';
 import { state, saveSettings } from './state.js';
 import { speaker, setMicMode } from './voice.js';
+import { norm, MAX_WORDS, NEW_CHAT, stopCommand } from './commandcore.js';
 
-const norm = (t) => t.toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
-
-export const NEW_CHAT = /^(okay |ok |so )?(let s |let us |can we |could we |please |i want to |i d like to )?((start|open|begin|make)( a| an| the)? )?((new|fresh|another) |(clear|reset) (the |this )?)(session|conversation|chat)( please)?$/;
+export { NEW_CHAT };
 
 const COMMANDS = [
   { re: /^(go )?hands free( mode)?$/, run: async () => (await saveSettings({ stt: { micMode: 'open' } }), setMicMode('open'), 'Hands-free mode on. I’m listening.') },
@@ -34,7 +33,10 @@ const COMMANDS = [
   { re: /^zoom in$/, run: async () => (await saveSettings({ ui: { zoom: Math.min(2, (state.settings.ui.zoom || 1) + 0.1) } }), '') },
   { re: /^zoom out$/, run: async () => (await saveSettings({ ui: { zoom: Math.max(0.5, (state.settings.ui.zoom || 1) - 0.1) } }), '') },
   { re: /^(reset (the )?zoom|normal zoom)$/, run: async () => (await saveSettings({ ui: { zoom: 1 } }), '') },
-  { re: /^(stop|quiet|be quiet|shut up|stop talking|cancel)$/, run: async (ctx) => (ctx.stop(), '') },
+  // "Cancel", "never mind": the reply still being written stops (and its tools); "stop" only silences.
+  // With no reply running, "cancel that" goes to the agent (commandcore.js stopCommand).
+  { match: (t) => stopCommand(t, state.generating) === 'reply', run: async (ctx) => ((ctx.cancel || ctx.stop)(), '') },
+  { match: (t) => stopCommand(t, state.generating) === 'voice', run: async (ctx) => (ctx.stop(), '') },
   { re: /^(mute|voice off)$/, run: async () => (await saveSettings({ voice: { autoSpeak: false } }), '') },
   { re: /^(unmute|voice on)$/, run: async () => (await saveSettings({ voice: { autoSpeak: true } }), 'Voice is back on.') },
 ];
@@ -42,8 +44,8 @@ const COMMANDS = [
 /** Returns true if the transcript was a command (and handled). */
 export async function tryCommand(text, ctx) {
   const t = norm(text);
-  if (t.split(' ').length > 7) return false;
-  const cmd = COMMANDS.find((c) => c.re.test(t));
+  if (t.split(' ').length > MAX_WORDS) return false;
+  const cmd = COMMANDS.find((c) => (c.match ? c.match(t) : c.re.test(t)));
   if (!cmd) return false;
   const reply = await cmd.run(ctx);
   if (reply) {

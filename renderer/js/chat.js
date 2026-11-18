@@ -666,6 +666,14 @@ export function currentConversationId() {
   return currentId;
 }
 
+// Esc, or saying "cancel": stops the reply that is still being written (and its tools). True if there was one.
+export function cancelReply() {
+  const was = Boolean(active);
+  stop();
+  if (was) announce('Stopped.');
+  return was;
+}
+
 // Continue in an existing conversation without re-rendering the message list (used by the setup
 // flow, so the scripted first exchange stays on screen as the agent takes over).
 export function continueIn(id, title) {
@@ -708,6 +716,7 @@ function complete(s) {
 function slashPick(e) {
   if (!picker) return false;
   if (e.key === 'Escape') {
+    e.preventDefault(); // only the suggestions close, not the reply (app.js setupShortcuts)
     picker.el.remove();
     picker = null;
     return true;

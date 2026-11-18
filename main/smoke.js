@@ -155,7 +155,7 @@ const STEADY = `(async () => {
   const over = () => pills.getBoundingClientRect().right - (bar.getBoundingClientRect().left + bar.clientLeft + bar.clientWidth - (parseFloat(getComputedStyle(bar).paddingRight) || 0));
   const state = () => [bar.dataset.fold, Math.round(brand.getBoundingClientRect().right), Math.round(pills.getBoundingClientRect().left)].join(' ');
   const found = [];
-  for (const [w, h] of [[1920, 1080], [1280, 800], [1023, 700], [900, 600], [1366, 768]]) {
+  for (const [w, h] of [[1920, 1080], [1280, 800], [1023, 700], [900, 600], [1366, 768], [1440, 850]]) {
     window.resizeTo(w, h);
     await wait(1500);
     // Jitter is flip-flopping: going back to a state it had, or the fold level changing more than once.
@@ -174,6 +174,9 @@ const STEADY = `(async () => {
       seen.push(s);
     }
     if (over() > 1) found.push(innerWidth + 'x' + innerHeight + ': the title bar content is cut off by ' + Math.round(over()) + ' px');
+    // Every view stays reachable: the rail turns compact in a short window (styles.css) before it scrolls.
+    const below = [...document.querySelectorAll('.rail-btn')].filter((b) => b.getBoundingClientRect().bottom > innerHeight + 1).map((b) => b.dataset.view);
+    if (below.length) found.push(innerWidth + 'x' + innerHeight + ': rail buttons below the window: ' + below.join(', '));
   }
   // The cause seen before, on purpose: something transformed past the bar's edge (like the HUD scan
   // line mid-sweep) while the bar is fitted again. The fold must not change.
@@ -189,6 +192,73 @@ const STEADY = `(async () => {
   ghost.remove();
   return found;
 })()`;
+
+// The window in the background (body.fx-rest: the HUD's loops paused): a reply and a notice that
+// arrive then, and a view opened then, must still show. A paused entrance held its first frame,
+// opacity 0, until the window got focus. Run inside painting(). Returns the problems found.
+const REST = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  // The clock moves only when a frame is drawn, and the first one catches it up in one jump: first the
+  // entrances on \`nodes\` start, then a second of animation time, longer than any of them. False when
+  // no frame came at all.
+  const play = async (...nodes) => {
+    const until = Date.now() + 20000;
+    const t = document.timeline.currentTime;
+    const started = () => document.timeline.currentTime !== t && nodes.every((n) => n.getAnimations().every((a) => !a.pending));
+    while (!started() && Date.now() < until) await wait(20);
+    const t0 = document.timeline.currentTime;
+    while (document.timeline.currentTime - t0 < 1000 && Date.now() < until) await wait(50);
+    return document.timeline.currentTime !== t;
+  };
+  const found = [];
+  const shows = (what, n) => {
+    const o = getComputedStyle(n).opacity;
+    if (o !== '1') found.push(what + ' stays invisible while the window is in the background (opacity ' + o + ')');
+  };
+  const body = document.body;
+  const had = ['fx-rest', 'fx-hud', 'fx-still'].filter((c) => body.classList.contains(c));
+  body.classList.add('fx-rest', 'fx-hud');
+  body.classList.remove('fx-still');
+  document.querySelector('.rail-btn[data-view="chat"]').click();
+  const probe = (cls, text) => Object.assign(document.createElement('div'), { className: cls, textContent: text });
+  const msg = probe('msg assistant', 'A reply that arrived in the background');
+  const note = probe('toast', 'A notice that arrived in the background');
+  document.getElementById('messages').append(msg);
+  document.getElementById('toasts').append(note);
+  if (await play(msg, note)) {
+    shows('a new message', msg);
+    shows('a notice', note);
+    document.querySelector('.rail-btn[data-view="memory"]').click();
+    await play(document.querySelector('.view.active'));
+    shows('the view opened', document.querySelector('.view.active'));
+  } else found.push('the hidden window drew no frames, so nothing could be checked');
+  msg.remove();
+  note.remove();
+  body.classList.remove('fx-rest', 'fx-hud', 'fx-still');
+  body.classList.add(...had);
+  document.querySelector('.rail-btn[data-view="chat"]').click();
+  return found;
+})()`;
+
+// The check's window is hidden, and a hidden window paints only when asked (see shootTour): without
+// frames no animation moves, paused or not. A window in the background on screen does paint, so this
+// draws frames (a capture each) while `fn` runs.
+async function painting(fn) {
+  let on = true;
+  const frames = (async () => {
+    while (on && !win.isDestroyed()) {
+      win.webContents.invalidate();
+      await win.webContents.capturePage().catch(() => null);
+      await new Promise((r) => setTimeout(r, 30));
+    }
+  })();
+  try {
+    return await fn();
+  } finally {
+    on = false;
+    await frames;
+  }
+}
 
 // NEXUS_SHOTS=<folder>: also a PNG of every view (for design work), plus the scenes in
 // NEXUS_SHOTS_SCENES (a JSON file of [{ name, js, send: { channel, payload }, wait }]: then a picture).
@@ -329,6 +399,7 @@ function ready(ms) {
       toured = views;
       if (MEM) return;
       if (!SHOTS) for (const p of await win.webContents.executeJavaScript(STEADY, true)) problems.push(`layout: ${p}`);
+      if (!SHOTS) for (const p of await painting(() => win.webContents.executeJavaScript(REST, true))) problems.push(`rest: ${p}`);
       if (!SHOTS) for (const p of await scanText()) problems.push(p);
       if (process.env.NEXUS_SMOKE_FACE === '1') for (const p of await checkFace()) problems.push(p);
     })

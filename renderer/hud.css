@@ -220,7 +220,7 @@
 :is(.fx-hud, .fx-subtle) .rail-btn.active::before {
   content: '';
   position: absolute;
-  left: -9px;
+  left: -8px; /* the rail's edge: it clips sideways now (styles.css .rail overflow) */
   top: 18%;
   bottom: 18%;
   width: 3px;

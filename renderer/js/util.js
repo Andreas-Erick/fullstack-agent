@@ -74,10 +74,26 @@ export function timeAgo(ts) {
   return new Date(ts).toLocaleDateString();
 }
 
+// Removes a notice `ms` after the user can see it: one that came while the window was in the background
+// waits until it has focus again.
+export function removeLater(node, ms) {
+  const remove = () => node.remove();
+  if (document.hasFocus()) setTimeout(remove, ms);
+  else window.addEventListener('focus', () => setTimeout(remove, ms), { once: true });
+}
+
+// Shows a notice and removes it later; at most MAX_TOASTS at once (the oldest make room), so notices
+// that pile up while the user is away don't fill the window.
+const MAX_TOASTS = 6;
+export function pushToast(node, ms) {
+  const box = document.getElementById('toasts');
+  while (box.children.length >= MAX_TOASTS) box.firstElementChild.remove();
+  box.append(node);
+  removeLater(node, ms);
+}
+
 export function toast(message, kind = 'info', ms = 4000) {
-  const t = el('div', { class: `toast ${kind === 'error' ? 'err' : ''}` }, message);
-  document.getElementById('toasts').append(t);
-  setTimeout(() => t.remove(), ms);
+  pushToast(el('div', { class: `toast ${kind === 'error' ? 'err' : ''}` }, message), ms);
 }
 
 // Toast with buttons, e.g. [['Reload now', fn]]. Stays until dismissed or a button is clicked.
@@ -87,8 +103,7 @@ export function toastActions(message, actions, ms = 30000) {
   for (const [label, fn] of actions) row.append(el('button', { class: 'btn small', onclick: () => (t.remove(), fn()) }, label));
   row.append(el('button', { class: 'btn small', onclick: () => t.remove() }, 'Later'));
   t.append(row);
-  document.getElementById('toasts').append(t);
-  setTimeout(() => t.remove(), ms);
+  pushToast(t, ms);
 }
 
 export function toastError(err) {

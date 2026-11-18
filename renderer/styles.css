@@ -76,6 +76,11 @@ body.perf-lite *, body.perf-lite *::before, body.perf-lite *::after { backdrop-f
 body.perf-lite { --glass: rgba(var(--surface), 0.96); --glass-strong: rgba(var(--surface), 0.97); }
 body.perf-lite :is(.face-caption:not(:empty), #view-chat.layout-face .chat-header) { background: rgba(var(--bg-rgb), 0.88); }
 body.fx-rest *, body.fx-rest *::before, body.fx-rest *::after { animation-play-state: paused !important; }
+/* Loops rest; entrances (one-off animations, most of them from opacity 0) run to their end. Paused, an
+   entrance held its first frame, so a reply, notice or view that arrived in the background stayed
+   invisible until the window got focus; turned off (animation: none) they would all replay when it
+   does. A new entrance belongs here (js/hud.js CASCADE is covered by .hud-cascade *). */
+body.fx-rest :is(.view, .msg, .toast, .scroll-latest, .ob-card, .empty-state h1, .note-item.landed, .dump-saved, .dump-area.fresh, .dump-layer, .world-room, .arch-panel, .hud-readout), body.fx-rest .hud-cascade * { animation-play-state: running !important; }
 
 /* Three zones: who (brand + state) on the left, the HUD clock in the middle, tools and connections on the right. */
 .titlebar {
@@ -144,6 +149,17 @@ select.input.persona-select { width: auto; max-width: 180px; height: 26px; paddi
 .rail-btn span { font-family: var(--font-display); font-size: 8.5px; letter-spacing: 0.12em; text-transform: var(--display-transform); }
 .rail-btn:hover { color: var(--text); background: rgba(var(--c1), 0.05); }
 .rail-btn.active { color: rgb(var(--c1)); border-color: var(--line-strong); background: rgba(var(--c1), 0.08); box-shadow: 0 0 18px rgba(var(--c1), 0.15), inset 0 0 12px rgba(var(--c1), 0.06); }
+/* Scrolling is the last resort (a large ui.zoom); the compact rail below fits first. */
+.rail { overflow: hidden auto; scrollbar-width: none; }
+/* A short window (a laptop screen, 900×600): icons only, the names stay in title and aria-label. Twelve
+   buttons at ~38 px plus gaps are ~505 px, inside the 556 px under the title bar at 900×600. With names
+   the rail needs ~745-760 px (more with a tall display font), so it turns compact with room to spare.
+   main/smoke.js STEADY fails on a rail button below the window (1440×850: the named rail at its tightest). */
+@media (max-height: 840px) {
+  .rail { gap: 3px; padding: 8px 0; }
+  .rail-btn { padding: 7px 0; gap: 0; }
+  .rail-btn span { display: none; }
+}
 .views { flex: 1; position: relative; min-width: 0; }
 .view { position: absolute; inset: 0; display: none; }
 .view.active { display: flex; }
