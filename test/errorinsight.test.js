@@ -31,3 +31,37 @@ test('respects the time window', () => {
   assert.strictEqual(analyze(LOG, { now, sinceMs: 10 * 24 * 3600000 }).length, 4);
   assert.strictEqual(analyze(LOG, { now, sinceMs: 60000 }).length, 0);
 });
+
+// Regression: logger.js collapses repeats into a marker line, which was INFO and never counted, so a
+// warning repeated 40 times was one occurrence in analyze_errors, Health and problem reports.
+test('a repeat marker adds its count to the line it follows', () => {
+  const log = [
+    '2026-10-24T11:00:00.000Z WARN  (previous line repeated 5 more times)', // nothing above it: ignored
+    '2026-10-24T11:01:00.000Z WARN  vault slow {"ms":5200}',
+    '2026-10-24T11:01:09.000Z WARN  (previous line repeated 39 more times)',
+    '2026-10-24T11:02:00.000Z ERROR turn failed {"error":{"message":"boom"}}',
+    '2026-10-24T11:02:01.000Z INFO  (previous line repeated 1 more time)', // an older log's marker: not a count
+    '2026-10-24T11:03:00.000Z INFO  heartbeat {"rss":1}',
+    '2026-10-24T11:03:00.000Z INFO  (previous line repeated 3 more times)',
+  ].join('\n');
+  const groups = analyze(log, { now, sinceMs: 24 * 3600000 });
+  assert.deepStrictEqual(groups.map((g) => [g.event, g.count]), [['turn failed', 1], ['vault slow', 40]]);
+  assert.strictEqual(groups[1].last, '2026-10-24T11:01:09.000Z', 'the last repeat is the last time it happened');
+});
+
+test('a window\'s text line with a different id each time is one problem', () => {
+  const log = [
+    '2026-10-24T11:00:00.000Z ERROR ui: reply failed No conversation found with session ID: 8f96d0f9-ca86-468f-af99-86ce12ab0f16',
+    '2026-10-24T11:05:00.000Z ERROR ui: reply failed No conversation found with session ID: 1b2c3d4e-5f60-4a7b-9c8d-e0f1a2b3c4d5',
+  ].join('\n');
+  const groups = analyze(log, { now, sinceMs: 24 * 3600000 });
+  assert.strictEqual(groups.length, 1);
+  assert.strictEqual(groups[0].count, 2);
+});
+
+test('a routine waiting for its brain is a warning, not an error to report', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main', 'main.js'), 'utf8');
+  const failed = src.slice(src.indexOf("log.info('turn interrupted'") - 300, src.indexOf("log.info('turn interrupted'") + 500);
+  assert.match(failed, /routine && require\('\.\/routinecore'\)\.brainNotReady\(err\)/);
+  assert.match(failed, /notReady \? 'warn' : 'error'\]\(notReady \? 'turn not ready' : 'turn failed'/);
+});

@@ -5,11 +5,14 @@
 const LINE = /^(\S+)\s+(ERROR|WARN)\s+(?:\[([^\]]*)\]\s+)?(.*)$/;
 const LOCATION = /\b((?:main|renderer|preload|scripts)\/[\w./-]+\.js):(\d+)(?::\d+)?/g;
 const APP_URL = /app:\/\/bundle\/((?:renderer|main)\/[\w./-]+\.js):(\d+)(?::\d+)?/g;
+// logger.js collapses a line repeated within 10 s into this marker, right after it, at its level.
+const REPEATS = /^\(previous line repeated (\d+) more times?\)$/;
 
 function normalize(s) {
   return String(s)
     .replace(/https?:\/\/\S+/g, '<url>')
     .replace(/"[^"]{24,}"/g, '"…"')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<id>')
     .replace(/\b[0-9a-f]{8,}\b/gi, '<id>')
     .replace(/\b(?:[A-Za-z]:)?[\\/][\w\\/.-]+/g, '<path>')
     .replace(/\d+/g, '#')
@@ -21,6 +24,8 @@ function parseLine(row) {
   const m = LINE.exec(row);
   if (!m) return null;
   const [, time, level, tags = '', rest] = m;
+  const repeats = REPEATS.exec(rest);
+  if (repeats) return { time, level, repeats: Number(repeats[1]) };
   const brace = rest.indexOf(' {');
   const event = (brace === -1 ? rest : rest.slice(0, brace)).trim();
   let data = null;
@@ -38,23 +43,37 @@ function parseLine(row) {
   const locations = new Set();
   for (const re of [LOCATION, APP_URL]) for (const x of `${stack} ${rest}`.matchAll(re)) locations.add(`${x[1]}:${x[2]}`);
   const turn = /turn=(\w+)/.exec(tags)?.[1];
-  return { time, level, event, where, message: String(message).slice(0, 400), locations: [...locations], turn };
+  // A line without a JSON detail (a window's "ui: …" text) carries its ids and numbers in the event.
+  const kind = brace === -1 ? normalize(event) : event;
+  return { time, level, event, kind, where, message: String(message).slice(0, 400), locations: [...locations], turn };
 }
 
 /** groups: [{ level, event, where, message, count, first, last, turns[], locations[] }] */
 function analyze(logText, { sinceMs = 24 * 3600000, now = Date.now(), limit = 15 } = {}) {
   const cutoff = now - sinceMs;
   const groups = new Map();
+  let prev = null; // the group of the row just above: the one a repeat marker belongs to
   for (const row of String(logText || '').split('\n')) {
     const p = parseLine(row);
-    if (!p || !(Date.parse(p.time) >= cutoff)) continue;
-    const key = `${p.level}|${p.event}|${p.where}|${normalize(p.message)}`;
+    if (!p || !(Date.parse(p.time) >= cutoff)) {
+      prev = null;
+      continue;
+    }
+    if (p.repeats) {
+      if (prev && prev.level === p.level.toLowerCase()) {
+        prev.count += p.repeats;
+        prev.last = p.time;
+      }
+      continue;
+    }
+    const key = `${p.level}|${p.kind}|${p.where}|${normalize(p.message)}`;
     let g = groups.get(key);
     if (!g) groups.set(key, (g = { level: p.level.toLowerCase(), event: p.event, where: p.where || undefined, message: p.message, count: 0, first: p.time, last: p.time, turns: [], locations: [] }));
     g.count++;
     g.last = p.time;
     if (p.turn && g.turns.length < 3 && !g.turns.includes(p.turn)) g.turns.push(p.turn);
     for (const l of p.locations) if (g.locations.length < 4 && !g.locations.includes(l)) g.locations.push(l);
+    prev = g;
   }
   // Errors first, then by how often and how recently.
   return [...groups.values()].sort((a, b) => (a.level === b.level ? b.count - a.count || b.last.localeCompare(a.last) : a.level === 'error' ? -1 : 1)).slice(0, limit);

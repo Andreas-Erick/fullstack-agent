@@ -3,7 +3,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
-const { stub, load, tmpDir } = require('./helpers');
+const path = require('path');
+const { pathToFileURL } = require('url');
+const { ROOT, stub, load, tmpDir } = require('./helpers');
 
 const dir = tmpDir('nexus-log-');
 stub({ electron: { app: { getPath: () => dir } } });
@@ -55,4 +57,63 @@ test('every key format the app can hold is masked before it is written', () => {
     assert.ok(!out.includes(key.slice(-12)), `${name}: ${out}`);
   }
   assert.strictEqual(log.redact('mcp__claude_ai_Google_Calendar__list_events took 120 ms'), 'mcp__claude_ai_Google_Calendar__list_events took 120 ms', 'ordinary text stays');
+});
+
+// Regression: the marker was always INFO, so readers of warnings and errors (analyze_errors, Health,
+// problem reports, the self-change check) counted a warning repeated 40 times once.
+test('a repeated line is counted at its own level', () => {
+  log.warn('disk nearly full', { free: 1 });
+  log.warn('disk nearly full', { free: 1 });
+  log.flush();
+  const warnings = log.tail(50, '', { level: 'warn' });
+  assert.match(warnings, /WARN {2}disk nearly full \{"free":1\}\n\S+ WARN {2}\(previous line repeated 1 more time\)$/);
+
+  // Reading the log shows the repeats so far too, without a flush or a different line first.
+  for (let i = 0; i < 40; i++) log.error('vault unreadable', { code: 'EBUSY' });
+  const groups = require('../main/errorinsight').analyze(log.tail(2000, '', { level: 'warn' }));
+  assert.strictEqual(groups.find((g) => g.event === 'vault unreadable').count, 40);
+  assert.strictEqual(groups.find((g) => g.event === 'disk nearly full').count, 2);
+});
+
+// Regression: a folder with a space in it (the user's name, "Siren Assistant") broke the one-regex
+// shortening: frames came out mangled and kept C:\Users\<name>.
+test('stack frames are short real paths, never the user folder', () => {
+  // The app's own files sit under its folder (this checkout's, here: a path with spaces in it).
+  const own = (...parts) => path.join(ROOT, ...parts);
+  const err = new Error('boom');
+  err.stack = [
+    'Error: boom',
+    'with a second line of the message in C:\\Users\\Some One\\notes.txt',
+    `    at runOpenAI (${own('main', 'llm.js')}:499:23)`,
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)',
+    `    at async check (${own('main', 'innerworld.js')}:354:3)`,
+    '    at Object.parse (C:\\Users\\Some One\\Siren\\node_modules\\lib\\index.js:9:9)',
+    '    at C:\\Users\\Some One\\Downloads\\lib\\other.js:1:2',
+    // Code made by new Function / eval (codemap.js): the caller's position is inside the frame.
+    '    at eval (eval at load (C:\\Users\\Some One\\Desktop\\AI Assistant main\\x.js:1:2), <anonymous>:3:4)',
+  ].join('\n');
+  const { stack } = log.errorInfo(err);
+  assert.strictEqual(stack, 'runOpenAI main/llm.js:499:23 | async check main/innerworld.js:354:3 | other.js:1:2 | eval (eval at load (x.js:1:2), <anonymous>:3:4)');
+  assert.doesNotMatch(JSON.stringify(log.errorInfo(err)), /Users|Some One/);
+
+  const more = new Error('x');
+  more.stack = [
+    'Error: x',
+    `    at contextBridge (${own('preload.js')}:12:5)`,
+    '    at send (app://bundle/renderer/js/chat.js:88:3)',
+    `    at ${pathToFileURL(own('scripts', 'eval.js')).href}:7:1`,
+    '    at Array.map (<anonymous>)',
+    `    at ${own('main', 'tools', 'common.js').replace(/\\/g, '/')}:21:9`,
+    // Outside the app, a user named after one of its folders ("test", "scripts") keeps no folder.
+    '    at C:\\Users\\test\\Downloads\\lib\\helper.js:5:6',
+    '    at eval (eval at <anonymous> (file:///home/scripts/x.js:2:3), <anonymous>:1:1)',
+  ].join('\n');
+  assert.strictEqual(log.errorInfo(more).stack, 'contextBridge preload.js:12:5 | send renderer/js/chat.js:88:3 | scripts/eval.js:7:1 | Array.map (<anonymous>) | main/tools/common.js:21:9 | helper.js:5:6');
+  assert.match(log.errorInfo({ message: 'y', stack: more.stack.split('\n').slice(-1).join('\n') }).stack, /^eval \(eval at <anonymous> \(x\.js:2:3\), <anonymous>:1:1\)$/);
+
+  // An installed copy: its folder, wherever it is, is the root of the short paths.
+  const installed = 'C:\\Users\\Some One\\AppData\\Local\\Programs\\Siren Assistant\\resources\\app';
+  assert.strictEqual(log.shortFile(`${installed}\\main\\innerworld.js`, installed), 'main/innerworld.js');
+  assert.strictEqual(log.shortFile('c:/users/some one/appdata/local/programs/siren assistant/resources/app/preload.js', installed), 'preload.js', 'the drive and folders in any case');
+  assert.strictEqual(log.shortFile(`${installed}-old\\main\\x.js`, installed), 'x.js', 'a neighbouring folder is outside the app');
 });

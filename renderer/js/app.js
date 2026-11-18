@@ -17,7 +17,7 @@ import { initHud, bootScreen } from './hud.js';
 import { tryCommand } from './commands.js';
 import { startThinkingSound, stopThinkingSound, thinkingStyle } from './sounds.js';
 import { initSetup, handleSetupVoice } from './setup.js';
-import { startOnboarding } from './onboarding.js';
+import { maybeStartOnboarding } from './onboarding.js';
 import { initMemory, refresh as refreshMemory } from './memory.js';
 import { initCalendar, refresh as refreshCalendar } from './calendar.js';
 import { initKnowledge, refresh as refreshKnowledge } from './knowledge.js';
@@ -223,13 +223,13 @@ async function boot() {
   // Hands-free mode, launch greeting (which also hides the first-turn warm-up), first-run setup.
   if (state.settings.stt.enabled && state.settings.stt.micMode === 'open') setMicMode('open');
   initSetup();
-  if (!state.settings.onboarded) startOnboarding(); // first launch: the guided setup (it ends with the agent's interview)
+  const setupOpen = maybeStartOnboarding({ then: greetOnLaunch }); // first launch: the guided setup (it ends with the agent's interview); the privacy step if never accepted, greeting after it
   // Asleep (since before the first frame, see the top of init) until the greeting or the first thing
   // you do wakes her (typing, the mic; any turn does too). The labels learn the state now that they listen.
   emit('agent-state', state.agentState);
   for (const ev of ['focus', 'pointerdown', 'keydown', 'input']) $('#input').addEventListener(ev, noteActivity);
   for (const b of ['#micBtn', '#faceMicBtn']) $(b)?.addEventListener('pointerdown', noteActivity);
-  if (state.settings.onboarded) greetOnLaunch();
+  if (!setupOpen) greetOnLaunch();
   boot.done();
 }
 

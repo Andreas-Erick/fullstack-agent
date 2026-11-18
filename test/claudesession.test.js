@@ -331,3 +331,38 @@ test('the warm-up guesses the next model: spoken chats the voice model, typed on
   assert.deepStrictEqual(llm.warmTarget(s, [{ role: 'user', content: 'hi', spoken: true }, { role: 'user', content: 'Sync', routine: 'x' }]).model, 'haiku', 'a routine run is not the user talking');
   assert.strictEqual(llm.warmTarget(s, []).model, 'sonnet');
 });
+
+// Regression: every failed own tool was logged twice (tools.js with its stack, then here from the
+// result), and a call the user declined was a WARN "tool failed", so error analysis counted faults
+// that weren't.
+test('a failed tool is logged once, and a declined one is not a fault', async () => {
+  const lines = [];
+  const saved = { info: quietLog.info, warn: quietLog.warn };
+  quietLog.info = (event, data) => lines.push({ level: 'info', event, data });
+  quietLog.warn = (event, data) => lines.push({ level: 'warn', event, data });
+  const { sess } = session();
+  try {
+    const turn = sess.send('do things', { emit() {}, signal: new AbortController().signal, ctx: {} });
+    const calls = [
+      ['t1', 'mcp__nexus__calendar_add_event', '{\n "error": "\\"19:00-24:00\\" is not a time"\n}'],
+      ['t2', 'mcp__nexus__persona_switch', '<tool_use_error>Error: No such tool available: mcp__nexus__persona_switch</tool_use_error>'],
+      ['t3', 'mcp__nexus_more__skill_run', 'Error: This tool session has ended.'],
+      ['t4', 'mcp__claude_ai_Consensus__search', 'User did not approve: declined'],
+      ['t5', 'mcp__claude_ai_Consensus__search', 'Rate limit exceeded. Please wait a moment.'],
+    ];
+    sess.onLine(JSON.stringify({ type: 'assistant', message: { content: calls.map(([id, name]) => ({ type: 'tool_use', id, name, input: { q: 1 } })) } }));
+    sess.onLine(JSON.stringify({ type: 'user', message: { content: calls.map(([id, , text]) => ({ type: 'tool_result', tool_use_id: id, is_error: true, content: [{ type: 'text', text }] })) } }));
+    sess.onLine(result('done'));
+    await turn;
+  } finally {
+    Object.assign(quietLog, saved);
+    clearTimeout(sess.idleTimer);
+  }
+  const failures = lines.filter((l) => /^tool (failed|declined)$/.test(l.event)).map((l) => `${l.level} ${l.event} ${l.data.name}`);
+  assert.deepStrictEqual(failures, [
+    'warn tool failed persona_switch', // the CLI refused it: tools.js never saw the call
+    'warn tool failed skill_run', // the bridge failed before tools.js
+    'info tool declined mcp__claude_ai_Consensus__search',
+    'warn tool failed mcp__claude_ai_Consensus__search',
+  ]);
+});

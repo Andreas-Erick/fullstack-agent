@@ -4,9 +4,11 @@
 // One line per event:  <ISO time> <LEVEL> [turn=… conv=…] <event> <JSON detail>
 // - Lines written while a turn runs carry its id (AsyncLocalStorage), so `turn=ab12cd` pulls out
 //   everything that happened in one request: tools, approvals, session events, errors.
-// - Errors keep their message, code, cause and top stack frames.
+// - Errors keep their message, code, cause and top stack frames (short paths such as main/llm.js:499:23,
+//   never the folders above the app: they hold the user's name).
 // - Secrets (API keys, tokens, Bearer headers) are masked before anything is written.
-// - A line repeated within 10 seconds is collapsed into "(repeated N times)".
+// - A line repeated within 10 seconds is collapsed into "(previous line repeated N more times)", written
+//   at the repeated line's level, so error analysis (errorinsight.js) counts every repeat.
 // - nexus.log rotates at 5 MB, keeping three older files (nexus.1.log … nexus.3.log).
 const fs = require('fs');
 const path = require('path');
@@ -75,19 +77,52 @@ function redact(text) {
 }
 
 // ------------------------------------------------------- serialization
+// The app's folder (where main/ sits), wherever it is installed.
+const APP_ROOT = path.resolve(__dirname, '..');
+
+// The file of a frame: inside the app, its path from the app's folder (…/resources/app/main/x.js →
+// main/x.js, app://bundle/renderer/js/chat.js → renderer/js/chat.js); anything else by its name alone,
+// since the folders above it can hold the user's name.
+function shortFile(location, root = APP_ROOT) {
+  let file = location.replace(/\\/g, '/');
+  if (/^file:\/\//i.test(file)) {
+    try {
+      file = decodeURIComponent(file.replace(/^file:\/\//i, '').replace(/^\/([A-Za-z]:\/)/, '$1'));
+    } catch {
+      /* a malformed escape: the name alone below */
+    }
+  }
+  const base = `${root.replace(/\\/g, '/').replace(/\/+$/, '')}/`;
+  if (file.toLowerCase().startsWith(base.toLowerCase())) return file.slice(base.length);
+  return /^app:\/\/bundle\/(.+)$/.exec(file)?.[1] || file.split('/').pop();
+}
+
+// A location inside a frame that isn't "fn (file:line:col)": each "file:line:col" in it, e.g. the
+// position of the code that called eval ("eval at load (C:\…\x.js:1:2), <anonymous>:3:4").
+const INNER_LOCATION = /((?:[A-Za-z]:[\\/]|\/|file:\/\/|app:\/\/)[^]*?):(\d+):(\d+)/g;
+
+// One stack frame as "fn file:line:col" (e.g. "Session.spawn main/claudecode.js:212:9"). Folders may
+// contain spaces and brackets ("Some One", "Program Files (x86)").
+function shortFrame(frame) {
+  const l = frame.replace(/^at\s+/, '');
+  const m = /^(.+?) \((.+):(\d+):(\d+)\)$/.exec(l) || /^()(.+):(\d+):(\d+)$/.exec(l);
+  if (!m || /<anonymous>|eval at /.test(m[2])) return l.replace(INNER_LOCATION, (_all, location, line, col) => `${shortFile(location)}:${line}:${col}`);
+  const [, fn, location, line, col] = m;
+  return `${fn ? `${fn} ` : ''}${shortFile(location)}:${line}:${col}`;
+}
+
 function errorInfo(err) {
   const info = { message: err.message || String(err) };
   if (err.name && err.name !== 'Error') info.name = err.name;
   if (err.code) info.code = err.code;
   if (err.exitCode != null) info.exitCode = err.exitCode;
   if (err.stack) {
-    // The app's own frames, shortened to e.g. "Session.spawn main/claudecode.js:212:9".
+    // Only the frames ("at …"): the message's own lines are in `message` already.
     const frames = String(err.stack)
       .split('\n')
-      .slice(1)
-      .map((l) => l.trim().replace(/^at /, ''))
-      .filter((l) => !/node:internal|node_modules|\(native\)|^new Promise/.test(l))
-      .map((l) => l.replace(/\(?(?:[A-Za-z]:)?[^\s()]*?[\\/]((?:main|renderer|preload)[\\/][^\s():]*|[^\\/\s():]+)(:\d+:\d+)\)?/, '$1$2').replace(/\\/g, '/'));
+      .map((l) => l.trim())
+      .filter((l) => /^at\s/.test(l) && !/node:internal|node_modules|\(native\)|^at new Promise/.test(l))
+      .map(shortFrame);
     info.stack = frames.slice(0, 6).join(' | ');
   }
   if (err.cause) info.cause = err.cause instanceof Error ? errorInfo(err.cause) : String(err.cause);
@@ -106,7 +141,7 @@ function serialize(data) {
 }
 
 // --------------------------------------------------------------- writing
-let last = { key: '', at: 0, count: 0 };
+let last = { key: '', at: 0, count: 0, level: 'INFO' };
 
 let buffer = [];
 let timer = null;
@@ -137,9 +172,11 @@ function writeBuffer() {
   }
 }
 
+// The repeats of the last line: at its level (a reader filtering for warnings sees them) and at the time
+// of the last repeat. It always directly follows the line it repeats.
 function flushRepeats() {
-  if (last.count > 0) append(`${new Date().toISOString()} INFO  (previous line repeated ${last.count} more time${last.count > 1 ? 's' : ''})`);
-  last = { key: '', at: 0, count: 0 };
+  if (last.count > 0) append(`${new Date(last.at).toISOString()} ${last.level.padEnd(5)} (previous line repeated ${last.count} more time${last.count > 1 ? 's' : ''})`);
+  last = { key: '', at: 0, count: 0, level: 'INFO' };
 }
 
 function write(level, event, data) {
@@ -157,7 +194,7 @@ function write(level, event, data) {
       return;
     }
     flushRepeats();
-    last = { key: body, at: now, count: 0 };
+    last = { key: body, at: now, count: 0, level };
     append(`${new Date(now).toISOString()} ${body}`, level === 'ERROR');
   } catch {
     /* logging must never break the app */
@@ -168,7 +205,9 @@ function write(level, event, data) {
 // lines: how many (from the end); filter: text; level: 'error' | 'warn' (and worse); turn: a turn id;
 // sinceMin: only the last N minutes.
 function tail(lines = 150, filter = '', { level, turn, sinceMin } = {}) {
-  writeBuffer(); // reading sees every line logged so far
+  // Reading sees every line logged so far, and how often the last one repeated.
+  flushRepeats();
+  writeBuffer();
   try {
     const older = path.join(dir(), 'nexus.1.log');
     const text = (fs.existsSync(older) && lines > 300 ? fs.readFileSync(older, 'utf8') : '') + fs.readFileSync(file(), 'utf8');
@@ -219,6 +258,7 @@ module.exports = {
   },
   redact,
   errorInfo,
+  shortFile,
   tail,
   recentErrors,
   file,

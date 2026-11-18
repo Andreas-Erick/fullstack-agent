@@ -10,3 +10,24 @@ export function faceChoices(current, custom = [], builtIn = []) {
   if (inUse) return [inUse, ...all.filter((f) => f !== inUse)];
   return current ? [{ value: current, title: 'Your current face', desc: '' }, ...all] : all;
 }
+
+export const STEPS = ['welcome', 'privacy', 'hardware', 'brain', 'voice', 'vault', 'goals', 'connect', 'persona', 'tour', 'hello'];
+
+// The ways through the wizard, each ending with its last step: the whole setup; "Quick start" (the
+// welcome, then the privacy step, then done); and the privacy step alone, for an install that was set
+// up without accepting it. Every one passes the privacy step.
+const PATHS = { full: STEPS, quick: ['welcome', 'privacy'], missed: ['privacy'] };
+export const stepsFor = (mode) => PATHS[mode] || STEPS;
+
+export const accepted = (settings) => Number(settings?.privacy?.acceptedAt) > 0;
+
+/** What finishing the wizard saves: never `onboarded` without the privacy acceptance (null then). */
+export function finishPatch(settings) {
+  return accepted(settings) ? { onboarded: true } : null;
+}
+
+/** At launch: 'full' (first run), 'missed' (set up, the privacy notice never accepted) or '' (nothing). */
+export function launchMode(settings) {
+  if (!settings?.onboarded) return 'full';
+  return accepted(settings) ? '' : 'missed';
+}
