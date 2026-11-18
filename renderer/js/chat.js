@@ -36,7 +36,7 @@ export function initChat() {
   input.addEventListener('keydown', (e) => {
     if (slashPick(e)) return;
     // ↑ in an empty box: the latest message back in it, to change and send again (as in a terminal).
-    if (e.key === 'ArrowUp' && !input.value && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !active) {
+    if (e.key === 'ArrowUp' && !input.value && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !busy()) {
       const id = redo.actions(shown, { setup: openSetup }).edit;
       if (id) {
         e.preventDefault();
@@ -117,6 +117,9 @@ function autosize() {
 }
 
 let waitingFiles = null; // a send waiting for its attachments to be read (attachcore.sendPlan)
+// A reply being written, or a message waiting for its files: either way the latest exchange isn't settled,
+// so Try again, Regenerate and Edit wait (one started meanwhile was stopped by it, or sent in its place).
+const busy = () => Boolean(active || waitingFiles);
 
 function sendFromInput() {
   const input = $('#input');
@@ -149,8 +152,10 @@ function waitForFiles(then) {
   waitingFiles = attachmentsReady().finally(() => {
     waitingFiles = null;
     setSendBusy(false);
+    syncActions();
     then();
   });
+  syncActions(); // ✎ / ↻ step aside meanwhile
 }
 
 // ------------------------------------------------------------- conversations
@@ -194,11 +199,11 @@ function renderConvList() {
   // Clear all conversations) isn't listed.
   const byId = new Map(conversations.map((c) => [c.id, c]));
   const h = messageHits(q, byId);
-  let shown = 0;
+  let hitRows = 0;
   if (h) {
     const titled = new Set(filtered.map((c) => c.id));
     const found = h.items.filter((x) => !titled.has(x.id));
-    shown = found.length;
+    hitRows = found.length;
     if (found.length) list.append(el('li', { class: 'conv-group' }, 'In messages'));
     for (const hit of found) list.append(convRow(byId.get(hit.id), { words, hit }));
     const status = historycore.hitStatus({ state: h.state, shown: h.items.length, done: h.done, capped: h.capped, scanned: h.scanned, total: h.total, unreadable: h.unreadable });
@@ -207,9 +212,9 @@ function renderConvList() {
   }
   list.classList.toggle('stale', Boolean(h?.stale || h?.state === 'searching'));
   const pending = h && (h.state !== 'done' || h.cursor);
-  if (!filtered.length && !shown && !pending) list.append(el('li', { class: 'muted', style: { padding: '10px', fontSize: '13px' } }, q.trim() ? 'No matches.' : 'No conversations yet.'));
+  if (!filtered.length && !hitRows && !pending) list.append(el('li', { class: 'muted', style: { padding: '10px', fontSize: '13px' } }, q.trim() ? 'No matches.' : 'No conversations yet.'));
   restoreFocus(list, kept);
-  return { titles: filtered.length, shown, found: h?.items.length || 0 };
+  return { titles: filtered.length, shown: hitRows, found: h?.items.length || 0 };
 }
 
 // One row: the title (search words marked), for a message hit the sentence around them and who said it
@@ -396,7 +401,8 @@ function cardFor(conv, at) {
   const when = new Date(Number(m.createdAt) || NaN);
   const date = Number.isFinite(when.getTime()) ? when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
   const kicker = at ? `${who}${date ? ` · ${date}` : ''}` : `Latest reply${date ? ` · ${date}` : ''}`;
-  showCard(d.text, { plain: !d.markdown, kicker, at: m.id || null });
+  // A reply gets the card's buttons (Copy; Regenerate and Edit when it is the latest), as after 'done'.
+  showCard(d.text, { plain: !d.markdown, kicker, at: m.id || null, ...(m.role === 'assistant' ? { reply: m } : {}) });
 }
 
 // A row in History: the chat opens (at the message the search found), and the drawer makes way. While a
@@ -613,7 +619,9 @@ const stamp = (m) => chatcore.stampText(m, agentName(), new Date(m.createdAt || 
 function metaNode(m) {
   const meta = el('div', { class: 'msg-meta' }, el('span', {}, new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
   if (m.model) meta.append(el('span', {}, m.model));
-  meta.append(el('button', { onclick: () => (navigator.clipboard.writeText(chatcore.copyText(m)), toast('Copied')) }, 'Copy'));
+  // Nothing to copy (files without a word, a reply that only used tools): no Copy that empties the clipboard.
+  const copy = chatcore.copyText(m);
+  if (copy) meta.append(el('button', { onclick: () => (navigator.clipboard.writeText(copy), toast('Copied')) }, 'Copy'));
   if (m.role === 'assistant') {
     meta.append(
       el('button', { onclick: () => speaker.say(m.content || '') }, 'Speak'),
@@ -750,11 +758,12 @@ export function sendVoice(text) {
     input.focus();
     return;
   }
-  if (waitingFiles) {
-    // A message is waiting for its files to be read: these words wait in the box (attachcore.sendPlan 'hold').
+  if (waitingFiles || queued) {
+    // A message is waiting for its files to be read, or queued behind the reply being stopped: these words
+    // wait in the box (attachcore.sendPlan 'hold'), never in its place.
     input.value = (input.value ? `${input.value} ` : '') + text;
     autosize();
-    toast('Still reading your file; your words are in the box.');
+    toast(waitingFiles ? 'Still reading your file; your words are in the box.' : 'Your last message goes first; these words are in the box.');
     return;
   }
   if (active) {
@@ -765,10 +774,11 @@ export function sendVoice(text) {
   send(text, { voice: true, attach: true });
 }
 
-// redo: Try again / Regenerate / Edit (runAgain), sent as chat:redo; main takes the old exchange out.
-// attach: the composer's attachments go with this message (the user's own words, typed or spoken); a
-// suggestion, a skill run, a redo or the setup flow never takes them.
-export async function send(text, { voice = false, hidden = false, attach = false, redo: again = null } = {}) {
+// redo: Try again / Regenerate / Edit (runAgain), sent as chat:redo; main takes the old exchange out; kept:
+// the files it keeps (shown on it until the stored copy comes). attach: the composer's attachments go with
+// this message (the user's own words, typed or spoken); a suggestion, a skill run, a redo or the setup flow
+// never takes them.
+export async function send(text, { voice = false, hidden = false, attach = false, redo: again = null, kept = [] } = {}) {
   text = String(text || '').trim();
   const withFiles = attach && !hidden && !again && !state.setupMode && attachmentCount() > 0;
   if (!text && !withFiles && !again) return; // a redo may have no words of its own (a message of files only)
@@ -791,7 +801,8 @@ export async function send(text, { voice = false, hidden = false, attach = false
   const sharing = !$('#screenThumb').classList.contains('hidden') && state.settings.screen?.attachToMessages !== false;
   const slash = text.match(/^\/([\w-]+)/);
   const files = withFiles ? takeAttachments() : { tokens: [], meta: [] };
-  if (!hidden) messagesEl().append(messageNode({ id: 'pending-user', pending: requestId, role: 'user', content: text, display: text, ...(files.meta.length ? { attachments: files.meta } : {}), createdAt: Date.now(), screen: sharing, skill: slash && skillList.some((x) => x.slug === slash[1].toLowerCase()) ? slash[1].toLowerCase() : null }));
+  const showing = files.meta.length ? files.meta : again ? kept : [];
+  if (!hidden) messagesEl().append(messageNode({ id: 'pending-user', pending: requestId, role: 'user', content: text, display: text, ...(showing.length ? { attachments: showing } : {}), createdAt: Date.now(), screen: sharing, skill: slash && skillList.some((x) => x.slug === slash[1].toLowerCase()) ? slash[1].toLowerCase() : null }));
   const wrap = el('div', { class: 'msg assistant' });
   const body = el('div', { class: 'msg-body' });
   const tools = el('div', { class: 'tools' });
@@ -805,7 +816,7 @@ export async function send(text, { voice = false, hidden = false, attach = false
   active = { requestId, wrap, body, bubble, toolsEl: tools, text: '', tools: new Map(), muted: false, speech: practiceLanguage(state.settings) ? quoteFilter() : (d) => d };
   setFlag('generating', true);
   setFlag('streamingText', false);
-  setCaption(text || attachmentsSummary(files.meta), 'user');
+  setCaption(text || (showing.length ? attachmentsSummary(showing) : ''), 'user');
   // A spoken message hears something within a moment, even when the reply starts with tools or thinking.
   if (voice && ttsActive() && state.settings.voice.filler) {
     const turn = active;
@@ -1041,7 +1052,7 @@ function announce(text) {
 function syncActions() {
   const box = messagesEl();
   box.querySelectorAll('.redo-btn, .msg-failed').forEach((n) => n.remove());
-  const a = redo.actions(shown, { busy: Boolean(active), setup: openSetup });
+  const a = redo.actions(shown, { busy: busy(), setup: openSetup });
   // A failed reply's own Try again works only while it is the latest exchange.
   box.querySelectorAll('.reply-error .retry-btn').forEach((b) => (b.hidden = b.dataset.for !== a.again));
   if (!a.again) return;
@@ -1110,7 +1121,7 @@ function runHelpAction(a) {
   if (currentView !== 'chat') switchView('chat');
   if (a.go === 'newchat') return newChat();
   if (a.go === 'edit') {
-    const id = redo.actions(shown, { busy: Boolean(active), setup: openSetup }).edit;
+    const id = redo.actions(shown, { busy: busy(), setup: openSetup }).edit;
     if (id) startEdit(id);
   }
 }
@@ -1118,6 +1129,7 @@ function runHelpAction(a) {
 /** ✎ Edit: the latest message in the box; Enter sends it in place of the old exchange, Esc puts the draft back. */
 function startEdit(id) {
   const m = shown.find((x) => x.id === id);
+  if (waitingFiles) return toast('Still reading your file…'); // its message is sent once read: no edit in between
   if (!m || active) return;
   const input = $('#input');
   if (!editing) editing = { messageId: id, draft: input.value };
@@ -1180,7 +1192,7 @@ function dropFrom(id, { keep = null } = {}) {
  * something, or when an attempt was cut off), then the old one goes and the new one is sent. True if sent.
  */
 async function runAgain(kind, messageId, text = '') {
-  if (active) return (toast('Wait for the current reply to finish (or press stop).'), false);
+  if (busy()) return (toast(waitingFiles ? 'Still reading your file…' : 'Wait for the current reply to finish (or press stop).'), false);
   if (!currentId || !messageId) return false;
   const req = { conversationId: currentId, messageId, kind, text, expectLast: shown[shown.length - 1]?.id };
   const chk = await api.chat.redoCheck(req).catch((err) => ({ ok: false, error: err.message }));
@@ -1197,21 +1209,23 @@ async function runAgain(kind, messageId, text = '') {
   } else if (chk.uncertain) {
     if (!(await confirmDialog('Try again?', `The earlier attempt was cut off (the app closed or restarted), so ${agentName()} can’t be sure what it already did. She’ll be told to check before repeating anything.`, 'Try again', false))) return false;
   }
-  if (active || req.conversationId !== currentId) return false; // a reply started, or another chat opened, meanwhile
+  if (busy() || req.conversationId !== currentId) return false; // a reply started (or a message waits for its files), or another chat opened, meanwhile
+  // The files it keeps show on it while it is sent (its pictures aren't kept); 'start' brings the stored copy.
+  const kept = (shown.find((m) => m.id === messageId)?.attachments || []).filter((a) => a?.kind !== 'image');
   dropFrom(messageId);
-  await send(chk.text, { voice: chk.voice, redo: { ...req, confirmed: true } });
+  await send(chk.text, { voice: chk.voice, redo: { ...req, confirmed: true }, kept });
   return true;
 }
 
 /** Try again on the latest message (the voice command, a failed reply's button). True when something started. */
 export async function retryLatest() {
-  const a = redo.actions(shown, { busy: Boolean(active), setup: openSetup });
+  const a = redo.actions(shown, { busy: busy(), setup: openSetup });
   return a.again ? runAgain('again', a.again) : false;
 }
 
 /** Whether the latest reply failed or was stopped, so "try again" means it (commands.js). */
 export function canRetryLatest() {
-  const a = redo.actions(shown, { busy: Boolean(active), setup: openSetup });
+  const a = redo.actions(shown, { busy: busy(), setup: openSetup });
   return Boolean(a.again) && (a.state === 'unanswered' || a.state === 'stopped');
 }
 
@@ -1241,7 +1255,7 @@ function fillCardActions({ follow = false, help = null, reply = null, stopped = 
   const box = $('#replyCardActions');
   box.replaceChildren();
   if (follow || help) return;
-  const a = redo.actions(shown, { setup: openSetup }); // a finished or stopped reply: nothing runs now
+  const a = redo.actions(shown, { busy: Boolean(waitingFiles), setup: openSetup }); // a finished or stopped reply: no reply runs now
   const button = (label, title, onclick) => el('button', { class: 'chip-btn', type: 'button', title, onclick }, label);
   const edit = () => a.edit && box.append(button('✎ Edit', 'Change your message and send it again (↑)', () => startEdit(a.edit)));
   if (reply) {

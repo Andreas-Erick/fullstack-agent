@@ -483,7 +483,7 @@ function registerIpc() {
     deletedConversations.add(id);
     historysearch().forget(id);
     for (const c of activeRequests.values()) if (c.conversationId === id) c.abort();
-    claudecode.endSession(id);
+    claudecode.forget(id); // its session ends, and a warm-up queued by opening it a moment ago doesn't run
     return store
       .deleteConversation(id)
       .then((r) => attachments.removeFor(id).catch((error) => log.warn('attachments not removed', { error })).then(() => r))
@@ -497,7 +497,7 @@ function registerIpc() {
     historysearch().clear();
     for (const c of await store.listConversations()) {
       deletedConversations.add(c.id);
-      claudecode.endSession(c.id);
+      claudecode.forget(c.id);
     }
     for (const c of activeRequests.values()) c.abort();
     return store
@@ -939,6 +939,11 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
   };
   conv.messages.push(userMsg);
   if (!conv.setup && !again?.keepTitle && conv.messages.filter((m) => m.role === 'user').length === 1) conv.title = (slash ? slash.skill.name : display || (composed && !String(text).trim() ? composed.title : String(text))).replace(/\s+/g, ' ').slice(0, 60);
+  // Deleted (History ✕, Clear all) during the awaits above: the save would bring it back, with the files just copied.
+  if (deletedConversations.has(conv.id)) {
+    if (saved.length) attachments.removeFor(conv.id).catch((error) => log.warn('attachments not removed', { error }));
+    fail(new Error('The conversation was deleted'));
+  }
   await store.saveConversation(conv).catch(fail);
   attachments.release(tokens);
 
@@ -1004,7 +1009,12 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
         createdAt: Date.now(),
         ...(controller.signal.aborted ? { stopped: true } : {}), // the Claude API path stores a stopped reply (Try again)
       };
-      if (deletedConversations.has(conv.id)) return onFinish?.({ ok: false, error: 'The conversation was deleted', conversationId: conv.id });
+      if (deletedConversations.has(conv.id)) {
+        // Deleted mid-reply: the API paths return from an abort (no AbortError), so the window and devices
+        // hear the end here, as the Claude Code path's throw tells them below.
+        emit({ type: 'aborted', message: 'Stopped' });
+        return onFinish?.({ ok: false, error: 'The conversation was deleted', conversationId: conv.id });
+      }
       const fresh = (await store.getConversation(conv.id)) || conv;
       fresh.messages.push(assistantMsg);
       redo.stripAttempt(fresh, userMsg.id); // answered: nothing to try again
