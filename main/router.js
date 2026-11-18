@@ -114,8 +114,8 @@ function concrete(settings, id) {
 function classifyError(err) {
   const status = err?.status ?? err?.statusCode;
   const msg = String(err?.message || err || '');
-  if (status === 402 || /credit balance|insufficient[_ ](balance|credit|funds|quota)|billing|payment required|exceeded your current quota/i.test(msg)) return { kind: 'credits', label: 'is out of credits' };
-  if (status === 429 || /rate.?limit|too many requests|resource.?exhausted|usage limit|limit reached|quota/i.test(msg)) return { kind: 'rate', label: 'hit its rate limit' };
+  if (status === 402 || /credit balance|insufficient[_ ](balance|credit|funds|quota)|billing|payment required|exceeded your current quota|spend limit|out of (usage )?credits/i.test(msg)) return { kind: 'credits', label: 'is out of credits' };
+  if (status === 429 || /rate.?limit|too many requests|resource.?exhausted|usage limit|limit reached|quota|hit your (\w+ )?limit/i.test(msg)) return { kind: 'rate', label: 'hit its rate limit' };
   if (status === 401 || status === 403 || /api key|unauthori[sz]ed|invalid.{0,20}key|authentication|not signed in|not installed|not connected/i.test(msg)) return { kind: 'auth', label: 'is not signed in (or the key is wrong)' };
   if (status >= 500 || /overloaded|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|ECONNRESET|fetch failed|socket hang up|network|timed out|unreachable/i.test(msg)) return { kind: 'down', label: 'is unavailable' };
   return { kind: 'other', label: `failed (${msg.slice(0, 120)})` };

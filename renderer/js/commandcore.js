@@ -17,6 +17,12 @@ export const CANCEL_REPLY = /^(please |okay |ok )?(cancel( that| it)?|never ?min
 // Only silences the voice; the reply goes on being written (with push-to-talk the press already did).
 export const STOP_SPEAKING = /^(stop|quiet|be quiet|shut up|stop talking)$/;
 
+// "Try again", "retry", "please try that again": the failed or stopped reply, sent again (chat.js retryLatest).
+export const TRY_AGAIN = /^(please |okay |ok )?(try (that |it )?again|retry)( please)?$/;
+
+/** "Try again" is a command only while the latest reply failed or was stopped; after a good one it goes to the agent. */
+export const retryCommand = (t, canRetry) => Boolean(canRetry) && TRY_AGAIN.test(t);
+
 /**
  * Which stop command a transcript (normalized) is: 'reply' stops the reply still being written (and its
  * tools), 'voice' only silences, null is none (it goes to the agent). The CANCEL_REPLY words stop a reply

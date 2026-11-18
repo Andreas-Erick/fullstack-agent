@@ -87,7 +87,20 @@ test('commands.js stops the reply on "cancel" and only the voice on "stop"', () 
   assert.ok(reply > 0 && voice > reply, 'both stop entries ask stopCommand with state.generating');
   assert.match(src.slice(reply, voice), /ctx\.cancel/);
   assert.match(src.slice(voice, src.indexOf('\n', voice)), /ctx\.stop\(\)/);
-  assert.match(src, /COMMANDS\.find\(\(c\) => \(c\.match \? c\.match\(t\) : c\.re\.test\(t\)\)\)/, 'tryCommand honours match');
+  assert.match(src, /COMMANDS\.find\(\(c\) => \(c\.match \? c\.match\(t, ctx\) : c\.re\.test\(t\)\)\)/, 'tryCommand honours match (with the context: "try again" asks it)');
   assert.doesNotMatch(src, /\|cancel\)\$\//, 'the old voice-only pattern with "cancel" is gone');
   assert.match(src, /export \{ NEW_CHAT \}/, 'NEW_CHAT is still exported from commands.js');
+});
+
+// "Try again" runs the failed or stopped reply again; after a good reply (or with nothing failed) it goes to the agent.
+test('"try again" is a command only while the latest reply failed or was stopped', async () => {
+  const { retryCommand, norm } = await load();
+  for (const t of ['try again', 'Try again.', 'please try that again', 'retry', 'ok try it again please']) assert.strictEqual(retryCommand(norm(t), true), true, t);
+  for (const t of ['try again', 'retry']) assert.strictEqual(retryCommand(norm(t), false), false, `${t}: nothing failed, so the agent hears it`);
+  assert.strictEqual(retryCommand(norm('try again tomorrow with the dentist'), true), false);
+  assert.strictEqual(retryCommand(norm('let me try again'), true), false);
+  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/commands.js'), 'utf8');
+  assert.match(src, /retryCommand\(t, ctx\?\.canRetry\?\.\(\)\), run: async \(ctx\) => \(ctx\.retry\(\), ''\)/);
+  const app = fs.readFileSync(path.join(ROOT, 'renderer/js/app.js'), 'utf8');
+  assert.match(app, /retry: retryLatest, canRetry: canRetryLatest/, 'app.js hands the chat’s Try again to the commands');
 });

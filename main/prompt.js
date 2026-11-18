@@ -75,7 +75,7 @@ async function relevantMemories(query, { always = false, k = 8 } = {}) {
   return top.length ? `## Relevant memories (for this message)\n${top.map((m) => `- [${m.id}] (${m.category}) ${m.title}: ${m.content.replace(/\s*\n\s*/g, ' ').slice(0, 400)}`).join('\n')}` : '';
 }
 
-async function build(settings, activeToolNames = [], { forSession = false, query = '', previousPersona = '', spoken = false } = {}) {
+async function build(settings, activeToolNames = [], { forSession = false, query = '', previousPersona = '', spoken = false, again = '' } = {}) {
   const { agent, voice, appearance } = settings;
   const viaClaudeCode = settings.llm.provider === 'claude-code';
   const has = (prefix) => activeToolNames.some((n) => n.startsWith(prefix));
@@ -93,7 +93,7 @@ async function build(settings, activeToolNames = [], { forSession = false, query
     learning: has('learning_') ? quiet(() => require('./learning').promptBlock()) : none,
     memory: has('memory_') ? memoryBlock() : none,
   };
-  const contextNow = forSession ? null : turnContext(settings, activeToolNames, null, { query, previousPersona, spoken });
+  const contextNow = forSession ? null : turnContext(settings, activeToolNames, null, { query, previousPersona, spoken, again });
 
   parts.push(
     `You are ${agent.name}, the user's personal AI assistant — an operator, not a chatbot. You run as a desktop app on the user's own computer, with a visual "face" that animates while you listen, think and speak. Your continuity comes from your vault: each session starts fresh, so keeping your notes accurate is part of keeping yourself working.`,
@@ -283,7 +283,7 @@ When one of your own parts misbehaves (no voice, the brain unreachable, the cale
   }
 
   const stable = parts.join('\n\n');
-  const context = await (contextNow || turnContext(settings, activeToolNames, memIds, { query, previousPersona, spoken }));
+  const context = await (contextNow || turnContext(settings, activeToolNames, memIds, { query, previousPersona, spoken, again }));
   return { stable, context, memIds, system: `${stable}\n\n${context}` };
 }
 
@@ -353,7 +353,8 @@ function identityLine(name, previous = '') {
 }
 
 // Per-turn context. When `sessionMemIds` is given (warm session), report memory changes since then.
-async function turnContext(settings, activeToolNames, sessionMemIds, { query = '', relevant = true, previousPersona = '', spoken = false } = {}) {
+// again: what the turn is told about an earlier attempt or reply it replaces (redocore.noteFor).
+async function turnContext(settings, activeToolNames, sessionMemIds, { query = '', relevant = true, previousPersona = '', spoken = false, again = '' } = {}) {
   const has = (prefix) => activeToolNames.some((n) => n.startsWith(prefix));
   const now = new Date();
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -374,6 +375,7 @@ async function turnContext(settings, activeToolNames, sessionMemIds, { query = '
   if (who) lines.push(who);
   // A spoken message is answered for listening: an overview read aloud ran to 144 words.
   if (spoken) lines.push('## This message was spoken\nYour reply is read aloud: a few spoken sentences. An overview (the day, the week, a summary) stays under about 80 words: the highlights, then offer the details. No tables or lists.');
+  if (again) lines.push(`## Answering this message again\n${again}`);
   const practice = String(settings.learning?.practiceLanguage || '');
   if (practice) {
     const name = new Intl.DisplayNames(['en'], { type: 'language' }).of(practice) || practice;
@@ -517,7 +519,7 @@ function comingDays(now = new Date()) {
   return `## Coming days\ntoday ${fmt(days[0])}, tomorrow ${fmt(days[1])}, then ${days.slice(2).map(fmt).join(', ')}.`;
 }
 
-async function buildCompact(settings, activeToolNames = [], { query = '', previousPersona = '', spoken = false } = {}) {
+async function buildCompact(settings, activeToolNames = [], { query = '', previousPersona = '', spoken = false, again = '' } = {}) {
   const { agent } = settings;
   // A long master prompt as its short version (written by the local model, or the user), else its
   // digest (identity, how it speaks, lines it would say): personacore.forSmallModels.
@@ -546,7 +548,9 @@ async function buildCompact(settings, activeToolNames = [], { query = '', previo
   // None matching is said too: given matches, a small model stopped searching and made the rest up.
   const memories = activeToolNames.some((n) => n.startsWith('memory_')) && query ? await compactMemories(query) : '';
   const matches = query ? await matchesFor(query, activeToolNames) : '';
-  const raw = [memories, matches, comingDays(), await turnContext(settings, activeToolNames, null, { query, relevant: false, previousPersona, spoken })].filter(Boolean).join('\n\n');
+  // A message answered again says so first: the notes are cut at COMPACT_CONTEXT_CHARS, never this.
+  const againNote = again ? `## Answering this message again\n${again}` : '';
+  const raw = [againNote, memories, matches, comingDays(), await turnContext(settings, activeToolNames, null, { query, relevant: false, previousPersona, spoken })].filter(Boolean).join('\n\n');
   const context = raw.length > COMPACT_CONTEXT_CHARS ? `${raw.slice(0, COMPACT_CONTEXT_CHARS)}\n…` : raw;
   const reminder = `Remember: ${persona ? `you are ${agent.name}; every reply in your persona’s voice. ` : ''}Short and true; act through tools, never just claim it; ask when unsure.`;
   return { stable, context, reminder, system: `${stable}\n\n${context}\n\n${reminder}` };

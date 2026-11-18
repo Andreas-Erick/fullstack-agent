@@ -3,7 +3,7 @@
 import { toast, api } from './util.js';
 import { state, saveSettings } from './state.js';
 import { speaker, setMicMode } from './voice.js';
-import { norm, MAX_WORDS, NEW_CHAT, stopCommand } from './commandcore.js';
+import { norm, MAX_WORDS, NEW_CHAT, stopCommand, retryCommand } from './commandcore.js';
 
 export { NEW_CHAT };
 
@@ -37,6 +37,8 @@ const COMMANDS = [
   // With no reply running, "cancel that" goes to the agent (commandcore.js stopCommand).
   { match: (t) => stopCommand(t, state.generating) === 'reply', run: async (ctx) => ((ctx.cancel || ctx.stop)(), '') },
   { match: (t) => stopCommand(t, state.generating) === 'voice', run: async (ctx) => (ctx.stop(), '') },
+  // "Try again" after a failed or stopped reply sends it again; after a good one it goes to the agent.
+  { match: (t, ctx) => retryCommand(t, ctx?.canRetry?.()), run: async (ctx) => (ctx.retry(), '') },
   { re: /^(mute|voice off)$/, run: async () => (await saveSettings({ voice: { autoSpeak: false } }), '') },
   { re: /^(unmute|voice on)$/, run: async () => (await saveSettings({ voice: { autoSpeak: true } }), 'Voice is back on.') },
 ];
@@ -45,7 +47,7 @@ const COMMANDS = [
 export async function tryCommand(text, ctx) {
   const t = norm(text);
   if (t.split(' ').length > MAX_WORDS) return false;
-  const cmd = COMMANDS.find((c) => (c.match ? c.match(t) : c.re.test(t)));
+  const cmd = COMMANDS.find((c) => (c.match ? c.match(t, ctx) : c.re.test(t)));
   if (!cmd) return false;
   const reply = await cmd.run(ctx);
   if (reply) {

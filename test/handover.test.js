@@ -56,6 +56,7 @@ stub({
     needsRollover: (n, fresh = 0) => n > Math.max(100000, fresh + 80000),
     rollover: (id, n) => calls.rolled.push([id, n]),
     prewarm: async (conv) => calls.prewarmed.push(conv),
+    epochOf: () => 0, // no message was run again (claudecode.forget)
     warmCache: async (conv, opts, target) => calls.warmed.push({ id: conv.id, ...target, history: target.history.length }),
     cachedConnectors: async () => ({ list: [{ name: 'claude.ai TickTick', source: 'connector' }] }) },
   './codebase': { root: async () => '/app' },

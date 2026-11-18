@@ -55,6 +55,9 @@ export function describeMessage(m, labels = {}) {
   };
 }
 
+/** What Copy on a message copies: what its bubble shows (a /skill as typed, not its steps). */
+export const copyText = (m) => describeMessage(m).text;
+
 const newest = (items, key) => items.reduce((best, c) => (!best || (c[key] || 0) > (best[key] || 0) ? c : best), null);
 
 /** The chat opened at launch, from the conversation index (main/store.js): the one the user last wrote
@@ -102,4 +105,95 @@ export const fillerGroup = (name) => (/web|Web/.test(name) ? 'web' : /calendar/.
 export function fillerFor(name, random = Math.random) {
   const list = FILLERS[fillerGroup(name)];
   return list[Math.floor(random() * list.length)];
+}
+
+// ------------------------------------------------------------ failed replies
+// A failed reply in plain words, with the way out (chat.js errorNode; the phone shows the same). The raw
+// message stays under Details. First match wins; the patterns follow the messages main/ actually throws.
+
+/** HH:MM today, else the weekday and HH:MM. */
+function hhmm(ms, now = Date.now()) {
+  const d = new Date(ms);
+  if (d.toDateString() === new Date(now).toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+const BRAIN = { label: 'Open AI brain settings', go: 'settings', section: 'brain' };
+const NETWORK = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|socket hang up|connection error|network/i;
+const OPENAI_PATH = ['local', 'gemini', 'deepseek', 'groq', 'perplexity']; // providers with their own base URL (main/router.js concrete)
+const LOCAL_HOST = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i;
+
+// The address the chosen brain talks to, when it is on the OpenAI path (FreeLLMAPI, a local model…).
+function brainAddress(settings) {
+  const id = settings?.llm?.provider || '';
+  const base = id === 'openai' ? settings.llm.baseUrl : OPENAI_PATH.includes(id) ? settings?.[id]?.baseUrl : '';
+  return { id, base: String(base || '') };
+}
+
+// When the plan's limit resets: Claude Code's "limit reached|<epoch>", the usage meter's tightest full
+// window, or the words after "resets".
+function resetTime(raw, { usage, now, time }) {
+  const epoch = /limit reached\|(\d{10})/i.exec(raw);
+  if (epoch) return time(Number(epoch[1]) * 1000, now);
+  if (usage?.limited) {
+    const at = (usage.windows || []).filter((w) => w.used >= 0.99 && w.resetsAt).map((w) => w.resetsAt * 1000).sort((a, b) => a - b)[0];
+    if (at) return time(at, now);
+  }
+  const words = /\bresets?\s+(?:at\s+)?([^.\n]{1,40})/i.exec(raw);
+  return words ? words[1].trim() : '';
+}
+
+/**
+ * A failed reply's message → { kind, title, text, action, retry, raw }. action: { label, go: 'settings',
+ * section } | { label, go: 'helper', id } | { label, go: 'newchat' } | { label, go: 'edit' } | null.
+ * settings / usage (optional) make it exact: which brain, when the plan resets. time: a formatter (tests).
+ */
+export function errorHelp(message, { usage = null, settings = null, now = Date.now(), time = hhmm } = {}) {
+  const raw = String(message ?? '').trim().slice(0, 2000);
+  const first = (raw.split('\n').find((l) => l.trim()) || '').trim().slice(0, 200);
+  const out = (kind, title, text, action = null) => ({ kind, title, text, action, retry: true, raw });
+
+  // Multi-provider mode stopped after a brain had already acted (main/llm.js runTurn): its own words say it best.
+  if (/already used tools, so this reply was not repeated/i.test(raw)) return out('toolsran', 'The brain failed partway', raw);
+  if (/No AI provider is ready|No model selected|Choose a model|not installed|No provider could answer|Add your Anthropic API key/i.test(raw)) {
+    const list = /No provider could answer:\s*([\s\S]+)/i.exec(raw);
+    if (list) return out('notready', 'No brain could answer', list[1].trim().slice(0, 300), BRAIN);
+    if (/No model selected|Choose a model/i.test(raw)) return out('notready', 'No model is chosen', 'Choose a model in Settings → AI brain.', BRAIN);
+    if (/not installed/i.test(raw)) return out('notready', 'Claude Code isn’t installed', 'Install it and connect your Claude account, or pick another brain in Settings → AI brain.', BRAIN);
+    return out('notready', 'No brain is ready', 'Connect your Claude account or add an API key in Settings → AI brain.', BRAIN);
+  }
+  if (/usage limit reached|(you['’]?ve|you have) hit your (\w+ )?limit|\d+-hour limit reached|spend limit|out of usage credits/i.test(raw)) {
+    const at = resetTime(raw, { usage, now, time });
+    return out('limit', 'Your Claude plan’s limit is reached', `${at ? `It resets at ${at}.` : 'It resets after a while.'} Until then you can pick another brain in Settings → AI brain.`, BRAIN);
+  }
+  if (/credit balance|insufficient[_ ](balance|credit|funds|quota)|payment required|exceeded your current quota|\b402\b/i.test(raw)) return out('credits', 'The brain is out of credits', 'Add credits with the provider, or pick another brain in Settings → AI brain.', BRAIN);
+  if (/\b429\b|rate.?limit|too many requests|resource.?exhausted/i.test(raw)) return out('rate', 'The brain is busy right now', 'It hit its rate limit. Wait a moment, then try again.');
+  if (/overloaded|\b529\b/i.test(raw)) return out('overloaded', 'The brain is overloaded', 'Try again in a minute.');
+  if (/not signed in|log ?in|\/login|oauth|credential|authenticat|unauthori[sz]ed|invalid.{0,20}key|\b40[13]\b/i.test(raw)) return out('signin', 'The brain isn’t signed in', 'Connect your Claude account or check the key in Settings → AI brain.', BRAIN);
+  const { id, base } = brainAddress(settings);
+  const named = /nothing answers at|isn['’]t running/i.test(raw);
+  if (named || (NETWORK.test(raw) && LOCAL_HOST.test(base))) {
+    const at = /nothing answers at ([^\s:()]+)(?::(\d+))?/i.exec(raw);
+    const port = at?.[2] || (/:(\d+)/.exec(base.replace(/^https?:\/\//i, '')) || [])[1] || '';
+    if (port === '11434' || port === '1234') return out('local-down', 'Ollama / LM Studio isn’t running', 'Start Ollama or LM Studio, then try again.', BRAIN);
+    if (id === 'local') return out('local-down', 'Your local model’s server isn’t running', 'Start it, then try again, or check its address in Settings → AI brain.', BRAIN);
+    // A server somewhere else (not this computer) that doesn't answer: not FreeLLMAPI's to start.
+    if (at && !/^(localhost|127\.0\.0\.1|\[::1\])$/i.test(at[1])) return out('local-down', 'The brain’s server doesn’t answer', first, BRAIN);
+    return out('local-down', 'FreeLLMAPI isn’t running', 'Start it, then try again.', { label: 'Start FreeLLMAPI', go: 'helper', id: 'freellmapi' });
+  }
+  if (/No conversation found with session ID/i.test(raw)) return out('session', 'The Claude session couldn’t be reopened', 'Try again starts a fresh one with your recent messages.');
+  if (NETWORK.test(raw)) return out('network', 'Couldn’t reach the brain', 'Check the internet connection, then try again.');
+  if (/did not respond in time|timed? ?out|Stopped after \d+ minutes/i.test(raw)) return out('timeout', 'The brain took too long', 'It didn’t answer in time. Try again in a moment.');
+  if (/Claude Code exited \(code/i.test(raw)) return out('exited', 'Claude Code stopped unexpectedly', 'Try again; Health → Run checks shows why if it keeps happening.');
+  if (/prompt is too long|context.{0,20}(length|window)|maximum context|too many tokens/i.test(raw)) {
+    const text = id === 'claude-code' ? 'Try again starts a fresh session with your recent messages.' : 'Start a new chat (your notes and memories carry over), or send a shorter message.';
+    return out('toolong', 'This conversation is too long for the brain', text, { label: '＋ New chat', go: 'newchat' });
+  }
+  if (/declined this request/i.test(raw)) return out('declined', 'The model declined to answer', 'You can change your message and send it again.', { label: '✎ Edit message', go: 'edit' });
+  if (/LLM error 5\d\d|internal server error|bad gateway|service unavailable/i.test(raw)) return out('server', 'The brain’s server had a problem', 'Try again in a moment.');
+  if (/LLM error 4\d\d/.test(raw)) {
+    const said = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(raw);
+    return out('badrequest', 'The brain refused the request', said ? said[1].replace(/\\(.)/g, '$1').slice(0, 200) : first);
+  }
+  return out('default', 'Something went wrong', first || 'The reply failed.');
 }

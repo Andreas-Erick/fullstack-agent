@@ -291,6 +291,38 @@ async function run() {
       }
       screens[`${size.name}/sync reply`] = await sc.executeJavaScript(`document.querySelector('#messages').innerText.replace(/\\s+/g, ' ').slice(-160)`);
     }
+    // 1b: the reply to the phone's message fails. The phone says why in plain words (chatcore.errorHelp,
+    // the raw text under Details), and Try again sends the same words once more (the old copy goes).
+    const failLabel = `${size.name}/failed reply`;
+    await until(sc, `document.querySelector('#conn')?.classList.contains('ok') && !document.body.classList.contains('busy')`);
+    pendingTurn = null;
+    await sc.executeJavaScript(`document.querySelector('#input').value = 'Add the dentist'; document.querySelector('#composer').requestSubmit()`, true);
+    for (let i = 0; i < 50 && !pendingTurn; i++) await wait(100);
+    if (!pendingTurn) problems.push(`${failLabel}: the message never reached the computer`);
+    else {
+      const first = pendingTurn;
+      companion.publish('chat:event', { requestId: first.requestId, conversationId: first.conv.id, type: 'error', message: 'LLM error 429: {"error":{"message":"Rate limit reached for requests"}}' });
+      if (!(await until(sc, `!!document.querySelector('#messages .reply-help') && !!document.querySelector('#messages .act.retry')`))) problems.push(`${failLabel}: no plain-words reason with Try again`);
+      else {
+        const said = await sc.executeJavaScript(`document.querySelector('#messages .reply-help').innerText`);
+        if (!/busy right now/i.test(said)) problems.push(`${failLabel}: unexpected text: ${said.slice(0, 160)}`);
+        await clipped(sc, failLabel);
+        await shot(sc, failLabel);
+        await sc.executeJavaScript(`document.querySelector('#messages .act.retry').click()`, true);
+        for (let i = 0; i < 50 && pendingTurn === first; i++) await wait(100);
+        if (pendingTurn === first) problems.push(`${failLabel}: Try again sent nothing`);
+        else {
+          const n = await sc.executeJavaScript(`[...document.querySelectorAll('#messages .msg.user')].filter((m) => m.innerText.includes('Add the dentist')).length`);
+          if (n !== 1) problems.push(`${failLabel}: after Try again the message shows ${n} times`);
+          const { conv, requestId } = pendingTurn;
+          const reply = { id: store.newId('m'), role: 'assistant', content: 'Added the dentist.', createdAt: Date.now() };
+          conv.messages.push(reply);
+          await store.saveConversation(conv);
+          companion.publish('chat:event', { requestId, conversationId: conv.id, type: 'done', message: reply });
+          if (!(await until(sc, `!document.body.classList.contains('busy') && !document.querySelector('#messages .reply-help')`))) problems.push(`${failLabel}: the failed try stayed after the new reply`);
+        }
+      }
+    }
     // 2: the vault tells devices what changed (main.js wires this listener; this harness has no main.js).
     require('../../main/obsidian').setChangeListener((rel) => companion.publish('vault:changed', rel));
     await until(sc, `document.querySelector('#conn')?.classList.contains('ok')`);

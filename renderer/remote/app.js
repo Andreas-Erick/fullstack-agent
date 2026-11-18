@@ -5,6 +5,9 @@ import { streamStale, refreshPlan, reconcile, convCheck, batcher } from './sync.
 // Served by the desktop from renderer/js/ (companion.js STATIC), so loaded by URL, not by file.
 let mathtext = null;
 import('./js/mathtext.js').then((m) => (mathtext = m)).catch(() => {});
+// A failed reply in plain words, as on the desktop (chatcore.errorHelp); without it the raw message shows.
+let chatcore = null;
+import('./js/chatcore.js').then((m) => (chatcore = m)).catch(() => {});
 
 const $ = (s) => document.querySelector(s);
 const TOKEN_KEY = 'nexus.token';
@@ -492,10 +495,19 @@ function onChat(ev) {
   const mine = state.mine.has(ev.requestId);
   if (!mine && ev.conversationId !== state.convId) return;
   if (ev.type === 'start') {
+    if (ev.replaces && !mine) {
+      // Sent again on the computer (Try again, Regenerate, Edit): the old exchange went; show the conversation as it is now.
+      if (!state.active && !state.loadingConv) loadConversation(state.convId);
+      return;
+    }
     if (mine) {
       state.convId = ev.conversationId;
       store.set(CONV_KEY, ev.conversationId);
       setConvTitle(ev.title || 'Conversation');
+      const turn = state.active?.requestId === ev.requestId ? state.active : null;
+      if (turn?.userNode && ev.userMessage?.id) turn.userNode.dataset.id = ev.userMessage.id;
+      // The same message again after a failure: the computer replaced the unanswered copy.
+      if (ev.replaces) dropReplaced(String(ev.replaces), turn);
     } else {
       // A turn from the desktop or another device in the conversation shown here.
       addMessage(ev.userMessage);
@@ -551,11 +563,69 @@ function onChat(ev) {
     case 'error':
     case 'aborted':
       turn.bubble.classList.remove('streaming');
-      if (ev.type === 'error') turn.bubble.classList.add('error');
-      turn.bubble.innerHTML = markdown(ev.type === 'error' ? `${turn.text ? `${turn.text}\n\n---\n` : ''}**Error:** ${ev.message}` : turn.text || '*(stopped)*');
+      if (ev.type === 'error') {
+        turn.bubble.classList.add('error');
+        showFailure(turn, ev.message);
+      } else turn.bubble.innerHTML = markdown(turn.text || '*(stopped)*');
+      if (turn.mine) {
+        turn.wrap.append(retryRow(turn));
+        state.lastFailed = turn;
+      }
       endTurn(turn);
       break;
   }
+}
+
+// A failed reply: what was written, then the reason in plain words (the raw text under Details).
+function showFailure(turn, message) {
+  if (!chatcore) {
+    turn.bubble.innerHTML = markdown(`${turn.text ? `${turn.text}\n\n---\n` : ''}**Error:** ${message}`);
+    return;
+  }
+  const help = chatcore.errorHelp(message);
+  turn.bubble.innerHTML = turn.text ? markdown(turn.text) : '';
+  turn.bubble.append(
+    el(
+      'div',
+      { class: 'reply-help' },
+      el('div', { class: 'reply-help-title' }, `⚠ ${help.title}`),
+      el('p', {}, help.text),
+      help.raw && help.raw !== help.text ? el('details', {}, el('summary', {}, 'Details'), el('pre', {}, help.raw)) : null,
+    ),
+  );
+}
+
+// Try again on a reply of this phone's own that failed or stopped (hidden on a view-only device).
+const retryRow = (turn) => el('div', { class: 'actions' }, el('button', { class: 'act retry', type: 'button', onclick: () => phoneRetry(turn) }, '↻ Try again'));
+
+// The same text again: the computer replaces the unanswered message with it (main/redo.js supersedes).
+function phoneRetry(turn) {
+  if (state.active) return toast('Wait for the reply to finish first.');
+  turn.userNode?.remove();
+  turn.wrap?.remove();
+  if (state.lastFailed === turn) state.lastFailed = null;
+  send(turn.sentText || '');
+}
+
+// The unanswered message (and a stopped reply after it) that the new one replaced, and this phone's own failed try.
+function dropReplaced(id, keep) {
+  const node = $('#messages').querySelector(`.msg[data-id="${CSS.escape(id)}"]`);
+  if (node && node !== keep?.userNode) {
+    let next = node.nextElementSibling;
+    node.remove();
+    while (next && next.matches('.msg.assistant') && next !== keep?.wrap) {
+      const after = next.nextElementSibling;
+      next.remove();
+      next = after;
+    }
+  }
+  const old = state.lastFailed;
+  if (old && old !== keep) {
+    old.userNode?.remove();
+    old.wrap?.remove();
+    state.lastFailed = null;
+  }
+  updateEmpty();
 }
 
 // What a tool did, in words (the desktop's labels, shortened); anything else by its name.
@@ -632,9 +702,9 @@ function endTurn(turn) {
 }
 
 function addMessage(m) {
-  if (!m || m.hidden) return;
+  if (!m || m.hidden) return null;
   const text = m.display ?? m.content;
-  const wrap = el('div', { class: `msg ${m.role}` });
+  const wrap = el('div', { class: `msg ${m.role}`, 'data-id': m.id || '' });
   if (m.role === 'assistant') {
     if (m.toolCalls?.length) wrap.append(el('div', { class: 'tools' }, m.toolCalls.map((t) => el('span', { class: 'chip good' }, '⚙ ', label(t.name)))));
     const b = el('div', { class: 'bubble', 'data-stamp': stamp(m) });
@@ -646,6 +716,7 @@ function addMessage(m) {
   }
   $('#messages').append(wrap);
   updateEmpty();
+  return wrap;
 }
 
 // Follows new text only while the reader is at the bottom; scrolled up, a button jumps back down.
@@ -672,8 +743,10 @@ const updateEmpty = () => $('#empty').classList.toggle('hidden', $('#messages').
 
 async function send(text) {
   if (!text.trim() || state.active) return;
-  addMessage({ role: 'user', content: text });
+  const userNode = addMessage({ role: 'user', content: text });
   const turn = newTurnView(null, true);
+  turn.userNode = userNode; // Try again takes both away and sends the same words
+  turn.sentText = text;
   state.active = turn;
   document.body.classList.add('busy');
   state.held = [];
@@ -694,6 +767,11 @@ async function send(text) {
     turn.bubble.classList.remove('streaming');
     turn.bubble.classList.add('error');
     turn.bubble.textContent = err instanceof AuthError ? 'Not sent: this device is no longer paired.' : err.message;
+    // Out of reach, refused…: the same words again, once it answers (not for an unpaired device).
+    if (!(err instanceof AuthError) && !document.body.classList.contains('view-only')) {
+      turn.wrap.append(retryRow(turn));
+      state.lastFailed = turn;
+    }
     endTurn(turn);
   }
   const held = state.held;
