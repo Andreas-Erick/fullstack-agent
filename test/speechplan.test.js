@@ -62,6 +62,29 @@ test('no comma in range: the sentence stays whole', async () => {
   assert.deepStrictEqual(firstCut(none), [none, '']);
 });
 
+// The cut costs a longer pause and often a falling tone at the comma (measured on the offline voice),
+// so it is made only where the whole sentence would keep the listener waiting.
+test('cutWorth: cut on the processor or at a slow measured pace, never on a fast GPU or unmeasured', async () => {
+  const { cutWorth, CUT_WORTH_MS } = await plan();
+  const gpu = 'WebGPU · nvidia blackwell';
+  assert.strictEqual(cutWorth({ chars: 160, msPerChar: 0, device: gpu }), false, 'nothing measured yet: whole');
+  assert.strictEqual(cutWorth({ chars: 160, msPerChar: 10, device: gpu }), false, '1.6 s on a healthy GPU: whole');
+  assert.strictEqual(cutWorth({ chars: 160, msPerChar: 60, device: gpu }), true, 'the slow in-app pace: cut');
+  assert.strictEqual(cutWorth({ chars: 160, msPerChar: 0, device: 'CPU (WASM)' }), true);
+  assert.strictEqual(cutWorth({ chars: 160, msPerChar: 0, device: 'CPU (WASM; WebGPU failed: no adapter)' }), true);
+  assert.strictEqual(cutWorth({ chars: 100, msPerChar: CUT_WORTH_MS / 100, device: gpu }), false, 'exactly at the limit: whole');
+  assert.strictEqual(cutWorth({ chars: 160, msPerChar: 30 }), true, 'no device known, slow pace: cut');
+});
+
+test('paceAfter: an average leaning on recent sentences; short lines and missing times ignored', async () => {
+  const { paceAfter } = await plan();
+  assert.strictEqual(paceAfter(0, { chars: 100, modelMs: 1000 }), 10);
+  assert.strictEqual(paceAfter(10, { chars: 100, modelMs: 6000 }), 10 * 0.6 + 60 * 0.4);
+  assert.strictEqual(paceAfter(10, { chars: 12, modelMs: 900 }), 10, 'a short line is mostly fixed cost');
+  assert.strictEqual(paceAfter(10, { chars: 100, modelMs: undefined }), 10);
+  assert.strictEqual(paceAfter(0, { chars: undefined, modelMs: 500 }), 0);
+});
+
 test('takeSentences: short pieces merged, formulas and paragraphs respected', async () => {
   const { takeSentences, splitSentences } = await plan();
   assert.deepStrictEqual(takeSentences('Hi. This is a longer sentence that goes on. And the rest'), { done: ['Hi. This is a longer sentence that goes on.'], rest: ' And the rest' });
@@ -100,6 +123,11 @@ test('voice.js keeps the filler wish and resumes it when the speaker goes quiet'
   const chunk = src.slice(src.indexOf('  chunk(text, override)'), src.indexOf('  release()'));
   assert.match(chunk, /firstCut\(text\)/);
   assert.match(chunk, /practiceVoiceFor\(override\)[\s\S]*pickVoice\([\s\S]*\? \[text, ''\] : firstCut\(text\)/, 'no cut for the instant practice voice');
+  assert.match(chunk, /instant \|\| !this\.cutsFirst\(text, override\) \? \[text, ''\] : firstCut\(text\)/, 'cut only when it is worth it');
+  const gate = src.slice(src.indexOf('  cutsFirst(text, override)'), src.indexOf('  release()'));
+  assert.match(gate, /=== 'local'/, 'only the offline voice cuts');
+  assert.match(gate, /cutWorth\(\{ chars: text\.length, msPerChar: localVoice\.msPerChar, device: localVoice\.device \}\)/);
+  assert.match(src, /this\.msPerChar = paceAfter\(this\.msPerChar, \{ chars: job\.chars, modelMs: msg\.timing\?\.modelMs \}\)/, 'every made sentence updates the pace');
 });
 
 // A filler is made in the main voice or not at all: made by the fallback (the offline voice while
