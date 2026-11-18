@@ -668,3 +668,44 @@ test('a message with attachments reaches devices as its typed words and the file
     delete convs.ca;
   }
 });
+
+// Round 2 (ORDER.md §4.7): a message with files whose reply failed carries both an attempt record (actions)
+// and attachments (attach). A device sees how the attempt ended, the files' kinds and names, and the typed
+// words: nothing of the files' text, saved paths or previews, nor of the error or what the attempt did.
+test('a failed message with files reaches devices as its outcome, the files’ names and the typed words only', async () => {
+  const attachcore = require('../main/attachcore');
+  const auth = { Authorization: `Bearer ${await pairDevice('Round 2 phone')}` };
+  const items = [
+    { kind: 'pdf', name: 'Lecture 03.pdf', size: 4200000, pages: 28, chars: 81000, path: 'C:\\Users\\me\\attachments\\cr\\Lecture 03.pdf', text: 'SECRET LECTURE TEXT about sampling. '.repeat(30) },
+    { kind: 'image', name: 'circuit.png', type: 'image/png', width: 1568, height: 882, dataUrl: 'data:image/png;base64,iVBORw0KGgo=', thumb: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==' },
+  ];
+  const typed = attachcore.compose({ prompt: 'What does slide 4 say?', typed: 'What does slide 4 say?', items, notice: 'EXTERNAL CONTENT' });
+  const bare = attachcore.compose({ prompt: '', typed: '', items: items.slice(0, 1), notice: 'EXTERNAL CONTENT' });
+  const attempt = { outcome: 'failed', at: 7, error: 'LLM error 401: key sk-SECRETKEY', tools: [{ name: 'calendar_add_event', ok: true, brief: 'Dentist at noon' }], more: 2, tainted: true, output: true };
+  // As main.js startTurn stores them: display and attachments from attachcore.compose, the attempt from redo.attemptFrom.
+  const m1 = { id: 'mr1', role: 'user', content: typed.content, createdAt: 7, display: typed.display, attachments: typed.meta, attempt };
+  const m2 = { id: 'mr2', role: 'user', content: bare.content, createdAt: 8, display: bare.display, attachments: bare.meta, attempt: { outcome: 'stopped', at: 8, tools: [], output: false } };
+  assert.ok(typed.meta[1].thumb && typed.meta[0].path, 'the stored meta has a preview and a saved path to leave out');
+  const want1 = { id: 'mr1', role: 'user', createdAt: 7, content: 'What does slide 4 say?', attempt: { outcome: 'failed' }, attachments: [{ kind: 'pdf', name: 'Lecture 03.pdf' }, { kind: 'image', name: 'circuit.png' }] };
+  const want2 = { id: 'mr2', role: 'user', createdAt: 8, content: '', attempt: { outcome: 'stopped' }, attachments: [{ kind: 'pdf', name: 'Lecture 03.pdf' }] };
+  const secrets = /SECRET|sampling|<attachment|attachments\\\\cr|base64|EXTERNAL|Dentist|calendar_add_event|LLM error/;
+  const leaks = new RegExp(`${secrets.source}|"display"|"thumb"|"path"|"tainted"|"more"`);
+  convs.cr = { id: 'cr', title: 'Round 2', updatedAt: 5, messages: [m1, m2] };
+  try {
+    const text = await (await fetch(`${base}/api/conversations/cr`, { headers: auth })).text();
+    const got = JSON.parse(text).messages;
+    assert.deepStrictEqual(got, [want1, want2], 'exactly these fields');
+    assert.ok(!leaks.test(text), text);
+    // Streamed: the start of a turn carries the same trimmed message.
+    const streamed = await listen(auth, async () => companion.publish('chat:event', { requestId: 'rR2', conversationId: 'cr', type: 'start', title: 'Round 2', replaces: 'mr0', userMessage: m1 }));
+    const ours = [...streamed.matchAll(/event: chat\.event\ndata: (.*)\n/g)].map((x) => x[1]).filter((d) => JSON.parse(d).requestId === 'rR2');
+    const start = ours.map((d) => JSON.parse(d)).find((e) => e.type === 'start');
+    assert.deepStrictEqual(start.userMessage, want1);
+    assert.strictEqual(start.replaces, 'mr0');
+    assert.ok(!leaks.test(ours.join('\n')), ours.join('\n'));
+    assert.ok(!secrets.test(streamed), streamed); // other events (an approval left open by an earlier test) have their own fields
+    companion.publish('chat:event', { requestId: 'rR2', conversationId: 'cr', type: 'aborted' });
+  } finally {
+    delete convs.cr;
+  }
+});

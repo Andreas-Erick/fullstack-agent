@@ -80,7 +80,8 @@ test('chat.js: Enter follows sendPlan; only the user’s own words take the tray
   assert.match(send, /attachments: files\.tokens/);
   assert.match(send, /restoreAttachments\(files\)/, 'a failed send gives the chips back');
   const voice = fn(src, 'sendVoice');
-  assert.match(voice, /if \(waitingFiles\) \{[\s\S]*input\.value = \(input\.value \? `\$\{input\.value\} ` : ''\) \+ text;[\s\S]*return;/);
+  // …and so do they while a message is queued behind the reply being stopped (they never take its place).
+  assert.match(voice, /if \(waitingFiles \|\| queued\) \{[\s\S]*input\.value = \(input\.value \? `\$\{input\.value\} ` : ''\) \+ text;[\s\S]*return;/);
   assert.match(voice, /send\(text, \{ voice: true, attach: true \}\)/);
   // Suggestions, skill runs, the Arch and Inner World views and setup call send() without attach.
   for (const rel of ['renderer/js/skills.js', 'renderer/js/archmap.js', 'renderer/js/innerworld.js', 'renderer/js/setup.js']) assert.ok(!/attach:\s*true/.test(read(rel)), rel);

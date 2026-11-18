@@ -156,6 +156,48 @@ test('taint only when the session is kept; the title; pictures that can’t be s
   assert.strictEqual(core.plan(answered(), { kind: 'again', messageId: 'u2' }, opts()).hadImages, false);
 });
 
+// Regression: a message that was only a picture (no words, no files) was sent again as an empty message:
+// pictures aren't kept, so nothing was left (the stored copy and the model's turn were '').
+test('a message with nothing left to send is never run again: only a picture, or an edit to the same nothing', () => {
+  const picture = (extra = {}) => [user('u1', '<attachment index="1" kind="image" name="photo.png" />\n\n[NO MESSAGE]', { display: '', attachments: [{ kind: 'image', name: 'photo.png' }], attempt: failed(), ...extra })];
+  const PICTURE = 'This message was only a picture, and pictures aren’t kept: attach it again and send it.';
+  assert.deepStrictEqual(core.plan(picture(), { kind: 'again', messageId: 'u1' }, opts()), { ok: false, error: PICTURE }, 'Try again');
+  const answeredPicture = [...picture({ attempt: undefined }), reply('a1', 'A cat on a sofa.')];
+  assert.deepStrictEqual(core.plan(answeredPicture, { kind: 'again', messageId: 'u1' }, opts()), { ok: false, error: PICTURE }, 'Regenerate');
+  assert.strictEqual(core.plan(picture(), { kind: 'edit', messageId: 'u1', text: '?' }, opts()).error, PICTURE, 'an edit that normalizes to nothing is Try again');
+  assert.strictEqual(core.plan(picture(), { kind: 'edit', messageId: 'u1', text: '' }, opts()).error, 'The message is empty.');
+  const words = core.plan(picture(), { kind: 'edit', messageId: 'u1', text: 'What breed is it?' }, opts());
+  assert.strictEqual(words.ok, true, 'new words can go (the picture can’t)');
+  assert.strictEqual(words.text, 'What breed is it?');
+  assert.strictEqual(words.hadImages, true);
+  // A picture with words, or with a file, still has something to send.
+  assert.strictEqual(core.plan(picture({ display: 'Is this right?' }), { kind: 'again', messageId: 'u1' }, opts()).text, 'Is this right?');
+  assert.strictEqual(core.plan(picture({ attachments: [{ kind: 'image', name: 'photo.png' }, { kind: 'pdf', name: 'a.pdf' }] }), { kind: 'again', messageId: 'u1' }, opts()).ok, true);
+  // Old data with no words at all.
+  assert.deepStrictEqual(core.plan([user('u1', '   ', { attempt: failed() })], { kind: 'again', messageId: 'u1' }, opts()), { ok: false, error: 'The message is empty.' });
+  assert.strictEqual(core.supersedes(picture(), '', opts()), null);
+});
+
+// Regression: autoTitle read `display || content`, and a message of files has display '' (main.js startTurn),
+// so it read the file blocks: the automatic '📎 …' title counted as renamed and an Edit never retitled the chat.
+test('autoTitle follows startTurn for a message with files: its typed words, else the files’ names', () => {
+  const files = (display, attachments) => user('u1', '<attachment index="1" kind="pdf" name="a.pdf" size="4 KB">…</attachment>\n\n[NO MESSAGE]', { display, attachments, attempt: failed() });
+  const pdf = { kind: 'pdf', name: 'a.pdf' };
+  const png = { kind: 'image', name: 'photo.png' };
+  assert.strictEqual(core.autoTitle(files('', [pdf])), '📎 a.pdf');
+  assert.strictEqual(core.autoTitle(files('', [png])), '📎 photo.png');
+  assert.strictEqual(core.autoTitle(files('', [pdf, png])), '📎 a.pdf, photo.png', 'the pictures named too, as compose titles them');
+  assert.strictEqual(core.autoTitle(files('Explain   page two', [pdf])), 'Explain page two');
+  assert.strictEqual(core.autoTitle(files('', [{ kind: 'pdf', name: `${'long name '.repeat(10)}.pdf` }])).length, 60);
+  assert.strictEqual(core.autoTitle(user('u1', 'Plan my week please')), 'Plan my week please', 'without files: as before');
+  assert.strictEqual(core.autoTitle(user('u1', 'EXPANDED', { display: '/plan x', skill: 'plan', attachments: [pdf] })), null);
+  const edit = (m, title) => core.plan([m], { kind: 'edit', messageId: 'u1', text: 'Summarise it' }, opts({ title })).keepTitle;
+  assert.strictEqual(edit(files('', [pdf]), '📎 a.pdf'), false, 'files only: the automatic title follows the new words');
+  assert.strictEqual(edit(files('', [png]), '📎 photo.png'), false, 'a picture only, too');
+  assert.strictEqual(edit(files('', [pdf, png]), '📎 a.pdf, photo.png'), false);
+  assert.strictEqual(edit(files('', [pdf]), 'Lecture notes'), true, 'renamed by the user');
+});
+
 test('the same text sent again after a failure replaces the unanswered copy, and only then', () => {
   const open = [user('u0', 'hi'), reply('a0', 'hello'), user('u1', 'Add the dentist, tomorrow at 9!', { attempt: failed() })];
   const p = core.supersedes(open, 'add the dentist tomorrow at 9', opts());

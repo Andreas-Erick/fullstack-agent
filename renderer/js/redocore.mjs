@@ -23,8 +23,19 @@ export const sentText = (m) => (m?.skill && m.display ? String(m.display) : m?.a
 /** Two messages are the same when they are after this: lower case, letters and digits, single spaces. */
 export const norm = (t) => String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
-/** The title startTurn gives a conversation from its first message (main/main.js); a /skill's is its name. */
-export const autoTitle = (m) => (m?.skill ? null : String(m?.display || m?.content || '').replace(/\s+/g, ' ').slice(0, 60));
+/**
+ * The title startTurn gives a conversation from its first message (main/main.js); a /skill's is its name.
+ * A message with files is titled by its typed words, else by the files (attachcore.compose: summary, '📎 a.pdf, b.png').
+ */
+export function autoTitle(m) {
+  if (m?.skill) return null;
+  const files = Array.isArray(m?.attachments) && m.attachments.length ? m.attachments : null;
+  const t = files ? String(m.display || '').trim() || `📎 ${files.map((a) => a?.name).join(', ')}` : String(m?.display || m?.content || '');
+  return t.replace(/\s+/g, ' ').slice(0, 60);
+}
+
+/** Whether a message has anything to send again: words, or files (pictures are never kept). */
+const resendable = (m) => Boolean(sentText(m).trim()) || (m?.attachments || []).some((a) => a?.kind !== 'image');
 
 const oneLine = (s, max = BRIEF) => {
   const t = String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -113,6 +124,11 @@ export function plan(messages, req, { title = '', hasSession = false, readOnly =
       text = typed;
       voice = false;
     }
+  }
+  // Nothing left to send (a message that was only a picture; an Edit to the same nothing): never an empty turn.
+  if (kind === 'again' && !resendable(user)) {
+    const picture = Boolean(user.screen || user.attachments?.some((x) => x?.kind === 'image'));
+    return refuse(picture ? 'This message was only a picture, and pictures aren’t kept: attach it again and send it.' : 'The message is empty.');
   }
   const a = user.attempt || null;
   const replyDropped = l.state === 'answered';

@@ -62,6 +62,8 @@ function onPaste(e) {
   if (!files.length || data.getData('text/plain').trim()) return;
   e.preventDefault();
   addFiles(files.map(named), 'paste');
+  // Pasted elsewhere in the chat (a message, History's drawer, which the files close): on to the box, as a drop.
+  if (document.activeElement !== $('#input')) $('#input').focus();
 }
 
 // A pasted screenshot is called "image.png": it gets a name of its own ("Pasted image 14-32-05.png").
