@@ -16,7 +16,7 @@ test('code_grep: exact matches with line numbers, limited by a glob', async () =
   assert.strictEqual(r.total, 1);
   assert.strictEqual(r.matches[0].path, 'main/codebase.js');
   assert.match(r.matches[0].text, />\s*async function grep\(/);
-  const css = await codebase.grep('closing-screen', { glob: 'renderer/**/*.css' });
+  const css = await codebase.grep('handoff-card', { glob: 'renderer/**/*.css' });
   assert.ok(css.matches.every((m) => m.path.endsWith('.css')) && css.total > 0);
   const sub = await codebase.grep('handoffSlot', { glob: 'chat' });
   assert.ok(sub.matches.every((m) => m.path.includes('chat')) && sub.total > 0);

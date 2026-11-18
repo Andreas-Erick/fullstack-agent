@@ -43,6 +43,7 @@ export function initChat() {
   on('settings', updateSpeakToggle);
 
   api.on('chat:event', handleEvent);
+  api.on('routine:event', (ev) => ev.type === 'finished' && refreshList()); // its run shows in History
   loadSkillList();
   on('skills-changed', loadSkillList);
 
@@ -62,8 +63,10 @@ export function initChat() {
   on('barge-in', () => bargeIn(active, { approvalPending: Boolean(state.approvalPending) }));
   on('barge-in-over', () => bargeInOver(active));
 
+  // Open (and so warm) the user's own latest chat, not a routine's run that came after it.
   refreshList().then(() => {
-    if (conversations[0]) openConversation(conversations[0].id);
+    const c = chatcore.launchConversation(conversations);
+    if (c) openConversation(c.id);
   });
 }
 
@@ -117,11 +120,12 @@ function renderConvList() {
     if (!items.length) continue;
     list.append(el('li', { class: 'conv-group' }, label));
     for (const c of items) {
+      const name = chatcore.historyTitle(c); // a routine's conversation is marked ⏰
       list.append(
         el(
           'li',
-          { class: `conv-item ${c.id === currentId ? 'active' : ''}`, onclick: () => openConversation(c.id), title: c.title },
-          el('div', { class: 't' }, c.title || 'Untitled'),
+          { class: `conv-item ${c.id === currentId ? 'active' : ''}`, onclick: () => openConversation(c.id), title: name.tip },
+          el('div', { class: 't' }, name.text),
           el('div', { class: 'd' }, `${c.count} messages · ${timeAgo(c.updatedAt)}`),
           el('button', { class: 'x', title: 'Delete', onclick: (e) => (e.stopPropagation(), deleteConversation(c)) }, '✕'),
         ),

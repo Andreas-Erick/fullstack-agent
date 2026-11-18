@@ -81,12 +81,8 @@ const deletedConversations = new Set(); // a reply finishing after its conversat
 // A second copy (e.g. a double click) hands over to the running one and exits at once, before it
 // can open a window or touch the same files.
 if (!app.requestSingleInstanceLock()) app.exit(0);
-app.on('second-instance', () => {
-  if (win) {
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  }
-});
+// Started again (also while the hidden window finishes its handoff note: showMain calls the close off).
+app.on('second-instance', () => showMain());
 
 function registerAppProtocol() {
   protocol.handle('app', async (request) => {
@@ -159,7 +155,7 @@ function createWindow() {
   win.on('enter-full-screen', () => toWindow('win:fullscreen', true));
   win.on('leave-full-screen', () => toWindow('win:fullscreen', false));
   win.on('closed', () => (win = null));
-  // Closing: first the agent notes where we left off (handoff.js), then the window really closes.
+  // Closing: the window hides while the agent notes where we left off (handoff.js), then really closes.
   handoffDone = false;
   closing = false;
   win.on('close', (e) => {
@@ -268,13 +264,7 @@ function startRoutines() {
       if (ev.type !== 'open') companion.dataChanged(['skills', 'conversations']); // the phone's routines list (last run) and the run's conversation
       if (ev.type !== 'finished' || (win && !win.isDestroyed() && win.isFocused()) || !Notification.isSupported()) return;
       const n = new Notification({ title: `${ev.ok ? '⏰' : '⚠'} ${ev.name}`, body: ev.summary || (ev.ok ? 'Done.' : 'The routine failed.'), silent: false });
-      n.on('click', () => {
-        if (!win || win.isDestroyed()) return;
-        if (win.isMinimized()) win.restore();
-        win.show();
-        win.focus();
-        toWindow('routine:event', { type: 'open', conversationId: ev.conversationId });
-      });
+      n.on('click', () => showMain(() => toWindow('routine:event', { type: 'open', conversationId: ev.conversationId })));
       n.show();
     },
   });
@@ -291,7 +281,7 @@ function startTasks() {
           activeRequests.get(requestId)?.abort();
           resolve({ ok: false, error: 'Stopped after 5 minutes.' });
         }, 5 * 60000);
-        startTurn({ conversationId: conversationId || undefined, text, requestId, display: '🔄 Sync my tasks for the calendar', onFinish: (r) => (clearTimeout(timer), resolve(r)) }).catch((err) => (clearTimeout(timer), resolve({ ok: false, error: err.message })));
+        startTurn({ conversationId: conversationId || undefined, text, requestId, display: store.TASKS_SYNC_DISPLAY, auto: 'tasks', onFinish: (r) => (clearTimeout(timer), resolve(r)) }).catch((err) => (clearTimeout(timer), resolve({ ok: false, error: err.message })));
       }),
     changed: () => toWindow('tasks:changed', {}),
   });
@@ -306,13 +296,7 @@ function remoteAlert(ev) {
     title: ev.type === 'paired' ? `New device paired: ${ev.name}` : `${ev.name} connected from a new network`,
     body: `${ev.type === 'new-network' ? `Via ${ev.via} (${ev.ip}). ` : ''}Not you? Remove it in Settings → Remote access.`,
   });
-  n.on('click', () => {
-    if (!win || win.isDestroyed()) return;
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
-    send('remote:event', { type: 'open-settings' });
-  });
+  n.on('click', () => showMain(() => send('remote:event', { type: 'open-settings' })));
   n.show();
 }
 
@@ -322,14 +306,7 @@ async function registerShortcut() {
   const accel = s.stt.globalShortcut;
   if (!accel) return;
   try {
-    globalShortcut.register(accel, () => {
-      if (win) {
-        if (win.isMinimized()) win.restore();
-        win.show();
-        win.focus();
-      }
-      send('voice:toggle', {});
-    });
+    globalShortcut.register(accel, () => showMain(() => send('voice:toggle', {})));
   } catch (err) {
     console.warn('Could not register global shortcut', accel, err.message);
   }
@@ -454,7 +431,6 @@ function registerIpc() {
   handle('remote:setReadOnly', (id, on) => companion.setReadOnly(String(id), on === true));
   handle('handoff:get', () => handoff.read());
   handle('handoff:dismiss', () => handoff.dismiss());
-  handle('handoff:skip', () => handoff.skip());
   handle('remote:cancelPair', () => companion.cancelPairing());
   handle('remote:detectTailscale', async () => require('./tunnel').detectTailscale((await store.getSettings()).remote?.port || 7823));
   handle('remote:checkSecure', () => require('./tunnel').verify());
@@ -851,7 +827,8 @@ const speakInWindow = (text) => askWindow('remote:speak', { text: String(text).s
 // One chat turn, from the window (chat:send) or a paired device (remote = the device name). Returns
 // at once; the reply streams as chat:event. Remote turns never carry a screenshot of this desktop.
 // display: what the chat shows instead of the text (routines); onFinish({ ok, text, error }) after the turn.
-async function startTurn({ conversationId, text, requestId, voice: viaVoice = false, hidden = false, remote = null, display = '', routine = '', onFinish = null }) {
+// routine / auto ('tasks'): a turn the user didn't write, so it never counts as their chat (store.js lastOwnAt).
+async function startTurn({ conversationId, text, requestId, voice: viaVoice = false, hidden = false, remote = null, display = '', routine = '', auto = '', onFinish = null }) {
   const settings = await store.getSettings();
   let conv = conversationId ? await store.getConversation(conversationId) : null;
   if (!conv) conv = await store.createConversation();
@@ -874,6 +851,7 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
     ...(slash ? { display: String(text), skill: slash.skill.slug } : {}),
     ...(display ? { display: String(display) } : {}),
     ...(routine ? { routine } : {}),
+    ...(auto ? { auto } : {}),
     ...(images.length ? { screen: true } : {}),
     ...(hidden ? { hidden: true } : {}),
     ...(remote ? { remote } : {}),
@@ -1078,29 +1056,78 @@ app.whenReady().then(async () => {
   claudecode.sweepStaleTemp().catch(() => {});
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (closing && !handoffDone) showMain(); // the dock while the window is hidden for its handoff note
+    else if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
-// The handoff note on closing: the window shows "Saving where we left off…" (with Skip) meanwhile.
+// The handoff note on closing: the window is gone at once (hidden and muted) while the note is written
+// behind it, then it really closes. Starting the app again meanwhile brings the same window back.
 let handoffDone = false;
 let closing = false;
 let quitAfterHandoff = false;
+let reopenRequested = false; // the window was asked for while the note was being written (showMain)
+const afterReopen = []; // what those requests do once it is back (open a routine's chat, start listening)
+
+// Every way the main window is brought to the front (a second launch, the voice shortcut, a notification's
+// click, the macOS dock) goes through here, then runs `then`. While the window is hidden for closing, the
+// close is called off instead: skip() cuts the note short, and the window comes back (then `then`) once
+// it is written, rather than being shown now and closed under the user when the note finishes.
+function showMain(then = null) {
+  if (closing && !handoffDone) {
+    reopenRequested = true;
+    if (then) afterReopen.push(then);
+    handoff.skip();
+    return;
+  }
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  then?.();
+}
+
+function hideForClose() {
+  if (!win || win.isDestroyed()) return;
+  // Mutes what the page plays (the offline, cloud and VoiceStudio voices, sounds); the system voice
+  // (speechSynthesis) is spoken by the OS, not muted by this.
+  win.webContents.setAudioMuted(true);
+  win.hide();
+}
+
+// The close is called off: the window comes back as it was (restored if it was minimized), and a later
+// close writes the note again.
+function reopenAfterClose() {
+  closing = false;
+  quitAfterHandoff = false;
+  reopenRequested = false;
+  const then = afterReopen.splice(0);
+  if (!win || win.isDestroyed()) return;
+  win.webContents.setAudioMuted(false);
+  showMain(() => then.forEach((fn) => fn()));
+}
+
 async function closeWithHandoff() {
   if (closing) return;
   closing = true;
   try {
     const s = await store.getSettings();
+    if (reopenRequested) return; // asked for again while the settings were read: no note, never hidden
     if (s.onboarded && s.journal.handoffOnClose !== false) {
-      toWindow('app:closing', {});
-      await handoff.write({ interrupted: activeRequests.size > 0 });
+      hideForClose();
+      // The conversations with a reply still being written: "interrupted" only if the note's own one is
+      // among them, not because a routine or the tasks sync was running elsewhere.
+      await handoff.write({ replying: new Set([...activeRequests.values()].map((c) => c.conversationId)) });
     }
   } catch (err) {
     log.warn('handoff on close failed', { error: err });
   } finally {
-    handoffDone = true;
-    if (quitAfterHandoff) app.quit();
-    else if (win && !win.isDestroyed()) win.close();
+    if (reopenRequested) reopenAfterClose();
+    else {
+      handoffDone = true;
+      if (quitAfterHandoff) app.quit();
+      else if (win && !win.isDestroyed()) win.close();
+    }
   }
 }
 

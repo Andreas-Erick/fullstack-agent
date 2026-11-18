@@ -1,9 +1,11 @@
 // "Where we left off": when the app closes, the agent writes itself a short handoff note about the
-// latest conversation (what was going on, open threads, next steps). The next session reads it in its
-// system prompt (prompt.js), the chat shows it as a card with "Continue", and the launch greeting
-// mentions it. Stored in <userData>/handoff.json, mirrored to "Where We Left Off.md" in the vault.
-// Closing never waits long: the summary has a time limit and "Skip" cuts it short; either way a
-// basic note (built without the model) is kept.
+// user's latest own conversation (what was going on, open threads, next steps; a routine's run is never
+// the topic). The next session reads it in its system prompt (prompt.js), the chat shows it as a card
+// with "Continue", and the launch greeting mentions it. Stored in <userData>/handoff.json, mirrored to
+// "Where We Left Off.md" in the vault. The window is already hidden meanwhile (main.js closeWithHandoff);
+// the summary has a time limit and skip() (the window asked for again: main.js showMain) cuts it short;
+// either way a basic note (built without the model) is kept, and the next close tries the model again.
+// One write at a time.
 const path = require('path');
 const store = require('./store');
 const log = require('./logger');
@@ -13,7 +15,13 @@ const MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // older notes are no longer offere
 const VAULT_NOTE = 'Where We Left Off.md';
 
 const file = () => path.join(store.dataDir(), 'handoff.json');
-let skipNow = null; // resolves the running write early ("Skip" on the closing screen)
+const skips = new Set(); // resolvers of the summaries being waited for; skip() cuts them all short
+let skipCount = 0; // skip() calls so far: a write asked for before one doesn't start the summary at all
+let running = Promise.resolve(); // the write in progress: the next one waits for it
+
+// The user's own words, as store.js ownMessage: not hidden, not a routine's run, not app-started (auto,
+// or the tasks sync's display on its messages from before that marker).
+const own = (m) => m.role === 'user' && !m.hidden && !m.routine && !m.auto && m.display !== store.TASKS_SYNC_DISPLAY;
 
 async function read() {
   const note = await store.readJson(file(), null);
@@ -28,25 +36,29 @@ async function dismiss() {
 }
 
 function skip() {
-  skipNow?.();
+  skipCount++;
+  for (const cut of skips) cut();
+  skips.clear();
   return true;
 }
 
 const clip = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
 
-// The latest real conversation, plus the others touched since the last note.
+// The conversation the user last wrote in (the index's lastOwnAt; a routine's chat updated later doesn't
+// count), plus the others touched since the last note. None of the user's own: no note.
 async function pick(since) {
-  const list = (await store.listConversations()).filter((c) => !c.setup && c.count > 0);
+  const latest = (c) => c.lastOwnAt ?? c.updatedAt;
+  const list = (await store.listConversations()).filter((c) => !c.setup && c.count > 0 && !c.routine).sort((a, b) => latest(b) - latest(a));
   for (const c of list) {
     const conv = await store.getConversation(c.id);
-    if (conv?.messages.some((m) => m.role === 'user' && !m.hidden)) return { conv, others: list.filter((o) => o.id !== c.id && o.updatedAt > since).slice(0, 5) };
+    if (conv?.messages.some(own)) return { conv, others: list.filter((o) => o.id !== c.id && o.updatedAt > since).slice(0, 5) };
   }
   return null;
 }
 
 // Without the model: the title and the last thing the user asked.
 function basicNote(conv, interrupted) {
-  const lastUser = [...conv.messages].reverse().find((m) => m.role === 'user' && !m.hidden);
+  const lastUser = [...conv.messages].reverse().find(own);
   return {
     topic: clip(conv.title, 60),
     summary: `We were in “${clip(conv.title, 80)}”. The last thing you asked: “${clip(lastUser?.display ?? lastUser?.content, 220)}”.${interrupted ? ' A reply was still running when the app closed.' : ''}`,
@@ -79,28 +91,44 @@ ${transcript}`;
   return { topic: clip(json.topic || conv.title, 60), summary: clip(json.summary, 900), openThreads: list(json.openThreads), nextSteps: list(json.nextSteps) };
 }
 
-/** Writes the note for the latest conversation. Never throws; resolves within TIME_LIMIT_MS. */
-async function write({ interrupted = false } = {}) {
+/** Writes the note for the user's latest conversation. Never throws; each write ends within TIME_LIMIT_MS.
+ *  A call while one runs waits for it (then usually finds nothing new: one model call, not two).
+ *  replying: the ids of the conversations with a reply still being written (main.js activeRequests); the
+ *  note is "interrupted" only when its own conversation is one. interrupted: true/false decides outright. */
+function write(opts = {}) {
+  const skipsBefore = skipCount;
+  const job = running.then(() => writeNow(opts, skipsBefore));
+  running = job.catch(() => null);
+  return job;
+}
+
+async function writeNow({ interrupted: told, replying = null }, skipsBefore) {
   const started = Date.now();
   let timer;
+  let cut;
   try {
     const settings = await store.getSettings();
     const prev = await store.readJson(file(), null);
     const found = await pick(prev?.at || 0);
     if (!found) return null;
     const { conv, others } = found;
-    // Nothing new since the last note: keep it (and whether it was dismissed).
-    if (prev?.conversationId === conv.id && prev.at >= conv.updatedAt && !interrupted) return prev;
+    const interrupted = told ?? replying?.has(conv.id) ?? false;
+    // Nothing new since the last note: keep it (and whether it was dismissed). A basic one (skipped, timed
+    // out, the model failed) is tried again with the model, still dismissed if it was.
+    const same = prev?.conversationId === conv.id && prev.at >= conv.updatedAt;
+    if (same && !interrupted && prev.source === 'ai') return prev;
 
     let body = basicNote(conv, interrupted);
     let source = 'basic';
-    const skipped = new Promise((resolve) => (skipNow = resolve));
-    const limit = new Promise((resolve) => (timer = setTimeout(resolve, TIME_LIMIT_MS)));
-    const ai = summarize(settings, conv, interrupted).catch((err) => (log.warn('handoff summary failed', { error: err }), null));
-    const result = await Promise.race([ai, skipped.then(() => null), limit.then(() => null)]);
-    if (result) (body = result), (source = 'ai');
+    if (skipCount === skipsBefore) {
+      const skipped = new Promise((resolve) => skips.add((cut = resolve)));
+      const limit = new Promise((resolve) => (timer = setTimeout(resolve, TIME_LIMIT_MS)));
+      const ai = summarize(settings, conv, interrupted).catch((err) => (log.warn('handoff summary failed', { error: err }), null));
+      const result = await Promise.race([ai, skipped.then(() => null), limit.then(() => null)]);
+      if (result) (body = result), (source = 'ai');
+    }
 
-    const note = { at: Date.now(), conversationId: conv.id, title: clip(conv.title, 80), ...body, interrupted, others: others.map((o) => ({ id: o.id, title: clip(o.title, 80) })), source, dismissed: false };
+    const note = { at: Date.now(), conversationId: conv.id, title: clip(conv.title, 80), ...body, interrupted, others: others.map((o) => ({ id: o.id, title: clip(o.title, 80) })), source, dismissed: same && prev.dismissed === true };
     await store.writeJsonAtomic(file(), note);
     await mirrorToVault(settings, note).catch((err) => log.warn('handoff vault note failed', { error: err }));
     log.info('handoff written', { source, ms: Date.now() - started, conversation: conv.id.slice(-6) });
@@ -110,7 +138,7 @@ async function write({ interrupted = false } = {}) {
     return null;
   } finally {
     clearTimeout(timer);
-    skipNow = null;
+    skips.delete(cut);
   }
 }
 

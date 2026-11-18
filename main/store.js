@@ -634,32 +634,49 @@ function safeConvId(id) {
 // The conversation index (conversations/index.json): one small summary per conversation, kept up to date
 // on every save and delete, so listing conversations (the sidebar, the journal every minute) never has to
 // open them all. Reconciled with the folder's file names when first loaded: files it doesn't know are read
-// once, entries whose file is gone are dropped.
+// once, entries whose file is gone are dropped. An index from an older version (INDEX_VERSION) is
+// re-summarized once from the files; an entry whose file can't be read then keeps its saved summary.
 const INDEX = 'index.json';
+const INDEX_VERSION = 2; // 2: lastOwnAt and routine
 let convIndex = null; // Map id → summary
 let indexLoad = null;
 let indexTimer = null;
 
-const summarize = (c) => ({
-  id: c.id,
-  title: c.title,
-  createdAt: c.createdAt,
-  updatedAt: c.updatedAt,
-  count: c.messages?.length || 0,
-  journaledUpTo: c.journaledUpTo || 0,
-  ...(c.setup ? { setup: true } : {}),
-});
+// What the tasks sync's message shows (main.js startTasks). Its messages from before the auto marker have
+// only this; a typed message has no display, and a slash command's is what was typed.
+const TASKS_SYNC_DISPLAY = '🔄 Sync my tasks for the calendar';
+// The user's own words: not a hidden prompt, a routine's run or a turn the app started (auto: 'tasks').
+const ownMessage = (m) => m.role === 'user' && !m.hidden && !m.routine && !m.auto && m.display !== TASKS_SYNC_DISPLAY;
+
+function summarize(c) {
+  const shown = (c.messages || []).filter((m) => m.role === 'user' && !m.hidden);
+  const own = shown.filter(ownMessage);
+  return {
+    id: c.id,
+    title: c.title,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    count: c.messages?.length || 0,
+    journaledUpTo: c.journaledUpTo || 0,
+    // When the user last wrote here (the launch chat, the handoff note), 0 = never.
+    lastOwnAt: own.length ? Number(own[own.length - 1].createdAt) || Number(c.updatedAt) || 0 : 0,
+    ...(shown.length && !own.length ? { routine: true } : {}), // only runs a routine (or the app) started
+    ...(c.setup ? { setup: true } : {}),
+  };
+}
 
 function loadIndex() {
   indexLoad ||= (async () => {
     await fsp.mkdir(convDir(), { recursive: true });
     const saved = await readConvFile(path.join(convDir(), INDEX), null);
+    const stale = (saved?.version || 0) < INDEX_VERSION;
     const map = new Map((Array.isArray(saved?.items) ? saved.items : []).filter((x) => x && typeof x.id === 'string').map((x) => [x.id, x]));
     const ids = new Set((await fsp.readdir(convDir())).filter((n) => n.endsWith('.json') && n !== INDEX).map((n) => n.slice(0, -5)));
-    let changed = false;
+    let changed = stale;
     for (const id of map.keys()) if (!ids.has(id)) (map.delete(id), (changed = true));
     for (const id of ids) {
-      if (map.has(id)) continue;
+      if (map.has(id) && !stale) continue;
+      // null: sealed for another user, broken JSON. A saved entry stays; it is never dropped for that.
       const c = await readConvFile(path.join(convDir(), `${id}.json`), null);
       if (c?.id) (map.set(c.id, summarize(c)), (changed = true));
     }
@@ -673,7 +690,7 @@ function loadIndex() {
 function saveIndexSoon() {
   clearTimeout(indexTimer);
   indexTimer = setTimeout(() => {
-    if (convIndex) writeConvFile(path.join(convDir(), INDEX), { version: 1, items: [...convIndex.values()] }).catch(() => {});
+    if (convIndex) writeConvFile(path.join(convDir(), INDEX), { version: INDEX_VERSION, items: [...convIndex.values()] }).catch(() => {});
   }, 500);
   indexTimer.unref?.();
 }
@@ -766,5 +783,6 @@ module.exports = {
   trimRaw,
   settingsRecovery: () => settingsRecovered,
   SECRET_FIELDS,
+  TASKS_SYNC_DISPLAY,
   sweepStaleTemp,
 };

@@ -1,5 +1,6 @@
-// "Where we left off" (main/handoff.js): the closing screen while the agent writes its handoff note,
-// and the card on an empty chat that offers to continue the last conversation.
+// "Where we left off" (main/handoff.js): the card on an empty chat that offers to continue the last
+// conversation, and the note for the launch greeting. The note itself is written while the window is
+// already hidden (main.js closeWithHandoff), so there is no closing screen.
 import { api, el } from './util.js';
 
 let note; // the note from the last close (null when none, or dismissed)
@@ -9,25 +10,6 @@ const loaded = api.handoff
   .catch(() => (note = null));
 
 export const handoffNote = () => loaded.then(() => note);
-
-export function initHandoff() {
-  api.on('app:closing', showClosing);
-}
-
-function showClosing() {
-  if (document.querySelector('.closing-screen')) return;
-  const skip = el('button', { class: 'btn small', onclick: () => ((skip.disabled = true), api.handoff.skip().catch(() => {})) }, 'Skip');
-  document.body.append(
-    el('div', { class: 'closing-screen', role: 'status' },
-      el('div', { class: 'closing-card glass' },
-        el('div', { class: 'closing-spin', 'aria-hidden': 'true' }),
-        el('b', {}, 'Saving where we left off…'),
-        el('div', { class: 'hint' }, 'A short note for next time, so we can pick up from here.'),
-        skip,
-      ),
-    ),
-  );
-}
 
 const ago = (t) => {
   const min = Math.round((Date.now() - t) / 60000);

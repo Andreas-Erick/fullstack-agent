@@ -46,6 +46,35 @@ test('messages: Markdown for replies, plain text (what was typed) for the user, 
   assert.deepStrictEqual(mine.tags, ['⚡ skill /reflect', '🖥 screen shared']);
 });
 
+// 2026-11-16: the launch opened the morning routine's run, newer than the user's own chat.
+test('launch opens the chat the user last wrote in, never a newer routine run', () => {
+  const own = { id: 'own', updatedAt: 100, lastOwnAt: 90 };
+  const briefing = { id: 'briefing', updatedAt: 200, lastOwnAt: 0, routine: true };
+  const older = { id: 'older', updatedAt: 50, lastOwnAt: 40 };
+  assert.strictEqual(c.launchConversation([briefing, own, older]).id, 'own');
+  // The user wrote in a routine's chat later: theirs now.
+  assert.strictEqual(c.launchConversation([{ ...briefing, lastOwnAt: 150, routine: undefined }, own]).id, 'briefing');
+  // The setup conversation only when it is alone.
+  const setup = { id: 'setup', updatedAt: 300, lastOwnAt: 290, setup: true };
+  assert.strictEqual(c.launchConversation([setup, own]).id, 'own');
+  assert.strictEqual(c.launchConversation([setup]).id, 'setup');
+  // An index without lastOwnAt (not rebuilt yet): the newest that isn't a routine's or the setup.
+  assert.strictEqual(c.launchConversation([{ id: 'r', updatedAt: 9, routine: true }, { id: 'n', updatedAt: 5 }, { id: 'm', updatedAt: 7 }]).id, 'm');
+  assert.strictEqual(c.launchConversation([briefing]).id, 'briefing', 'only routine runs: the newest');
+  assert.strictEqual(c.launchConversation([]), null);
+  assert.strictEqual(c.launchConversation(undefined), null);
+});
+
+test('History marks a routine’s conversation with ⏰, once', () => {
+  assert.deepStrictEqual(c.historyTitle({ title: 'Fix calendar sync' }), { text: 'Fix calendar sync', tip: 'Fix calendar sync' });
+  assert.strictEqual(c.historyTitle({ title: '⏰ Morning briefing', routine: true }).text, '⏰ Morning briefing');
+  assert.strictEqual(c.historyTitle({ title: '🔄 Sync my tasks for the calendar', routine: true }).text, '🔄 Sync my tasks for the calendar');
+  const renamed = c.historyTitle({ title: 'Briefings', routine: true });
+  assert.strictEqual(renamed.text, '⏰ Briefings');
+  assert.match(renamed.tip, /^Briefings \(started by a routine or the app/);
+  assert.strictEqual(c.historyTitle({}).text, 'Untitled');
+});
+
 test('the HUD stamp names the agent, the time and the model', () => {
   assert.strictEqual(c.modelName('claude-opus-5-5'), 'opus 5.5');
   assert.strictEqual(c.modelName('gemini-2.5-flash'), 'gemini 2.5 flash');
