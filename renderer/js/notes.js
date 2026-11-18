@@ -89,9 +89,24 @@ export function initNotes() {
   window.addEventListener('beforeunload', () => flush());
 }
 
+// A note to open once the view shows (showNote): refresh opens it instead of the newest one.
+let pendingOpen = null;
+
+/** Opens one of the user's notes (Notes/ or Inbox/ path) in this view, e.g. from a [[link]] in the chat. */
+export function showNote(path) {
+  if (currentView === 'notes') return openNote(path);
+  pendingOpen = path;
+  switchView('notes');
+}
+
 /** Shown: the list again, and the note that was open (or the newest). */
 export async function refresh() {
   await loadList();
+  if (pendingOpen) {
+    const p = pendingOpen;
+    pendingOpen = null;
+    return openNote(p);
+  }
   if (current && notes.some((n) => n.path === current.path)) return;
   if (notes.length) openNote(notes[0].path, { keepFocus: true });
   else showEmpty();
@@ -409,6 +424,8 @@ function renderEditor({ focus = '' } = {}) {
     setMode('write', { caret });
   });
   preview.addEventListener('keydown', (e) => {
+    const link = e.key === 'Enter' && e.target.closest('a.wikilink');
+    if (link) return (e.preventDefault(), followLink(link.dataset.note));
     if (e.key === 'Enter' && !e.target.closest('a')) (e.preventDefault(), setMode('write', { caret: body.value.length }));
   });
   const edited = el('span', {}, `edited ${timeAgo(n.mtime)}`);
@@ -433,7 +450,7 @@ function renderEditor({ focus = '' } = {}) {
   }
   const page = el('div', { class: `note-page ${mode === 'write' ? 'writing' : 'reading'}${polishing === n.path ? ' polishing' : ''}` }, title, mode === 'write' ? fmtBar : '', mode === 'write' ? body : preview, el('div', { class: 'note-foot' }, count, edited, n.folder ? el('span', {}, n.folder) : ''));
   if (mode === 'read') {
-    preview.innerHTML = renderMarkdown(body.value || '*Nothing written yet. Click to start.*', { wikilinks: true });
+    preview.innerHTML = renderMarkdown(body.value || '*Nothing written yet. Click to start.*', { wikilinks: 'open' });
     // Links to notes that don't exist yet look different (a click creates them).
     for (const a of preview.querySelectorAll('a.wikilink')) {
       const name = String(a.dataset.note || '').split('/').pop().toLowerCase();

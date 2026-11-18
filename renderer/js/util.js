@@ -25,11 +25,26 @@ export function escapeHtml(s) {
 }
 
 const markedOpts = { gfm: true, breaks: true };
+const WIKILINK = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g;
+// Code keeps its brackets (pandas' df[['a', 'b']], bash's [[ -f x ]]), also a fence still being streamed.
+const CODE = /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`)/;
+
+/**
+ * [[note]] / [[note|text]] → a link (its data-note); code is left alone. open: the view opens it (click or
+ * Enter), so it is reachable by keyboard; else it is only shown as a link (no tab stop that does nothing).
+ */
+export function linkWikilinks(md, { open = false } = {}) {
+  const keys = open ? ' role="link" tabindex="0"' : '';
+  return String(md ?? '')
+    .split(CODE)
+    .map((part, i) => (i % 2 ? part : part.replace(WIKILINK, (_m, target, alias) => `<a class="wikilink" data-note="${escapeHtml(target.trim())}"${keys}>${escapeHtml(alias || target)}</a>`)))
+    .join('');
+}
+
+// wikilinks: true shows [[note]] links; 'open' where the view opens them (chat, Notes, the Vault).
 export function renderMarkdown(text, { wikilinks = false } = {}) {
   let src = String(text ?? '');
-  if (wikilinks) {
-    src = src.replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_m, target, alias) => `<a class="wikilink" data-note="${escapeHtml(target.trim())}">${escapeHtml(alias || target)}</a>`);
-  }
+  if (wikilinks) src = linkWikilinks(src, { open: wikilinks === 'open' });
   // Formulas are taken out before Markdown (which would eat their _ and *) and rendered by KaTeX.
   const math = window.katex ? extractMath(src) : { text: src, items: [] };
   let html = window.marked.parse(math.text, markedOpts);
@@ -49,9 +64,10 @@ export function sanitizeHtml(html) {
   return window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input'], FORBID_ATTR: ['style'] });
 }
 
-// Plain text for speech: formulas in words, strip markdown, code, URLs.
+// Plain text for speech: formulas in words, note links by their name, strip markdown, code, URLs.
 export function speakable(md) {
   return speakableMath(String(md || ''))
+    .replace(WIKILINK, (_m, target, alias) => (alias || target.split('/').pop().replace(/\.md$/i, '')).trim())
     .replace(/```[\s\S]*?```/g, ' (code block omitted) ')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')

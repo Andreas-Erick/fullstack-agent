@@ -9,13 +9,15 @@ let selected = null;
 
 export function initKnowledge() {
   $('#kbSearch').addEventListener('input', debounce(search, 250));
-  $('#kbNote').addEventListener('click', (e) => {
+  const follow = (e) => {
     const link = e.target.closest('a.wikilink');
-    if (link) {
+    if (link && (e.type === 'click' || e.key === 'Enter')) {
       e.preventDefault();
       openNote(link.dataset.note);
     }
-  });
+  };
+  $('#kbNote').addEventListener('click', follow);
+  $('#kbNote').addEventListener('keydown', follow);
   $('#kbNew').onclick = newNote;
   $('#kbObsidian').onclick = () => api.obsidian.openInObsidian(selected || null).catch(toastError);
   $('#kbGrowth').onclick = () => import('./growth.js').then((m) => m.openGrowth()).catch(toastError);
@@ -49,6 +51,19 @@ export async function refresh() {
   notes = await api.obsidian.list().catch((e) => (toastError(e), []));
   if (!$('#kbSearch').value.trim()) renderList(notes);
   if (!selected) $('#kbNote').replaceChildren(el('p', { class: 'muted' }, `${notes.length} notes in `, el('code', {}, st.path), '. Select a note to read or edit it — the agent writes here too.'));
+}
+
+/** Opens a vault note (path or name) in this view, e.g. from a [[link]] in the chat. */
+export function showVaultNote(ref) {
+  switchView('knowledge');
+  openNote(ref); // refresh fills the pane only while no note is selected, so the note shows whichever ends first
+}
+
+/** The vault search with `q` filled in (a [[link]] in the chat to a note that doesn't exist). */
+export function searchVault(q) {
+  $('#kbSearch').value = q; // before the view's refresh reads it, so the results aren't replaced by the full list
+  switchView('knowledge');
+  search();
 }
 
 async function search() {
@@ -108,7 +123,7 @@ async function openNote(ref) {
           }, 'Delete'),
         ),
       ),
-      el('div', { html: renderMarkdown(body, { wikilinks: true }) }),
+      el('div', { html: renderMarkdown(body, { wikilinks: 'open' }) }),
     );
     backlinks(box, n.path);
     box.scrollTop = 0;
