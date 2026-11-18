@@ -5,6 +5,8 @@ import { switchView } from './nav.js';
 import { openConversation } from './chat.js';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// After "last <time>": how the last run went ('waiting' may be the brain or the internet; the summary says which).
+const STATUS_TEXT = { error: ' ⚠', skipped: ' (skipped)', waiting: ' (waiting, tries again soon)', running: ' (running now)', interrupted: ' (cut off when the app closed)', stopped: ' (stopped)' };
 
 // Ready-made routines; the Plaud one needs the Plaud connector (Settings → AI brain → connectors).
 export const ROUTINE_TEMPLATES = [
@@ -66,15 +68,22 @@ export async function refresh() {
   }
   for (const r of list) {
     const toggle = el('input', { type: 'checkbox', checked: r.enabled, 'aria-label': `${r.name} on or off` });
-    toggle.addEventListener('change', () => api.routines.setEnabled(r.id, toggle.checked).then(refresh, toastError));
-    const last = r.lastRun ? `last ${new Date(r.lastRun).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}${r.lastStatus === 'error' ? ' ⚠' : r.lastStatus === 'skipped' ? ' (skipped)' : r.lastStatus === 'waiting' ? ' (waiting for the brain, tries again soon)' : ''}` : 'not run yet';
-    const next = r.enabled && r.nextRun ? `next ${new Date(r.nextRun).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : 'paused';
+    toggle.addEventListener('change', () => {
+      toggle.disabled = true; // one change at a time; the list is drawn again after it
+      api.routines.setEnabled(r.id, toggle.checked).then(refresh, (err) => {
+        toggle.checked = !toggle.checked;
+        toggle.disabled = false;
+        toastError(err);
+      });
+    });
+    const last = r.lastRun ? `last ${new Date(r.lastRun).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}${Object.hasOwn(STATUS_TEXT, r.lastStatus || '') ? STATUS_TEXT[r.lastStatus] : ''}` : 'not run yet';
+    const next = r.broken ? 'won’t run until it’s fixed' : r.enabled && r.nextRun ? `next ${new Date(r.nextRun).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : 'paused';
     box.append(
       el(
         'div',
         { class: 'routine-row glass' },
         el('label', { class: 'toggle', title: 'On / off' }, toggle, el('span', { class: 'sw' })),
-        el('div', { class: 'routine-main' }, el('b', {}, r.name), el('div', { class: 'hint' }, `${r.when} · ${next} · ${last}`), r.lastSummary ? el('div', { class: 'routine-summary' }, r.lastSummary) : ''),
+        el('div', { class: 'routine-main' }, el('b', {}, r.name), el('div', { class: `hint${r.broken ? ' warn' : ''}` }, `${r.when} · ${next} · ${last}`), r.lastSummary ? el('div', { class: 'routine-summary' }, r.lastSummary) : ''),
         el('button', { class: 'btn small', title: 'Run it now', onclick: () => api.routines.run(r.id).then(refresh, toastError) }, '▶ Run'),
         r.conversationId ? el('button', { class: 'btn small', title: 'Its conversation', onclick: () => openRoutineChat(r.conversationId) }, 'Open') : '',
         el('button', { class: 'btn small', onclick: () => editRoutine(r) }, 'Edit'),
@@ -82,7 +91,7 @@ export async function refresh() {
           class: 'btn small danger',
           'aria-label': `Delete ${r.name}`,
           onclick: async () => {
-            if (!(await confirmDialog(`Delete “${r.name}”?`, 'It stops running. Its past conversation stays in your chat history.', 'Delete'))) return;
+            if (!(await confirmDialog(`Delete “${r.name}”?`, 'It stops now if it’s running, and won’t run again. Its past conversation stays in your chat history.', 'Delete'))) return;
             api.routines.remove(r.id).then(refresh, toastError);
           },
         }, '✕'),
@@ -115,29 +124,70 @@ async function editRoutine(r = null, { isNew = !r?.id } = {}) {
   };
   kind.addEventListener('change', sync);
   sync();
-  const ok = await modal((card, close) => {
-    card.classList.add('wide');
-    card.append(
-      el('h3', {}, isNew ? 'New routine' : 'Edit routine'),
-      field('Name', name),
-      el('div', { class: 'grid2' }, field('When', kind), timeField, hoursField),
-      daysField,
-      field('Instructions', instructions),
-      r?.hint ? el('p', { class: 'hint' }, r.hint) : '',
-      el('p', { class: 'hint' }, 'Each run is a conversation of its own, and you get a notification with the result. If the app was closed at the time, it runs once when you open it (same day).'),
-      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(false) }, 'Cancel'), el('button', { class: 'btn primary', onclick: () => close(true) }, 'Save')),
-    );
-  });
-  if (!ok) return;
-  const schedule = { kind: kind.value };
-  if (kind.value === 'interval') schedule.hours = Number(hours.value);
-  else schedule.time = time.value;
-  if (kind.value === 'weekly') schedule.days = [...days.querySelectorAll('input:checked')].map((i) => Number(i.value));
-  try {
-    await api.routines.save({ ...(isNew ? {} : { id: r.id }), name: name.value, schedule, instructions: instructions.value });
+  const snapshot = () => JSON.stringify([name.value, kind.value, time.value, hours.value, [...days.querySelectorAll('input:checked')].map((i) => i.value), instructions.value]);
+  const start = snapshot();
+  // The fields are checked and saved before the editor closes: a problem shows here, with the text still there.
+  const err = el('div', { class: 'test-result err hidden', role: 'alert' });
+  const show = (msg, control) => {
+    err.textContent = `✕ ${msg}`;
+    err.classList.remove('hidden');
+    control?.focus();
+  };
+  const saveBtn = el('button', { class: 'btn primary' }, 'Save');
+  let closed = false; // closed (Esc) while a save was on its way: the reply doesn't close a later dialog
+  const ok = await modal(
+    (card, close) => {
+      card.classList.add('wide');
+      saveBtn.onclick = async () => {
+        const weekly = kind.value === 'weekly';
+        const interval = kind.value === 'interval';
+        const h = Number(hours.value);
+        const problem = !name.value.trim()
+          ? [name, 'Give the routine a name.']
+          : interval && !(h >= 1 && h <= 168)
+            ? [hours, 'Every 1 to 168 hours.']
+            : !interval && !time.value
+              ? [time, 'Pick a time.']
+              : weekly && !days.querySelector('input:checked')
+                ? [days.querySelector('input'), 'Pick at least one day.']
+                : !instructions.value.trim()
+                  ? [instructions, 'Say what it should do on each run.']
+                  : null;
+        if (problem) return show(problem[1], problem[0]);
+        const schedule = { kind: kind.value };
+        if (interval) schedule.hours = h;
+        else schedule.time = time.value;
+        if (weekly) schedule.days = [...days.querySelectorAll('input:checked')].map((i) => Number(i.value));
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+        try {
+          await api.routines.save({ ...(isNew ? {} : { id: r.id }), name: name.value, schedule, instructions: instructions.value });
+          if (!closed) close(true);
+        } catch (e) {
+          // Closed meanwhile: the card is gone, so the failure is a notice (the edit wasn't saved).
+          if (closed) return toastError(e);
+          show(String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), null);
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save';
+        }
+      };
+      card.append(
+        el('h3', {}, isNew ? 'New routine' : 'Edit routine'),
+        field('Name', name),
+        el('div', { class: 'grid2' }, field('When', kind), timeField, hoursField),
+        daysField,
+        field('Instructions', instructions),
+        r?.hint ? el('p', { class: 'hint' }, r.hint) : '',
+        el('p', { class: 'hint' }, 'Each run is a conversation of its own, and you get a notification with the result. If the app was closed at the time, it runs once when you open it (same day).'),
+        err,
+        el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(false) }, 'Cancel'), saveBtn),
+      );
+    },
+    { dirty: () => snapshot() !== start },
+  );
+  closed = true;
+  if (ok) {
     toast('Routine saved');
     refresh();
-  } catch (err) {
-    toastError(err);
   }
 }

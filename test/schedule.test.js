@@ -188,3 +188,116 @@ test('the prompt splits today at the current time: what is over, what is still t
   assert.deepStrictEqual(s.upcoming.map((e) => e.title), ['Halloween party']);
   assert.deepStrictEqual(['03:00', '08:00', '13:00', '22:18', '23:30'].map((t) => core.partOfDay(new Date(`2026-10-29T${t}`))), ['night', 'morning', 'afternoon', 'evening', 'night']);
 });
+
+// io-4 / mutations-8: Enter and a click on Add (or a tool call repeated) stored the entry twice.
+test('the same entry added twice is stored once; another time or range is another entry', async () => {
+  let file = '';
+  let writes = 0;
+  stub({
+    './store': { getSettings: async () => ({ calendar: { enabled: true, daysAhead: 7 }, agent: { name: 'Nexus' } }), setSecretBlob: async () => {} },
+    './obsidian': {
+      vaultPath: async () => '/vault',
+      readOptional: async () => file,
+      writeNote: async (rel, text) => {
+        writes++;
+        file = text;
+      },
+    },
+    './logger': { info() {}, warn() {} },
+  });
+  const calendar = load('main/calendar.js');
+  const a = await calendar.add({ title: 'Dentist', when: '2026-10-28 14:00' });
+  const b = await calendar.add({ title: 'Dentist', when: '2026-10-28 14:00' });
+  assert.strictEqual(a.existing, undefined);
+  assert.strictEqual(b.existing, true);
+  assert.strictEqual(b.id, a.id);
+  assert.strictEqual(writes, 1, 'one write');
+  // Ten at once (Enter and clicks before the first reply): the queue makes each see the one before.
+  const many = await Promise.all(Array.from({ length: 10 }, () => calendar.add({ title: 'Gym', when: 'every weekday 07:00' })));
+  assert.strictEqual(new Set(many.map((e) => e.id)).size, 1);
+  assert.strictEqual(many.filter((e) => e.existing).length, 9);
+  assert.strictEqual(writes, 2);
+  // Spaces and case don't make it another thing.
+  assert.strictEqual((await calendar.add({ title: '  dentist ', when: '2026-10-28 14:00' })).existing, true);
+  assert.strictEqual(writes, 2);
+  // Another time, another day, or another range is another entry.
+  assert.strictEqual((await calendar.add({ title: 'Dentist', when: '2026-10-28 15:00' })).existing, undefined);
+  assert.strictEqual((await calendar.add({ title: 'Dentist', when: '2026-10-29 14:00' })).existing, undefined);
+  assert.strictEqual((await calendar.add({ title: 'Gym', when: 'every weekday 07:00', until: '2027-02-12' })).existing, undefined);
+  assert.strictEqual((await calendar.add({ title: 'Gym', when: 'every weekday 07:00', until: '2027-02-12' })).existing, true);
+  assert.strictEqual(writes, 5);
+  // Right-to-left text and a ZWJ emoji compare as themselves.
+  const rtl = await calendar.add({ title: 'موعد الطبيب 👩‍⚕️', when: '2026-11-02 09:00' });
+  assert.strictEqual((await calendar.add({ title: 'موعد الطبيب 👩‍⚕️', when: '2026-11-02 09:00' })).id, rtl.id);
+  assert.strictEqual((await calendar.add({ title: 'موعد الطبيب 👩', when: '2026-11-02 09:00' })).existing, undefined, 'another emoji is another title');
+  await calendar.remove(rtl.id);
+  await calendar.remove((await calendar.entries()).entries.find((e) => e.title === 'موعد الطبيب 👩').id);
+  assert.strictEqual(writes, 9);
+  assert.deepStrictEqual((await calendar.entries()).entries.map((e) => `${e.title} ${e.when}${e.until ? ` until ${e.until}` : ''}`).sort(), [
+    'Dentist 2026-10-28 14:00',
+    'Dentist 2026-10-28 15:00',
+    'Dentist 2026-10-29 14:00',
+    'Gym every weekday 07:00',
+    'Gym every weekday 07:00 until 2027-02-12',
+  ]);
+
+  // The tool says it was already there and doesn't announce a change.
+  const tool = load('main/tools/calendar.js').find((t) => t.name === 'calendar_add_event');
+  const emitted = [];
+  const r = await tool.run({ title: 'Dentist', when: '2026-10-28 14:00' }, { emit: (e) => emitted.push(e) });
+  assert.match(r.already, /Dentist is already in the schedule; nothing added\./);
+  assert.strictEqual(r.entry_id, a.id);
+  assert.deepStrictEqual(emitted, []);
+  const added = await tool.run({ title: 'New thing', when: '2026-11-01' }, { emit: (e) => emitted.push(e) });
+  assert.ok(added.added);
+  assert.deepStrictEqual(emitted, [{ type: 'calendar_changed' }]);
+});
+
+// states-desktop-4: a locked Schedule.md read as empty; the next add overwrote it with a template and one entry.
+test('a Schedule.md that is there but cannot be read is an error, and nothing is written over it', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const { tmpDir, quietLog, fileStore } = require('./helpers');
+  const dir = tmpDir('nexus-schedule-locked-');
+  const vault = path.join(dir, 'vault');
+  stub({
+    electron: { app: { getPath: () => dir } },
+    './logger': quietLog,
+    './vaultgit': { commitSoon() {}, ensure: async () => {} },
+    './store': fileStore(dir, { getSettings: async () => ({ obsidian: { enabled: true, vaultPath: vault }, calendar: { enabled: true, daysAhead: 7 }, agent: { name: 'Nexus' } }), setSecretBlob: async () => {} }),
+  });
+  const obsidian = load('main/obsidian.js');
+  const realWrite = obsidian.writeNote;
+  let writes = 0;
+  obsidian.writeNote = async (...a) => (writes++, realWrite(...a));
+  stub({ './obsidian': obsidian });
+  const calendar = load('main/calendar.js');
+  try {
+    // A read error that isn't "missing" (EISDIR on every platform stands for EBUSY / a cloud-only file).
+    fs.mkdirSync(path.join(vault, 'Schedule.md'), { recursive: true });
+    await assert.rejects(() => calendar.entries(), /Couldn't read Schedule\.md/);
+    await assert.rejects(() => calendar.events(), /Couldn't read Schedule\.md/);
+    const st = await calendar.status();
+    assert.strictEqual(st.vault, true);
+    assert.strictEqual(st.connected, true);
+    assert.match(st.unreadable, /Couldn't read Schedule\.md \(EISDIR\)/);
+    assert.match(await calendar.promptBlock(), /Schedule unavailable: Couldn't read Schedule\.md/);
+    await assert.rejects(() => calendar.add({ title: 'Dentist', when: '2026-10-28 14:00' }), (err) => err.code === 'UNREADABLE');
+    await assert.rejects(() => calendar.update('e1', { title: 'x' }), /Couldn't read/);
+    await assert.rejects(() => calendar.remove('e1'), /Couldn't read/);
+    assert.strictEqual(writes, 0, 'never written over');
+    assert.strictEqual(await obsidian.readOptional('Schedule.md'), '', 'other callers still read it as empty');
+
+    // Missing (ENOENT) is an empty schedule, as before: the first add writes the template with the entry.
+    fs.rmSync(path.join(vault, 'Schedule.md'), { recursive: true });
+    assert.deepStrictEqual(await calendar.entries(), { entries: [], problems: [] });
+    assert.strictEqual((await calendar.status()).unreadable, undefined);
+    await calendar.add({ title: 'Dentist', when: '2026-10-28 14:00' });
+    assert.strictEqual(writes, 1);
+    const text = fs.readFileSync(path.join(vault, 'Schedule.md'), 'utf8');
+    assert.match(text, /^---\ntype: schedule/);
+    assert.match(text, /- 2026-10-28 14:00 \| Dentist \| id e[0-9a-f]{4}/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -1,6 +1,7 @@
 // VoiceStudio TTS (OpenAI-compatible /v1/audio/speech), a cloud voice (voice.engine 'cloud': Groq's
 // Orpheus or OpenAI, the same API) and optional remote speech-to-text.
 const store = require('./store');
+const log = require('./logger');
 
 // Cloud voices (settings cloudVoice.*). Groq uses the Groq key the user already has for speech-to-text.
 const CLOUD_VOICES = {
@@ -119,29 +120,92 @@ function sttEndpoint(s, provider = s.stt.engine) {
   return { base, key: s.stt.remoteKey || s.llm.apiKey, model: s.stt.remoteModel || 'whisper-1', name: 'remote' };
 }
 
-async function transcribe(wavBytes, { raw = false, provider } = {}) {
+// Transient failures are tried again (the spoken words are lost otherwise): network errors, the time
+// limit, and HTTP 408/429-with-a-short-retry-after/500/502/503/504, at most 3 attempts. Never 400/401/403/
+// 404/413/422, nor a 429 without a short retry-after (the daily cap): those keep today's messages. Nor a
+// refused connection ("fetch failed" with ECONNREFUSED): nothing is listening there.
+// error: the thrown error's name, message and cause code in one string ('' for an HTTP answer).
+function sttRetryDelay({ status = 0, error = '', attempt, retryAfter = 0 }) {
+  if (attempt >= 3) return null;
+  const transient = status
+    ? [408, 500, 502, 503, 504].includes(status) || (status === 429 && retryAfter > 0 && retryAfter <= 8)
+    : !/ECONNREFUSED/i.test(error) && /TimeoutError|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|fetch failed/i.test(error);
+  if (!transient) return null;
+  if (status === 429) return retryAfter * 1000;
+  return 500 * 2 ** (attempt - 1) + Math.floor(Math.random() * 250);
+}
+
+// A WAV of 16 kHz 16-bit mono is 32,000 bytes a second. Per attempt: time to upload a long one (at most the
+// two minutes one attempt always had); in all: under the window's own wait for the phone (main.js
+// transcribeInWindow: 60 s + 1 s per second of audio).
+function sttLimits(bytes) {
+  const sec = Math.max(0, Number(bytes) || 0) / 32000;
+  return { attemptMs: Math.round(Math.min(120000, 10000 + 500 * sec)), budgetMs: Math.round(55000 + 1000 * sec) };
+}
+
+// The final error in plain words: it reaches a notice and, through /api/transcribe, the phone. The details
+// (a service's error JSON, never the user's words) go to the log.
+function sttError({ status, failure, error, text, via }) {
+  const name = via === 'Groq' ? 'Groq' : 'the transcription service';
+  if (failure) {
+    if (!/TimeoutError|AbortError|fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(error)) return failure; // anything else: as today
+    log.warn('transcription failed', { via, error: failure });
+    // The time limit: the service was there, just slow (a busy service, a self-hosted one on a processor).
+    if (/TimeoutError|AbortError/i.test(error)) return new Error(`${via} took too long to answer; try again in a moment.`);
+    return new Error(`Couldn't reach ${name}; check the internet connection.`);
+  }
+  if (status === 401 || status === 403) return new Error(`${via} did not accept the API key (Settings → Voice input).`);
+  if (status === 429) return new Error(`${via}'s limit is used up for now; try again in a while, or switch to local Whisper.`);
+  log.warn('transcription failed', { status, via, body: text.slice(0, 300) });
+  return new Error(`${via} answered with an error (${status}); details are in the log.`);
+}
+
+async function transcribe(wavBytes, { raw = false, provider, retry } = {}) {
   const s = await store.getSettings();
   const { base, key, model } = sttEndpoint(s, provider === 'groq' ? 'groq' : s.stt.engine);
-  const form = new FormData();
-  form.append('file', new Blob([wavBytes], { type: 'audio/wav' }), 'speech.wav');
-  form.append('model', model);
+  const via = provider === 'groq' || s.stt.engine === 'groq' ? 'Groq' : 'The transcription service';
+  // Tests pass their own clock and sleep (an IPC call can't carry functions, so the window never does).
+  const sleep = typeof retry?.sleep === 'function' ? retry.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
+  const now = typeof retry?.now === 'function' ? retry.now : Date.now;
+  const { attemptMs, budgetMs } = sttLimits(wavBytes?.length);
+  const deadline = now() + budgetMs;
+  // A self-hosted endpoint (Whisper on a processor) may need far longer than Groq: each of its attempts may
+  // use what is left of the budget, up to two minutes. A retry still needs at least `attemptMs` left.
+  const limitNow = () => (via === 'Groq' ? attemptMs : Math.min(120000, Math.max(attemptMs, deadline - now())));
   const language = s.learning?.practiceLanguage || s.stt.language; // language practice listens for that language
-  if (language) form.append('language', language);
-  if (!raw && s.stt.vocabulary?.length) form.append('prompt', s.stt.vocabulary.join(', '));
   const url = base.endsWith('/audio/transcriptions') ? base : `${base}/audio/transcriptions`;
-  const res = await fetch(url, { method: 'POST', headers: authHeaders(key), body: form, signal: AbortSignal.timeout(120000) });
-  const text = await res.text();
-  if (!res.ok) {
-    const via = provider === 'groq' || s.stt.engine === 'groq' ? 'Groq' : 'The transcription service';
-    if (res.status === 401 || res.status === 403) throw new Error(`${via} did not accept the API key (Settings → Voice input).`);
-    if (res.status === 429) throw new Error(`${via}'s limit is used up for now; try again in a while, or switch to local Whisper.`);
-    throw new Error(`Transcription error ${res.status}: ${text.slice(0, 300)}`);
-  }
-  try {
-    return JSON.parse(text).text || '';
-  } catch {
-    return text;
+  for (let attempt = 1; ; attempt++) {
+    const form = new FormData(); // a fresh body for each attempt
+    form.append('file', new Blob([wavBytes], { type: 'audio/wav' }), 'speech.wav');
+    form.append('model', model);
+    if (language) form.append('language', language);
+    if (!raw && s.stt.vocabulary?.length) form.append('prompt', s.stt.vocabulary.join(', '));
+    let res = null;
+    let text = '';
+    let failure = null;
+    try {
+      res = await fetch(url, { method: 'POST', headers: authHeaders(key), body: form, signal: AbortSignal.timeout(limitNow()) });
+      text = await res.text();
+    } catch (err) {
+      failure = err;
+    }
+    if (!failure && res.ok) {
+      try {
+        return JSON.parse(text).text || '';
+      } catch {
+        return text;
+      }
+    }
+    const status = failure ? 0 : res.status;
+    const error = failure ? [failure.name, failure.message, failure.cause?.code].filter(Boolean).join(' ') : '';
+    const delay = sttRetryDelay({ status, error, attempt, retryAfter: Number(res?.headers.get('retry-after')) || 0 });
+    if (delay !== null && now() + delay + attemptMs <= deadline) {
+      log.info('stt retry', { status, attempt });
+      await sleep(delay);
+      continue;
+    }
+    throw sttError({ status, failure, error, text, via });
   }
 }
 
-module.exports = { speak, voices, transcribe, ping, sttEndpoint, cloudRequest, CLOUD_VOICES, GROQ_STT };
+module.exports = { speak, voices, transcribe, ping, sttEndpoint, sttRetryDelay, sttLimits, cloudRequest, CLOUD_VOICES, GROQ_STT };

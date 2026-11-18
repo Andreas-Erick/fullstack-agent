@@ -59,9 +59,10 @@ test('a window\'s text line with a different id each time is one problem', () =>
   assert.strictEqual(groups[0].count, 2);
 });
 
-test('a routine waiting for its brain is a warning, not an error to report', () => {
+test('a routine waiting for its brain or for the network is a warning, not an error to report', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main', 'main.js'), 'utf8');
-  const failed = src.slice(src.indexOf("log.info('turn interrupted'") - 300, src.indexOf("log.info('turn interrupted'") + 500);
-  assert.match(failed, /routine && require\('\.\/routinecore'\)\.brainNotReady\(err\)/);
+  const failed = src.slice(src.indexOf("log.info('turn interrupted'") - 400, src.indexOf("log.info('turn interrupted'") + 500);
+  assert.match(failed, /const rc = require\('\.\/routinecore'\);/);
+  assert.match(failed, /routine && \(rc\.brainNotReady\(err\) \|\| rc\.offline\(err\)\)/);
   assert.match(failed, /notReady \? 'warn' : 'error'\]\(notReady \? 'turn not ready' : 'turn failed'/);
 });

@@ -209,6 +209,7 @@ export async function refresh() {
   const status = await api.calendar.status().catch(() => ({}));
   $('#calObsidian').classList.toggle('hidden', !status.vault);
   if (!status.vault || !status.enabled) return body.replaceChildren(offPanel(status));
+  if (status.unreadable) return body.replaceChildren(errorPanel(status.unreadable));
   try {
     const [events, list, upcoming, tasks] = await Promise.all([
       api.calendar.events({ start: local(from), end: local(to) }),
@@ -218,8 +219,8 @@ export async function refresh() {
     ]);
     Object.assign(cal, { events, entries: list.entries, problems: list.problems, upcoming, tasks });
   } catch (err) {
-    body.replaceChildren(el('p', { class: 'muted' }, err.message));
-    return toastError(err);
+    body.replaceChildren(errorPanel(err.message));
+    return;
   }
   $('#calStamp').textContent = `${cal.entries.length} ENTR${cal.entries.length === 1 ? 'Y' : 'IES'} · ${cal.entries.filter((e) => e.repeats).length} REPEATING · W${isoWeek(new Date())}`;
   const main = el('div', { class: `cal-main glass cal-${cal.mode}` }, cal.mode === 'month' ? monthView(from) : cal.mode === 'week' ? weekView(from) : agendaView());
@@ -237,6 +238,18 @@ function offPanel(status) {
     el('h3', { class: 'display' }, off ? 'The calendar is off' : 'Your schedule lives in the vault'),
     el('p', { class: 'muted' }, off ? 'Turn it on in Settings → Calendar to see your schedule and let the agent keep it.' : 'The agent keeps your schedule as a note (Schedule.md) in its vault. Turn the vault on to use the calendar.'),
     el('div', { class: 'row', style: { justifyContent: 'center' } }, el('button', { class: 'btn primary', onclick: () => switchView('settings', off ? 'calendar' : 'obsidian') }, 'Open settings')),
+  );
+}
+
+// Schedule.md is there but couldn't be read (locked by a sync or virus scan, only in the cloud): never an
+// empty week, which would look like everything was gone.
+function errorPanel(message) {
+  return el(
+    'div',
+    { class: 'cal-empty glass', role: 'alert' },
+    el('h3', { class: 'display' }, 'Couldn’t read your schedule'),
+    el('p', { class: 'muted' }, String(message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')),
+    el('div', { class: 'row', style: { justifyContent: 'center' } }, el('button', { class: 'btn primary', onclick: () => refresh() }, '⟳ Try again')),
   );
 }
 
@@ -265,7 +278,7 @@ function monthView(from) {
     const cls = ['cal-cell', day.getMonth() !== cal.anchor.getMonth() && 'out', sameDay(day, today) && 'today', sameDay(day, cal.selected) && 'sel', day < today && 'past'].filter(Boolean).join(' ');
     const cell = el(
       'div',
-      { class: cls, tabindex: '0', 'aria-label': day.toDateString(), onclick: () => select(day), ondblclick: () => editor({ date: ymd(day) }), onkeydown: (e) => e.key === 'Enter' && editor({ date: ymd(day) }) },
+      { class: cls, tabindex: '0', 'aria-label': day.toDateString(), onclick: () => select(day), ondblclick: () => editor({ date: ymd(day) }), onkeydown: (e) => e.key === 'Enter' && e.target === e.currentTarget && editor({ date: ymd(day) }) },
       el('div', { class: 'cal-num' }, el('span', {}, day.getDate()), list.length ? el('i', { class: 'cal-count' }, list.length) : null),
       el('div', { class: 'cal-pills' }, list.slice(0, 3).map((x) => (x.e ? pill(x.e) : taskPill(x.t))), list.length > 3 ? el('button', { class: 'cal-more', onclick: (ev) => (ev.stopPropagation(), select(day)) }, `+${list.length - 3} more`) : null),
     );
@@ -567,6 +580,8 @@ function editor(x = {}) {
   const f = formOf(x);
   if (x.repeat?.freq === 'yearly') f.date = `${new Date().getFullYear()}-${pad(x.repeat.month)}-${pad(x.repeat.monthDay)}`;
   if (x.repeat?.freq === 'monthly') f.date = `${ymd(new Date()).slice(0, 8)}${pad(x.repeat.monthDay)}`;
+  const start = JSON.stringify(f);
+  let closed = false; // closed (Esc) while a save was on its way: the reply doesn't close a later dialog
   modal((card, close) => {
     card.classList.add('cal-modal', 'cal-editor');
     const input = (key, attrs = {}) => {
@@ -575,7 +590,9 @@ function editor(x = {}) {
       if (attrs.type === 'checkbox') i.checked = f[key];
       return i;
     };
-    const err = el('div', { class: 'test-result err hidden' });
+    const err = el('div', { class: 'test-result err hidden', role: 'alert' });
+    let busy = false; // Enter and a click (or a double click) save once
+    const saveBtn = el('button', { class: 'btn primary', onclick: () => save() }, x.id ? 'Save' : 'Add');
     const preview = el('div', { class: 'cal-preview' });
     const type = el('div', { class: 'seg' }, ['One-time', 'Repeats'].map((label, i) => el('button', { type: 'button', onclick: () => ((f.repeats = Boolean(i)), update()) }, label)));
     const freq = el('select', { class: 'input' }, [['weekly', 'Weekly'], ['daily', 'Daily'], ['monthly', 'Monthly (same day of the month)'], ['yearly', 'Yearly (same date)']].map(([v, l]) => el('option', { value: v }, l)));
@@ -615,20 +632,34 @@ function editor(x = {}) {
     };
     const title = input('title', { placeholder: 'e.g. Linear Algebra lecture', maxlength: 120 });
     const save = async () => {
-      if (!f.title.trim()) return title.focus();
+      if (!f.title.trim()) {
+        err.textContent = '✕ Give it a title.';
+        err.classList.remove('hidden');
+        return title.focus();
+      }
+      if (busy) return;
+      busy = true;
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      err.classList.add('hidden');
       const payload = { title: f.title, when: whenOf(f), location: f.location, notes: f.notes, from: f.repeats ? f.from : '', until: f.repeats ? f.until : '' };
       try {
-        if (x.id) await api.calendar.update(x.id, payload);
-        else await api.calendar.add(payload);
-        close();
+        const added = x.id ? await api.calendar.update(x.id, payload) : await api.calendar.add(payload);
+        if (!closed) close();
+        if (!x.id && added?.existing) toast('That’s already in your schedule.');
         emit('status-refresh');
         refresh();
       } catch (e) {
+        // Closed meanwhile: the card is gone, so the failure is a notice (the entry wasn't saved).
+        if (closed) return toastError(e);
+        busy = false;
+        saveBtn.disabled = false;
+        saveBtn.textContent = x.id ? 'Save' : 'Add';
         err.textContent = `✕ ${String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`;
         err.classList.remove('hidden');
       }
     };
-    title.addEventListener('keydown', (e) => e.key === 'Enter' && save());
+    title.addEventListener('keydown', (e) => e.key === 'Enter' && !e.repeat && !e.isComposing && save());
     card.append(
       el('h3', {}, x.id ? 'Edit entry' : 'New entry'),
       field('Title', title),
@@ -645,11 +676,13 @@ function editor(x = {}) {
         { class: 'modal-actions' },
         x.id ? el('button', { class: 'btn danger', style: { marginRight: 'auto' }, onclick: () => (close(), removeEntry(x)) }, 'Delete') : null,
         el('button', { class: 'btn', onclick: () => close() }, 'Cancel'),
-        el('button', { class: 'btn primary', onclick: save }, x.id ? 'Save' : 'Add'),
+        saveBtn,
       ),
     );
     update();
     setTimeout(() => title.focus(), 0);
+  }, { dirty: () => JSON.stringify(f) !== start }).then(() => {
+    closed = true;
   });
 }
 

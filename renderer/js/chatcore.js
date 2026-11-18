@@ -120,7 +120,7 @@ function hhmm(ms, now = Date.now()) {
 }
 
 const BRAIN = { label: 'Open AI brain settings', go: 'settings', section: 'brain' };
-const NETWORK = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|socket hang up|connection error|network/i;
+const NETWORK = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|socket hang up|connection error|network|ENETUNREACH|ENETDOWN|EHOSTDOWN|connection dropped|no internet route|can['’]t reach the API server|unable to connect to API(?!:)/i;
 const OPENAI_PATH = ['local', 'gemini', 'deepseek', 'groq', 'perplexity']; // providers with their own base URL (main/router.js concrete)
 const LOCAL_HOST = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i;
 

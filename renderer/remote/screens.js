@@ -266,17 +266,13 @@ async function skills() {
   const [{ skills: list }, { routines }] = await Promise.all([api('/api/data/skills'), api('/api/data/routines')]);
   return [
     card('Skills', el('p', { class: 'muted' }, 'Tap one to start it in the chat.'), ...list.map((s) => el('button', { class: 'note-row', type: 'button', onclick: () => (ctx.showView('chat'), ctx.prefill(`/${s.slug} `)) }, el('b', {}, `/${s.slug}`), el('small', {}, s.description || s.name)))),
-    routines.length ? card('Routines', ...routines.map((r) => el('div', { class: 'li' }, el('b', {}, r.name), el('small', { class: 'muted' }, ` · ${r.enabled ? describe(r.schedule) : 'paused'}${r.lastRun ? ` · last ${new Date(r.lastRun).toLocaleString()}` : ''}`)))) : '',
+    routines.length ? card('Routines', ...routines.map((r) => el('div', { class: 'li' }, el('b', {}, r.name), el('small', { class: 'muted' }, ` · ${r.enabled ? r.when || '' : 'paused'}${r.lastRun ? ` · last ${new Date(r.lastRun).toLocaleString()}` : ''} `), ROUTINE_CHIP.has(r.lastStatus) ? chip(...ROUTINE_CHIP.get(r.lastStatus)) : null))) : '',
   ];
 }
 
-function describe(s) {
-  if (!s) return '';
-  if (s.kind === 'daily') return `every day at ${s.time}`;
-  if (s.kind === 'weekly') return `weekly${s.days ? ` (${[].concat(s.days).join(', ')})` : ''} at ${s.time}`;
-  if (s.kind === 'interval') return `every ${s.minutes || s.every} min`;
-  return s.kind || '';
-}
+// How the last run went, as on the desktop (a good run needs no chip). A Map: a status is never read
+// off Object.prototype.
+const ROUTINE_CHIP = new Map(Object.entries({ error: ['failed', 'bad'], skipped: ['skipped', 'warn'], waiting: ['waiting', 'warn'], interrupted: ['cut off', 'warn'], running: ['running', ''], stopped: ['stopped', ''] }));
 
 // --------------------------------------------------------------- More
 // In the Android app: a newer APK than this one is out (the computer checks GitHub, /api/info `update`).
