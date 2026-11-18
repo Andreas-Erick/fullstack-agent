@@ -1008,7 +1008,8 @@ class HandsFree {
             speaker.stop();
             emit('barge-in');
           }
-          this.seg = { chunks: [...this.pre], silence: 0, length: 0, voiced: this.onsetVoiced || 0 };
+          if (!heldPiece.pending) utteranceStart = { source: 'open', startedAt: performance.now() - (this.loud || 0) }; // a held piece keeps the earlier start
+          this.seg = { chunks: [...this.pre], silence: 0, length: 0, voiced: this.onsetVoiced || 0, start: utteranceStart };
           setFlag('recording', true);
           setCaption('Listening…', 'user');
         }
@@ -1032,6 +1033,7 @@ class HandsFree {
       // A short "yes" has ~150 ms of vowel; segments with none are breath or noise.
       if (seg.voiced < 80) return (setCaption(heldPiece.pending), heldPiece.pending && heldPiece.later());
       if (ended === 'limit') logEvent('info', 'long utterance split at the limit', { sec: Math.round(seg.length / 1000) });
+      utteranceStart = seg.start; // the open microphone's, even if the talk key was tapped meanwhile
       finishUtterance(() => toMono16k(concat(seg.chunks), this.rate), { join: true, limit: ended === 'limit', pauseMs: ended === 'limit' ? 0 : seg.silence });
     }
   }
@@ -1244,6 +1246,11 @@ export async function analyzeClip(samples, rate) {
 // ----------------------------------------------------- utterance handling
 let busy = false;
 
+// Where and when the words being written down began (approval.js: speech that started before an
+// approval appeared isn't its answer; an always-ask approval takes a spoken yes only from the talk key).
+let utteranceStart = { source: '', startedAt: 0 };
+export const utteranceInfo = () => utteranceStart;
+
 // End-to-end latency: from the end of the user's speech (before the pause that closed the utterance,
 // which the log didn't count) to the reply's first audio.
 let utteranceEndedAt = 0;
@@ -1372,6 +1379,9 @@ export async function stopListening() {
   if (!recorder.active) return;
   setFlag('recording', false);
   emit('listening', false);
+  // Not while another piece is still being written down (busy): its words keep their own start and
+  // source. These then count with that earlier start and source, which at worst asks for the yes again.
+  if (!busy) utteranceStart = { source: 'ptt', startedAt: recorder.startedAt || performance.now() };
   await finishUtterance(() => recorder.stop());
 }
 

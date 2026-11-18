@@ -26,6 +26,8 @@ const attachcore = require('./attachcore');
 const noToolSupport = new Set(); // `${baseUrl}|${model}` combos that rejected the tools parameter
 const noExtras = new Set(); // combos that rejected localcore.requestExtras (keep_alive, reasoning_effort)
 const noSystemNote = new Set(); // combos whose template refused a system message after the first (localcore.placeNote)
+// The answer a tool call of the round gets when Stop came before it ran.
+const STOPPED_BEFORE = 'Stopped by the user before this ran.';
 
 function trimBase(url) {
   return String(url || '').trim().replace(/\/+$/, '');
@@ -332,7 +334,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   // A routine's long instructions read as "deep" and ran on Opus; syncing lists and briefings is everyday
   // work (the normal model, Sonnet with Claude), unless the user set a model mode themselves.
   const paced = routine && settings.llm?.autoPace !== false && (settings.llm?.modelMode || 'default') === 'default' ? { pace: 'routine', mode: 'normal', effort: base } : pace.plan(settings, { text: lastText, voice, setup, engineering, base, attached });
-  const ctx = { emit, turn: approvals.newTurn(), logTags: log.context(), budget: toolBudget(settings, engineering), effort: paced.effort, pace: paced.pace };
+  const ctx = { emit, turn: approvals.newTurn({ signal, userText: lastText }), signal, logTags: log.context(), budget: toolBudget(settings, engineering), effort: paced.effort, pace: paced.pace };
   // A routine works on its own (a sync can take many steps): the larger number of rounds, not code work's effort.
   if (routine) ctx.budget.rounds = ctx.budget.deep;
   // A screenshot or an attached file can contain anything (web pages, emails): it is external content.
@@ -797,6 +799,11 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
 
     const seen = []; // images from tools (look_at_screen): tool messages are text-only, so they follow as a user message
     for (const tc of toolCalls) {
+      // Stopped: nothing more runs, and every call still gets an answer (the stored history stays valid).
+      if (signal.aborted) {
+        turnMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: STOPPED_BEFORE }) });
+        continue;
+      }
       let input;
       try {
         input = JSON.parse(tc.function.arguments || '{}');
@@ -1019,6 +1026,10 @@ async function runAnthropic({ settings, conv, history, emit, signal, active, sys
     emit({ type: 'thinking' });
     const results = [];
     for (const tu of toolUses) {
+      if (signal.aborted) {
+        results.push({ type: 'tool_result', tool_use_id: tu.id, is_error: true, content: STOPPED_BEFORE });
+        continue;
+      }
       const def = active.find((t) => t.name === tu.name);
       const problem = def ? validateInput(def, tu.input) : `Unknown tool "${tu.name}"`;
       if (problem) {

@@ -25,7 +25,15 @@ module.exports = [
     description:
       'Open a website in your agent window, a browser window you control and the user watches (they can browse in it too). Use it when the user wants to see a page, or for a task on a site that needs clicking (searching a shop, filling a form, following links). To only read something, web_fetch / WebFetch is quicker. Only public websites (nothing on this computer or the local network). Returns the page title; then browser_read for its text and what you can click, browser_look for a screenshot.',
     parameters: obj({ url: str('The address (https://…)'), monitor: { ...MONITOR, description: `${MONITOR.description} Optional.` } }, ['url']),
-    run: async (a) => require('../agentwindow').open(a.url, { monitor: a.monitor }),
+    untrusted: true, // its result carries the page's title
+    run: async (a, ctx) => {
+      const c = require('../agentwindowcore').checkUrl(a.url);
+      if (c.ok && !c.globe) {
+        const ok = await require('../approvals').askOutbound(ctx.turn, c.url);
+        if (!ok.allow) throw new Error(`Not approved by the user: ${ok.reason || 'declined'}`);
+      }
+      return require('../agentwindow').open(a.url, { monitor: a.monitor });
+    },
   },
   {
     name: 'browser_read',
@@ -63,6 +71,7 @@ module.exports = [
       },
       ['action'],
     ),
+    untrusted: true, // its result carries the page's title
     run: async (a, ctx) => {
       const aw = require('../agentwindow');
       if (['click', 'type', 'select'].includes(a.action)) {

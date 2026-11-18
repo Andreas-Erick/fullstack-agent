@@ -722,4 +722,5 @@ module.exports = {
   ymd,
   PROFILE_AGENT_SECTIONS,
   PROFILE_SECTIONS,
+  IGNORE,
 };

@@ -14,7 +14,7 @@ module.exports = [
     name: 'routine_save',
     group: 'routines',
     description:
-      'Create or change a routine: something you do on a schedule without being asked ("every morning at 8, check my Plaud for new recordings and summarize them"; "Sundays at 19:00, my weekly review"). Write instructions you can follow later on your own: which tools or connectors to use, what to save where (e.g. a vault note), and what to report. Each run happens in the routine\'s own conversation and the user gets a notification. Asks the user first. Give id to change an existing one.',
+      'Create or change a routine: something you do on a schedule without being asked ("every morning at 8, check my Plaud for new recordings and summarize them"; "Sundays at 19:00, my weekly review"). Write instructions you can follow later on your own: which tools or connectors to use, what to save where (e.g. a vault note), and what to report. Each run happens in the routine\'s own conversation and the user gets a notification. Asks the user first (in Ask mode, and in any mode after reading outside content). Give id to change an existing one.',
     parameters: obj(
       {
         id: str('Only to change an existing routine (routine_list)'),
@@ -28,7 +28,7 @@ module.exports = [
     run: async (a, ctx) => {
       const core = require('../routinecore');
       const schedule = core.normalizeSchedule(a.schedule);
-      await requireApproval(ctx, 'settings', `${a.id ? 'Change' : 'Create'} the routine "${a.name}" (${core.describe(schedule)})`, String(a.instructions || '').slice(0, 1500));
+      await requireApproval(ctx, 'settings', `${a.id ? 'Change' : 'Create'} the routine "${a.name}" (${core.describe(schedule)})`, String(a.instructions || '').slice(0, 1500), { taintAsks: true });
       const r = await require('../routines').save({ ...a, schedule });
       return { saved: r.name, id: r.id, when: r.when, nextRun: r.nextRun ? new Date(r.nextRun).toLocaleString() : null };
     },
@@ -36,7 +36,7 @@ module.exports = [
   {
     name: 'routine_delete',
     group: 'routines',
-    description: 'Delete a routine (asks the user first).',
+    description: 'Delete a routine (asks the user first in Ask mode).',
     parameters: obj({ id: str('The routine id (routine_list)') }, ['id']),
     run: async (a, ctx) => {
       const r = (await require('../routines').list()).find((x) => x.id === a.id);
@@ -51,8 +51,8 @@ module.exports = [
     description: 'Run a routine now, when the user asks ("check my Plaud now"). It runs in its own conversation; you get its report.',
     parameters: obj({ id: str('The routine id (routine_list)') }, ['id']),
     run: async (a, ctx) => {
-      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', 'Run a routine now', 'Asked after reading external content.');
-      return require('../routines').runNow(a.id);
+      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', 'Run a routine now', 'Asked after reading external content.', { taintAsks: true });
+      return require('../routines').runNow(a.id, { signal: ctx.signal });
     },
   },
 ];

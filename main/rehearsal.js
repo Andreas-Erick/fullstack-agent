@@ -10,15 +10,32 @@ const core = require('./rehearsalcore');
 const CALL_LIMIT_MS = 90000;
 const TOTAL_LIMIT_MS = 8 * 60 * 1000;
 
-function withLimit(promise, ms, message) {
+const stoppedError = () => Object.assign(new Error('The rehearsal was stopped.'), { name: 'AbortError' });
+
+function withLimit(promise, ms, message, signal = null) {
   let t;
-  return Promise.race([promise, new Promise((_, reject) => (t = setTimeout(() => reject(new Error(message)), ms)))]).finally(() => clearTimeout(t));
+  let off = () => {};
+  const limit = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error(message)), ms);
+    if (!signal) return;
+    const on = () => reject(stoppedError());
+    if (signal.aborted) return on();
+    signal.addEventListener('abort', on, { once: true });
+    off = () => signal.removeEventListener('abort', on);
+  });
+  return Promise.race([promise, limit]).finally(() => {
+    clearTimeout(t);
+    off();
+  });
 }
 
 const fileName = (s) => String(s).replace(/[\\/:*?"<>|#^[\]]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Rehearsal';
 
-/** Plays the scene and debriefs it. onTurn(line) is called after every turn (progress for the chat). */
-async function run(args, { onTurn = () => {} } = {}) {
+/**
+ * Plays the scene and debriefs it. onTurn(line) is called after every turn (progress for the chat).
+ * signal: the turn's Stop; the scene ends at its next turn, keeps what was said and skips the debrief.
+ */
+async function run(args, { onTurn = () => {}, signal = null } = {}) {
   const spec = core.validate(args);
   const settings = await store.getSettings();
   const fast = { ...settings, llm: { ...settings.llm, modelMode: 'fast' } };
@@ -28,6 +45,11 @@ async function run(args, { onTurn = () => {} } = {}) {
   let ended = 0;
   let stopped = '';
   for (const speaker of core.order(spec)) {
+    if (signal?.aborted) {
+      if (!lines.length) throw stoppedError(); // nothing said yet: nothing to keep
+      stopped = 'stopped by the user';
+      break;
+    }
     if (Date.now() - started > TOTAL_LIMIT_MS) {
       stopped = 'time limit';
       break;
@@ -35,11 +57,11 @@ async function run(args, { onTurn = () => {} } = {}) {
     const prompt = speaker === 'You' ? core.standInPrompt(spec, lines) : core.characterPrompt(spec, speaker, lines);
     let text;
     try {
-      text = await withLimit(llm.complete(fast, prompt), CALL_LIMIT_MS, `${speaker}'s turn took too long.`);
+      text = await withLimit(llm.complete(fast, prompt), CALL_LIMIT_MS, `${speaker}'s turn took too long.`, signal);
     } catch (err) {
-      log.warn('rehearsal turn failed', { speaker, error: err });
+      if (!signal?.aborted) log.warn('rehearsal turn failed', { speaker, error: err });
       if (!lines.length) throw err;
-      stopped = err.message;
+      stopped = signal?.aborted ? 'stopped by the user' : err.message;
       break;
     }
     const said = core.parseTurn(text, speaker);
@@ -55,11 +77,13 @@ async function run(args, { onTurn = () => {} } = {}) {
   }
 
   let debrief = null;
-  try {
-    const text = await withLimit(llm.complete(settings, core.debriefPrompt(spec, lines)), CALL_LIMIT_MS, 'The debrief took too long.');
-    debrief = core.parseDebrief(await require('./persona').jsonWithRetry(text, (fix) => withLimit(llm.complete(settings, fix), CALL_LIMIT_MS, 'The debrief took too long.')));
-  } catch (err) {
-    log.warn('rehearsal debrief failed', { error: err });
+  if (!signal?.aborted) {
+    try {
+      const text = await withLimit(llm.complete(settings, core.debriefPrompt(spec, lines)), CALL_LIMIT_MS, 'The debrief took too long.', signal);
+      debrief = core.parseDebrief(await require('./persona').jsonWithRetry(text, (fix) => withLimit(llm.complete(settings, fix), CALL_LIMIT_MS, 'The debrief took too long.', signal)));
+    } catch (err) {
+      if (!signal?.aborted) log.warn('rehearsal debrief failed', { error: err });
+    }
   }
 
   const at = Date.now();

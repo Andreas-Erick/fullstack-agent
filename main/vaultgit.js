@@ -3,11 +3,14 @@
 const { execFile } = require('child_process');
 const fs = require('fs');
 const fsp = fs.promises;
+const os = require('os');
 const path = require('path');
 const store = require('./store');
 const log = require('./logger');
 
-const ID = ['-c', 'user.name=Siren Assistant', '-c', 'user.email=nexus-agent@localhost', '-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', '-c', 'core.quotepath=false'];
+// Hooks point nowhere and the file-system monitor is off: a hook or a core.fsmonitor someone planted in
+// the vault's .git never runs when Siren commits, packs (gc --auto runs pre-auto-gc) or reads the history.
+const ID = ['-c', 'user.name=Siren Assistant', '-c', 'user.email=nexus-agent@localhost', '-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false', '-c', 'core.quotepath=false', '-c', `core.hooksPath=${os.devNull}`, '-c', 'core.fsmonitor=false'];
 const timers = new Map();
 const pendingMsgs = new Map();
 

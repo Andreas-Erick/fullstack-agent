@@ -936,7 +936,7 @@ $('#newBtn').addEventListener('click', () => openConversation(null));
 $('#unpairBtn').addEventListener('click', () => unpair('Disconnected. To remove this device completely, remove it in the desktop app’s Settings too.'));
 
 // ------------------------------------------------------------------ approvals
-const KIND = { self_modify: 'Change its own code', settings: 'Change a setting', endpoint: 'Change where it connects', permissions: 'Get more access', delete: 'Delete something', command: 'Run a command', calendar: 'Change your calendar', invite: 'Send calendar invitations', voice: 'Change its voice', voice_clone: 'Clone a voice', repo_change: 'Change a repository', github_publish: 'Publish to GitHub', connector: 'Use a connected service', connector_trust: 'Stop asking for a service', browser: 'Act on a website' };
+const KIND = { self_modify: 'Change its own code', settings: 'Change a setting', endpoint: 'Change where it connects', permissions: 'Get more access', delete: 'Delete something', command: 'Run a command', calendar: 'Change your calendar', invite: 'Send calendar invitations', voice: 'Change its voice', voice_clone: 'Clone a voice', repo_change: 'Change a repository', github_publish: 'Publish to GitHub', connector: 'Use a connected service', connector_trust: 'Stop asking for a service', browser: 'Act on a website', web_outbound: 'Open a web address' };
 
 // The buttons wait a moment before they respond, so a tap meant for something else (the card pops in
 // above the keyboard while typing) can't answer it.

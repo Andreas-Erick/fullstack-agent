@@ -34,3 +34,46 @@ export function stopCommand(t, generating) {
   if (CANCEL_REPLY.test(t)) return generating ? 'reply' : t === 'cancel' ? 'voice' : null;
   return STOP_SPEAKING.test(t) ? 'voice' : null;
 }
+
+// ---- Spoken answers to an approval (approval.js handleSpokenAnswer).
+// Whisper adds punctuation ("Yes, please."): letters only, apostrophes dropped ("don't" → "dont").
+const answerWords = (t) => String(t || '').toLowerCase().replace(/['’]/g, '').replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+// Spoken alone, these approve. Anything longer is a sentence: it declines and goes back as the reason.
+export const APPROVE = new Set(['yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'go ahead', 'do it', 'approved', 'yes please', 'yeah yes', 'yes do it', 'yes go ahead', 'approve', 'approve it', 'allow', 'allow it', 'yes approve', 'yes yes', 'okay go ahead', 'ok go ahead', 'sure go ahead', 'yes sure', 'ok do it', 'okay do it']);
+// These approve and pick the first "from now on" choice (a connector: allow reading, else all but deleting).
+export const ALWAYS_SAY = new Set(['always', 'always allow', 'always allow it', 'yes always', 'allow always', 'yes always allow', 'dont ask again', 'yes dont ask again', 'stop asking']);
+const DETAILS = /^(details|show details|what exactly)$/;
+
+/**
+ * What a spoken answer means: 'early' (speech that began before the approval appeared: never its answer),
+ * 'details', 'needs-click' / 'needs-key' (a yes this request doesn't take by voice, or not from an open
+ * microphone; nothing is declined), 'yes', 'always', or 'no' (any other words: they go back as the reason).
+ * voice: main's approvals.voicePolicy ('any' | 'key' | 'click'). A "from now on" needs the talk key always.
+ */
+export function approvalAnswer(text, { voice = 'any', source = '', startedAt = 0, shownAt = 0, canRemember = false } = {}) {
+  if (shownAt && startedAt && startedAt < shownAt) return 'early';
+  const t = answerWords(text);
+  if (DETAILS.test(t)) return 'details';
+  const always = canRemember && ALWAYS_SAY.has(t);
+  if (!always && !APPROVE.has(t)) return 'no';
+  if (voice === 'click') return 'needs-click';
+  if ((voice === 'key' || always) && source !== 'ptt') return 'needs-key';
+  return always ? 'always' : 'yes';
+}
+
+/** What Siren says when an approval opens. */
+export function approvalPrompt(req) {
+  const parts = [`Permission needed: ${req.title}.`];
+  if (req.tainted) parts.push('This came after reading outside content, so please check it on the screen.');
+  if (req.kind === 'command') parts.push('Say details to hear the command.');
+  parts.push(req.voice === 'click' ? 'Then click Approve or Deny.' : 'Say yes or no.');
+  return parts.join(' ');
+}
+
+/** The line under the approval: how it can be answered by voice. */
+export function approvalHint(req, { pttKey = 'the talk key', handsFree = false } = {}) {
+  if (req.voice === 'click') return 'Click Approve or Deny: this one isn’t answered by voice. ';
+  const say = (w) => (handsFree && (req.voice === 'key' || w === 'always') ? `hold ${pttKey} and say “${w}”` : `say “${w}”`);
+  const first = say('yes');
+  return `${first[0].toUpperCase()}${first.slice(1)} to approve${req.remember?.length ? `, ${say('always')} to stop asking` : ''}, “details” to hear more; anything else declines. `;
+}

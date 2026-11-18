@@ -379,6 +379,7 @@ async function executeTool(name, args, ctx) {
   }
   if (checked.renamed.length) log.info('tool arguments renamed', { name, renamed: checked.renamed.map(([a, b]) => `${a}→${b}`).join(',') });
   args = checked.args;
+  if (ctx.signal?.aborted) return { ok: false, result: { error: 'Stopped by the user before this ran.' } }; // a later call of the round, or one the CLI sent after Stop
   try {
     let result = await tool.run(args || {}, ctx);
     // Images (look_at_screen) travel next to the result, never inside its text.

@@ -1,11 +1,15 @@
 // Approval dialog for consequential actions (self-modification, settings changes, deletions, shell
-// commands). Answer by clicking, or by voice: a yes on its own ("yes", "yeah", "okay", "go ahead"…)
+// commands). Answer by clicking, or by voice: a yes on its own ("yes", "okay", "approve", "go ahead"…)
 // approves, "details" reads what will happen, anything else is a no (and the words go back to the
-// agent as the reason, so "no, put it in drafts" steers it). No answer within
+// agent as the reason, so "no, put it in drafts" steers it). Main decides how a yes may come
+// (`req.voice`, commandcore.approvalAnswer): any spoken yes, only through the talk key (never an open
+// microphone), or only a click. Words said before the approval appeared are not its answer: they go
+// into the message box. Each spoken answer is acknowledged ("Approved" / "Declined"). No answer within
 // the timeout counts as no. A spoken answer never starts a new turn or interrupts the paused task.
-import { api, el, logEvent } from './util.js';
+import { api, el, logEvent, toast } from './util.js';
 import { state, ttsActive } from './state.js';
-import { speaker, recordClip, analyzeClip } from './voice.js';
+import { speaker, recordClip, analyzeClip, utteranceInfo } from './voice.js';
+import { approvalAnswer, approvalPrompt, approvalHint } from './commandcore.js';
 
 const KIND_LABEL = {
   self_modify: 'Self-modification',
@@ -23,6 +27,7 @@ const KIND_LABEL = {
   connector: 'Use a connected service',
   connector_trust: 'Let a connected service run without asking',
   browser: 'Act on a website (agent window)',
+  web_outbound: 'Open a new web address after reading outside content',
 };
 let current = null;
 // Requests that arrive while one is open wait here and are shown in turn. They used to decline the open
@@ -30,11 +35,6 @@ let current = null;
 // cancelled each other and only the last could run.
 const waiting = [];
 const later = (fn, req) => (current ? (waiting.push({ fn, req: { ...req, queuedAt: Date.now() } }), true) : false);
-
-// Spoken alone, these approve. Anything longer is a sentence, so it declines and goes back as the reason.
-const YES = new Set(['yes', 'yeah', 'yep', 'sure', 'okay', 'ok', 'go ahead', 'do it', 'approved', 'yes please', 'yeah yes', 'yes do it', 'yes go ahead']);
-// These approve and pick the first "from now on" choice (a connector: allow reading, else all but deleting).
-const ALWAYS = new Set(['always', 'always allow', 'always allow it', 'yes always', 'allow always', 'yes always allow', 'dont ask again', 'yes dont ask again', 'stop asking']);
 
 export function initApprovals() {
   api.on('approval:request', show);
@@ -55,13 +55,35 @@ export function approvalPending() {
 export function handleSpokenAnswer(text) {
   if (!current) return false;
   if (current.secret || current.recording) return true; // secrets are typed, never spoken; recordings use the buttons
-  // Whisper adds interior punctuation ("Yes, please."), so match on letters only.
-  const t = text.toLowerCase().replace(/'/g, '').replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (YES.has(t)) answer(true);
-  else if (ALWAYS.has(t) && current.remember?.length) answer(true, '', current.remember[0].level);
-  else if (/^(details|show details|what exactly)$/.test(t)) speaker.say(`${current.title}. ${current.detail.slice(0, 400)}`);
+  const u = utteranceInfo();
+  const r = approvalAnswer(text, { voice: current.voice || 'any', source: u.source, startedAt: u.startedAt, shownAt: current.shownAt || 0, canRemember: Boolean(current.remember?.length) });
+  if (r !== 'yes' && r !== 'always' && r !== 'no') logEvent('info', 'spoken answer not taken', { kind: current.kind, why: r });
+  if (r === 'early') return keepWords(text), true;
+  if (r === 'details') return speaker.say(`${current.title}. ${String(current.detail || '').slice(0, 400)}`), true;
+  if (r === 'needs-click') return tell('This one needs a click on the screen: it came after reading outside content.'), true;
+  if (r === 'needs-key') return tell(`Hold ${state.settings?.stt?.pttKey || 'the talk key'} and say yes, or click Approve.`), true;
+  const allow = r !== 'no';
+  logEvent('info', 'approval answered by voice', { kind: current.kind, allow, always: r === 'always' || undefined, source: u.source || undefined });
+  toast(`🎙 ${allow ? 'Approved' : 'Declined'}: ${current.title}`);
+  if (ttsActive()) speaker.follow(allow ? 'Approved.' : 'Declined.', { remember: true });
+  if (allow) answer(true, '', r === 'always' ? current.remember[0].level : undefined);
   else answer(false, text);
   return true;
+}
+
+// Words said before the approval appeared: they were meant for the chat, so they wait in the message box.
+function keepWords(text) {
+  const input = document.getElementById('input');
+  if (input) {
+    input.value = (input.value ? `${input.value} ` : '') + text;
+    input.dispatchEvent(new Event('input', { bubbles: true })); // the box grows to fit
+  }
+  toast('Your words went into the message box: you said them before the question appeared. Answer it with yes or no.');
+}
+
+function tell(message) {
+  toast(message);
+  if (ttsActive()) speaker.say(message);
 }
 
 function show(req) {
@@ -81,9 +103,9 @@ function show(req) {
   card.append(
     el('h3', {}, `⚠ ${KIND_LABEL[req.kind] || 'Permission'} — approval needed`),
     el('div', { style: { fontSize: '16px' } }, `${state.settings.agent.name} wants to: `, el('b', {}, req.title)),
-    req.tainted ? el('div', { class: 'evo-banner' }, `This turn read external content (${(req.sources || []).join(', ') || 'web/documents'}). Make sure this change is what you asked for — not something a web page or document told the agent to do.`) : '',
+    req.tainted ? el('div', { class: 'evo-banner' }, `This turn read external content (${(req.sources || []).join(', ') || 'web/documents'}). Make sure this request is what you asked for — not something a web page, a document or a message in one of your services told the agent to do.`) : '',
     req.detail ? el('pre', { class: 'diff', style: { maxHeight: '260px', whiteSpace: 'pre-wrap', padding: '10px 12px' } }, req.detail) : '',
-    el('div', { class: 'muted', style: { fontSize: '12px' } }, `Say “yes” to approve${req.remember?.length ? ', “always” to stop asking' : ''}, “details” to hear more — anything else declines. `, countdown),
+    el('div', { class: 'muted', style: { fontSize: '12px' } }, approvalHint(req, { pttKey: state.settings?.stt?.pttKey, handsFree: state.settings?.stt?.micMode === 'open' }), countdown),
     // "From now on" (connectors): approves and sets that service's level; changeable in Settings → AI brain.
     req.remember?.length
       ? el('div', { class: 'approval-remember' }, el('span', { class: 'hint' }, 'Approve, and don’t ask again:'), ...req.remember.map((c) => el('button', { class: 'chip-btn', title: 'Changeable any time in Settings → AI brain', onclick: () => answer(true, '', c.level) }, c.label)))
@@ -92,7 +114,8 @@ function show(req) {
   );
   wrap.classList.remove('hidden');
   wrap.onclick = null;
-  if (ttsActive()) speaker.say(`Permission needed: ${req.title}. Say yes or no.`);
+  current.shownAt = performance.now(); // speech that began before this isn't an answer to it
+  if (ttsActive()) speaker.say(approvalPrompt(req));
   logEvent('info', 'approval requested', { kind: req.kind, title: req.title });
 }
 

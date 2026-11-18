@@ -31,21 +31,29 @@ module.exports = [
     group: 'skills',
     description: 'Load a companion file of a folder skill (references, templates, examples), when its steps point to one, e.g. "references/style-guide.md". Long files come in parts (offset).',
     parameters: obj({ skill: str('The skill (slug or name)'), path: str('The file inside the skill, e.g. references/type-flowchart.md'), offset: { type: 'number', description: 'Where to continue a long file (from the previous result)' } }, ['skill', 'path']),
-    run: async (a) => skills.readFile(a.skill, a.path, a.offset),
+    run: async (a, ctx) => {
+      const r = await skills.readFile(a.skill, a.path, a.offset);
+      // A folder skill comes from someone else (imported from GitHub): what its files say is outside
+      // content for the rest of the turn (saving a routine or skill asks then). Not marked as data to
+      // ignore: the skill the user ran points to these files for guidance.
+      require('../approvals').markTainted(ctx.turn, `skill_file ${r.skill}/${String(a.path).slice(0, 120)}`);
+      return r;
+    },
   },
   {
     name: 'skill_import',
     group: 'skills',
     description:
-      'Add Agent Skills (folders with a SKILL.md, the format Claude Code and Codex use) from a public GitHub repository, when the user asks. Without skills: lists what the repository offers (name, description, size). With skills (their paths or names): installs them, after the user approves. Only text is copied; nothing in a skill is run, and the repository’s license is kept with each one.',
+      'Add Agent Skills (folders with a SKILL.md, the format Claude Code and Codex use) from a public GitHub repository, when the user asks. Without skills: lists what the repository offers (name, description, size). With skills (their paths or names): installs them after the user approves (in Ask mode, or after reading outside content). Only text is copied; nothing in a skill is run, and the repository’s license is kept with each one.',
     parameters: obj({ repo: str('owner/repo or a github.com link'), skills: arr('Paths or names from the list to install (leave out to list them)') }, ['repo']),
+    untrusted: true, // the list carries the repository's own words (descriptions)
     run: async (a, ctx) => {
       const imp = require('../skillimport');
       if (!a.skills?.length) {
         const s = await imp.scan(a.repo);
         return { repo: s.repo, license: s.license, description: s.description, skills: s.skills.map(({ path: p, slug, name, description, files, bytes }) => ({ path: p, slug, name, description, files, kb: Math.round(bytes / 1024) })) };
       }
-      await requireApproval(ctx, 'settings', `Add ${a.skills.length} skill${a.skills.length === 1 ? '' : 's'} from ${a.repo}`, a.skills.join(', '));
+      await requireApproval(ctx, 'settings', `Add ${a.skills.length} skill${a.skills.length === 1 ? '' : 's'} from ${a.repo}`, a.skills.join(', '), { taintAsks: true });
       const r = await imp.install(a.repo, a.skills);
       ctx.emit({ type: 'skills_changed' });
       return r;
@@ -55,12 +63,13 @@ module.exports = [
     name: 'skill_save',
     group: 'skills',
     description:
-      'Save a reusable skill (a workflow the user wants to run again): a clear name, a one-line purpose, trigger phrases the user might say, what input it needs, and numbered steps written so you can follow them later without this conversation (name the tools to use). Use when the user asks to "make this a skill", "remember how to do this", or describes a routine. Replacing an existing skill asks the user first.',
+      'Save a reusable skill (a workflow the user wants to run again): a clear name, a one-line purpose, trigger phrases the user might say, what input it needs, and numbered steps written so you can follow them later without this conversation (name the tools to use). Use when the user asks to "make this a skill", "remember how to do this", or describes a routine. Replacing an existing skill asks the user first in Ask mode; after reading outside content, saving any skill asks.',
     parameters: obj({ name: str('Skill name, e.g. "Morning briefing"'), description: str('One-line purpose'), steps: str('Numbered steps (Markdown)'), triggers: arr('Phrases that should start it, e.g. "start my day"'), input: str('What input it expects, if any') }, ['name', 'steps']),
     run: async (a, ctx) => {
       const existing = await skills.get(a.name);
       const replace = Boolean(existing && existing.slug === skills.slugify(a.name));
-      if (replace) await requireApproval(ctx, 'settings', `Replace the skill "${existing.name}"`, String(a.steps).slice(0, 600));
+      if (replace) await requireApproval(ctx, 'settings', `Replace the skill "${existing.name}"`, String(a.steps).slice(0, 600), { taintAsks: true });
+      else if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', `Save the new skill "${String(a.name).slice(0, 80)}"`, String(a.steps).slice(0, 600), { taintAsks: true });
       const s = await skills.save(a, { replace });
       ctx.emit({ type: 'skills_changed' });
       return { saved: s.name, command: `/${s.slug}`, replaced: s.replaced };
