@@ -5,7 +5,7 @@ import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
 import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
 import { startListening, stopListening, toggleListening, speaker, preloadSpeechIfUsed, preloadOfflineVoice, setMicMode, handsFree, warmMic } from './voice.js';
-import { initChat, newChat, sendVoice, currentConversationId, cancelReply } from './chat.js';
+import { initChat, newChat, sendVoice, currentConversationId, cancelReply, retryLatest, canRetryLatest } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
 import { initUsage } from './usage.js';
@@ -273,7 +273,7 @@ function setupVoiceRouting() {
   on('voice-input', async (text) => {
     if (handleSpokenAnswer(text)) return emit('barge-in-over'); // an approval answer: the reply goes on speaking
     if (handleSetupVoice(text)) return;
-    if (await tryCommand(text, { newChat, stop: () => speaker.stop(), cancel: () => (cancelReply(), speaker.stop()) })) return;
+    if (await tryCommand(text, { newChat, stop: () => speaker.stop(), cancel: () => (cancelReply(), speaker.stop()), retry: retryLatest, canRetry: canRetryLatest })) return;
     sendVoice(text);
   });
   on('settings', (s) => {

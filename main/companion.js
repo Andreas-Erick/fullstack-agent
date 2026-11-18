@@ -47,6 +47,7 @@ const STATIC = {
   '/vendor/purify.js': 'node_modules/dompurify/dist/purify.min.js',
   '/vendor/katex.js': 'node_modules/katex/dist/katex.min.js',
   '/js/mathtext.js': 'renderer/js/mathtext.js',
+  '/js/chatcore.js': 'renderer/js/chatcore.js', // a failed reply in plain words (errorHelp); pure, no imports
   // The desktop's built-in faces (app code, no data), so the phone shows the same one.
   '/js/themecore.js': 'renderer/js/themecore.js',
   '/js/visualizer.js': 'renderer/js/visualizer.js',
@@ -422,7 +423,8 @@ function chatForDevice(ev) {
   const base = { requestId: ev.requestId, conversationId: ev.conversationId, type: ev.type };
   switch (ev.type) {
     case 'start':
-      return { ...base, title: ev.title, userMessage: messageForDevice(ev.userMessage) };
+      // replaces: the unanswered message this one takes the place of (Try again; the phone reloads for it).
+      return { ...base, title: ev.title, userMessage: messageForDevice(ev.userMessage), ...(ev.replaces ? { replaces: String(ev.replaces) } : {}) };
     case 'text':
       return { ...base, delta: ev.delta };
     case 'retract':
@@ -442,11 +444,16 @@ function chatForDevice(ev) {
 }
 
 // A stored or streamed message without the raw provider data and tool inputs/results; a /skill shows
-// what was typed rather than the expanded steps.
+// what was typed rather than the expanded steps. A failed attempt shows only how it ended.
 function messageForDevice(m) {
   if (!m) return m;
-  const { raw, toolCalls, display, content, ...rest } = m;
-  return { ...rest, content: display ?? content, ...(toolCalls?.length ? { toolCalls: toolCalls.map((t) => ({ name: t.name, ok: t.ok })) } : {}) };
+  const { raw, toolCalls, display, content, attempt, ...rest } = m;
+  return {
+    ...rest,
+    content: display ?? content,
+    ...(toolCalls?.length ? { toolCalls: toolCalls.map((t) => ({ name: t.name, ok: t.ok })) } : {}),
+    ...(attempt?.outcome ? { attempt: { outcome: attempt.outcome } } : {}),
+  };
 }
 
 // expiresIn: seconds left, so a device that connects later shows the right countdown.

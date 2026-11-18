@@ -306,7 +306,7 @@ async function runTurn(opts) {
 }
 
 // handOverTo: the Claude brain a local model may hand this message to (runTurn), or null.
-async function runOn(settings, { conv, history, emit, signal, voice = false, images = [], handOverTo = null, routine = false }) {
+async function runOn(settings, { conv, history, emit, signal, voice = false, images = [], handOverTo = null, routine = false, again = null }) {
   const setup = Boolean(conv.setup);
   const active = setup || settings.llm.useTools ? await tools.activeTools(settings, { setup }) : [];
   const names = active.map((t) => t.name);
@@ -328,6 +328,8 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   if (routine) ctx.budget.rounds = ctx.budget.deep;
   // A screenshot can contain anything on screen (web pages, emails): it is external content.
   if (images.length) approvals.markTainted(ctx.turn, 'the shared screen');
+  // Trying again in the same session: what the earlier attempt read is still in its context.
+  if (again?.taint) approvals.markTainted(ctx.turn, 'the earlier attempt at this message');
   const model = effectiveModel(settings, { voice, mode: paced.mode });
   log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', pace: paced.pace, effort: paced.effort, voice, setup, engineering: engineering || undefined, images: images.length || undefined, conversation: conv.id, text: lastText.slice(0, 200) });
   if (settings.llm.provider === 'claude-code') {
@@ -338,7 +340,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
       opts.configKey = 'first-run-setup';
       opts.buildPrompt = async () => prompt.buildSetup(settings);
     }
-    const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText, previousPersona, spoken: voice });
+    const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText, previousPersona, spoken: voice, again: again?.note || '' });
     const result = await claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
     // A session grown too big (claudecode.ROLLOVER_TOKENS) is closed now and a fresh one started in the
     // background, so the next message is quick (not after a routine run: nobody writes there next);
@@ -378,7 +380,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     ctx.handOver = handOverTo ? { to: handOverTo, requested: '' } : null;
     // The prompt names only the everyday tools, so it stays the same when a group is added.
     const everyday = localcore.compactTools(active).map((t) => t.name);
-    const { system, stable, context, reminder } = await prompt.buildCompact(settings, [...everyday, ...extra.map((t) => t.name)], { query: lastText, previousPersona, spoken: voice });
+    const { system, stable, context, reminder } = await prompt.buildCompact(settings, [...everyday, ...extra.map((t) => t.name)], { query: lastText, previousPersona, spoken: voice, again: again?.note || '' });
     log.info('compact prompt', { model: model || settings.llm.model, tools: toolset.list.length, groups: loaded.join(',') || undefined, chars: system.length });
     // A local server reuses what it already read when the start of the request is unchanged: the
     // rules, the tools (which its template puts after the system text) and the history. So the
@@ -391,7 +393,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     if (ctx.handOver?.requested) result.handOver = ctx.handOver.requested;
     return result;
   }
-  const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText, previousPersona, spoken: voice });
+  const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText, previousPersona, spoken: voice, again: again?.note || '' });
   if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), conv, history, emit, signal, active, system, stable, context, ctx, images });
   return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active, system, ctx, images });
 }
@@ -401,7 +403,9 @@ function withModel(settings, section, model) {
 }
 
 // Pre-start the Claude Code session for a conversation (so the first turn after launch is warm).
-async function prewarm(settings, conv) {
+// epoch: claudecode.epochOf from before `conv` was read (main.js llm:prewarm), else taken now: a message
+// run again from then on (claudecode.forget) makes this warm-up stale.
+async function prewarm(settings, conv, { epoch = claudecode.epochOf(conv?.id) } = {}) {
   // Multi-provider mode: warm the Claude session when Claude is the first choice.
   if (settings.llm.provider === 'auto') {
     const [first] = await router.plan(settings);
@@ -417,9 +421,9 @@ async function prewarm(settings, conv) {
   const opts = await claudeCodeOptions(settings, active, effectiveModel(settings));
   // Opening chats one after another warms only the one that stays open.
   const mine = (warmingFor = conv.id);
-  await claudecode.prewarm(conv, opts);
+  await claudecode.prewarm(conv, { ...opts, epoch });
   await new Promise((r) => setTimeout(r, WARM_DELAY_MS));
-  if (warmingFor === mine) await warmUp(settings, conv, opts, { history: conv.messages || [], started: true });
+  if (warmingFor === mine) await warmUp(settings, conv, opts, { history: conv.messages || [], started: true, epoch });
 }
 
 let warmingFor = null;
@@ -436,10 +440,11 @@ function warmTarget(settings, messages = []) {
 
 // Starts the session (unless `started`) and fills its prompt cache (claudecode.warmCache).
 // `last`: the messages to guess the next model from, when `history` already has the reply in it.
-async function warmUp(settings, conv, opts, { history = [], last = history, started = false } = {}) {
-  if (!started) await claudecode.prewarm(conv, opts);
+// epoch: when `history` was read (claudecode.epochOf); the rollover's is taken right after its turn.
+async function warmUp(settings, conv, opts, { history = [], last = history, started = false, epoch = claudecode.epochOf(conv.id) } = {}) {
+  if (!started) await claudecode.prewarm(conv, { ...opts, epoch });
   if (settings.claudeCode?.warmCache === false) return;
-  await claudecode.warmCache(conv, opts, { ...warmTarget(settings, last), history });
+  await claudecode.warmCache(conv, opts, { ...warmTarget(settings, last), history, epoch });
 }
 
 // Single non-streaming completion with whichever provider is configured (used for persona/theme

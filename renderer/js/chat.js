@@ -1,6 +1,9 @@
 // Chat view: conversation history, streaming messages, tool-call chips, voice integration.
-import { $, api, el, renderMarkdown, timeAgo, toast, toastError, confirmDialog, promptDialog, on, emit } from './util.js';
+import { $, api, el, renderMarkdown, timeAgo, toast, toastActions, toastError, confirmDialog, promptDialog, on, emit } from './util.js';
 import { bargeIn, bargeInOver } from './bargein.js';
+import * as redo from './redocore.mjs';
+import { switchView, currentView } from './nav.js';
+import { currentUsage } from './usage.js';
 import { practiceLanguage, quoteFilter } from './practice.js';
 import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
@@ -16,6 +19,9 @@ let currentId = null;
 let conversations = [];
 let active = null;
 let queued = null; // message waiting for the interrupted turn to finish // { requestId, bubble, text, tools: Map, wrap, renderQueued }
+let shown = []; // the open conversation's messages as stored (hidden ones too), kept in step
+let openSetup = false;
+let editing = null; // { messageId, draft }: ✎ Edit put the latest message in the box (draft: what was there)
 
 const messagesEl = () => $('#messages');
 
@@ -27,6 +33,21 @@ export function initChat() {
   input.addEventListener('input', suggestSkills);
   input.addEventListener('keydown', (e) => {
     if (slashPick(e)) return;
+    // ↑ in an empty box: the latest message back in it, to change and send again (as in a terminal).
+    if (e.key === 'ArrowUp' && !input.value && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !active) {
+      const id = redo.actions(shown, { setup: openSetup }).edit;
+      if (id) {
+        e.preventDefault();
+        startEdit(id);
+        return;
+      }
+    }
+    if (e.key === 'Escape' && editing) {
+      e.preventDefault();
+      e.stopPropagation(); // only the edit: the window's Esc (stop speaking, a reply) waits for the next press
+      cancelEdit();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       sendFromInput();
@@ -42,6 +63,7 @@ export function initChat() {
   // [[Note]] links in replies open the note (click, or Enter on a focused one).
   for (const box of [messagesEl(), $('#replyCard')]) for (const type of ['click', 'keydown']) box.addEventListener(type, onNoteLink);
   initReplyCard();
+  $('#editCancel').onclick = () => cancelEdit();
   document.querySelectorAll('.suggestion').forEach((b) => (b.onclick = () => send(b.textContent)));
 
   $('#speakToggle').onclick = async () => {
@@ -94,6 +116,19 @@ function autosize() {
 function sendFromInput() {
   const input = $('#input');
   const text = input.value.trim();
+  if (editing) {
+    // ✎ Edit: the latest message again, in its new words (main/redo.js).
+    const { messageId, draft } = editing;
+    endEdit();
+    input.value = '';
+    autosize();
+    runAgain('edit', messageId, text).then((started) => {
+      // What was typed meanwhile stays. Refused: the edited text stays as a draft (an empty edit gives the old draft back).
+      if (!input.value) input.value = started || !text ? draft : text;
+      autosize();
+    });
+    return;
+  }
   if (!text) return;
   input.value = '';
   autosize();
@@ -227,8 +262,11 @@ export function newChat({ focus = true } = {}) {
   if (active) stop();
   closeCard(); // closed, not just hidden: the stopped reply's last text and its 'aborted' must not bring it back
   if (focus) closeHistory({ focus: false });
+  cancelEdit();
   currentId = null;
   earlier = [];
+  shown = [];
+  openSetup = false;
   $('#chatTitle').textContent = 'New conversation';
   messagesEl().innerHTML = '';
   messagesEl().append(emptyStateNode());
@@ -255,7 +293,10 @@ export async function openConversation(id, { at = null, card = false } = {}) {
   const conv = await api.conv.get(id).catch(() => null);
   if (!conv) return newChat();
   hideCard();
+  cancelEdit();
   currentId = conv.id;
+  shown = conv.messages.slice();
+  openSetup = Boolean(conv.setup);
   $('#chatTitle').textContent = conv.title;
   const box = messagesEl();
   box.innerHTML = '';
@@ -268,9 +309,14 @@ export async function openConversation(id, { at = null, card = false } = {}) {
   box.scrollTop = box.scrollHeight;
   renderConvList();
   api.llm.prewarm(conv.id).catch(() => {});
+  syncActions();
   const revealed = at && revealMessage(at);
-  // The Face layout's card shows one thing: the message asked for (History), else the latest reply.
-  if (faceLayout() && card) cardFor(conv, revealed ? at : null);
+  // The Face layout's card shows one thing: the message asked for (History), else a recent failure,
+  // else (opened from History) the latest reply.
+  if (faceLayout()) {
+    if (card && revealed) cardFor(conv, at);
+    else if (!showFailedCard() && card) cardFor(conv, null);
+  }
 }
 
 const MESSAGE_PAGE = 40;
@@ -510,13 +556,14 @@ const TOOL_LABELS = {
 // What a message shows is worked out in chatcore.js (pure, tested); here it becomes nodes.
 function messageNode(m) {
   const d = chatcore.describeMessage(m, TOOL_LABELS);
-  const wrap = el('div', { class: `msg ${m.role}`, 'data-id': m.id });
+  const wrap = el('div', { class: `msg ${m.role}`, 'data-id': m.id, ...(m.pending ? { 'data-pending': m.pending } : {}) });
   const body = el('div', { class: 'msg-body' });
   if (m.toolCalls?.length) body.append(el('div', { class: 'tools' }, m.toolCalls.map(toolChip)));
   const bubble = el('div', { class: 'bubble' });
   if (d.markdown) {
     bubble.innerHTML = renderMarkdown(d.text, { wikilinks: 'open' });
     bubble.dataset.stamp = stamp(m);
+    decorateCode(bubble);
   } else bubble.textContent = d.text;
   if (d.tags.length) body.append(el('div', { class: 'msg-tag' }, d.tags.map((t) => el('span', {}, t))));
   body.append(bubble);
@@ -532,7 +579,7 @@ const stamp = (m) => chatcore.stampText(m, agentName(), new Date(m.createdAt || 
 function metaNode(m) {
   const meta = el('div', { class: 'msg-meta' }, el('span', {}, new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
   if (m.model) meta.append(el('span', {}, m.model));
-  meta.append(el('button', { onclick: () => (navigator.clipboard.writeText(m.content || ''), toast('Copied')) }, 'Copy'));
+  meta.append(el('button', { onclick: () => (navigator.clipboard.writeText(chatcore.copyText(m)), toast('Copied')) }, 'Copy'));
   if (m.role === 'assistant') {
     meta.append(
       el('button', { onclick: () => speaker.say(m.content || '') }, 'Speak'),
@@ -588,9 +635,10 @@ function initReplyCard() {
 
 // follow: a live card keeps the newest text in view (as the caption it replaces did), unless the user
 // scrolled up to read; a card that just appeared starts at the top. error: in the error colour, like the bubble.
+// help: a failed reply (chatcore.errorHelp) with its buttons; reply: the finished one (Copy…); stopped: Try again.
 // plain: text as it is (a message of the user's); kicker: who and when (History); at: the message shown.
 let cardAt = null; // the message the card shows, for "Open in chat"
-function showCard(md, { follow = false, error = false, plain = false, kicker = 'Latest reply', at = null } = {}) {
+function showCard(md, { follow = false, error = false, help = null, reply = null, stopped = false, plain = false, kicker = 'Latest reply', at = null } = {}) {
   const body = $('#replyCardBody');
   const visible = !replyCard().classList.contains('hidden');
   const atEnd = visible && body.scrollHeight - body.scrollTop - body.clientHeight < 24;
@@ -600,9 +648,12 @@ function showCard(md, { follow = false, error = false, plain = false, kicker = '
     replyCard().setAttribute('aria-label', kicker);
   }
   if (plain) body.textContent = md;
-  else body.innerHTML = renderMarkdown(md, { wikilinks: 'open' });
+  else body.innerHTML = md ? renderMarkdown(md, { wikilinks: 'open' }) : '';
+  if (help) body.append(errorNode(help, { retry: true }));
+  else if (!follow) decorateCode(body);
   body.classList.toggle('error-bubble', error);
-  cardAt = at;
+  cardAt = at || reply?.id || null;
+  fillCardActions({ follow, help, reply, stopped });
   replyCard().classList.remove('hidden');
   if (!visible) body.scrollTop = 0;
   else if (follow && atEnd) body.scrollTop = body.scrollHeight;
@@ -673,10 +724,13 @@ export function sendVoice(text) {
   send(text, { voice: true });
 }
 
-export async function send(text, { voice = false, hidden = false } = {}) {
+// redo: Try again / Regenerate / Edit (runAgain), sent as chat:redo; main takes the old exchange out.
+export async function send(text, { voice = false, hidden = false, redo: again = null } = {}) {
   text = String(text || '').trim();
   if (!text) return;
+  if (editing) cancelEdit({ keepText: true }); // another message went first: the box keeps the edit as a draft
   if (active) {
+    if (again) return; // runAgain checked first; a reply that started since wins
     queued = { text, voice };
     toast('Interrupting the current reply…');
     stop();
@@ -691,7 +745,7 @@ export async function send(text, { voice = false, hidden = false } = {}) {
   const requestId = `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   const sharing = !$('#screenThumb').classList.contains('hidden') && state.settings.screen?.attachToMessages !== false;
   const slash = text.match(/^\/([\w-]+)/);
-  if (!hidden) messagesEl().append(messageNode({ id: 'pending-user', role: 'user', content: text, createdAt: Date.now(), screen: sharing, skill: slash && skillList.some((x) => x.slug === slash[1].toLowerCase()) ? slash[1].toLowerCase() : null }));
+  if (!hidden) messagesEl().append(messageNode({ id: 'pending-user', pending: requestId, role: 'user', content: text, createdAt: Date.now(), screen: sharing, skill: slash && skillList.some((x) => x.slug === slash[1].toLowerCase()) ? slash[1].toLowerCase() : null }));
   const wrap = el('div', { class: 'msg assistant' });
   const body = el('div', { class: 'msg-body' });
   const tools = el('div', { class: 'tools' });
@@ -719,12 +773,13 @@ export async function send(text, { voice = false, hidden = false } = {}) {
   $('#stopBtn').classList.remove('hidden');
 
   try {
-    const res = await api.chat.send({ conversationId: currentId, text, requestId, voice, hidden });
+    const res = again ? await api.chat.redo({ ...again, requestId }) : await api.chat.send({ conversationId: currentId, text, requestId, voice, hidden });
     currentId = res.conversationId;
   } catch (err) {
     finish();
     bubble.classList.add('error-bubble');
     bubble.textContent = err.message;
+    if (again) (toast(err.message, 'error'), openConversation(currentId)); // nothing was dropped on the computer
   }
 }
 
@@ -751,11 +806,18 @@ function renderActive() {
 function handleEvent(ev) {
   if (!active || ev.requestId !== active.requestId) return;
   switch (ev.type) {
-    case 'start':
+    case 'start': {
       currentId = ev.conversationId;
       $('#chatTitle').textContent = ev.title || 'Conversation';
+      if (ev.replaces) dropFrom(ev.replaces, { keep: active.wrap }); // the unanswered copy this message replaces
+      // The stored message (its id for Try again) in place of the one shown while sending.
+      const pending = messagesEl().querySelector(`.msg[data-pending="${CSS.escape(active.requestId)}"]`);
+      if (pending && ev.userMessage) pending.replaceWith(messageNode(ev.userMessage));
+      if (ev.userMessage) shown.push(ev.userMessage);
+      syncActions();
       refreshList();
       break;
+    }
     case 'text':
       active.text += ev.delta;
       if (!state.streamingText) setFlag('streamingText', true);
@@ -790,9 +852,12 @@ function handleEvent(ev) {
       active.tools.set(ev.id, { chip, input: prev?.input });
       break;
     }
-    case 'notice':
-      active.body.insertBefore(el('div', { class: 'notice' }, `⚠ ${ev.message}`), active.bubble);
+    case 'notice': {
+      // Tools an earlier attempt or reply ran (main.js, a message sent again): named as the chips name them.
+      const text = ev.tools?.length ? `⚠ Already done by the earlier attempt or reply (not undone): ${ev.tools.map((n) => chatcore.toolLabel(n, TOOL_LABELS)).join(', ')}` : `⚠ ${ev.message}`;
+      active.body.insertBefore(el('div', { class: 'notice' }, text), active.bubble);
       break;
+    }
     case 'memory_changed':
       emit('memory-changed');
       break;
@@ -833,13 +898,16 @@ function handleEvent(ev) {
       const m = ev.message;
       active.bubble.classList.remove('streaming');
       active.bubble.innerHTML = renderMarkdown(m.content || '', { wikilinks: 'open' });
+      active.wrap.dataset.id = m.id;
+      shown.push(m);
       // The finished reply on the card (the voice, if on, goes on reading; the mini caption steps aside).
       // A turn that only used tools has nothing to read: no empty card.
       if (faceLayout() && !active.cardClosed) {
-        if ((m.content || '').trim()) showCard(m.content);
+        if ((m.content || '').trim()) showCard(m.content, { reply: m });
         else hideCard();
       }
       announce(`${agentName()}: ${active.bubble.textContent}`);
+      decorateCode(active.bubble); // after announce: its text must not read "Copy"
       active.bubble.dataset.stamp = stamp(m);
       active.body.append(metaNode(m));
       if (ttsActive() && !active.muted) speaker.flush();
@@ -851,26 +919,43 @@ function handleEvent(ev) {
       finish();
       if (!ttsActive()) celebrate();
       refreshList();
+      syncActions();
       break;
     }
     case 'error':
     case 'aborted': {
       active.bubble.classList.remove('streaming');
-      const md = ev.type === 'error' ? `${active.text ? `${active.text}\n\n---\n` : ''}**Error:** ${ev.message}` : active.text || '*(stopped)*';
-      active.bubble.innerHTML = renderMarkdown(md, { wikilinks: 'open' });
-      // On the card: an error always (the Face layout shows nothing else); a stop only where it was being read.
+      const failed = ev.type === 'error';
+      markAttempt(failed ? 'failed' : 'stopped', ev.message); // main stored the full record
+      const retryId = redo.actions(shown, { setup: openSetup }).again; // the message Try again sends, if any
+      const help = failed ? chatcore.errorHelp(ev.message, { usage: currentUsage(), settings: state.settings }) : null;
       const onCard = !replyCard().classList.contains('hidden');
-      if (faceLayout() && !active.cardClosed && (ev.type === 'error' || onCard)) showCard(md, { error: ev.type === 'error' });
-      if (ev.type === 'error') {
+      if (failed) {
+        // What was written before it failed, then the reason in plain words with the way out (Details: the raw text).
+        active.bubble.innerHTML = active.text ? renderMarkdown(active.text, { wikilinks: 'open' }) : '';
+        if (active.text) decorateCode(active.bubble);
+        active.bubble.append(errorNode(help, { retry: Boolean(retryId), messageId: retryId }));
         active.bubble.classList.add('error-bubble');
-        toastError(new Error(ev.message));
-        announce(`Error: ${ev.message}`);
-        raiseAlert(ev.message);
+      } else active.bubble.innerHTML = renderMarkdown(active.text || '*(stopped)*', { wikilinks: 'open' });
+      // On the card: an error always (the Face layout shows nothing else); a stop only where it was being read.
+      if (faceLayout() && !active.cardClosed && (failed || onCard)) {
+        if (failed) showCard(active.text, { help, error: true });
+        else showCard(active.text || '*(stopped)*', { stopped: true });
+      }
+      if (failed) {
+        // Where the failure is in view, a short notice; elsewhere (another view, the card closed) one with the buttons.
+        const seen = currentView === 'chat' && (!faceLayout() || !active.cardClosed);
+        const convId = currentId;
+        if (seen || !retryId) toast(`⚠ ${help.title}`, 'error', 6000);
+        else toastActions(`⚠ ${help.title}. ${help.text}`, [['Try again', () => retryIn(convId, retryId)], ...(help.action ? [[help.action.label, () => runHelpAction(help.action)]] : [])]);
+        announce(`Error: ${help.title}. ${help.text}`);
+        raiseAlert(help.title);
         // 'info': main.js already logs the failed turn as an error, with its stack (one problem report, not two).
         logEvent('info', 'reply failed', ev.message);
       }
       finish();
       refreshList();
+      syncActions();
       break;
     }
   }
@@ -884,6 +969,244 @@ function announce(text) {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
   live.textContent = '';
   setTimeout(() => (live.textContent = t.length > 1500 ? `${t.slice(0, 1500)}… (continued in the conversation)` : t), 50);
+}
+
+// ------------------------------------------- actions on the latest message
+// Try again on a failed or stopped reply, ↻ Regenerate a reply, ✎ Edit and resend the latest message
+// (redocore.mjs decides which message; main/redo.js checks again). There is no undo: the old exchange
+// goes, what it did stays done, and the agent is told so.
+
+/** The buttons under the latest exchange, after anything that changes it (open, start, done, error). */
+function syncActions() {
+  const box = messagesEl();
+  box.querySelectorAll('.redo-btn, .msg-failed').forEach((n) => n.remove());
+  const a = redo.actions(shown, { busy: Boolean(active), setup: openSetup });
+  // A failed reply's own Try again works only while it is the latest exchange.
+  box.querySelectorAll('.reply-error .retry-btn').forEach((b) => (b.hidden = b.dataset.for !== a.again));
+  if (!a.again) return;
+  const userNode = box.querySelector(`.msg[data-id="${CSS.escape(a.again)}"]`);
+  if (!userNode) return;
+  userNode.querySelector('.msg-meta')?.append(redoButton('✎ Edit', 'Put this message back in the box to change it and send it again (↑). The old exchange is replaced; there is no undo.', () => startEdit(a.edit)));
+  if (a.state === 'answered') {
+    const replyNode = a.reply && box.querySelector(`.msg[data-id="${CSS.escape(a.reply)}"]`);
+    const m = shown.find((x) => x.id === a.reply);
+    const fresh = m?.provider === 'claude-code' ? ' (Claude starts a fresh session for it: a few seconds longer)' : '';
+    replyNode?.querySelector('.msg-meta')?.append(redoButton('↻ Regenerate', `Write a new reply to your message; the old one is replaced, with no undo${fresh}`, () => runAgain('again', a.again)));
+    return;
+  }
+  let reply = userNode.nextElementSibling;
+  while (reply && !reply.matches('.msg.assistant')) reply = reply.nextElementSibling;
+  if (reply) {
+    // A reply that was stopped (or failed, with its own button): Try again under it.
+    if (reply.querySelector('.reply-error')) return;
+    const body = reply.querySelector('.msg-body');
+    const meta = body.querySelector(':scope > .msg-meta') || body.appendChild(el('div', { class: 'msg-meta' }));
+    meta.append(redoButton('↻ Try again', 'Send this message again (the stopped reply is replaced)', () => runAgain('again', a.again)));
+    return;
+  }
+  // A conversation opened later: the failure (or the stop) under the message itself.
+  const l = redo.latest(shown);
+  const attempt = l.user.attempt || {};
+  const node = !l.certain
+    ? stopNode('This message got no reply.', a.again)
+    : attempt.outcome === 'failed'
+      ? errorNode(chatcore.errorHelp(attempt.error || '', { usage: currentUsage(), settings: state.settings }), { retry: true, messageId: a.again })
+      : stopNode('Stopped.', a.again);
+  userNode.querySelector('.msg-body').append(el('div', { class: 'msg-failed' }, node));
+  scrollToBottom(true); // the conversation just opened at its end: the card is part of it
+}
+
+const redoButton = (label, title, onclick) => el('button', { class: 'redo-btn', type: 'button', title, onclick }, label);
+
+// A stopped (or cut off) message's line with its Try again.
+function stopNode(text, messageId) {
+  return el('div', { class: 'reply-error stopped', role: 'group', 'aria-label': text }, el('p', {}, text), el('div', { class: 'reply-error-actions' }, el('button', { class: 'btn small primary retry-btn', type: 'button', 'data-for': messageId, onclick: () => runAgain('again', messageId) }, '↻ Try again')));
+}
+
+/** The failure in plain words with its way out (built with el(): no HTML from the message). */
+function errorNode(help, { retry = false, messageId = null } = {}) {
+  const id = messageId || redo.actions(shown, { setup: openSetup }).again;
+  const buttons = el(
+    'div',
+    { class: 'reply-error-actions' },
+    retry && id ? el('button', { class: 'btn small primary retry-btn', type: 'button', 'data-for': id, onclick: () => runAgain('again', id) }, '↻ Try again') : null,
+    help.action ? el('button', { class: 'btn small', type: 'button', onclick: () => runHelpAction(help.action) }, help.action.label) : null,
+  );
+  return el(
+    'div',
+    { class: 'reply-error', role: 'group', 'aria-label': 'The reply failed' },
+    el('div', { class: 'reply-error-title' }, `⚠ ${help.title}`),
+    el('p', {}, help.text),
+    buttons.childElementCount ? buttons : null,
+    help.raw && help.raw !== help.text ? el('details', { class: 'reply-error-raw' }, el('summary', {}, 'Details'), el('pre', {}, help.raw)) : null,
+  );
+}
+
+/** The way out a failure offers (chatcore.errorHelp action). */
+function runHelpAction(a) {
+  if (a.go === 'settings') return switchView('settings', a.section);
+  if (a.go === 'helper') return api.helperApps.start(a.id).then(() => toast('Starting it… try again in a moment.'), toastError);
+  if (currentView !== 'chat') switchView('chat');
+  if (a.go === 'newchat') return newChat();
+  if (a.go === 'edit') {
+    const id = redo.actions(shown, { busy: Boolean(active), setup: openSetup }).edit;
+    if (id) startEdit(id);
+  }
+}
+
+/** ✎ Edit: the latest message in the box; Enter sends it in place of the old exchange, Esc puts the draft back. */
+function startEdit(id) {
+  const m = shown.find((x) => x.id === id);
+  if (!m || active) return;
+  const input = $('#input');
+  if (!editing) editing = { messageId: id, draft: input.value };
+  else editing.messageId = id;
+  input.value = redo.sentText(m);
+  $('.composer').classList.add('editing');
+  const files = (m.attachments || []).some((x) => x.kind !== 'image');
+  $('#editText').textContent = `✎ Editing your last message: Enter sends it in place of the old one.${files ? ' Its files stay attached.' : ''}`;
+  $('#editBar').classList.remove('hidden');
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+  autosize();
+  scrollToBottom(true); // the composer grew: the message being edited stays in view
+}
+
+/** Leaves edit mode; the box gets back what was in it before, unless keepText. */
+function cancelEdit({ keepText = false } = {}) {
+  if (!editing) return;
+  const { draft } = editing;
+  endEdit();
+  if (!keepText) {
+    $('#input').value = draft;
+    autosize();
+  }
+}
+
+// Leaves edit mode, the box as it is (the edit is being sent).
+function endEdit() {
+  editing = null;
+  $('.composer')?.classList.remove('editing');
+  $('#editBar')?.classList.add('hidden');
+}
+
+// The failed or stopped message as the window last saw it (main stored the full record).
+function markAttempt(outcome, error) {
+  const l = redo.latest(shown);
+  if (!l?.own || l.state === 'answered') return;
+  shown[l.index] = { ...l.user, attempt: { outcome, at: Date.now(), ...(outcome === 'failed' ? { error: String(error || '') } : {}) } };
+}
+
+/** Takes the latest exchange off the screen (main takes it out of the conversation). */
+function dropFrom(id, { keep = null } = {}) {
+  const node = messagesEl().querySelector(`.msg[data-id="${CSS.escape(id)}"]`);
+  if (node) {
+    let n = node.nextElementSibling;
+    node.remove();
+    while (n) {
+      const next = n.nextElementSibling;
+      if (n.classList.contains('msg') && n !== keep && !n.dataset.pending) n.remove();
+      n = next;
+    }
+  }
+  const i = shown.findIndex((m) => m.id === id);
+  if (i >= 0) shown.splice(i);
+  hideCard();
+}
+
+/**
+ * Sends the latest message again: main checks it first (asking here when the old exchange already did
+ * something, or when an attempt was cut off), then the old one goes and the new one is sent. True if sent.
+ */
+async function runAgain(kind, messageId, text = '') {
+  if (active) return (toast('Wait for the current reply to finish (or press stop).'), false);
+  if (!currentId || !messageId) return false;
+  const req = { conversationId: currentId, messageId, kind, text, expectLast: shown[shown.length - 1]?.id };
+  const chk = await api.chat.redoCheck(req).catch((err) => ({ ok: false, error: err.message }));
+  if (!chk.ok) {
+    toast(chk.error, 'error');
+    if (chk.changed) openConversation(currentId);
+    return false;
+  }
+  if (chk.ask?.length || chk.more) {
+    const named = (chk.ask || []).map((t) => `${chatcore.toolLabel(t.name, TOOL_LABELS)} ${typeof t.input === 'string' ? (t.input ? `· ${t.input.slice(0, 60)}` : '') : chatcore.briefInput(t.input)}`.trim());
+    const labels = [...named, ...(chk.more ? [`${chk.more} more action${chk.more === 1 ? '' : 's'}`] : [])].join(' · ');
+    const what = chk.replyDropped ? 'reply' : 'attempt';
+    if (!(await confirmDialog('Run it again?', `The earlier ${what} already did this, and it isn’t undone: ${labels}. ${agentName()} is told, so it shouldn’t do it twice; approvals follow your permission setting.`, 'Run again', false))) return false;
+  } else if (chk.uncertain) {
+    if (!(await confirmDialog('Try again?', `The earlier attempt was cut off (the app closed or restarted), so ${agentName()} can’t be sure what it already did. She’ll be told to check before repeating anything.`, 'Try again', false))) return false;
+  }
+  if (active || req.conversationId !== currentId) return false; // a reply started, or another chat opened, meanwhile
+  dropFrom(messageId);
+  await send(chk.text, { voice: chk.voice, redo: { ...req, confirmed: true } });
+  return true;
+}
+
+/** Try again on the latest message (the voice command, a failed reply's button). True when something started. */
+export async function retryLatest() {
+  const a = redo.actions(shown, { busy: Boolean(active), setup: openSetup });
+  return a.again ? runAgain('again', a.again) : false;
+}
+
+/** Whether the latest reply failed or was stopped, so "try again" means it (commands.js). */
+export function canRetryLatest() {
+  const a = redo.actions(shown, { busy: Boolean(active), setup: openSetup });
+  return Boolean(a.again) && (a.state === 'unanswered' || a.state === 'stopped');
+}
+
+// From a notice while another view was open: back to that conversation, then Try again.
+async function retryIn(convId, messageId) {
+  if (currentView !== 'chat') switchView('chat');
+  if (convId && convId !== currentId) await openConversation(convId);
+  if (currentId === convId) runAgain('again', messageId);
+}
+
+/** In the Face layout, a recent failure (24 h) shows on the card when its conversation opens. True if shown. */
+function showFailedCard() {
+  if (!faceLayout()) return false;
+  const a = redo.actions(shown, { setup: openSetup });
+  const l = redo.latest(shown);
+  if (!a.again || !l || l.state === 'answered') return false;
+  const at = l.user.attempt?.at || l.replies[l.replies.length - 1]?.createdAt || l.user.createdAt || 0;
+  if (Date.now() - at > 86400000) return false;
+  if (l.certain && l.user.attempt?.outcome === 'failed') showCard('', { help: chatcore.errorHelp(l.user.attempt.error || '', { usage: currentUsage(), settings: state.settings }), error: true });
+  else showCard(l.state === 'stopped' ? l.replies[l.replies.length - 1]?.content || '*(stopped)*' : l.certain ? '*(stopped)*' : 'This message got no reply.', { stopped: true });
+  return true;
+}
+
+// The card's buttons: Copy, Regenerate and Edit on a finished reply; Try again and Edit after a stop
+// (a failure's are in its own box).
+function fillCardActions({ follow = false, help = null, reply = null, stopped = false } = {}) {
+  const box = $('#replyCardActions');
+  box.replaceChildren();
+  if (follow || help) return;
+  const a = redo.actions(shown, { setup: openSetup }); // a finished or stopped reply: nothing runs now
+  const button = (label, title, onclick) => el('button', { class: 'chip-btn', type: 'button', title, onclick }, label);
+  const edit = () => a.edit && box.append(button('✎ Edit', 'Change your message and send it again (↑)', () => startEdit(a.edit)));
+  if (reply) {
+    box.append(button('Copy', 'Copy this reply', () => (navigator.clipboard.writeText(chatcore.copyText(reply)), toast('Copied'))));
+    if (a.reply === reply.id) box.append(button('↻ Regenerate', 'Write a new reply; this one is replaced', () => runAgain('again', a.again)));
+    if (a.reply === reply.id) edit();
+  } else if (stopped && a.again) {
+    box.append(button('↻ Try again', 'Send your message again', () => runAgain('again', a.again)));
+    edit();
+  }
+}
+
+/** Code blocks in a finished reply get their own Copy button (never while it streams, never in the error details). */
+function decorateCode(root) {
+  for (const pre of root.querySelectorAll('pre')) {
+    if (pre.closest('.reply-error, .code-block, .tool-chip')) continue;
+    const wrap = el('div', { class: 'code-block' });
+    pre.replaceWith(wrap);
+    const copy = el('button', { class: 'code-copy', type: 'button', title: 'Copy code', 'aria-label': 'Copy code' }, 'Copy');
+    copy.onclick = () => {
+      navigator.clipboard.writeText(pre.querySelector('code')?.textContent ?? pre.textContent);
+      copy.textContent = 'Copied';
+      setTimeout(() => (copy.textContent = 'Copy'), 1500);
+    };
+    wrap.append(pre, copy);
+  }
 }
 
 function finish() {
@@ -920,6 +1243,7 @@ export function cancelReply() {
 // flow, so the scripted first exchange stays on screen as the agent takes over).
 export function continueIn(id, title) {
   currentId = id;
+  openSetup = true;
   if (title) $('#chatTitle').textContent = title;
   refreshList();
 }

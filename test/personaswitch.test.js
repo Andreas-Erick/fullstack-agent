@@ -223,6 +223,14 @@ test('who is answering: named every turn, the switch said once, never another pe
   assert.ok(!/You are Captain Vega/.test(switched));
 });
 
+test('a message answered again says so in its context (Try again, Regenerate, Edit)', async () => {
+  const prompt = load('main/prompt.js');
+  const s = await persona.activate('Nova');
+  const again = await prompt.turnContext(s, [], null, { relevant: false, again: 'X' });
+  assert.ok(again.includes('## Answering this message again\nX'));
+  assert.ok(!(await prompt.turnContext(s, [], null, { relevant: false })).includes('Answering this message again'));
+});
+
 test('who wrote the latest reply: the persona stored on it, skipping the user and replies from before personas', () => {
   const llm = fs.readFileSync(path.join(ROOT, 'main/llm.js'), 'utf8');
   assert.match(llm, /previousPersona = core\.lastPersona\(history\)|previousPersona = require\('\.\/personacore'\)\.lastPersona\(history\)/, 'llm.js asks personacore');

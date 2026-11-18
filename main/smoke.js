@@ -53,6 +53,8 @@ function seedChat(data) {
   const messages = [
     { id: 'msmoke1', role: 'user', content: `Summarise ${url} ${'please '.repeat(30)}`, createdAt: now - 2000 },
     { id: 'msmoke2', role: 'assistant', persona: 'Siren', content: reply, createdAt: now - 1000, model: 'claude-opus-5-5', provider: 'claude-code', toolCalls: [{ name: 'mcp__claude_ai_Google_Calendar__list_events', input: { calendarId: 'someone.with.a.very.long.address@example.com' }, ok: true }, { name: 'WebFetch', input: { url }, ok: true }] },
+    // A message whose reply failed: its plain-words card, Try again and Details (chat.js syncActions).
+    { id: 'msmoke3', role: 'user', content: 'And again?', createdAt: now - 500, attempt: { outcome: 'failed', at: now - 500, error: 'LLM error 429: {"error":{"message":"Rate limit reached for requests"}}', tools: [], output: false } },
   ];
   // journaledUpTo: already in the daily notes, so the journal (main/journal.js) never asks a real model
   // to summarize a seeded chat (test/smokemodel.test.js).
@@ -319,6 +321,35 @@ const settingsTabs = (wc) => wc.executeJavaScript(`[...document.querySelectorAll
 // recording), with long titles, long commands and long labels. Returns the problems found.
 const namesJs = (label) => `import('./js/a11ytest.js').then((m) => m.findUnnamed(document.querySelector('.view.active') || document.body).map((c) => ${JSON.stringify(label)} + ': a control without a name for screen readers: ' + c.where + ' ' + c.html))`;
 const scanJs = (label) => `import('./js/cliptest.js').then((m) => m.findClippedText().map((c) => ${JSON.stringify(label)} + ': text cut off (' + c.how + ') at ' + c.where + ': "' + c.text + '"'))`;
+// The Face layout opening a conversation whose reply just failed: the card shows the reason with Try again
+// and Details (chat.js showFailedCard), nothing cut off, every control named. Back to Split afterwards.
+const FAILED_CARD_JS = (label) => `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const { setLayout } = await import('./js/layout.js');
+  const chat = await import('./js/chat.js');
+  document.querySelector('.rail-btn[data-view="chat"]').click();
+  setLayout('face');
+  for (let i = 0; i < 30 && !document.querySelector('#view-chat.layout-face'); i++) await wait(100);
+  await chat.openConversation('csmoke01');
+  await wait(600);
+  const found = [];
+  const card = document.querySelector('#replyCard');
+  if (card.classList.contains('hidden') || !card.querySelector('.reply-error')) found.push(${JSON.stringify(label)} + ': the Face layout shows no card for the failed reply');
+  else {
+    const clip = await import('./js/cliptest.js');
+    for (const c of clip.findClippedText()) found.push(${JSON.stringify(label)} + ': text cut off (' + c.how + ') at ' + c.where + ': "' + c.text + '"');
+    const a11y = await import('./js/a11ytest.js');
+    for (const c of a11y.findUnnamed(card)) found.push(${JSON.stringify(label)} + ': a control without a name for screen readers: ' + c.where + ' ' + c.html);
+  }
+  setLayout('split');
+  for (let i = 0; i < 30 && document.querySelector('#view-chat.layout-face'); i++) await wait(100);
+  await chat.openConversation('csmoke01');
+  // The list the other scans read: the failure under the message, ✎ Edit, the code's Copy (chat.js
+  // syncActions, decorateCode). Without them those scans would pass on nothing.
+  const parts = { 'the failed reply with Try again': '#messages .msg-failed .reply-error .retry-btn', 'its Details': '#messages .msg-failed .reply-error-raw', '✎ Edit on the latest message': '#messages .msg[data-id="msmoke3"] .redo-btn', 'Copy on the code': '#messages .code-block .code-copy' };
+  for (const [what, sel] of Object.entries(parts)) if (!document.querySelector(sel)) found.push(${JSON.stringify(label)} + ': the chat shows no ' + what);
+  return found;
+})()`;
 const PROMPTS = [
   ['approval:request', { kind: 'connector', title: 'Use Google Calendar: create event', detail: '{\n  "summary": "Machine Learning Q&A",\n  "calendarId": "someone.with.a.long.address@example.com"\n}', remember: [{ level: 'read', label: 'Always allow reading Google Calendar' }, { level: 'write', label: 'Always allow Google Calendar (except deleting)' }] }],
   ['approval:request', { kind: 'command', title: 'Run a command on your computer', detail: `powershell -NoProfile -Command "Get-ChildItem -Recurse ${'C:\\Users\\someone\\Documents\\a-folder-with-a-long-name'.repeat(3)} | Sort-Object Length -Descending"` }],
@@ -469,6 +500,7 @@ async function scanText() {
       wc.send('approval:cancel', { id });
       await wait(200);
     }
+    for (const p of await wc.executeJavaScript(FAILED_CARD_JS(`failed reply card @${w}`), true)) found.add(p);
   }
   return [...found];
 }

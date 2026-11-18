@@ -6,6 +6,9 @@ import { state } from './state.js';
 
 let usage = null;
 
+/** The latest plan snapshot (main/claudeusage.js summary), for a failed reply's reset time (chatcore.errorHelp). */
+export const currentUsage = () => usage;
+
 export function initUsage() {
   on('settings', render);
   api.on('claude:usage', (s) => ((usage = s), render()));

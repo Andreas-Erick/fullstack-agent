@@ -77,6 +77,8 @@ protocol.registerSchemesAsPrivileged([
 let win = null;
 const activeRequests = new Map(); // requestId -> AbortController (with .conversationId)
 const deletedConversations = new Set(); // a reply finishing after its conversation was deleted is dropped
+const busyIn = (id) => [...activeRequests.values()].some((c) => c.conversationId === id); // a reply is being written there
+const redo = require('./redo');
 
 // A second copy (e.g. a double click) hands over to the running one and exits at once, before it
 // can open a window or touch the same files.
@@ -422,6 +424,12 @@ function registerIpc() {
     activeRequests.get(requestId)?.abort();
     return true;
   });
+  // Try again / Regenerate / Edit (main/redo.js): desktop only; the window checks first (a confirm may be needed).
+  handle('chat:redoCheck', async (req) => redo.forWindow(redo.check(await store.getConversation(String(req?.conversationId || '')).catch(() => null), req, { busy: busyIn(req?.conversationId) })));
+  handle('chat:redo', (req) => {
+    if (!/^[\w-]{1,64}$/.test(String(req?.requestId || ''))) throw new Error('Bad request');
+    return startTurn({ conversationId: String(req?.conversationId || ''), requestId: String(req.requestId), text: '', redo: req });
+  });
 
   // Remote access (companion server): settings and pairing stay desktop-only.
   handle('remote:status', () => companion.status());
@@ -756,9 +764,11 @@ function registerIpc() {
     if (smoke.active) return false; // the launch check never reaches a real model (test/smokemodel.test.js)
     const s = await store.getSettings();
     if (s.llm.provider !== 'claude-code' || !s.claudeCode.warmOnLaunch || !convId) return false;
+    // Taken before the read: a message run again while it reads (claudecode.forget) makes this copy stale.
+    const epoch = claudecode.epochOf(convId);
     const conv = await store.getConversation(convId);
     if (conv?.setup) return false;
-    llm.prewarm(s, conv).catch((e) => log.warn('prewarm failed', e.message));
+    llm.prewarm(s, conv, { epoch }).catch((e) => log.warn('prewarm failed', e.message));
     return true;
   });
   handle('chat:endSession', (convId) => claudecode.endSession(convId));
@@ -841,11 +851,30 @@ const speakInWindow = (text) => askWindow('remote:speak', { text: String(text).s
 // at once; the reply streams as chat:event. Remote turns never carry a screenshot of this desktop.
 // display: what the chat shows instead of the text (routines); onFinish({ ok, text, error }) after the turn.
 // routine / auto ('tasks'): a turn the user didn't write, so it never counts as their chat (store.js lastOwnAt).
-async function startTurn({ conversationId, text, requestId, voice: viaVoice = false, hidden = false, remote = null, display = '', routine = '', auto = '', onFinish = null }) {
+// redo: Try again / Regenerate / Edit from the window (chat:redo; its text replaces `text`).
+async function startTurn({ conversationId, text, requestId, voice: viaVoice = false, hidden = false, remote = null, display = '', routine = '', auto = '', onFinish = null, redo: redoReq = null }) {
   const settings = await store.getSettings();
+  // A failure before the turn runs in the background: it no longer counts as busy (below).
+  const fail = (err) => {
+    activeRequests.delete(requestId);
+    throw err;
+  };
   let conv = conversationId ? await store.getConversation(conversationId) : null;
+  if (redoReq && !conv) throw new Error('Conversation not found');
   if (!conv) conv = await store.createConversation();
   if (remote && conv.setup) throw new Error('The setup conversation can only be used on the desktop');
+  // Try again / Regenerate / Edit, and the same message sent again after a failure (main/redo.js).
+  const prep = redo.prepare({ conv, redo: redoReq, text, voice: viaVoice, remote, routine, auto, hidden, busy: busyIn(conv.id), forget: claudecode.forget });
+  text = prep.text;
+  viaVoice = prep.voice;
+  const again = prep.again;
+  if (again) log.info('turn again', { kind: again.kind, fresh: again.fresh, acted: again.acted.length, uncertain: again.uncertain || undefined, from: remote ? 'device' : 'window' });
+  const own = !conv.setup && !routine && !auto && !hidden; // the user's own message: its attempt is recorded (Try again)
+  // Busy from the gates on (busyIn), not only once the reply runs: another Try again, or the same message
+  // sent again from the phone or the watch, can't pass them during the awaits below.
+  const controller = new AbortController();
+  controller.conversationId = conv.id;
+  activeRequests.set(requestId, controller);
   // "/skill-name input": the agent gets the skill's steps; the chat shows what was typed.
   const slash = conv.setup ? null : await skills.fromSlash(text).catch(() => null);
   // While the screen is shared, the message carries a fresh screenshot (not stored).
@@ -869,14 +898,14 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
     ...(hidden ? { hidden: true } : {}),
     ...(remote ? { remote } : {}),
     ...(viaVoice ? { spoken: true } : {}), // the cache warm-up guesses the next model from it (llm.warmTarget)
+    ...(own ? { attempt: { outcome: 'running', at: Date.now() } } : {}),
   };
   conv.messages.push(userMsg);
-  if (!conv.setup && conv.messages.filter((m) => m.role === 'user').length === 1) conv.title = (slash ? slash.skill.name : display || String(text)).replace(/\s+/g, ' ').slice(0, 60);
-  await store.saveConversation(conv);
+  if (!conv.setup && !again?.keepTitle && conv.messages.filter((m) => m.role === 'user').length === 1) conv.title = (slash ? slash.skill.name : display || String(text)).replace(/\s+/g, ' ').slice(0, 60);
+  await store.saveConversation(conv).catch(fail);
 
-  const controller = new AbortController();
-  controller.conversationId = conv.id;
-  activeRequests.set(requestId, controller);
+  // Until that save, the file still had the old exchange: a warm-up that read it meanwhile is stale too.
+  if (again?.fresh) claudecode.forget(conv.id);
   // Timing for the log: when the first words of the reply arrived, and when it finished.
   const startedAt = Date.now();
   let firstTextMs = null;
@@ -884,6 +913,9 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
   // commits those and nothing else.
   const touched = new Set();
   let codeRoot = null;
+  // The tools this turn ran (Try again tells the next attempt what already happened).
+  const ran = new Map();
+  let attemptSaved = false;
   const emit = (ev) => {
     if (firstTextMs === null && ev.type === 'text') firstTextMs = Date.now() - startedAt;
     // The Inner World sends the active persona to where the work happens (counts only).
@@ -892,9 +924,26 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       const t = selfchange.touchedBy(ev.name, ev.input, codeRoot);
       if (t) touched.add(t);
     }
+    if (ev.type === 'tool_start') {
+      ran.set(ev.id, { name: ev.name, ok: null, input: ev.input });
+      // The first action that changes something is recorded at once: a quit or crash mid-turn leaves a trace.
+      if (own && !attemptSaved && !redo.readOnly(ev.name)) {
+        attemptSaved = true;
+        const a = redo.attemptFrom({ running: true, ran, firstTextMs });
+        redo.remember(conv.id, userMsg.id, a);
+        store.updateConversation(conv.id, (c) => redo.withAttempt(c, userMsg.id, a)).catch((error) => log.warn('could not record the attempt', { error }));
+      }
+    }
+    if (ev.type === 'tool_end' && ran.has(ev.id)) ran.get(ev.id).ok = ev.ok;
     (conv.setup ? toWindow : send)('chat:event', { requestId, conversationId: conv.id, ...ev });
   };
-  emit({ type: 'start', userMessage: userMsg, title: conv.title });
+  emit({ type: 'start', userMessage: redo.publicMessage(userMsg), title: conv.title, ...(again ? { replaces: again.replaces } : {}) });
+  if (again?.acted.length || again?.uncertain) {
+    const names = [...new Set(again.acted.map((a) => a.name.replace(/^mcp__(claude_ai_)?/, '').replace(/_+/g, ' ')))].join(', ');
+    const who = settings.agent?.name || 'Siren';
+    emit({ type: 'notice', message: again.acted.length ? `Already done by the earlier ${again.replyDropped ? 'reply' : 'attempt'} (not undone): ${names}.` : `The earlier attempt was cut off; ${who} checks before repeating anything.`, tools: again.acted.map((a) => a.name) });
+  }
+  if (again?.hadImages && !images.length) emit({ type: 'notice', message: 'This message had a picture with it; pictures aren’t kept, so the new reply can’t see it.' });
 
   // Run the turn in the background; the renderer receives streamed events. Every log line it
   // produces carries turn=<id> conv=<id>, so one request can be traced end to end.
@@ -904,7 +953,7 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
     const before = trackChanges ? await selfchange.fingerprint() : null;
     codeRoot = trackChanges ? await selfchange.root().catch(() => null) : null;
     try {
-      const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images, routine: Boolean(routine) });
+      const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images, routine: Boolean(routine), again: again?.again || null });
       const assistantMsg = {
         id: store.newId('m'),
         role: 'assistant',
@@ -915,10 +964,13 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
         provider: result.provider || settings.llm.provider,
         persona: settings.agent?.name || undefined, // who answered: a later switch is named in the next turn's context
         createdAt: Date.now(),
+        ...(controller.signal.aborted ? { stopped: true } : {}), // the Claude API path stores a stopped reply (Try again)
       };
       if (deletedConversations.has(conv.id)) return onFinish?.({ ok: false, error: 'The conversation was deleted', conversationId: conv.id });
       const fresh = (await store.getConversation(conv.id)) || conv;
       fresh.messages.push(assistantMsg);
+      redo.stripAttempt(fresh, userMsg.id); // answered: nothing to try again
+      redo.remember(conv.id, null);
       // A session that rolled over (too big, llm.runOn) is not resumed: the next one starts fresh.
       if (result.rollover) fresh.claudeSessionId = null;
       else if (result.sessionId) fresh.claudeSessionId = result.sessionId;
@@ -940,8 +992,12 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       const notReady = !aborted && routine && require('./routinecore').brainNotReady(err);
       if (aborted) log.info('turn interrupted', { conversation: conv.id });
       else log[notReady ? 'warn' : 'error'](notReady ? 'turn not ready' : 'turn failed', { provider: settings.llm.provider, model: settings.llm.provider === 'claude-code' ? settings.claudeCode.model : undefined, voice: viaVoice, ms: Date.now() - startedAt, error: err });
+      const attempt = own && !deletedConversations.has(conv.id) ? redo.attemptFrom({ aborted, err, ran, firstTextMs }) : null;
+      if (attempt) redo.remember(conv.id, userMsg.id, attempt); // an immediate Try again sees it
+      // The window hears it first (a barge-in waits for this); the record is written after.
       emit({ type: aborted ? 'aborted' : 'error', message: aborted ? 'Stopped' : err?.message || String(err) });
       onFinish?.({ ok: false, error: aborted ? 'Stopped' : err?.message || String(err), conversationId: conv.id });
+      if (attempt) store.updateConversation(conv.id, (c) => redo.withAttempt(c, userMsg.id, attempt)).catch((e) => log.warn('could not record the failed attempt', { error: e }));
     } finally {
       activeRequests.delete(requestId);
       if (trackChanges) recordSelfChanges(before, text, [...touched]).catch((e) => log.warn('self-change tracking', e.message));

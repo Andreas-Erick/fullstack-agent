@@ -728,6 +728,22 @@ async function saveConversation(conv, { touch = true } = {}) {
   return conv;
 }
 
+/** Changes a stored conversation inside its file's write queue: fn(conv) returns it changed, or null to leave it. */
+async function updateConversation(id, fn, { touch = false } = {}) {
+  const file = path.join(convDir(), `${safeConvId(id)}.json`);
+  let saved = null;
+  await updateInQueue(file, async () => {
+    const conv = await readConvFile(file, null);
+    const next = conv && (await fn(conv));
+    if (!next) return null;
+    if (touch) next.updatedAt = Date.now();
+    saved = next;
+    return sealText(next);
+  });
+  if (saved) ((await loadIndex()).set(saved.id, summarize(saved)), saveIndexSoon());
+  return saved;
+}
+
 async function createConversation(title = 'New conversation') {
   const now = Date.now();
   return saveConversation({ id: newId('c'), title, createdAt: now, updatedAt: now, messages: [] });
@@ -771,6 +787,7 @@ module.exports = {
   listConversations,
   getConversation,
   saveConversation,
+  updateConversation,
   createConversation,
   deleteConversation,
   renameConversation,

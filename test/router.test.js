@@ -93,3 +93,11 @@ test('an unknown error does not bench a provider', async () => {
   assert.strictEqual(router.failed(s, 'claude-code', new Error('weird')).minutes, 0);
   assert.strictEqual((await router.plan(s))[0].id, 'claude-code');
 });
+
+// Regression: Claude's newer limit messages were not recognized, so multi-provider mode didn't move on.
+test('Claude’s "You’ve hit your limit" is a rate limit; a spend limit is out of credits', () => {
+  assert.strictEqual(router.classifyError(new Error("You've hit your session limit · resets 3pm")).kind, 'rate');
+  assert.strictEqual(router.classifyError(new Error("You've hit your limit · resets 5pm (Europe/Berlin)")).kind, 'rate');
+  assert.strictEqual(router.classifyError(new Error("You've hit your monthly spend limit")).kind, 'credits');
+  assert.strictEqual(router.classifyError(new Error('You are out of usage credits')).kind, 'credits');
+});

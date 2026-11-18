@@ -273,6 +273,19 @@ function mcpServersFor(spec, { url, token, turn }) {
 // Permission prompts are routed to the app (approval_prompt via MCP) so the user can approve
 // self-modification by click or voice.
 const sessions = new Map(); // conversation id -> Session
+// A conversation whose latest exchange was taken out (Try again / Regenerate / Edit, main/redo.js):
+// its old session ids are never resumed, and warm-ups queued before it (with the old messages) don't run.
+const forgotten = new Map(); // convId → Set of session ids
+const epochs = new Map(); // convId → number, bumped by forget
+const epochOf = (convId) => epochs.get(convId) || 0;
+function forget(convId, ...ids) {
+  const set = forgotten.get(convId) || new Set();
+  const s = sessions.get(convId);
+  for (const id of [...ids, s?.sessionId, s?.resumable]) if (id) set.add(id);
+  forgotten.set(convId, set);
+  epochs.set(convId, epochOf(convId) + 1);
+  endSession(convId);
+}
 const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const WEB_TOOLS = ['WebFetch', 'WebSearch'];
 const shortTool = (name) => String(name || '').replace(/^mcp__nexus(_more)?__/, '');
@@ -661,7 +674,10 @@ class Session {
     if (!t || t.settled) return;
     if (msg.type === 'result') {
       // A plan's usage limit can come back as the reply text itself; it is an error (so multi-provider mode falls back).
-      const limitHit = /usage limit reached/i.test(String(msg.result || '')) && t.text.trim().length < 200;
+      // Newer CLIs say "You've hit your limit · resets 5pm": anchored, and only in the CLI's own form (the
+      // dot before its reset time) or flagged as an error, so a reply about some other limit stays a reply.
+      const r = String(msg.result || '').trim();
+      const limitHit = t.text.trim().length < 200 && (/usage limit reached/i.test(r) || (/^(you['’]?ve|you have) hit your (\w+ )?limit|^\d+-hour limit reached/i.test(r) && (msg.is_error === true || /[·∙•]\s*resets?\b/i.test(r))));
       if ((msg.is_error && !t.text) || limitHit) {
         if (limitHit && t.text) t.emit({ type: 'retract', chars: t.text.length });
         const why = String(msg.result || msg.errors?.join('; ') || 'Claude Code error');
@@ -926,6 +942,11 @@ async function startOrReuse(session, conv, { settings, configKey, buildPrompt, a
   const p = await buildPrompt();
   spec.system = p.stable;
   spec.resume = conv.claudeSessionId || session.resumable;
+  // A session that held a withdrawn exchange (forget): a stale copy of the conversation still names it.
+  if (spec.resume && forgotten.get(conv.id)?.has(spec.resume)) {
+    spec.resume = null;
+    session.resumable = null;
+  }
   // A resumed session that is cold anyway is read in full: 127k tokens, 7.4 s to the first word after
   // a persona switch. A fresh one with the recent messages (transcript()) starts sooner (startFresh).
   const last = lastCalls.get(conv.id);
@@ -1011,8 +1032,10 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, images 
 // Start the process ahead of time (e.g. while the greeting plays) so the first turn is warm.
 // Also after a persona switch (main.js, renderer personas.js): the new session's process and tool
 // servers start while the user reads or listens (~1 s), not when they speak again.
+// opts.epoch (epochOf when the caller read the conversation): a message run again since then makes it stale.
 async function prewarm(conv, opts) {
   if (!conv) return;
+  if (opts?.epoch !== undefined && opts.epoch !== epochOf(conv.id)) return;
   await ensureSession(conv, { ...opts, prewarming: true });
 }
 
@@ -1026,13 +1049,17 @@ const WARMUP_TIMEOUT_MS = 60000;
 /** Is a call on this configuration still cached? Then a warm-up would be wasted. */
 const isWarm = (last, key, now, ttlMs) => Boolean(last && last.key === key && now - last.at < ttlMs);
 
-async function warmCache(conv, opts, { model, effort, history = [] } = {}) {
+// epoch: as for prewarm; checked when the queued warm-up starts and again right before it sends `history`.
+async function warmCache(conv, opts, { model, effort, history = [], epoch } = {}) {
   if (!conv) return null;
   const session0 = sessions.get(conv.id) || new Session(conv.id);
   sessions.set(conv.id, session0);
+  const stale = () => epoch !== undefined && epoch !== epochOf(conv.id);
   const run = async () => {
+    if (stale()) return null;
     const session = await ensureSession(conv, { ...opts, prewarming: true });
     if (!session.alive() || (session.turn && !session.turn.settled)) return null;
+    if (stale()) return null; // a message was run again while the session started: `history` is the old one
     if (isWarm(lastCalls.get(conv.id), session.key, Date.now(), cacheTtl())) return null;
     session.setModel(model);
     session.setEffort(effort);
@@ -1146,4 +1173,4 @@ async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, invalidateStatus, STATUS_TTL_MS, STATUS_RETRY_MS, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, warmCache, startFresh, endSession, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };
+module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, invalidateStatus, STATUS_TTL_MS, STATUS_RETRY_MS, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, warmCache, startFresh, endSession, forget, epochOf, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions };

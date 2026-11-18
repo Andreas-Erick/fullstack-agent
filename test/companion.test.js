@@ -612,3 +612,36 @@ test('a conversation says which replies are still running, so a device that miss
   assert.deepStrictEqual(await get(), [], 'ended: the stored conversation holds the reply');
   companion.publish('chat:event', { requestId: 'rRun2', conversationId: 'c2', type: 'aborted' });
 });
+
+// Try again / Regenerate / Edit (main/redo.js): devices learn which message was replaced, how a failed
+// attempt ended, and nothing of what it was given or what the error said.
+test('a message sent again reaches devices with what it replaces; a failed attempt only as its outcome', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Retry phone')}` };
+  const attempt = { outcome: 'failed', at: 1, error: 'LLM error 401: key sk-SECRETKEY', tools: [{ name: 'calendar_add_event', ok: true, brief: 'Dentist at noon' }], output: true };
+  const streamed = await listen(auth, async () => {
+    companion.publish('chat:event', { requestId: 'rAgain', conversationId: 'c1', type: 'start', title: 'Normal', replaces: 'm-old', userMessage: { id: 'm-new', role: 'user', content: 'hi', attempt } });
+    companion.publish('chat:event', { requestId: 'rAgain', conversationId: 'c1', type: 'notice', message: 'Already done by the earlier attempt (not undone): calendar add event.', tools: ['calendar_add_event'] });
+    companion.publish('chat:event', { requestId: 'rAgain', conversationId: 'c1', type: 'aborted', message: 'Stopped' });
+  });
+  const events = [...streamed.matchAll(/event: chat\.event\ndata: (.*)\n/g)].map((m) => JSON.parse(m[1]));
+  const start = events.find((e) => e.type === 'start');
+  assert.deepStrictEqual(Object.keys(start).sort(), ['conversationId', 'replaces', 'requestId', 'title', 'type', 'userMessage']);
+  assert.strictEqual(start.replaces, 'm-old');
+  assert.deepStrictEqual(start.userMessage.attempt, { outcome: 'failed' });
+  const notice = events.find((e) => e.type === 'notice');
+  assert.deepStrictEqual(Object.keys(notice).sort(), ['conversationId', 'message', 'requestId', 'type'], 'the tool names stay with the window');
+  assert.ok(!/SECRETKEY|Dentist at noon|LLM error/.test(streamed), streamed);
+
+  convs.c3 = { id: 'c3', title: 'Failed', updatedAt: 4, messages: [{ id: 'm1', role: 'user', content: 'Add the dentist', attempt }] };
+  try {
+    const body = await (await fetch(`${base}/api/conversations/c3`, { headers: auth })).json();
+    assert.deepStrictEqual(body.messages[0].attempt, { outcome: 'failed' });
+    assert.ok(!/SECRETKEY|Dentist at noon|calendar_add_event/.test(JSON.stringify(body)));
+  } finally {
+    delete convs.c3;
+  }
+  // The phone's error help is served (pure, no imports).
+  const r = await fetch(`${base}/js/chatcore.js`);
+  assert.strictEqual(r.status, 200);
+  assert.match(await r.text(), /export function errorHelp/);
+});
