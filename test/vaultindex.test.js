@@ -38,6 +38,24 @@ test('search ranks matching notes across many files', async () => {
   assert.ok(hits.every((h) => !h.title.startsWith('Filler')));
 });
 
+// The status lights ask every few minutes: the note count is kept for 5 minutes or until a note changes here.
+test('the vault status reuses its note count until a note changes', async (t) => {
+  process.env.NEXUS_OBSIDIAN_REGISTRY = path.join(dir, 'obsidian.json'); // not the real Obsidian's list
+  t.after(() => delete process.env.NEXUS_OBSIDIAN_REGISTRY);
+  const first = await obsidian.status();
+  assert.strictEqual(first.ok, true);
+  fs.writeFileSync(path.join(vault, 'Notes', 'Written in Obsidian.md'), '# Elsewhere\n');
+  assert.strictEqual((await obsidian.status()).count, first.count, 'not walked again within 5 minutes');
+  await obsidian.writeNote('Notes/Gamma', '# Gamma\n\nthird', 'overwrite');
+  assert.strictEqual((await obsidian.status()).count, first.count + 2, 'a note written here: counted again');
+
+  fs.writeFileSync(path.join(vault, 'Notes', 'Also elsewhere.md'), '# Elsewhere\n');
+  const realNow = Date.now;
+  Date.now = () => realNow() + 5 * 60000 + 1000;
+  t.after(() => (Date.now = realNow));
+  assert.strictEqual((await obsidian.status()).count, first.count + 3, 'after 5 minutes the vault is walked again');
+});
+
 test('guide notes are placed once; one the user deleted stays deleted', async () => {
   const note = path.join(vault, 'Notes', 'Make Your Own Face.md');
   assert.ok(fs.existsSync(note), 'the face guide is in Notes/');

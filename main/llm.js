@@ -7,7 +7,9 @@
 const fsp = require('fs').promises;
 const os = require('os');
 const path = require('path');
-const Anthropic = require('@anthropic-ai/sdk');
+// The Anthropic SDK takes ~125 ms to load: only the anthropic brain needs it (test/modules.test.js).
+let sdk = null;
+const Anthropic = () => (sdk ||= require('@anthropic-ai/sdk'));
 const tools = require('./tools');
 const prompt = require('./prompt');
 const claudecode = require('./claudecode');
@@ -83,7 +85,7 @@ async function testConnection(settings) {
   const fixedModels = router.PROVIDERS[settings.llm.provider]?.models;
   settings = narrow(settings);
   if (settings.llm.provider === 'claude-code') {
-    const st = await claudecode.status();
+    const st = await claudecode.status({ fresh: true });
     if (!st.installed) throw new Error(`Claude Code is not installed. Install it with:\n${claudecode.installHint()}`);
     if (!st.loggedIn) throw new Error('Claude Code is installed but not signed in. Click "Connect Claude account".');
     const reply = await claudecode.complete('Reply with the single word: online');
@@ -211,6 +213,9 @@ async function claudeCodeOptions(settings, active, model) {
  * this brain is local, Claude is ready.
  */
 async function handOverTarget(settings, narrowed, { routine = false } = {}) {
+  // Only a brain on the OpenAI path can be local: a Claude brain whose old llm.baseUrl still points at
+  // localhost is not (it checked the Claude sign-in on every message and showed a false "Handed to Claude").
+  if (narrowed.llm.provider !== 'openai') return null;
   if (!(settings.llm.handOver || routine) || !require('./localcore').isLocal(narrowed)) return null;
   const ready = await router.status(settings).catch(() => []);
   return ['claude-code', 'anthropic'].find((id) => ready.some((p) => p.id === id && p.configured && !p.resting)) || null;
@@ -336,11 +341,12 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText, previousPersona, spoken: voice });
     const result = await claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
     // A session grown too big (claudecode.ROLLOVER_TOKENS) is closed now and a fresh one started in the
-    // background, so the next message is quick; main.js then keeps no session id to resume.
+    // background, so the next message is quick (not after a routine run: nobody writes there next);
+    // main.js then keeps no session id to resume.
     if (!setup && claudecode.needsRollover(result.contextTokens, result.freshTokens || conv.claudeFreshTokens)) {
       claudecode.rollover(conv.id, result.contextTokens);
       const next = [...history, { role: 'assistant', content: result.text }];
-      warmUp(settings, { id: conv.id, claudeSessionId: null }, opts, { history: next, last: conv.messages }).catch((error) => log.warn('prewarm failed', { error }));
+      if (!routine) warmUp(settings, { id: conv.id, claudeSessionId: null }, opts, { history: next, last: conv.messages }).catch((error) => log.warn('prewarm failed', { error }));
       return { ...result, rollover: true };
     }
     return result;
@@ -403,6 +409,10 @@ async function prewarm(settings, conv) {
     settings = router.concrete(settings, 'claude-code');
   }
   if (settings.llm.provider !== 'claude-code' || !conv) return;
+  // A routine's conversation (or one the app started, `auto`) is only read: its next run comes long after
+  // a warm session would have closed, so warming it would spend a hidden message on the plan for nothing.
+  const last = [...(conv.messages || [])].reverse().find((m) => m.role === 'user' && !m.hidden);
+  if (last?.routine || last?.auto) return;
   const active = settings.llm.useTools ? await tools.activeTools(settings) : [];
   const opts = await claudeCodeOptions(settings, active, effectiveModel(settings));
   // Opening chats one after another warms only the one that stays open.
@@ -812,7 +822,7 @@ function stripImages(messages) {
 // ------------------------------------------------------------------- Anthropic
 function anthropicClient(settings) {
   if (!settings.anthropic.apiKey) throw new Error('Add your Anthropic API key in Settings → AI Brain.');
-  return new Anthropic({ apiKey: settings.anthropic.apiKey, maxRetries: 2 });
+  return new (Anthropic())({ apiKey: settings.anthropic.apiKey, maxRetries: 2 });
 }
 
 // The Claude API conversation: the last `limit` messages (older ones live in the rolling summary), and
@@ -944,7 +954,7 @@ async function runAnthropic({ settings, conv, history, emit, signal, active, sys
       jsonRetries = 0;
     } catch (err) {
       if (signal.aborted) break;
-      if (err instanceof Anthropic.APIError || jsonRetries++ >= 2) throw err;
+      if (err instanceof Anthropic().APIError || jsonRetries++ >= 2) throw err;
       // Tool input JSON could not be parsed: discard this round and re-issue it.
       if (roundText) emit({ type: 'retract', chars: roundText.length });
       fullText = fullText.slice(0, fullText.length - roundText.length);

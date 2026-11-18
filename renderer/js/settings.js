@@ -792,7 +792,7 @@ function brainCard() {
       line.className = 'test-result';
       line.textContent = 'Checking Claude Code…';
       actions.innerHTML = '';
-      const st = await api.claude.status().catch((e) => ({ installed: false, error: e.message }));
+      const st = await api.claude.status({ fresh: true }).catch((e) => ({ installed: false, error: e.message }));
       if (!st.installed) {
         const hint = await api.claude.installHint();
         line.className = 'test-result err';

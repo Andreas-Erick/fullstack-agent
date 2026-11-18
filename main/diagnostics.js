@@ -38,7 +38,7 @@ async function run() {
         return { status: ready.length === 1 ? 'warn' : 'ok', detail: `Multi-provider: ${line}`, fix: ready.length === 1 ? 'Only one provider is ready, so there is nothing to fall back to. Add another key in Settings → AI brain.' : '' };
       }
       if (s.llm.provider === 'claude-code') {
-        const st = await claudecode.status();
+        const st = await claudecode.status({ fresh: true });
         if (!st.installed) return { status: 'fail', detail: 'Claude Code CLI not found.', fix: `Install: ${claudecode.installHint()}, or set its path in Settings → AI brain.` };
         if (!st.loggedIn) return { status: 'fail', detail: `Claude Code ${st.version} is not signed in.`, fix: 'Settings → AI brain → Connect Claude account.' };
         return { detail: `Claude account ${st.email || ''} (${st.subscription || st.authMethod}), Claude Code ${st.version}` };

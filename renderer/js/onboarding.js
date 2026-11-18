@@ -168,7 +168,7 @@ async function render() {
     const drawArea = async () => {
       area.innerHTML = '';
       if (draft.provider === 'claude-code') {
-        const st = await api.claude.status().catch(() => ({}));
+        const st = await api.claude.status({ fresh: true }).catch(() => ({}));
         if (!st.installed) area.append(el('div', { class: 'test-result err' }, `Claude Code isn’t installed. Install it, then click Re-check:\n  ${await api.claude.installHint()}`));
         else if (!st.loggedIn) area.append(el('div', { class: 'test-result' }, `Claude Code ${st.version} found — connect your account:`), el('button', { class: 'btn primary', onclick: () => api.claude.login() }, 'Connect Claude account'));
         else area.append(el('div', { class: 'test-result ok' }, `✓ Connected as ${st.email} (${st.subscription || st.authMethod} plan)`));
