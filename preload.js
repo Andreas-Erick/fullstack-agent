@@ -34,7 +34,7 @@ const channels = {
   log: ['write', 'tail', 'open', 'report'],
   issues: ['pending', 'open', 'dismiss'],
   faces: ['list', 'openFolder'],
-  conv: ['list', 'get', 'new', 'delete', 'rename', 'clear', 'export'],
+  conv: ['list', 'get', 'new', 'delete', 'rename', 'clear', 'export', 'search'],
   memory: ['list', 'search', 'save', 'update', 'delete', 'clear', 'dir', 'openDir', 'export', 'import'],
   tts: ['speak', 'voices', 'ping', 'cloudVoices'],
   stt: ['transcribe'],

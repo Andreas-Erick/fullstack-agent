@@ -463,14 +463,22 @@ function registerIpc() {
   handle('conv:new', () => store.createConversation());
   // Paired devices hear that their conversation list changed (companion.dataChanged).
   const convsChanged = (r) => (companion.dataChanged(['conversations']), r);
+  const historysearch = () => require('./historysearch'); // the words inside conversations (History's search)
   handle('conv:delete', (id) => {
     deletedConversations.add(id);
+    historysearch().forget(id);
     for (const c of activeRequests.values()) if (c.conversationId === id) c.abort();
     claudecode.endSession(id);
-    return store.deleteConversation(id).then(convsChanged);
+    return store
+      .deleteConversation(id)
+      .then((r) => (historysearch().forget(id), r)) // a scan running meanwhile can't keep it
+      .then(convsChanged);
   });
   handle('conv:rename', (id, title) => store.renameConversation(id, title).then(convsChanged));
+  // History: ids, titles and snippets, never conversations (main/historysearch.js).
+  handle('conv:search', (query, opts) => historysearch().search(String(query ?? ''), { cursor: opts?.cursor ?? null, limit: Number(opts?.limit) || undefined }));
   handle('conv:clear', async () => {
+    historysearch().clear();
     for (const c of await store.listConversations()) {
       deletedConversations.add(c.id);
       claudecode.endSession(c.id);
@@ -745,6 +753,7 @@ function registerIpc() {
 
   // Warm the Claude Code session for a conversation (called at launch / when a chat opens)
   handle('llm:prewarm', async (convId) => {
+    if (smoke.active) return false; // the launch check never reaches a real model (test/smokemodel.test.js)
     const s = await store.getSettings();
     if (s.llm.provider !== 'claude-code' || !s.claudeCode.warmOnLaunch || !convId) return false;
     const conv = await store.getConversation(convId);
