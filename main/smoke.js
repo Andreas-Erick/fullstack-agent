@@ -123,6 +123,10 @@ function watch(electronApp, w) {
   if (!active) return;
   app = electronApp;
   win = w;
+  // A check never makes a sound: the tour opens approval prompts, which are read aloud ("Permission
+  // needed: …"), and the offline voice and the fillers play through the page. (The OS's own voice,
+  // speechSynthesis, isn't muted by this; the smoke install never uses it.)
+  w.webContents.setAudioMuted(true);
   w.webContents.on('console-message', (e) => {
     if (e.level === 'error') problems.push(`console: ${String(e.message).slice(0, 300)} (${String(e.sourceId || '').replace(/^.*\/renderer\//, 'renderer/')}:${e.lineNumber})`);
   });

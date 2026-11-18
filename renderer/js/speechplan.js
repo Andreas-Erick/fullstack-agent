@@ -47,6 +47,29 @@ export function firstCut(s) {
   return [text, ''];
 }
 
+// The cut has a price: on the offline voice the pause at the comma came out 0.2–0.4 s longer than in
+// the whole sentence, and the head often ends on a falling, sentence-final tone. So a long first
+// sentence is cut only where making it whole would keep the listener waiting: on the processor
+// (seconds a sentence), or when the measured pace puts the whole sentence past CUT_WORTH_MS. A healthy
+// GPU makes a 160-character sentence in about 1.6 s: there it stays whole.
+export const CUT_WORTH_MS = 2500;
+
+/** Whether the offline voice should cut this first sentence (firstCut). */
+export function cutWorth({ chars, msPerChar = 0, device = '' }) {
+  if (/^CPU/i.test(device)) return true;
+  return msPerChar > 0 && chars * msPerChar > CUT_WORTH_MS;
+}
+
+/**
+ * The offline voice's pace, ms of model time per character, leaning on recent sentences. A short line
+ * is mostly fixed cost, so it doesn't count.
+ */
+export function paceAfter(prev, { chars, modelMs }) {
+  if (!(chars >= 20) || !(modelMs > 0)) return prev;
+  const now = modelMs / chars;
+  return prev > 0 ? prev * 0.6 + now * 0.4 : now;
+}
+
 /**
  * The filler warm-up's next step: 'done' (all made), 'stop' (a reply or a recording is on, or the main
  * voice is `away` and the fallback speaks, whose audio would be kept as the main voice's: the next

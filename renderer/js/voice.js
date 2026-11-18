@@ -4,7 +4,7 @@
 import { api, emit, speakable, toastError, logEvent } from './util.js';
 import { state, setFlag, setCaption, ttsActive } from './state.js';
 import { KOKORO_SAMPLE_RATE } from './kokorotext.js';
-import { takeSentences, splitSentences, firstCut, warmStep } from './speechplan.js';
+import { takeSentences, splitSentences, firstCut, cutWorth, paceAfter, warmStep } from './speechplan.js';
 import { createJobs } from './ttsjobs.js';
 import { allFillers } from './chatcore.js';
 import { practiceLanguage, pickVoice, languageName } from './practice.js';
@@ -34,8 +34,9 @@ const localVoice = {
   ready: null, // resolves when the model is loaded, rejects if it can't be
   loaded: false,
   device: '',
+  msPerChar: 0, // the measured pace (speechplan.js paceAfter), for cutting a long first sentence
   seq: 0,
-  pending: new Map(), // id → { done, fail, quiet, postedAt, readyAt, begunAt }
+  pending: new Map(), // id → { done, fail, quiet, chars, postedAt, readyAt, begunAt }
   jobs: createJobs(), // ttsjobs.js: which sentences wait, run, ran too long
   timer: 0,
   lastWarn: 0,
@@ -87,6 +88,7 @@ const localVoice = {
     this.pending.delete(msg.id);
     this.jobs.done(msg.id);
     if (msg.type === 'audio') {
+      this.msPerChar = paceAfter(this.msPerChar, { chars: job.chars, modelMs: msg.timing?.modelMs });
       this.logSentence(job, msg.timing);
       job.done({ samples: msg.samples, timing: msg.timing });
     } else if (msg.type === 'skipped') job.done(null);
@@ -116,6 +118,7 @@ const localVoice = {
   // Every sentence still waiting fails with `reason`.
   dropJobs(reason) {
     this.loaded = false;
+    this.msPerChar = 0; // the next load may run elsewhere (the GPU, the processor)
     for (const { fail } of this.pending.values()) fail(new Error(reason));
     this.pending.clear();
     this.jobs = createJobs();
@@ -150,7 +153,7 @@ const localVoice = {
     const v = state.settings.voice;
     const id = ++this.seq;
     const postedAt = performance.now();
-    const job = { quiet, postedAt, readyAt: this.loaded ? postedAt : 0, begunAt: 0 };
+    const job = { quiet, chars: text.length, postedAt, readyAt: this.loaded ? postedAt : 0, begunAt: 0 };
     const out = await new Promise((done, fail) => {
       Object.assign(job, { done, fail });
       this.pending.set(id, job);
@@ -303,17 +306,18 @@ class Speaker {
     this.started = false;
   }
 
-  // The first sentence of a reply goes out alone so the voice starts fast (a long one in two parts,
-  // speechplan.js firstCut: the second is made while the first plays; not for a practice language's
-  // Windows voice, which speaks at once: there a cut only adds a pause); after that sentences go in
-  // pairs, because the voice gives fuller chunks livelier delivery than single short sentences.
-  // A lone sentence never waits longer than a moment for its partner.
+  // The first sentence of a reply goes out alone so the voice starts fast (a long one in two parts
+  // when the offline voice is slow, speechplan.js firstCut/cutWorth: the second is made while the first
+  // plays; never for a practice language's Windows voice, which speaks at once: there a cut only adds a
+  // pause); after that sentences go in pairs, because the voice gives fuller chunks livelier delivery
+  // than single short sentences. A lone sentence never waits longer than a moment for its partner.
   chunk(text, override) {
     if (!text) return;
     if (!this.started) {
       this.started = true;
       const practice = practiceVoiceFor(override);
-      const [head, tail] = practice && pickVoice(speechSynthesis.getVoices(), practice) ? [text, ''] : firstCut(text);
+      const instant = practice && pickVoice(speechSynthesis.getVoices(), practice);
+      const [head, tail] = instant || !this.cutsFirst(text, override) ? [text, ''] : firstCut(text);
       this.enqueue(head, override, { first: true });
       if (tail) this.enqueue(tail, override);
       return;
@@ -323,6 +327,12 @@ class Speaker {
     clearTimeout(this.batchTimer);
     if (this.batch.length >= 2 || text.length >= 110) this.release();
     else this.batchTimer = setTimeout(() => this.release(), 450);
+  }
+
+  // Only the offline voice cuts (its pace is measured); VoiceStudio and the cloud voice keep it whole.
+  cutsFirst(text, override) {
+    const offline = (override?.engine || state.settings.voice.engine) === 'local' || (this.onFallback && fallbackMode() === 'local');
+    return offline && cutWorth({ chars: text.length, msPerChar: localVoice.msPerChar, device: localVoice.device });
   }
 
   release() {

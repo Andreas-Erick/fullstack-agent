@@ -13,6 +13,8 @@ process.env.NEXUS_USER_DATA = path.join(tmp, 'data');
 process.env.NEXUS_DOCUMENTS = path.join(tmp, 'documents');
 app.setPath('userData', process.env.NEXUS_USER_DATA);
 app.setPath('documents', process.env.NEXUS_DOCUMENTS);
+// A test never makes a sound: the phone client plays spoken replies and approval prompts.
+app.on('browser-window-created', (_e, w) => w.webContents.setAudioMuted(true));
 
 const SIZES = [
   { name: 'phone', width: 390, height: 844 },
