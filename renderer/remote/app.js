@@ -711,7 +711,9 @@ function addMessage(m) {
     b.innerHTML = markdown(text);
     wrap.append(b, actions(text));
   } else {
-    wrap.append(el('div', { class: 'bubble' }, text));
+    if (text) wrap.append(el('div', { class: 'bubble' }, text));
+    // Files attached on the computer: their names only (main/companion.js messageForDevice).
+    if (m.attachments?.length) wrap.append(el('div', { class: 'meta' }, `📎 ${m.attachments.map((a) => a.name).join(' · ')}`));
     if (m.remote) wrap.append(el('div', { class: 'meta' }, `from ${m.remote}`));
   }
   $('#messages').append(wrap);

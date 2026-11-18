@@ -44,3 +44,18 @@ test('roles alternate (consecutive text turns are merged)', () => {
   assert.deepStrictEqual(msgs.map((m) => m.role), ['user', 'assistant']);
   assert.strictEqual(msgs[0].content, 'a\n\nb');
 });
+
+// Attached files (main/attachments.js): their text is sent again only for the newest two messages that
+// carry files; older ones keep the headers with the saved path, so a long chat doesn't resend every PDF.
+test('the newest two messages with files keep their text; older ones only the headers', () => {
+  const block = (n) => `<attachment index="1" kind="pdf" name="p${n}.pdf" size="4 MB" saved="C:\\att\\c1\\p${n}.pdf">\nEXTERNAL\nText extracted from the PDF.\n${`PDF ${n} `.repeat(3000)}\n</attachment>\n\nquestion ${n}`;
+  const history = [];
+  for (let n = 0; n < 4; n++) history.push({ role: 'user', content: block(n), display: `question ${n}`, attachments: [{ kind: 'pdf', name: `p${n}.pdf` }] }, { role: 'assistant', content: `answer ${n}` });
+  history.push({ role: 'user', content: 'and without files?' });
+  const users = anthropicHistory(history).filter((m) => m.role === 'user').map((m) => m.content);
+  assert.deepStrictEqual(users.map((c) => c.includes('[Not repeated here')), [true, true, false, false, false]);
+  assert.ok(users[0].includes('saved="C:\\att\\c1\\p0.pdf"') && users[0].endsWith('question 0'), 'the path and the words stay');
+  assert.ok(users[3].includes('PDF 3 PDF 3'));
+  assert.strictEqual(users[4], 'and without files?');
+  assert.ok(anthropicHistory(history, { fullAttachments: 0 }).filter((m) => m.role === 'user').slice(0, 4).every((m) => m.content.includes('[Not repeated here')));
+});

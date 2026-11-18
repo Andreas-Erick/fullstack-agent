@@ -8,6 +8,8 @@ import { practiceLanguage, quoteFilter } from './practice.js';
 import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
 import * as chatcore from './chatcore.js';
+import { initAttach, takeAttachments, restoreAttachments, attachmentCount, attachmentsReading, attachmentsReady, attachmentsSummary, setSendBusy } from './attach.js';
+import * as attachcore from './attachcore.mjs';
 import { showNote } from './notes.js';
 import { showVaultNote, searchVault } from './knowledge.js';
 import { speaker } from './voice.js';
@@ -71,6 +73,7 @@ export function initChat() {
     if (!state.settings.voice.autoSpeak) speaker.stop();
   };
   on('settings', updateSpeakToggle);
+  initAttach();
 
   api.on('chat:event', handleEvent);
   api.on('routine:event', (ev) => ev.type === 'finished' && refreshList()); // its run shows in History
@@ -113,6 +116,8 @@ function autosize() {
   t.style.height = `${Math.min(220, t.scrollHeight)}px`;
 }
 
+let waitingFiles = null; // a send waiting for its attachments to be read (attachcore.sendPlan)
+
 function sendFromInput() {
   const input = $('#input');
   const text = input.value.trim();
@@ -129,10 +134,23 @@ function sendFromInput() {
     });
     return;
   }
-  if (!text) return;
+  // A message already queued behind the reply being stopped counts as waiting: this one stays in the box,
+  // so the two can't go out in reverse order (the later one interrupting the earlier one's reply).
+  const plan = attachcore.sendPlan({ text, files: attachmentCount(), reading: attachmentsReading(), active: Boolean(active), waiting: Boolean(waitingFiles || queued) });
+  if (plan === 'none' || plan === 'hold') return;
+  if (plan === 'wait') return waitForFiles(sendFromInput); // the text stays in the box meanwhile
   input.value = '';
   autosize();
-  send(text);
+  send(text, { attach: true });
+}
+
+function waitForFiles(then) {
+  setSendBusy(true, attachmentCount());
+  waitingFiles = attachmentsReady().finally(() => {
+    waitingFiles = null;
+    setSendBusy(false);
+    then();
+  });
 }
 
 // ------------------------------------------------------------- conversations
@@ -566,10 +584,26 @@ function messageNode(m) {
     decorateCode(bubble);
   } else bubble.textContent = d.text;
   if (d.tags.length) body.append(el('div', { class: 'msg-tag' }, d.tags.map((t) => el('span', {}, t))));
-  body.append(bubble);
+  if (m.attachments?.length) body.append(filesNode(m.attachments));
+  if (d.text || !m.attachments?.length) body.append(bubble); // files alone: no empty bubble
   body.append(metaNode(m));
   wrap.append(avatarNode(m.role), body);
   return wrap;
+}
+
+// The files and pictures a message carried (attachcore.chipFor): a sent file's chip opens its copy in Documents.
+function filesNode(list) {
+  return el(
+    'div',
+    { class: 'msg-files' },
+    list.map((a) => {
+      const c = attachcore.chipFor(a);
+      const parts = [c.thumb ? el('img', { src: c.thumb, alt: '' }) : el('span', { class: 'i', 'aria-hidden': 'true' }, c.icon), el('span', { class: 'n' }, c.name)];
+      if (!c.path) return el('span', { class: 'attach-chip', title: `${c.name}\n${c.detail}` }, parts);
+      const open = () => import('./docs.js').then((m) => m.openDocument(c.path)).catch(toastError);
+      return el('button', { class: 'attach-chip', type: 'button', title: `${c.name}\n${c.detail}\nOpen the copy kept with this conversation`, onclick: open }, parts);
+    }),
+  );
 }
 
 // The telemetry line the HUD shows on a reply (hud.css): "NEXUS · 14:32:05 · OPUS 5.5".
@@ -708,34 +742,45 @@ async function openNoteLink(ref) {
 // --------------------------------------------------------------------- send
 // Spoken input: interrupts a reply in progress (the old turn is stopped and drained), then sends.
 export function sendVoice(text) {
+  const input = $('#input');
   if (!state.settings.stt.autoSend) {
-    const input = $('#input');
     input.value = (input.value ? `${input.value} ` : '') + text;
     autosize();
     closeHistory({ focus: false }); // otherwise the composer is inert
     input.focus();
     return;
   }
+  if (waitingFiles) {
+    // A message is waiting for its files to be read: these words wait in the box (attachcore.sendPlan 'hold').
+    input.value = (input.value ? `${input.value} ` : '') + text;
+    autosize();
+    toast('Still reading your file; your words are in the box.');
+    return;
+  }
   if (active) {
-    queued = { text, voice: true };
+    queued = { text, voice: true, attach: true };
     stop();
     return;
   }
-  send(text, { voice: true });
+  send(text, { voice: true, attach: true });
 }
 
 // redo: Try again / Regenerate / Edit (runAgain), sent as chat:redo; main takes the old exchange out.
-export async function send(text, { voice = false, hidden = false, redo: again = null } = {}) {
+// attach: the composer's attachments go with this message (the user's own words, typed or spoken); a
+// suggestion, a skill run, a redo or the setup flow never takes them.
+export async function send(text, { voice = false, hidden = false, attach = false, redo: again = null } = {}) {
   text = String(text || '').trim();
-  if (!text) return;
+  const withFiles = attach && !hidden && !again && !state.setupMode && attachmentCount() > 0;
+  if (!text && !withFiles && !again) return; // a redo may have no words of its own (a message of files only)
   if (editing) cancelEdit({ keepText: true }); // another message went first: the box keeps the edit as a draft
   if (active) {
     if (again) return; // runAgain checked first; a reply that started since wins
-    queued = { text, voice };
+    queued = { text, voice, attach };
     toast('Interrupting the current reply…');
     stop();
     return;
   }
+  if (withFiles && attachmentsReading()) return waitForFiles(() => send(text, { voice, attach }));
   speaker.stop();
   hideCard();
   closeHistory({ focus: false });
@@ -745,7 +790,8 @@ export async function send(text, { voice = false, hidden = false, redo: again = 
   const requestId = `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   const sharing = !$('#screenThumb').classList.contains('hidden') && state.settings.screen?.attachToMessages !== false;
   const slash = text.match(/^\/([\w-]+)/);
-  if (!hidden) messagesEl().append(messageNode({ id: 'pending-user', pending: requestId, role: 'user', content: text, createdAt: Date.now(), screen: sharing, skill: slash && skillList.some((x) => x.slug === slash[1].toLowerCase()) ? slash[1].toLowerCase() : null }));
+  const files = withFiles ? takeAttachments() : { tokens: [], meta: [] };
+  if (!hidden) messagesEl().append(messageNode({ id: 'pending-user', pending: requestId, role: 'user', content: text, display: text, ...(files.meta.length ? { attachments: files.meta } : {}), createdAt: Date.now(), screen: sharing, skill: slash && skillList.some((x) => x.slug === slash[1].toLowerCase()) ? slash[1].toLowerCase() : null }));
   const wrap = el('div', { class: 'msg assistant' });
   const body = el('div', { class: 'msg-body' });
   const tools = el('div', { class: 'tools' });
@@ -759,7 +805,7 @@ export async function send(text, { voice = false, hidden = false, redo: again = 
   active = { requestId, wrap, body, bubble, toolsEl: tools, text: '', tools: new Map(), muted: false, speech: practiceLanguage(state.settings) ? quoteFilter() : (d) => d };
   setFlag('generating', true);
   setFlag('streamingText', false);
-  setCaption(text, 'user');
+  setCaption(text || attachmentsSummary(files.meta), 'user');
   // A spoken message hears something within a moment, even when the reply starts with tools or thinking.
   if (voice && ttsActive() && state.settings.voice.filler) {
     const turn = active;
@@ -773,14 +819,28 @@ export async function send(text, { voice = false, hidden = false, redo: again = 
   $('#stopBtn').classList.remove('hidden');
 
   try {
-    const res = again ? await api.chat.redo({ ...again, requestId }) : await api.chat.send({ conversationId: currentId, text, requestId, voice, hidden });
+    const res = again ? await api.chat.redo({ ...again, requestId }) : await api.chat.send({ conversationId: currentId, text, requestId, voice, hidden, attachments: files.tokens });
+    if (res?.refused) return refusedSend(res.refused, text, requestId, wrap);
     currentId = res.conversationId;
   } catch (err) {
+    restoreAttachments(files);
     finish();
     bubble.classList.add('error-bubble');
     bubble.textContent = err.message;
     if (again) (toast(err.message, 'error'), openConversation(currentId)); // nothing was dropped on the computer
   }
+}
+
+// An attachment expired before the message was stored (main/attachments.js claim): nothing was sent.
+// The message shown while sending goes; the words come back to an empty box.
+function refusedSend(message, text, requestId, wrap) {
+  finish();
+  messagesEl().querySelector(`.msg[data-pending="${CSS.escape(requestId)}"]`)?.remove();
+  wrap.remove();
+  const input = $('#input');
+  if (!input.value) ((input.value = text), autosize());
+  toast(message, 'error');
+  syncActions();
 }
 
 function stop() {
@@ -810,7 +870,7 @@ function handleEvent(ev) {
       currentId = ev.conversationId;
       $('#chatTitle').textContent = ev.title || 'Conversation';
       if (ev.replaces) dropFrom(ev.replaces, { keep: active.wrap }); // the unanswered copy this message replaces
-      // The stored message (its id for Try again) in place of the one shown while sending.
+      // The stored message (its id for ✎ Edit, its files' saved paths) in place of the one shown while sending.
       const pending = messagesEl().querySelector(`.msg[data-pending="${CSS.escape(active.requestId)}"]`);
       if (pending && ev.userMessage) pending.replaceWith(messageNode(ev.userMessage));
       if (ev.userMessage) shown.push(ev.userMessage);
@@ -856,6 +916,7 @@ function handleEvent(ev) {
       // Tools an earlier attempt or reply ran (main.js, a message sent again): named as the chips name them.
       const text = ev.tools?.length ? `⚠ Already done by the earlier attempt or reply (not undone): ${ev.tools.map((n) => chatcore.toolLabel(n, TOOL_LABELS)).join(', ')}` : `⚠ ${ev.message}`;
       active.body.insertBefore(el('div', { class: 'notice' }, text), active.bubble);
+      if (ev.toast) toast(text); // the Face layout hides the list
       break;
     }
     case 'memory_changed':
@@ -1218,7 +1279,7 @@ function finish() {
   if (queued) {
     const q = queued;
     queued = null;
-    setTimeout(() => send(q.text, { voice: q.voice }), 0);
+    setTimeout(() => send(q.text, { voice: q.voice, attach: q.attach }), 0);
   }
   setFlag('generating', false);
   setFlag('streamingText', false);

@@ -7,6 +7,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const attachcore = require('./attachcore');
 
 const active = process.argv.includes('--smoke');
 const TIMEOUT_MS = Number(process.env.NEXUS_SMOKE_TIMEOUT_MS) || 90000;
@@ -50,8 +51,13 @@ function seedChat(data) {
     '- `inline_code_that_is_very_long_and_has_no_spaces_at_all_anywhere_in_it_whatsoever` and someone.with.a.very.long.address@subdomain.example-university.edu',
   ].join('\n\n');
   const now = Date.now();
+  // A message with attachments (main/attachments.js): a PDF with a long name and an image, as chips.
+  const lecture = 'Lecture 03 – Signals and Systems, Fourier transforms and the sampling theorem (annotated).pdf';
+  const pdfMeta = { kind: 'pdf', name: lecture, size: 4200000, pages: 28, chars: 81000, shown: 30000, path: path.join(data, 'attachments', 'csmoke01', 'Lecture 03.pdf') };
+  const attached = attachcore.compose({ prompt: 'What does slide 4 say?', typed: 'What does slide 4 say?', notice: 'EXTERNAL CONTENT', items: [{ ...pdfMeta, text: 'Slide 4: the sampling theorem. '.repeat(40), pagesRead: 12 }, { kind: 'image', name: 'circuit.png', type: 'image/png', width: 1568, height: 882 }] });
   const messages = [
     { id: 'msmoke1', role: 'user', content: `Summarise ${url} ${'please '.repeat(30)}`, createdAt: now - 2000 },
+    { id: 'msmoke1a', role: 'user', display: 'What does slide 4 say?', content: attached.content, attachments: attached.meta, createdAt: now - 1500 },
     { id: 'msmoke2', role: 'assistant', persona: 'Siren', content: reply, createdAt: now - 1000, model: 'claude-opus-5-5', provider: 'claude-code', toolCalls: [{ name: 'mcp__claude_ai_Google_Calendar__list_events', input: { calendarId: 'someone.with.a.very.long.address@example.com' }, ok: true }, { name: 'WebFetch', input: { url }, ok: true }] },
     // A message whose reply failed: its plain-words card, Try again and Details (chat.js syncActions).
     { id: 'msmoke3', role: 'user', content: 'And again?', createdAt: now - 500, attempt: { outcome: 'failed', at: now - 500, error: 'LLM error 429: {"error":{"message":"Rate limit reached for requests"}}', tools: [], output: false } },

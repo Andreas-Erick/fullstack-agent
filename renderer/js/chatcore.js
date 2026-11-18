@@ -51,7 +51,8 @@ export function describeMessage(m, labels = {}) {
     tools: (m.toolCalls || []).map((t) => toolChip(t, labels)),
     tags: messageTags(m),
     markdown: m.role === 'assistant',
-    text: m.role === 'assistant' ? m.content || '' : m.display || m.content || '',
+    // A message with attachments carries the files' text in its content: it shows only what was typed.
+    text: m.role === 'assistant' ? m.content || '' : m.attachments?.length ? m.display || '' : m.display || m.content || '',
   };
 }
 

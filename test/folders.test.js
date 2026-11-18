@@ -74,3 +74,26 @@ test('Claude Code: Read/Glob/Grep outside the allowed folders are denied', async
   assert.strictEqual(await ask('Glob', { pattern: '**/*.md' }), 'allow', 'relative: the session folder');
   assert.strictEqual(await ask('Read', { file_path: path.join(ws, '..', 'Desktop', 'secret.txt') }), 'deny', 'no escaping with ..');
 });
+
+// Copies of files attached in the chat (main/attachments.js): the app's own folder, <userData>/attachments
+// (here userData is the stand-in's Desktop folder). Allowed, but never searched, and opened outside the app
+// only as documents and data.
+const attached = require('../main/datadir').attachmentsFolder();
+test('attachments: allowed and readable, never searched by name, opened outside the app only as documents', async () => {
+  fs.mkdirSync(path.join(attached, 'c1'), { recursive: true });
+  for (const f of ['a.pdf', 'run.bat.txt', 'page.html', 'logo.svg', 'report.txt']) fs.writeFileSync(path.join(attached, 'c1', f), 'x');
+  fs.mkdirSync(path.join(desktop, 'conversations'), { recursive: true });
+  fs.writeFileSync(path.join(desktop, 'conversations', 'c1.json'), '{}');
+  assert.ok((await documents.allowedRoots()).includes(attached));
+  assert.strictEqual(await documents.resolveAllowed(path.join(attached, 'c1', 'a.pdf')), path.join(attached, 'c1', 'a.pdf'));
+  await assert.rejects(documents.resolveAllowed(path.join(desktop, 'conversations', 'c1.json')), /not allowed/, 'only the attachments, not the rest of the app’s data');
+  await assert.rejects(documents.resolveAllowed(path.join(desktop, 'diary.txt')), /not allowed/, 'nor the folder around it');
+  assert.ok(await documents.externalPath(path.join(attached, 'c1', 'a.pdf')));
+  assert.ok(await documents.externalPath(path.join(attached, 'c1', 'run.bat.txt')));
+  for (const f of ['page.html', 'logo.svg']) await assert.rejects(documents.externalPath(path.join(attached, 'c1', f)), /only inside the app/, f);
+  const found = await documents.findDocuments('report');
+  assert.deepStrictEqual(found.matches.map((m) => m.path), [path.join(ws, 'report.txt')], 'a copy is reached through its conversation, not by name');
+  // Not added to the recent list (this store stand-in has no files: adding would throw).
+  const doc = await documents.load(path.join(attached, 'c1', 'report.txt'));
+  assert.strictEqual(doc.kind, 'text');
+});

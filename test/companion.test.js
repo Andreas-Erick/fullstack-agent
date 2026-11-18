@@ -645,3 +645,26 @@ test('a message sent again reaches devices with what it replaces; a failed attem
   assert.strictEqual(r.status, 200);
   assert.match(await r.text(), /export function errorHelp/);
 });
+
+// Files attached on the computer (main/attachments.js): a device sees their names, never their text, saved
+// paths or previews, and the message shows what was typed.
+test('a message with attachments reaches devices as its typed words and the files’ names only', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Attach phone')}` };
+  const body = '<attachment index="1" kind="pdf" name="lecture.pdf" size="4 MB" saved="C:\\Users\\me\\attachments\\ca\\lecture.pdf">\nEXTERNAL\nText extracted from the PDF.\nSECRET LECTURE TEXT\n</attachment>\n\nWhat does slide 4 say?';
+  const files = [{ kind: 'pdf', name: 'lecture.pdf', size: 4200000, path: 'C:\\Users\\me\\attachments\\ca\\lecture.pdf', chars: 81000, shown: 30000 }, { kind: 'image', name: 'circuit.png', width: 10, height: 5, thumb: 'data:image/jpeg;base64,/9j/4AAQ' }];
+  convs.ca = { id: 'ca', title: 'Attached', updatedAt: 4, messages: [{ id: 'ma1', role: 'user', content: body, display: 'What does slide 4 say?', attachments: files }, { id: 'ma2', role: 'user', content: body, attachments: files }] };
+  try {
+    const text = await (await fetch(`${base}/api/conversations/ca`, { headers: auth })).text();
+    const [typed, bare] = JSON.parse(text).messages;
+    assert.strictEqual(typed.content, 'What does slide 4 say?');
+    assert.deepStrictEqual(typed.attachments, [{ kind: 'pdf', name: 'lecture.pdf' }, { kind: 'image', name: 'circuit.png' }]);
+    assert.strictEqual(bare.content, '', 'no display: nothing of the blocks');
+    assert.ok(!/SECRET|<attachment|attachments\\\\ca|base64/.test(text), text);
+    const streamed = await listen(auth, async () => companion.publish('chat:event', { requestId: 'rA1', conversationId: 'ca', type: 'start', title: 'Attached', userMessage: convs.ca.messages[0] }));
+    assert.match(streamed, /"attachments":\[\{"kind":"pdf","name":"lecture.pdf"\}/);
+    assert.ok(!/SECRET|<attachment|base64/.test(streamed));
+    companion.publish('chat:event', { requestId: 'rA1', conversationId: 'ca', type: 'aborted' });
+  } finally {
+    delete convs.ca;
+  }
+});

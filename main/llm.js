@@ -21,6 +21,7 @@ const router = require('./router');
 const log = require('./logger');
 const { isEngineeringTask, toolBudget, upgradeBudget, turnEffort } = require('./engineering');
 const pace = require('./pace');
+const attachcore = require('./attachcore');
 
 const noToolSupport = new Set(); // `${baseUrl}|${model}` combos that rejected the tools parameter
 const noExtras = new Set(); // combos that rejected localcore.requestExtras (keep_alive, reasoning_effort)
@@ -243,7 +244,8 @@ async function runSingle(opts) {
   };
   if (target) {
     const services = await connectorNames(settings);
-    const why = userOn ? require('./localcore').handOverHint(text, { services, engineering: !opts.routine && isEngineeringTask(text) }) : require('./localcore').neededService(text, services);
+    // The whole message (attached text included): a long attachment is "a long text"; a picture needs Claude's eyes.
+    const why = userOn ? require('./localcore').handOverHint(text, { services, engineering: !opts.routine && isEngineeringTask(text), images: (opts.images || []).length }) : require('./localcore').neededService(text, services);
     if (why) return handOver(userOn ? why : `the routine needs ${why}`);
     if (!userOn) return { ...(await runOn(narrowed, opts)), provider: settings.llm.provider };
   }
@@ -270,8 +272,10 @@ async function runSingle(opts) {
 async function runTurn(opts) {
   const { settings, conv, history, emit, signal, voice = false } = opts;
   if (settings.llm.provider !== 'auto') return runSingle(opts);
-  const text = String(history[history.length - 1]?.content || '');
-  const plan = await router.plan(settings, { text, voice, needsTools: Boolean(conv.setup) });
+  // The user's words decide the kind of task; attached text makes it a long input, a picture needs a brain that sees.
+  const content = String(history[history.length - 1]?.content || '');
+  const text = attachcore.withoutBlocks(content);
+  const plan = await router.plan(settings, { text, voice, needsTools: Boolean(conv.setup), needsVision: (opts.images || []).length > 0, attachedChars: attachcore.attachedChars(content) });
   if (!plan.length) throw new Error('No AI provider is ready. Connect your Claude account or add an API key in Settings → AI brain.');
   log.info('route', { order: plan.map((p) => p.id).join(' > '), reason: plan[0].reason });
   const failures = [];
@@ -306,13 +310,18 @@ async function runTurn(opts) {
 }
 
 // handOverTo: the Claude brain a local model may hand this message to (runTurn), or null.
-async function runOn(settings, { conv, history, emit, signal, voice = false, images = [], handOverTo = null, routine = false, again = null }) {
+// taint: the outside content this message carries (the shared screen, attached files and images), each a
+// source the approval prompts name; imageNoun: how a notice names its pictures ('your image'…).
+async function runOn(settings, { conv, history, emit, signal, voice = false, images = [], handOverTo = null, routine = false, again = null, taint = [], imageNoun = '' }) {
   const setup = Boolean(conv.setup);
   const active = setup || settings.llm.useTools ? await tools.activeTools(settings, { setup }) : [];
   const names = active.map((t) => t.name);
   // logTags: tool calls that arrive later through other channels (the MCP bridge, the Claude Code
   // process's output) are logged under this turn too.
-  const lastText = String(history[history.length - 1]?.content || '');
+  // The user's own words: pace, engineering, tool hints, recall and the log never read a whole attached PDF.
+  const lastContent = String(history[history.length - 1]?.content || '');
+  const lastText = attachcore.withoutBlocks(lastContent);
+  const attached = attachcore.attachedChars(lastContent);
   // The persona that wrote the latest reply (stored on it since 2.7.10): a switch mid-conversation is named.
   const previousPersona = require('./personacore').lastPersona(history);
   // Spoken turns stay quick unless they actually start engineering work (upgraded in runTool).
@@ -322,16 +331,17 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   const base = settings.llm.provider === 'claude-code' ? settings.claudeCode.effort : settings.llm.provider === 'anthropic' ? settings.anthropic.effort : 'default';
   // A routine's long instructions read as "deep" and ran on Opus; syncing lists and briefings is everyday
   // work (the normal model, Sonnet with Claude), unless the user set a model mode themselves.
-  const paced = routine && settings.llm?.autoPace !== false && (settings.llm?.modelMode || 'default') === 'default' ? { pace: 'routine', mode: 'normal', effort: base } : pace.plan(settings, { text: lastText, voice, setup, engineering, base });
+  const paced = routine && settings.llm?.autoPace !== false && (settings.llm?.modelMode || 'default') === 'default' ? { pace: 'routine', mode: 'normal', effort: base } : pace.plan(settings, { text: lastText, voice, setup, engineering, base, attached });
   const ctx = { emit, turn: approvals.newTurn(), logTags: log.context(), budget: toolBudget(settings, engineering), effort: paced.effort, pace: paced.pace };
   // A routine works on its own (a sync can take many steps): the larger number of rounds, not code work's effort.
   if (routine) ctx.budget.rounds = ctx.budget.deep;
-  // A screenshot can contain anything on screen (web pages, emails): it is external content.
-  if (images.length) approvals.markTainted(ctx.turn, 'the shared screen');
+  // A screenshot or an attached file can contain anything (web pages, emails): it is external content.
+  for (const source of taint.length ? taint : images.length ? ['the shared screen'] : []) approvals.markTainted(ctx.turn, source);
   // Trying again in the same session: what the earlier attempt read is still in its context.
   if (again?.taint) approvals.markTainted(ctx.turn, 'the earlier attempt at this message');
+  ctx.imageNoun = imageNoun || 'the shared screen';
   const model = effectiveModel(settings, { voice, mode: paced.mode });
-  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', pace: paced.pace, effort: paced.effort, voice, setup, engineering: engineering || undefined, images: images.length || undefined, conversation: conv.id, text: lastText.slice(0, 200) });
+  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', pace: paced.pace, effort: paced.effort, voice, setup, engineering: engineering || undefined, images: images.length || undefined, attachments: history[history.length - 1]?.attachments?.length || undefined, conversation: conv.id, text: lastText.slice(0, 200) });
   if (settings.llm.provider === 'claude-code') {
     // routine: background work keeps the session's warm model (claudecode.chooseModel, pace.warmModel).
     const opts = { ...(await claudeCodeOptions(settings, active, model)), effort: paced.effort, routine };
@@ -523,13 +533,17 @@ const dataUrlParts = (url) => String(url || '').match(/^data:(image\/[\w+.-]+);b
 
 // ------------------------------------------------- OpenAI-compatible (FreeLLMAPI)
 // plain: only text, strictly alternating (for providers without tool support, e.g. Perplexity).
-function openaiHistory(history, limit, { plain = false } = {}) {
+// Attached files' text goes only with its own message (newestChars of it: a local model's small context);
+// older messages keep the files' headers and saved paths (attachcore.headersOnly).
+function openaiHistory(history, limit, { plain = false, newestChars = Infinity } = {}) {
   const recent = history.slice(-Math.max(2, limit || 30));
   while (recent.length && recent[0].role !== 'user') recent.shift();
   const out = [];
-  for (const m of recent) {
-    if (m.role === 'user') out.push({ role: 'user', content: m.content });
-    else if (m.role === 'assistant') {
+  for (const [i, m] of recent.entries()) {
+    if (m.role === 'user') {
+      const content = !m.attachments?.length ? m.content : i === recent.length - 1 ? attachcore.fitBlocks(m.content, newestChars) : attachcore.headersOnly(m.content);
+      out.push({ role: 'user', content });
+    } else if (m.role === 'assistant') {
       if (!plain && m.raw?.provider === 'openai' && Array.isArray(m.raw.messages) && m.raw.messages.length) out.push(...m.raw.messages);
       else if (m.content) out.push({ role: 'assistant', content: m.content });
     }
@@ -635,9 +649,10 @@ async function compactHistory(settings, conv, history, limit = Math.max(4, setti
   const cutoff = history.length - limit; // messages before this index are summarized
   const doneUpTo = conv.summaryUpTo || 0;
   if (cutoff - doneUpTo < 6 && conv.summary) return { summary: conv.summary, patch: null }; // summarize in batches
+  // A message with attachments counts as what was typed and the files' names and saved paths.
   const chunk = history
     .slice(doneUpTo, cutoff)
-    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').slice(0, 2000)}`)
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${(m.role === 'user' && m.attachments?.length ? attachcore.summaryLine(m) : String(m.content || '')).slice(0, 2000)}`)
     .join('\n\n');
   try {
     const summary = await complete(
@@ -658,8 +673,9 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
   const base = trimBase(settings.llm.baseUrl);
   const plain = Boolean(settings.llm.plainHistory);
   if (plain) active = [];
+  // toast: the Face layout hides the message list, so the notice also shows as a toast (chat.js).
   if (images.length && settings.llm.noVision) {
-    emit({ type: 'notice', message: `${router.label(settings.llm.via)} can't see images, so the shared screen was left out of this message.` });
+    emit({ type: 'notice', message: `${router.label(settings.llm.via)} can't see images, so ${ctx.imageNoun || 'the shared screen'} was left out of this message. Switch to Claude to ask about it.`, toast: true });
     images = [];
   }
   let model = settings.llm.model;
@@ -674,7 +690,7 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
   const fnTools = () => (plain ? [] : ctx.toolset?.list || active).map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
 
   const compacted = await compactHistory(settings, conv, history);
-  const plainMessages = [{ role: 'system', content: compacted.summary ? `${system}\n\n## Earlier in this conversation (summary)\n${compacted.summary}` : system }, ...openaiHistory(history, settings.llm.historyLimit, { plain })];
+  const plainMessages = [{ role: 'system', content: compacted.summary ? `${system}\n\n## Earlier in this conversation (summary)\n${compacted.summary}` : system }, ...openaiHistory(history, settings.llm.historyLimit, { plain, newestChars: require('./localcore').isLocal(settings) ? attachcore.LIMITS.localChars : Infinity })];
   const { placeNote } = require('./localcore');
   let noteAsSystem = !noSystemNote.has(comboKey);
   let textOnly = placeNote(plainMessages, turnNote, { asSystem: noteAsSystem });
@@ -710,7 +726,7 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       // The model can't take images: retry once without the screenshot.
       if (messages !== textOnly && [400, 404, 415, 422].includes(err.status) && round === 0) {
         messages = textOnly;
-        emit({ type: 'notice', message: `Model "${model}" can't see images — continuing without the shared screen.` });
+        emit({ type: 'notice', message: `Model "${model}" can't see images — continuing without ${ctx.imageNoun || 'the shared screen'}.`, toast: true });
         round--;
         continue;
       }
@@ -789,7 +805,7 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
       }
       // A local model asked a question ("Can I fit a gym session in?") changes nothing: it answers.
       const lc = require('./localcore');
-      if (ctx.toolset && lc.questionOnly(history[history.length - 1]?.content) && !lc.isReadTool(tc.function.name) && tc.function.name !== 'hand_over') {
+      if (ctx.toolset && lc.questionOnly(attachcore.withoutBlocks(String(history[history.length - 1]?.content || ''))) && !lc.isReadTool(tc.function.name) && tc.function.name !== 'hand_over') {
         log.info('local model tried to change something for a question; refused', { name: tc.function.name });
         turnMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: lc.NOT_FOR_A_QUESTION }) });
         continue;
@@ -836,14 +852,18 @@ function anthropicClient(settings) {
 const API_HISTORY = 60;
 const API_RAW_REPLIES = 6;
 
-function anthropicHistory(history, { limit = API_HISTORY, rawReplies = API_RAW_REPLIES } = {}) {
+// Attached files' text is sent again only for the newest `fullAttachments` messages that carry files; older
+// ones keep the headers with the saved paths (attachcore.headersOnly), so a long chat doesn't resend every PDF.
+function anthropicHistory(history, { limit = API_HISTORY, rawReplies = API_RAW_REPLIES, fullAttachments = attachcore.LIMITS.fullAttachmentMessages } = {}) {
   const recent = history.slice(-limit);
   const replies = recent.filter((m) => m.role === 'assistant');
   const rawFrom = replies.length - rawReplies;
+  const withFiles = recent.filter((m) => m.role === 'user' && m.attachments?.length);
+  const full = new Set(fullAttachments > 0 ? withFiles.slice(-fullAttachments) : []);
   let reply = 0;
   const out = [];
   for (const m of recent) {
-    if (m.role === 'user') out.push({ role: 'user', content: m.content });
+    if (m.role === 'user') out.push({ role: 'user', content: m.attachments?.length && !full.has(m) ? attachcore.headersOnly(m.content) : m.content });
     else if (m.role === 'assistant') {
       const keepRaw = reply++ >= rawFrom;
       if (keepRaw && m.raw?.provider === 'anthropic' && Array.isArray(m.raw.messages) && m.raw.messages.length) out.push(...m.raw.messages);
@@ -890,6 +910,16 @@ function withCacheMark(message) {
   return { ...message, content };
 }
 
+// The images go first in the newest user message, whatever shape its content has: withCacheMark has made
+// it a block list by now (a check for a string here once dropped every image on this brain), and the cache
+// mark stays on its last text block.
+function withPictures(messages, pictures) {
+  const last = messages[messages.length - 1];
+  if (!pictures.length || last?.role !== 'user') return messages;
+  const blocks = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : last.content;
+  return [...messages.slice(0, -1), { ...last, content: [...pictures, ...blocks] }];
+}
+
 async function runAnthropic({ settings, conv, history, emit, signal, active, system, stable, context, ctx, images = [] }) {
   const client = anthropicClient(settings);
   const a = settings.anthropic;
@@ -906,11 +936,9 @@ async function runAnthropic({ settings, conv, history, emit, signal, active, sys
   const compacted = await compactHistory(settings, conv, history, API_HISTORY);
   const summary = compacted.summary ? `## Earlier in this conversation (summary)\n${compacted.summary}\n\n` : '';
   const systemBlocks = stable != null ? [{ type: 'text', text: stable, cache_control: CACHE }, { type: 'text', text: `${summary}${context || ''}` }] : [{ type: 'text', text: `${system}${summary ? `\n\n${summary}` : ''}` }];
-  const messages = anthropicHistory(history);
+  let messages = anthropicHistory(history);
   if (messages.length) messages[messages.length - 1] = withCacheMark(messages[messages.length - 1]);
-  const last = messages[messages.length - 1];
-  const pictures = images.map(imageBlock).filter(Boolean);
-  if (pictures.length && last?.role === 'user' && typeof last.content === 'string') messages[messages.length - 1] = { role: 'user', content: [...pictures, { type: 'text', text: last.content }] };
+  messages = withPictures(messages, images.map(imageBlock).filter(Boolean));
   const turnMessages = [];
   const toolRecords = [];
   let fullText = '';
@@ -1014,4 +1042,4 @@ async function runAnthropic({ settings, conv, history, emit, signal, active, sys
 }
 
 module.exports = {
-  anthropicHistory, runTurn, listModels, testConnection, complete, prewarm, warmTarget, effectiveModel, sessionConfigKey };
+  anthropicHistory, openaiHistory, withPictures, withCacheMark, runTurn, listModels, testConnection, complete, prewarm, warmTarget, effectiveModel, sessionConfigKey };

@@ -135,3 +135,23 @@ test('warmModel keeps a big warm session on its model instead of a smaller one',
   assert.deepStrictEqual(pace.warmModel({ want: 'claude-haiku-5-5', last: { ...last, model: 'claude-opus-5-5' }, key: 'k', now, ttlMs }), { model: 'claude-opus-5-5', kept: 'warm' });
   assert.deepStrictEqual(pace.warmModel({ want: '', last: { ...last, model: 'default' }, key: 'k', now, ttlMs }), { model: 'default' });
 });
+
+// "What's on my schedule?" with a lecture PDF attached is not a quick lookup (main/llm.js runOn: attached).
+test('a message with attachments is never a quick one', () => {
+  const s = { llm: { autoPace: true, modelMode: 'default' } };
+  assert.strictEqual(pace.plan(s, { text: 'what is my schedule tomorrow?' }).pace, 'quick');
+  assert.deepStrictEqual(pace.plan(s, { text: 'what is my schedule tomorrow?', attached: 20000 }), { pace: 'normal', mode: 'normal', effort: 'default' });
+  assert.strictEqual(pace.plan(s, { text: 'explain this step by step', attached: 20000 }).pace, 'deep', 'deep stays deep');
+});
+
+// Regression: push-to-talk "summarise this" with a lecture PDF ran on the fast voice model (llm.voiceUsesFast).
+test('a spoken message with attachments gets the model its pace asks for, not the fast voice model', () => {
+  const s = { llm: { autoPace: true, modelMode: 'default', voiceUsesFast: true } };
+  assert.strictEqual(pace.plan(s, { text: 'what is this?', voice: true }).mode, 'fast', 'spoken, nothing attached: the fast model');
+  assert.deepStrictEqual(pace.plan(s, { text: 'what is this?', voice: true, attached: 20000 }), { pace: 'normal', mode: 'normal', effort: 'default' });
+  assert.strictEqual(pace.plan(s, { text: 'summarise this lecture', voice: true, attached: 81000 }).mode, 'deep');
+  assert.strictEqual(pace.plan(s, { text: 'what is my schedule tomorrow?', voice: true, attached: 300 }).mode, 'normal', 'an image too');
+  const manual = { llm: { autoPace: false, modelMode: 'default', voiceUsesFast: true } };
+  assert.strictEqual(pace.plan(manual, { text: 'what is this?', voice: true, attached: 20000 }).mode, 'default', 'no automatic pace: the configured model');
+  assert.strictEqual(pace.plan({ llm: { ...manual.llm, modelMode: 'fast' } }, { text: 'what is this?', voice: true, attached: 20000 }).mode, 'fast', 'a fast mode the user chose stays');
+});

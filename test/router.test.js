@@ -101,3 +101,25 @@ test('Claude’s "You’ve hit your limit" is a rate limit; a spend limit is out
   assert.strictEqual(router.classifyError(new Error("You've hit your monthly spend limit")).kind, 'credits');
   assert.strictEqual(router.classifyError(new Error('You are out of usage credits')).kind, 'credits');
 });
+
+// A message with a picture or a long attached file (main/llm.js runTurn, main/attachments.js).
+test('a picture goes to a provider that sees it; a long attachment is a long input, even spoken', async () => {
+  router.reset();
+  const s = settings({ order: ['groq', 'deepseek', 'gemini', 'claude-code', 'anthropic'] });
+  s.deepseek.apiKey = 'k';
+  const quick = await router.plan(s, { text: 'what is this?', voice: true });
+  assert.strictEqual(quick[0].id, 'groq', 'a quick spoken reply');
+  const seen = await router.plan(s, { text: 'what is this?', voice: true, needsVision: true });
+  assert.deepStrictEqual(seen.map((p) => p.id).slice(0, 5), ['gemini', 'claude-code', 'anthropic', 'groq', 'deepseek'], 'the ones that see first, each group in its order');
+  assert.strictEqual(seen[0].reason, 'can see your image');
+  const already = await router.plan(settings({ smart: false }), { text: 'x', needsVision: true });
+  assert.strictEqual(already[0].reason, 'your priority order', 'first choice already sees');
+
+  assert.strictEqual(router.classifyTask('summarize this', { voice: true, attachedChars: 30000 }), 'long');
+  assert.strictEqual(router.classifyTask('summarize this', { voice: true, attachedChars: 300 }), 'quick');
+  s.local = { baseUrl: 'http://localhost:11434/v1', model: 'qwen3:8b' };
+  s.routing.order = ['local', 'groq', 'gemini', 'claude-code'];
+  const long = (await router.plan(s, { text: 'summarize this', voice: true, attachedChars: 30000 })).map((p) => p.id);
+  assert.ok(['gemini', 'claude-code'].includes(long[0]), long.join(' > '));
+  assert.ok(long.indexOf('local') > long.indexOf('gemini') && long.indexOf('groq') > long.indexOf('gemini'));
+});

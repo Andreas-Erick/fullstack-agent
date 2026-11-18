@@ -308,10 +308,14 @@ function readTarget(input, cwd) {
 // reads them back; that one folder (never other projects') is readable too.
 const cliProjectDir = (cwd) => path.join(os.homedir(), '.claude', 'projects', path.resolve(cwd).replace(/[^a-zA-Z0-9]/g, '-'));
 
+// A message with attachments: what was typed first, then the files' names and saved paths (its attached
+// text is not repeated; the copies can be read again).
+const lineText = (m) => (m.attachments?.length ? require('./attachcore').summaryLine(m) : String(m.content || ''));
+
 function transcript(history) {
   const prior = history.slice(0, -1).slice(-12);
   if (!prior.length) return '';
-  const lines = prior.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').slice(0, 1500)}`);
+  const lines = prior.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${lineText(m).slice(0, 1500)}`);
   return `[Earlier in this conversation, for context]\n${lines.join('\n\n')}\n[End of earlier messages]\n\n`;
 }
 
@@ -323,7 +327,7 @@ function missedTurns(history) {
   while (i >= 0 && !(prior[i].role === 'assistant' && prior[i].provider === 'claude-code')) i--;
   const gap = prior.slice(i + 1);
   if (i < 0 || !gap.some((m) => m.role === 'assistant' && m.provider && m.provider !== 'claude-code')) return '';
-  const lines = gap.slice(-12).map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${String(m.content || '').slice(0, 1500)}`);
+  const lines = gap.slice(-12).map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${lineText(m).slice(0, 1500)}`);
   return `[While you were unavailable, another model answered these messages]\n${lines.join('\n\n')}\n[End of those messages]\n\n`;
 }
 
@@ -576,6 +580,12 @@ class Session {
     if (tool === 'Read' || tool === 'Glob' || tool === 'Grep') {
       // Only the folders the user allowed (workspace + added ones), the vault, its own code and repos.
       const target = readTarget(input, this.spec.cwd);
+      // Files the user attached in this conversation (main/attachments.js): its own copies only, read as outside content.
+      const attached = /^[a-z0-9_-]+$/i.test(this.convId || '') && path.join(require('./datadir').attachmentsFolder(), this.convId);
+      if (attached && inside(attached, target)) {
+        approvals.markTainted(turnState, `${tool} ${input.file_path || input.path || ''}`);
+        return { behavior: 'allow', updatedInput: input };
+      }
       if (!(this.spec.readRoots || []).some((r) => inside(r, target))) {
         log.info('read outside allowed folders denied', { tool, target });
         return { behavior: 'deny', message: `${target} is outside the folders you may use (${(this.spec.readRoots || []).join(', ')}). Only the user can allow another folder (Settings → Documents → Add folder); ask them instead of looking elsewhere.` };

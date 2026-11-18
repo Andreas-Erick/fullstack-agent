@@ -42,6 +42,9 @@ const skills = require('./skills');
 const pdf = require('./pdf');
 const companion = require('./companion');
 const helperApps = require('./helperapps');
+const attachments = require('./attachments');
+const attachcore = require('./attachcore');
+const { UNTRUSTED_NOTICE } = require('./tools/common');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -419,7 +422,11 @@ function registerIpc() {
   handle('llm:routerReset', (id) => router.reset(id));
 
   // Chat
-  handle('chat:send', ({ conversationId, text, requestId, voice = false, hidden = false }) => startTurn({ conversationId, text, requestId, voice, hidden }));
+  // attachments: one-time tokens from chat:attach (main/attachments.js), never paths.
+  handle('chat:send', ({ conversationId, text, requestId, voice = false, hidden = false, attachments: tokens = [] }) =>
+    startTurn({ conversationId, text, requestId, voice, hidden, attachments: Array.isArray(tokens) ? tokens.filter((t) => typeof t === 'string').slice(0, 7) : [] }),
+  );
+  handle('chat:attach', (item) => attachments.prepare(item));
   handle('chat:abort', (requestId) => {
     activeRequests.get(requestId)?.abort();
     return true;
@@ -479,6 +486,7 @@ function registerIpc() {
     claudecode.endSession(id);
     return store
       .deleteConversation(id)
+      .then((r) => attachments.removeFor(id).catch((error) => log.warn('attachments not removed', { error })).then(() => r))
       .then((r) => (historysearch().forget(id), r)) // a scan running meanwhile can't keep it
       .then(convsChanged);
   });
@@ -492,7 +500,10 @@ function registerIpc() {
       claudecode.endSession(c.id);
     }
     for (const c of activeRequests.values()) c.abort();
-    return store.clearConversations().then(convsChanged);
+    return store
+      .clearConversations()
+      .then((r) => attachments.removeAll().catch((error) => log.warn('attachments not removed', { error })).then(() => r))
+      .then(convsChanged);
   });
   handle('conv:export', async () => {
     const all = (await store.exportConversations()).filter(Boolean).map((c) => ({ ...c, messages: c.messages.map(stripRaw) }));
@@ -567,7 +578,7 @@ function registerIpc() {
   handle('docs:clearRecent', () => documents.clearRecent());
   handle('docs:roots', () => documents.allowedRoots());
   handle('docs:showInFolder', async (p) => shell.showItemInFolder(await documents.resolveAllowed(p)));
-  handle('docs:openExternal', async (p) => shell.openPath(await documents.resolveAllowed(p)));
+  handle('docs:openExternal', async (p) => shell.openPath(await documents.externalPath(p)));
 
   // Vault (the agent's own Obsidian vault)
   handle('obsidian:write', (p, content, mode) => obsidian.writeNote(p, content, mode));
@@ -852,19 +863,32 @@ const speakInWindow = (text) => askWindow('remote:speak', { text: String(text).s
 // display: what the chat shows instead of the text (routines); onFinish({ ok, text, error }) after the turn.
 // routine / auto ('tasks'): a turn the user didn't write, so it never counts as their chat (store.js lastOwnAt).
 // redo: Try again / Regenerate / Edit from the window (chat:redo; its text replaces `text`).
-async function startTurn({ conversationId, text, requestId, voice: viaVoice = false, hidden = false, remote = null, display = '', routine = '', auto = '', onFinish = null, redo: redoReq = null }) {
+// attachments: one-time tokens from chat:attach (main/attachments.js); only the user's own messages in the
+// window carry them. An expired one returns { refused } and nothing is stored.
+async function startTurn({ conversationId, text, requestId, voice: viaVoice = false, hidden = false, remote = null, display = '', routine = '', auto = '', onFinish = null, redo: redoReq = null, attachments: tokens = [] }) {
   const settings = await store.getSettings();
-  // A failure before the turn runs in the background: it no longer counts as busy (below).
+  // Attachments (main/attachments.js): one-time tokens from chat:attach, claimed before anything is stored.
+  const claim = tokens.length ? attachments.claim(tokens) : { items: [] };
+  if (claim.error) return { refused: claim.error };
+  // A failure before the turn runs in the background: it no longer counts as busy (below), and the
+  // attachments' chips come back in the window.
   const fail = (err) => {
     activeRequests.delete(requestId);
+    attachments.unclaim(tokens);
     throw err;
   };
-  let conv = conversationId ? await store.getConversation(conversationId) : null;
-  if (redoReq && !conv) throw new Error('Conversation not found');
-  if (!conv) conv = await store.createConversation();
-  if (remote && conv.setup) throw new Error('The setup conversation can only be used on the desktop');
+  let conv = conversationId ? await store.getConversation(conversationId).catch(fail) : null;
+  if (redoReq && !conv) fail(new Error('Conversation not found'));
+  if (!conv) conv = await store.createConversation().catch(fail);
+  if (remote && conv.setup) fail(new Error('The setup conversation can only be used on the desktop'));
+  if (claim.items.length && (remote || conv.setup || hidden || routine || auto)) fail(new Error('Attachments can only go with your own messages in the chat.'));
   // Try again / Regenerate / Edit, and the same message sent again after a failure (main/redo.js).
-  const prep = redo.prepare({ conv, redo: redoReq, text, voice: viaVoice, remote, routine, auto, hidden, busy: busyIn(conv.id), forget: claudecode.forget });
+  let prep;
+  try {
+    prep = redo.prepare({ conv, redo: redoReq, text, voice: viaVoice, remote, routine, auto, hidden, busy: busyIn(conv.id), forget: claudecode.forget });
+  } catch (err) {
+    fail(err);
+  }
   text = prep.text;
   viaVoice = prep.voice;
   const again = prep.again;
@@ -885,24 +909,38 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       (err) => (send('app:notice', { kind: 'error', message: err.message }), []),
     );
   }
+  const screenShot = images.length > 0;
+  // Attached files: copies kept with the conversation, their text in blocks before the user's words;
+  // attached images go with the message like a screenshot and are never stored (attachcore.compose).
+  const saved = claim.items.length ? await attachments.save(conv.id, claim.items).catch(fail) : [];
+  const prompt = slash ? skills.instructions(slash.skill, slash.args) : String(text);
+  // A message run again keeps its files (their text is in the old message's blocks); its pictures are gone.
+  const composed = saved.length
+    ? attachcore.compose({ prompt, typed: String(text), items: saved, notice: UNTRUSTED_NOTICE })
+    : again?.user?.attachments?.length
+      ? attachcore.recompose(again.user, { prompt, typed: String(text) })
+      : null;
+  if (composed) images.push(...composed.images);
   const userMsg = {
     id: store.newId('m'),
     role: 'user',
-    content: slash ? skills.instructions(slash.skill, slash.args) : String(text),
+    content: composed ? composed.content : prompt,
     createdAt: Date.now(),
     ...(slash ? { display: String(text), skill: slash.skill.slug } : {}),
+    ...(composed ? { display: composed.display, attachments: composed.meta } : {}),
     ...(display ? { display: String(display) } : {}),
     ...(routine ? { routine } : {}),
     ...(auto ? { auto } : {}),
-    ...(images.length ? { screen: true } : {}),
+    ...(screenShot ? { screen: true } : {}),
     ...(hidden ? { hidden: true } : {}),
     ...(remote ? { remote } : {}),
     ...(viaVoice ? { spoken: true } : {}), // the cache warm-up guesses the next model from it (llm.warmTarget)
     ...(own ? { attempt: { outcome: 'running', at: Date.now() } } : {}),
   };
   conv.messages.push(userMsg);
-  if (!conv.setup && !again?.keepTitle && conv.messages.filter((m) => m.role === 'user').length === 1) conv.title = (slash ? slash.skill.name : display || String(text)).replace(/\s+/g, ' ').slice(0, 60);
+  if (!conv.setup && !again?.keepTitle && conv.messages.filter((m) => m.role === 'user').length === 1) conv.title = (slash ? slash.skill.name : display || (composed && !String(text).trim() ? composed.title : String(text))).replace(/\s+/g, ' ').slice(0, 60);
   await store.saveConversation(conv).catch(fail);
+  attachments.release(tokens);
 
   // Until that save, the file still had the old exchange: a warm-up that read it meanwhile is stale too.
   if (again?.fresh) claudecode.forget(conv.id);
@@ -953,7 +991,7 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
     const before = trackChanges ? await selfchange.fingerprint() : null;
     codeRoot = trackChanges ? await selfchange.root().catch(() => null) : null;
     try {
-      const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images, routine: Boolean(routine), again: again?.again || null });
+      const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images, routine: Boolean(routine), again: again?.again || null, taint: [...(screenShot ? ['the shared screen'] : []), ...(composed?.taint || [])], imageNoun: attachcore.imageNoun({ screen: screenShot, images: composed?.images.length || 0 }) });
       const assistantMsg = {
         id: store.newId('m'),
         role: 'assistant',
@@ -1085,6 +1123,8 @@ app.whenReady().then(async () => {
     if (patch?.agent?.personality !== undefined || patch?.llm || patch?.local) summarizeSoon(20000);
   });
   summarizeSoon(60000);
+  // Attachment folders whose conversation is gone (deleted while the app was down): a while after start.
+  setTimeout(() => attachments.sweep().catch((error) => log.warn('attachment sweep failed', { error })), 90000).unref?.();
   require('./tunnel').setListener((st) => send('remote:event', { type: 'tunnel', tunnel: st }));
   screenshare.setListener((st) => send('screen:state', st));
   docwindows.init({ root: ROOT, preload: path.join(ROOT, 'preload.js'), mainWindow: () => win, agentWindow: () => agentwindow.window(), guard: guardNavigation, captureConsole });
