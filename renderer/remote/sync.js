@@ -54,6 +54,55 @@ export function convCheck(list, convId) {
   return c ? { listed: true, title: c.title || null } : { listed: false, title: null };
 }
 
+/**
+ * A message this phone couldn't send (`failed`: { convId, sentText, priorUsers }) after conversation `id`
+ * was loaded again with `messages`: 'show' it again (with its Try again), 'drop' it (the computer has it
+ * after all: the answer was lost, not the message), or 'skip' (another conversation is shown).
+ * `priorUsers`: how many of the user's messages the phone showed before this one. Only a message after
+ * those with the same words is this one ("yes" again after an earlier "yes" is still unsent); without
+ * that count it is always shown.
+ */
+export function unsentPlan(failed, id, messages) {
+  if (!failed || (failed.convId || null) !== (id || null)) return 'skip';
+  const prior = failed.priorUsers;
+  if (!Number.isInteger(prior) || prior < 0) return 'show';
+  const users = (Array.isArray(messages) ? messages : []).filter((m) => m?.role === 'user');
+  const said = (m) => String(m?.display ?? m?.content ?? '').trim(); // the server stores the text trimmed
+  const text = String(failed.sentText ?? '').trim();
+  return text && users.slice(prior).some((m) => said(m) === text) ? 'drop' : 'show'; // the phone never sends an empty message
+}
+
+// Deadlines for an answer's headers (app.js fetchWithin): a send returns as soon as the turn starts,
+// pairing at once; an event-stream connection that hasn't answered after `connect` is given up.
+export const DEADLINES = { chat: 30000, pair: 20000, connect: 15000 };
+
+/** A transcription's wait: a minute plus the recording's length (16 kHz mono 16-bit: 32 bytes a ms) plus 5 s. */
+export function transcribeDeadline(wavBytes) {
+  const bytes = Math.min(Math.max(Number(wavBytes) || 0, 0), 120000 * 32); // at most two minutes (app.js MAX_REC_MS)
+  return 65000 + Math.round(bytes / 32);
+}
+
+/** "Try again now" or the network back while down: give up a hanging attempt, or end the wait. */
+export function retryAction({ connected = false, connecting = false } = {}) {
+  return connected ? 'none' : connecting ? 'abort' : 'wake';
+}
+
+/**
+ * What Android Back closes first ('offline' | 'drawer' | 'face' | 'screen', or the view to show: 'chat',
+ * 'more'), or null at the top (the app goes to the background then). `screenBack`: a note or a building is
+ * open on the screen shown; `tabs`: the tab bar's views; `wide`: the chat is always beside the screens.
+ */
+export function backPlan({ offline = false, drawerOpen = false, faceFull = false, screenBack = false, view = 'chat', tabs = [], wide = false } = {}) {
+  if (offline) return 'offline';
+  if (drawerOpen) return 'drawer';
+  if (faceFull) return 'face';
+  if (screenBack) return 'screen';
+  if (view === 'sched') return 'chat'; // opened from the chat's header ("Back to the chat")
+  if (view !== 'chat' && !tabs.includes(view)) return 'more'; // a screen from the More menu
+  if (view !== 'chat' && !wide) return 'chat';
+  return null;
+}
+
 /** Collects topics for `waitMs` and calls `flush(topics)` once (several saves in a row: one refresh). */
 export function batcher(flush, waitMs = 300, timers = { setTimeout, clearTimeout }) {
   const pending = new Set();

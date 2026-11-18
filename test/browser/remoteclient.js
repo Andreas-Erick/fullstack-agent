@@ -250,6 +250,17 @@ async function run() {
     screens[ffLabel] = ff;
     await clipped(wc, ffLabel);
     await shot(wc, ffLabel);
+    // An approval while the face is full screen: its card is on top, a tap on Allow reaches Allow.
+    const ffApproval = `browser-ff-${size.name}`;
+    companion.publish('approval:request', { id: ffApproval, kind: 'command', title: 'Run a quick check', timeoutSec: 60, sources: [] });
+    if (!(await until(wc, `!!document.querySelector('#approvals .approval')`))) problems.push(`${ffLabel}: the approval card never showed`);
+    else {
+      const allow = await wc.executeJavaScript(`(() => { const b = [...document.querySelectorAll('#approvals .approval .btn')].find((x) => x.textContent === 'Allow'); const r = b.getBoundingClientRect(); const el = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)); return { ok: !!el && (el === b || b.contains(el)), on: el ? el.tagName + '#' + el.id + '.' + el.className : 'nothing' }; })()`);
+      if (!allow.ok) problems.push(`${ffLabel}: the approval card is under the full-screen face (a tap on Allow lands on ${allow.on})`);
+      await shot(wc, `${ffLabel} approval`);
+    }
+    companion.publish('approval:cancel', { id: ffApproval });
+    await until(wc, `!document.querySelector('#approvals .approval')`, 3000);
     await wc.executeJavaScript(`document.querySelector('#faceFull').click()`, true);
     win.destroy();
   }
@@ -323,6 +334,50 @@ async function run() {
         }
       }
     }
+    // 1c: a message sent while the computer is out of reach fails at once with Try again, and is still
+    // there (with its Try again) after the link comes back and the conversation is loaded again; it
+    // belongs to its own conversation, not to a new one.
+    if (size.name === 'phone') {
+      const unsentLabel = `${size.name}/unsent message`;
+      const has = `[...document.querySelectorAll('#messages .msg.user')].some((m) => m.innerText.includes('Unsent while away')) && !!document.querySelector('#messages .act.retry')`;
+      await until(sc, `!document.body.classList.contains('busy')`);
+      await companion.stop();
+      await until(sc, `!document.querySelector('#conn')?.classList.contains('ok')`, 10000);
+      await sc.executeJavaScript(`document.querySelector('#input').value = 'Unsent while away'; document.querySelector('#composer').requestSubmit()`, true);
+      if (!(await until(sc, has, 5000))) problems.push(`${unsentLabel}: no failed message with Try again`);
+      await sc.executeJavaScript(`document.querySelector('#messages').append(Object.assign(document.createElement('div'), { id: 'sentinel' }))`, true);
+      await companion.apply({ remote: { enabled: true, lan: false, port, shareData: true } });
+      if (!(await until(sc, `!document.querySelector('#sentinel') && document.querySelector('#conn')?.classList.contains('ok')`, 25000))) problems.push(`${unsentLabel}: the conversation was not loaded again after reconnecting`);
+      else if (!(await until(sc, has, 3000))) problems.push(`${unsentLabel}: the message that couldn't be sent was wiped by the reconnect`);
+      await sc.executeJavaScript(`document.querySelector('#newBtn').click()`, true);
+      if (!(await until(sc, `!(${has})`, 3000))) problems.push(`${unsentLabel}: the failed message followed into a new chat`);
+      await sc.executeJavaScript(`document.querySelector('#convBtn').click()`, true);
+      if (!(await until(sc, `!!document.querySelector('#convList .conv')`))) problems.push(`${unsentLabel}: the conversation list never showed`);
+      else {
+        await sc.executeJavaScript(`[...document.querySelectorAll('#convList .conv')].find((c) => c.textContent.includes('Sync check')).click()`, true);
+        if (!(await until(sc, has, 8000))) problems.push(`${unsentLabel}: back in its conversation, the failed message is missing`);
+        else {
+          // 1d: the same words as the last message that reached the computer (a "yes" after a "yes") fail
+          // while away: still a message of its own after the reload, with its Try again; the older failure goes.
+          const repeatLabel = `${size.name}/unsent repeat`;
+          const copies = `[...document.querySelectorAll('#messages .msg.user')].filter((m) => m.innerText.trim() === 'Add the dentist').length`;
+          const delivered = await sc.executeJavaScript(copies);
+          if (!delivered) problems.push(`${repeatLabel}: the conversation has no "Add the dentist" to repeat`);
+          await companion.stop();
+          await until(sc, `!document.querySelector('#conn')?.classList.contains('ok')`, 10000);
+          await sc.executeJavaScript(`document.querySelector('#input').value = 'Add the dentist'; document.querySelector('#composer').requestSubmit()`, true);
+          const kept = `${copies} === ${delivered + 1} && document.querySelectorAll('#messages .act.retry').length >= 1 && [...document.querySelectorAll('#messages .msg.user')].at(-1).innerText.trim() === 'Add the dentist'`;
+          if (!(await until(sc, kept, 5000))) problems.push(`${repeatLabel}: no failed copy with Try again`);
+          await sc.executeJavaScript(`document.querySelector('#messages').append(Object.assign(document.createElement('div'), { id: 'sentinel' }))`, true);
+          await companion.apply({ remote: { enabled: true, lan: false, port, shareData: true } });
+          if (!(await until(sc, `!document.querySelector('#sentinel') && document.querySelector('#conn')?.classList.contains('ok')`, 25000))) problems.push(`${repeatLabel}: the conversation was not loaded again after reconnecting`);
+          else if (!(await until(sc, `${kept} && document.querySelectorAll('#messages .act.retry').length === 1`, 3000))) {
+            const st = await sc.executeJavaScript(`({ copies: ${copies}, retries: document.querySelectorAll('#messages .act.retry').length })`);
+            problems.push(`${repeatLabel}: after the reload ${st.copies} copies (want ${delivered + 1}) and ${st.retries} Try again (want 1): the repeat was taken for the earlier message`);
+          }
+        }
+      }
+    }
     // 2: the vault tells devices what changed (main.js wires this listener; this harness has no main.js).
     require('../../main/obsidian').setChangeListener((rel) => companion.publish('vault:changed', rel));
     await until(sc, `document.querySelector('#conn')?.classList.contains('ok')`);
@@ -339,12 +394,15 @@ async function run() {
     sw.destroy();
   }
 
+  await androidApp({ store, companion, base, token });
+
   // The computer goes away (Siren closed, computer asleep): the phone shows what is going on and what
   // to check, a screen opened meanwhile says it is out of reach, and nothing throws.
   const win = new BrowserWindow({ show: false, width: 390, height: 844, useContentSize: true, webPreferences: { backgroundThrottling: false } });
   const wc = win.webContents;
   wc.on('console-message', (e) => {
-    if (e.level === 'error' && !/Failed to load resource|ERR_CONNECTION_REFUSED/.test(e.message)) problems.push(`offline console: ${String(e.message).slice(0, 300)}`);
+    // ERR_EMPTY_RESPONSE / ERR_CONNECTION_RESET: the hanging server below is shut down under an attempt.
+    if (e.level === 'error' && !/Failed to load resource|ERR_CONNECTION_REFUSED|ERR_EMPTY_RESPONSE|ERR_CONNECTION_RESET/.test(e.message)) problems.push(`offline console: ${String(e.message).slice(0, 300)}`);
   });
   await win.loadURL(`${base}/`);
   await wc.executeJavaScript(`localStorage.setItem('nexus.token', ${JSON.stringify(token)})`);
@@ -358,6 +416,7 @@ async function run() {
     if (!/Can’t reach your computer/i.test(text) || !/Try again now/i.test(text)) problems.push(`offline: unexpected screen text: ${text.slice(0, 200)}`);
     await clipped(wc, 'phone/offline');
     await shot(wc, 'phone/offline');
+    await hangingServer(wc, port);
     await wc.executeJavaScript(`[...document.querySelectorAll('#offline button')].find((b) => /Try again now/.test(b.textContent)).click()`, true);
     await wc.executeJavaScript(`[...document.querySelectorAll('#offline button')].find((b) => /Continue offline/.test(b.textContent)).click()`, true);
     if (await wc.executeJavaScript(`!!document.querySelector('#offline')`)) problems.push('offline: "Continue offline" did not close the screen');
@@ -367,6 +426,136 @@ async function run() {
     screens['phone/offline'] = await wc.executeJavaScript(`document.querySelector('#panel').innerText.replace(/\\s+/g, ' ').slice(0, 160)`);
   }
   win.destroy();
+}
+
+// A computer that takes the connection and never answers (a tunnel holding the request, a half-open
+// network): the phone gives an attempt up after 15 s, and "Try again now" drops a hanging attempt for a
+// new one at once. A raw server on the companion's port counts the event-stream requests and sees their
+// sockets close; afterwards it goes, so the port refuses again.
+async function hangingServer(wc, port) {
+  const label = 'phone/offline hanging';
+  const attempts = []; // { at, closedAt }
+  const sockets = new Set();
+  const server = require('net').createServer((sock) => {
+    sockets.add(sock);
+    let head = '';
+    let seen = null;
+    sock.on('data', (d) => {
+      head += d;
+      if (!seen && /^GET \/api\/events /.test(head)) attempts.push((seen = { at: Date.now(), closedAt: 0 }));
+    });
+    sock.on('close', () => (sockets.delete(sock), seen && (seen.closedAt = Date.now())));
+    sock.on('error', () => {});
+  });
+  const waitFor = async (fn, ms) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end && !fn()) await wait(100);
+    return fn();
+  };
+  await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
+  try {
+    if (!(await waitFor(() => attempts.length >= 1, 20000))) return void problems.push(`${label}: the phone never tried again within 20 s`);
+    await wc.executeJavaScript(`[...document.querySelectorAll('#offline button')].find((b) => /Try again now/.test(b.textContent)).click()`, true);
+    if (!(await waitFor(() => attempts.length >= 2 && attempts[0].closedAt, 3000))) problems.push(`${label}: "Try again now" did not give up the hanging attempt for a new one (${attempts.length} attempts, first ${attempts[0].closedAt ? 'closed' : 'still open'})`);
+    else if (!(await waitFor(() => attempts[1].closedAt, 17000))) problems.push(`${label}: an attempt that never connects was not given up after 15 s`);
+    else if (attempts[1].closedAt - attempts[1].at < 14000) problems.push(`${label}: an attempt was given up after ${attempts[1].closedAt - attempts[1].at} ms, before its 15 s`);
+  } finally {
+    for (const s of sockets) s.destroy();
+    await new Promise((resolve) => server.close(() => resolve()));
+  }
+}
+
+// Inside the Android app (a stand-in for window.NexusAndroid in the top page only, as MainActivity's
+// bridge is; injected before any of the page's scripts): the page takes the key once and passes it to
+// what changes something; Back closes the drawer, then nothing; links between notes open and Back goes
+// to the list; Today keeps a long meeting link inside its card; Disconnect needs a second tap.
+const BRIDGE_KEY = 'test-bridge-key';
+const BRIDGE_STUB = `if (window === top) {
+  const calls = (window.__bridgeCalls = []);
+  const rec = (name, ret) => (...args) => (calls.push([name, ...args]), ret);
+  window.NexusAndroid = { hello: rec('hello', ${JSON.stringify(BRIDGE_KEY)}), backTarget: rec('backTarget'), setToken: rec('setToken'), clearToken: rec('clearToken'), lookChanged: rec('lookChanged'), changeServer: rec('changeServer'), setBackground: rec('setBackground'), setLock: rec('setLock'), moveTo: rec('moveTo'), backgroundEnabled: () => false, lockAvailable: () => false, lockEnabled: () => false, appVersion: () => '' };
+}`;
+
+async function androidApp({ store, companion, base, token }) {
+  const obsidian = require('../../main/obsidian');
+  await obsidian.writeNote('Notes/Link source.md', '# Link source\n\nSee [[Link target]] for the rest.\n\n[bad](javascript:alert(1))\n');
+  await obsidian.writeNote('Notes/Link target.md', '# Link target\n\nThe rest of it.\n');
+  await store.setSettings({ calendar: { enabled: true } }); // on only from here
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  await require('../../main/calendar').add({ title: 'Call', when: today, location: 'https://' + 'x'.repeat(152) }); // all day: the time of day doesn't matter
+  const label = 'phone/android app';
+  const win = new BrowserWindow({ show: false, width: 390, height: 844, useContentSize: true, webPreferences: { backgroundThrottling: false } });
+  const wc = win.webContents;
+  wc.on('console-message', (e) => {
+    if (e.level === 'error') problems.push(`${label} console: ${String(e.message).slice(0, 300)}`);
+  });
+  try {
+    // A blank page first: a window that never loaded anything has no page for the debugger yet, and
+    // its commands would wait for one forever.
+    await win.loadURL('about:blank');
+    wc.debugger.attach('1.3');
+    const within = (p, what) => Promise.race([p, wait(10000).then(() => Promise.reject(new Error(`${what} did not answer in 10 s`)))]);
+    await within(wc.debugger.sendCommand('Page.enable'), 'Page.enable');
+    await within(wc.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: BRIDGE_STUB }), 'Page.addScriptToEvaluateOnNewDocument');
+    await win.loadURL(`${base}/`);
+    await wc.executeJavaScript(`localStorage.setItem('nexus.token', ${JSON.stringify(token)}); localStorage.removeItem('nexus.conv')`);
+    await win.loadURL(`${base}/`);
+    if (!(await until(wc, `!document.querySelector('#tabs').classList.contains('hidden') && document.querySelector('#conn')?.classList.contains('ok')`))) return void problems.push(`${label}: never connected`);
+    const calls = () => wc.executeJavaScript('window.__bridgeCalls');
+    const named = async (name) => (await calls()).filter((c) => c[0] === name);
+    if ((await named('hello')).length !== 1) problems.push(`${label}: hello was called ${(await named('hello')).length} times (once per load)`);
+    const set = (await named('setToken'))[0];
+    if (!set || set[1] !== BRIDGE_KEY || set[2] !== token) problems.push(`${label}: setToken did not get the key first (${JSON.stringify(set && set.slice(0, 2))})`);
+    // Back: the drawer is a layer (the app hears it), Back closes it; at the bare chat there is nothing.
+    await wc.executeJavaScript(`document.querySelector('#convBtn').click()`, true);
+    if (!(await named('backTarget')).some((c) => c[1] === true)) problems.push(`${label}: opening the drawer did not tell the app (backTarget true)`);
+    if ((await wc.executeJavaScript('window.nexusBack()')) !== true) problems.push(`${label}: Back with the drawer open did nothing`);
+    if (!(await wc.executeJavaScript(`document.querySelector('#drawer').classList.contains('hidden')`))) problems.push(`${label}: Back left the drawer open`);
+    if ((await named('backTarget')).at(-1)?.[1] !== false) problems.push(`${label}: closing the drawer did not tell the app (backTarget false)`);
+    if ((await wc.executeJavaScript('window.nexusBack()')) !== false) problems.push(`${label}: Back at the bare chat should leave the app`);
+    // Notes: a [[link]] opens the note it names; a javascript: link is no link; Back goes to the list.
+    await wc.executeJavaScript(`document.querySelector('#tabs [data-tab="notes"]').click()`, true);
+    if (!(await until(wc, `[...document.querySelectorAll('#panel .note-row')].some((r) => r.textContent.includes('Link source'))`))) problems.push(`${label}: the note "Link source" is not listed`);
+    else {
+      await wc.executeJavaScript(`[...document.querySelectorAll('#panel .note-row')].find((r) => r.textContent.includes('Link source')).click()`, true);
+      if (!(await until(wc, `document.querySelector('#panel article.note h2')?.textContent === 'Link source'`))) problems.push(`${label}: "Link source" did not open`);
+      else {
+        const links = await wc.executeJavaScript(`[...document.querySelectorAll('#panel article.note a')].map((a) => ({ text: a.textContent, href: a.getAttribute('href') }))`);
+        if (links.find((l) => l.text === 'bad')?.href != null) problems.push(`${label}: a javascript: link kept its href`);
+        if (!links.some((l) => l.text === 'Link target' && /^#note:/.test(l.href || ''))) problems.push(`${label}: the [[link]] lost its href (${JSON.stringify(links)})`);
+        await wc.executeJavaScript(`document.querySelector('#panel article.note a[href^="#note:"]')?.click()`, true);
+        if (!(await until(wc, `document.querySelector('#panel article.note h2')?.textContent === 'Link target'`))) problems.push(`${label}: tapping the [[link]] did not open "Link target"`);
+        if ((await wc.executeJavaScript('window.nexusBack()')) !== true || !(await until(wc, `!!document.querySelector('#panel .note-list')`, 5000))) problems.push(`${label}: Back on an open note did not go to the list`);
+      }
+    }
+    // Today: a meeting link 160 characters long stays inside the Schedule card.
+    await wc.executeJavaScript(`document.querySelector('#tabs [data-tab="today"]').click()`, true);
+    if (!(await until(wc, `[...document.querySelectorAll('#panel .today-ev')].some((e) => e.textContent.includes('xxxxxxxxxx'))`))) problems.push(`${label}: the event with the long link is not on Today`);
+    else {
+      await clipped(wc, `${label} today`);
+      const wide = await wc.executeJavaScript(`(() => { const p = document.querySelector('#panel'); return p.scrollWidth - p.clientWidth; })()`);
+      if (wide > 1) problems.push(`${label} today: the long link pushes the screen ${wide}px wide`);
+      await shot(wc, `${label} today`);
+    }
+    // Disconnect (from the drawer over Today): ten taps at once only arm it; a second tap after a moment
+    // disconnects (with the key).
+    await wc.executeJavaScript(`document.querySelector('#convBtn').click(); for (let i = 0; i < 10; i++) document.querySelector('#unpairBtn').click()`, true);
+    const armed = await wc.executeJavaScript(`({ token: localStorage.getItem('nexus.token'), pair: !document.querySelector('#pair').classList.contains('hidden'), note: document.querySelector('.unpair-note')?.textContent || '' })`);
+    if (!armed.token || armed.pair) problems.push(`${label}: ten quick taps disconnected the device`);
+    if (!armed.note) problems.push(`${label}: the armed Disconnect says nothing about what a second tap does`);
+    await clipped(wc, `${label} disconnect armed`);
+    await wait(500);
+    await wc.executeJavaScript(`document.querySelector('#unpairBtn').click()`, true);
+    if (!(await until(wc, `!document.querySelector('#pair').classList.contains('hidden') && !localStorage.getItem('nexus.token')`, 3000))) problems.push(`${label}: a second tap did not disconnect`);
+    const cleared = await named('clearToken');
+    if (cleared.length !== 1 || cleared[0][1] !== BRIDGE_KEY) problems.push(`${label}: the app's token was not cleared with the key (${JSON.stringify(cleared)})`);
+    // Unpaired while another tab was shown: the pairing screen has nothing for Back to close, so it leaves the app.
+    if ((await named('backTarget')).at(-1)?.[1] !== false) problems.push(`${label}: the pairing screen still tells the app something is open (backTarget)`);
+    if ((await wc.executeJavaScript('window.nexusBack()')) !== false) problems.push(`${label}: Back on the pairing screen switched the hidden screens instead of leaving the app`);
+  } finally {
+    win.destroy();
+  }
 }
 
 app.whenReady().then(async () => {

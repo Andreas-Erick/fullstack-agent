@@ -13,10 +13,15 @@ desktop version: the chat with the face and voice, and tabs for **Today** (sched
 - **Talk tile** in Quick Settings and a **Talk** shortcut (long-press the icon): open the app and start
   listening; tap the mic to send. Needs the secure (https) address.
 - **Share → Siren** from any app puts the text in the message box.
+- **Back** (the button or the gesture, Android 16 included) closes what is open first: the "Can't
+  reach your computer" screen, the conversation list, the full-screen face, an open note (back to the
+  Notes list), a building in the Inner World (back outside), a screen from More (back to More) or
+  another tab (back to the chat). From the bare chat or the pairing screen it leaves the app.
 
 What it never does: the app only loads your desktop's address (and the Cloudflare Access sign-in, if
 you use Access); every other link opens in your browser. The device token is encrypted with a key in
-the Android Keystore and app backups are off. The only library is Google's Wear Data Layer (for the watch app); nothing else from third parties.
+the Android Keystore and is sent only to the computer that issued it. Cloud backups and transfers to a
+new phone carry none of the app's data (the token included): pair the new phone instead. The only library is Google's Wear Data Layer (for the watch app); nothing else from third parties.
 
 ## Galaxy tablets and Samsung DeX
 
@@ -33,7 +38,8 @@ The same app, laid out for big screens: on a tablet (upright or sideways), in De
 - **Install:** the watch app isn't in the Play Store yet, so it is installed from a computer with adb. On the watch: Settings → About watch → Software → tap *Software version* five times (developer options), then Settings → Developer options → **ADB debugging** and **Wireless debugging** on → *Pair new device*. On the computer (Android SDK platform-tools): `adb pair <ip>:<port>` with the code shown, `adb connect <ip>:<port>`, then `adb install Siren-Wear-x.y.z.apk`.
 - **Install both from the same release:** the phone and watch apps must be signed with the same key to talk to each other (both `-debug` or both signed).
 - **The persona on the wrist:** the watch shows the active persona's name and colors, her face (built-in or your custom one: the computer records it as short loops per state, sent once and again only when the face, theme or name changes) and speaks in her voice when the computer has one; otherwise the watch's own voice. Switching the persona on the computer reaches the phone (its page and, with notifications on, the background connection) at once, and the phone passes the new look and face on to the watch.
-- What the watch shows says what to do when something is missing: the phone out of reach, the Siren phone app not installed or not paired, or the computer not answering.
+- **The screen may go off while she thinks:** a question keeps waiting when the watch's screen times out, you cover it with your palm or open Today; the answer is shown (and spoken) when it comes. While she thinks the screen stays on, for up to a minute.
+- What the watch shows says what to do when something is missing: the phone out of reach, the Siren phone app not installed or not paired, or the computer not answering (also after **New chat**).
 - **Security:** the watch app has no internet permission; it only talks to the Siren phone app, which accepts only the watch app signed with the same key, checks each message's size and allows 30 requests a minute.
 
 ### Trying the watch app in the emulator
@@ -95,10 +101,31 @@ Debug builds allow inspecting the page from `chrome://inspect` (handy for develo
 ## Layout
 
 - `MainActivity.java`: the WebView (locked to your address), first-run address screen, mic permission,
-  share and Talk intents, and the `window.NexusAndroid` bridge (`setToken`, `clearToken`,
-  `setBackground`, `backgroundEnabled`, `changeServer`, `moveTo`). Each method only answers while your own
-  page is loaded.
+  share and Talk intents, Back, the app lock, and the `window.NexusAndroid` bridge. Every method
+  answers only while your own page is loaded. The page calls `hello()` first thing at load and gets a
+  key, made per WebView and handed out once; the offer ends with any other bridge call or the page's
+  finished load, so a page that never asks leaves no key behind. The methods that change something
+  take the key first (`setToken`, `clearToken`, `setBackground`, `setLock`, `lookChanged`, `moveTo`,
+  `changeServer`), so a custom face's frame, which the WebView also offers the bridge to, gets `''` and
+  can't call them. Read-only: `appVersion`, `backgroundEnabled`, `lockAvailable`, `lockEnabled`. When
+  the page reloads itself (a new client version), the app gives it a fresh WebView and key; a screen
+  rebuilt while the app is locked (that reload, the error screen's retry) stays under the lock. The old
+  keyless signatures still exist for an older computer's page and do nothing, except `changeServer()`,
+  which still opens the setup screen for a page that never asked for the key. `changeServer` only opens
+  the setup screen: the token, the notifications choice and the background connection stay. Connect
+  forgets the token (and stops the connection) only for another address or a pairing link; the
+  notifications choice stays.
+- Back: the page reports whether something is open (`backTarget(open)`); while it is, Back calls the
+  page's `nexusBack()` (an `OnBackInvokedCallback` on Android 13+, `enableOnBackInvokedCallback` in the
+  manifest), which closes the top layer (`backPlan` in `renderer/remote/sync.js`). Otherwise, or when the
+  page says nothing was open, the app goes to the background.
 - `ConnectionService.java`: the optional background connection (`/api/events`) and notifications.
 - `ApprovalReceiver.java`: Allow / Deny from a notification (`POST /api/approvals/:id`).
 - `TalkTileService.java`: the Quick Settings tile.
-- `Prefs.java`: settings and the Keystore-encrypted token.
+- `Prefs.java`: settings and the Keystore-encrypted token, bound to the address that issued it
+  (`tokenFor`: everything that sends the token asks it; a token from before 2.7.25 adopts the saved
+  address once).
+- `res/xml/data_extraction_rules.xml`: nothing of the app in cloud backups or device-to-device
+  transfers (Android 12+; `allowBackup="false"` before that).
+- `wear/…/WatchActivity.java` keeps its `Link` from onCreate to onDestroy, so an answer that arrives
+  with the screen off still lands; a request's timer or failure ends only its own callback (`Link.java`).

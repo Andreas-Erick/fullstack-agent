@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
+import android.util.Base64;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -32,11 +33,16 @@ import android.widget.TextView;
 
 import org.json.JSONObject;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+
 /**
  * Shows the phone client served by the desktop (renderer/remote) in a WebView that only ever loads
  * that one address (plus the Cloudflare Access sign-in, if the user put Access in front of it). Links
  * elsewhere open in the browser. A small bridge (window.NexusAndroid) lets the page hand over the
- * device token for background notifications; it only answers while our own address is loaded.
+ * device token for background notifications; it only answers while our own address is loaded, and what
+ * changes something also takes the key only the page's own script was given (Bridge.hello).
  */
 public class MainActivity extends Activity {
     static final String ACTION_TALK = "com.nexusagent.android.TALK";
@@ -52,9 +58,14 @@ public class MainActivity extends Activity {
 
     private FrameLayout root;
     private WebView web;
+    private Bridge bridge; // web's bridge (showWeb makes both)
     private String origin;
     private volatile String pageOrigin = "";
     private boolean loaded;
+    private boolean ourPageShown; // a page of our origin finished loading in the current WebView
+    // Android Back: the page has a layer open (its drawer, a note…: Bridge.backTarget), so Back goes to it.
+    private boolean backLayer;
+    private Object backCb; // OnBackInvokedCallback on API 33+
     private String pendingJs;
     private PermissionRequest pendingPermission;
     /** "#pair=…" for the next page load only (from a pairing link entered on the setup screen). */
@@ -136,7 +147,15 @@ public class MainActivity extends Activity {
 
     private void lock() {
         locked = true;
-        // Everything under the lock is hidden, also from screen readers (not just covered).
+        cover();
+        promptUnlock();
+    }
+
+    /**
+     * Everything under the lock is hidden, also from screen readers (not just covered). Called again by
+     * every screen rebuilt while locked (showWeb, hudPanel: root.removeAllViews() takes the lock view too).
+     */
+    private void cover() {
         for (int i = 0; i < root.getChildCount(); i++) if (root.getChildAt(i) != lockView) root.getChildAt(i).setVisibility(View.INVISIBLE);
         if (lockView == null) {
             LinearLayout box = new LinearLayout(this);
@@ -157,7 +176,6 @@ public class MainActivity extends Activity {
             lockView = box;
         }
         if (lockView.getParent() == null) root.addView(lockView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        promptUnlock();
     }
 
     private void promptUnlock() {
@@ -198,11 +216,33 @@ public class MainActivity extends Activity {
         handleIntent(intent);
     }
 
+    // Before Android 13 (API 33); from there Back reaches backPressed through the registered callback.
+    // No WebView history (its only entry is a Cloudflare Access sign-in) and no super (it destroyed the
+    // WebView on old Android).
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        if (web != null && web.canGoBack()) web.goBack();
-        else super.onBackPressed();
+        backPressed();
+    }
+
+    /** Back: the page closes its top layer (window.nexusBack, sync.js backPlan); with none, the app goes to the background. */
+    private void backPressed() {
+        if (locked || web == null || !backLayer) {
+            moveTaskToBack(true);
+            return;
+        }
+        web.evaluateJavascript("window.nexusBack ? nexusBack() : false", (r) -> {
+            if (!"true".equals(r)) moveTaskToBack(true); // nothing was open after all (a stale report, a face's call)
+        });
+    }
+
+    private void setBackLayer(boolean open) {
+        if (open == backLayer) return;
+        backLayer = open;
+        if (Build.VERSION.SDK_INT < 33) return;
+        if (backCb == null) backCb = (android.window.OnBackInvokedCallback) this::backPressed;
+        if (open) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, (android.window.OnBackInvokedCallback) backCb);
+        else getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback((android.window.OnBackInvokedCallback) backCb);
     }
 
     // ------------------------------------------------------------ first run
@@ -260,7 +300,10 @@ public class MainActivity extends Activity {
                 err.setText(R.string.setup_invalid);
                 return;
             }
-            if (!o.equals(Prefs.server(this)) || isLink) Prefs.setToken(this, null, null); // a new desktop or pairing: pair again
+            if (!o.equals(Prefs.server(this)) || isLink) {
+                Prefs.setToken(this, null, null); // a new desktop or pairing: pair again
+                ConnectionService.stop(this); // its connection belonged to the old pairing
+            }
             Prefs.setServer(this, o);
             origin = o;
             pendingPair = isLink ? "#pair=" + link.group(2) : null;
@@ -386,6 +429,7 @@ public class MainActivity extends Activity {
         scroll.setFillViewport(true);
         scroll.addView(holder, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (locked) cover(); // the error screen's retry, a setup screen: still under the lock
         return panel;
     }
 
@@ -406,7 +450,8 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(false);
         s.setSupportMultipleWindows(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        web.addJavascriptInterface(new Bridge(), "NexusAndroid");
+        bridge = new Bridge();
+        web.addJavascriptInterface(bridge, "NexusAndroid");
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
@@ -422,13 +467,24 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (view != web) return; // a WebView already replaced
                 pageOrigin = Prefs.originOf(url);
                 loaded = false;
+                setBackLayer(false);
+                // A second page of ours in this WebView (the page reloaded itself for a new client version):
+                // a fresh WebView and key, since this one's key was handed out to the page before.
+                if (ourPageShown && origin.equals(pageOrigin)) {
+                    ourPageShown = false;
+                    root.post(MainActivity.this::showWeb); // not ui.post: onPageFinished's cancelTimers() empties ui
+                }
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (view != web) return;
                 loaded = origin.equals(Prefs.originOf(url));
+                if (loaded) bridge.endOffer(); // a page that never asked for the key (one from before 2.7.25) leaves none
+                if (loaded) ourPageShown = true;
                 if (loaded) cancelTimers();
                 if (loaded && pendingJs != null) {
                     view.evaluateJavascript(pendingJs, null);
@@ -438,14 +494,14 @@ public class MainActivity extends Activity {
 
             @Override
             public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError error) {
-                if (req.isForMainFrame()) showError(plainError(error.getErrorCode(), String.valueOf(error.getDescription())));
+                if (view == web && req.isForMainFrame()) showError(plainError(error.getErrorCode(), String.valueOf(error.getDescription())));
             }
 
             // A tunnel (Cloudflare, Tailscale Serve) answering for a computer that is off: its error page,
             // not the app. Our own server never fails the page itself with a 5xx.
             @Override
             public void onReceivedHttpError(WebView view, WebResourceRequest req, android.webkit.WebResourceResponse res) {
-                if (req.isForMainFrame() && res.getStatusCode() >= 500) showError(getString(R.string.error_gateway));
+                if (view == web && req.isForMainFrame() && res.getStatusCode() >= 500) showError(getString(R.string.error_gateway));
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -466,6 +522,10 @@ public class MainActivity extends Activity {
             }
         });
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (locked) cover(); // the page's own reload, the error screen's retry: still under the lock
+        // Our page from the start: its first script may reach the bridge (hello) before onPageStarted runs.
+        pageOrigin = origin;
+        ourPageShown = false;
         web.loadUrl(origin + "/" + (pendingPair == null ? "" : pendingPair));
         pendingPair = null;
         // An address that doesn't answer can keep the page loading for a minute (a black screen): give up sooner.
@@ -482,6 +542,7 @@ public class MainActivity extends Activity {
     }
 
     private void destroyWeb() {
+        setBackLayer(false);
         if (web == null) return;
         root.removeView(web);
         web.destroy();
@@ -535,22 +596,74 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------ bridge
-    /** Called by renderer/remote/app.js. Every method checks that our own page is the one asking. */
+    private static String newKey() {
+        byte[] b = new byte[24];
+        new SecureRandom().nextBytes(b);
+        return Base64.encodeToString(b, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+    }
+
+    /**
+     * Called by renderer/remote/app.js. Every method checks that our own page is loaded; the ones that
+     * change something also take the key (first parameter) that hello() gave the page. The WebView
+     * offers this object to every frame, a custom face's sandboxed frame included: the key is what
+     * keeps a face from moving the token elsewhere or switching things off. A new Bridge (and key) is
+     * made for every WebView (showWeb).
+     */
     private final class Bridge {
-        private boolean trusted() {
+        // One key per WebView, for the page's own script, which asks first thing (hello), before any other
+        // bridge call and before a custom face's frame exists. The offer ends with the first call of any
+        // other method or our page's finished load (endOffer): a page that never asks (one from before
+        // 2.7.25, whose first call is backgroundEnabled) leaves no key for a face to pick up later.
+        private final String key = newKey();
+        private final WebView owner = web; // the WebView this bridge belongs to (showWeb creates it first)
+        private boolean claimed;
+        private volatile boolean handedOut; // the page has the key: the old keyless changeServer does nothing
+
+        private boolean ours() {
             return origin != null && origin.equals(pageOrigin);
         }
 
+        synchronized void endOffer() {
+            claimed = true;
+        }
+
+        private boolean trusted() {
+            endOffer();
+            return ours();
+        }
+
+        private boolean trusted(String k) {
+            return trusted() && k != null && MessageDigest.isEqual(k.getBytes(StandardCharsets.UTF_8), key.getBytes(StandardCharsets.UTF_8));
+        }
+
         @JavascriptInterface
-        public void setToken(String token, String deviceName) {
+        public synchronized String hello() {
+            if (claimed) return "";
+            claimed = true; // claimed even when refused: a later caller can't be the page
+            if (!ours()) return "";
+            handedOut = true;
+            return key;
+        }
+
+        /** The page has a layer open that Back should close first (sync.js backPlan); false at its top. */
+        @JavascriptInterface
+        public void backTarget(boolean open) {
             if (!trusted()) return;
+            runOnUiThread(() -> {
+                if (web == owner) setBackLayer(open);
+            });
+        }
+
+        @JavascriptInterface
+        public void setToken(String key, String token, String deviceName) {
+            if (!trusted(key)) return;
             Prefs.setToken(MainActivity.this, token, deviceName);
             if (Prefs.background(MainActivity.this)) ConnectionService.start(MainActivity.this);
         }
 
         @JavascriptInterface
-        public void clearToken() {
-            if (!trusted()) return;
+        public void clearToken(String key) {
+            if (!trusted(key)) return;
             Prefs.setToken(MainActivity.this, null, null);
             ConnectionService.stop(MainActivity.this);
         }
@@ -574,8 +687,8 @@ public class MainActivity extends Activity {
 
         /** Notifications while the app is closed (a foreground service keeps the connection). */
         @JavascriptInterface
-        public void setBackground(boolean on) {
-            if (!trusted()) return;
+        public void setBackground(String key, boolean on) {
+            if (!trusted(key)) return;
             runOnUiThread(() -> {
                 if (!on) {
                     Prefs.setBackground(MainActivity.this, false);
@@ -591,8 +704,8 @@ public class MainActivity extends Activity {
 
         /** The page heard that the persona or its look changed: a paired watch gets the new one (WearRelayService). */
         @JavascriptInterface
-        public void lookChanged() {
-            if (!trusted()) return;
+        public void lookChanged(String key) {
+            if (!trusted(key)) return;
             WearRelayService.refreshLook(MainActivity.this);
         }
 
@@ -608,8 +721,8 @@ public class MainActivity extends Activity {
 
         /** Turning the lock on or off asks for the phone's unlock first; the page hears back either way. */
         @JavascriptInterface
-        public void setLock(boolean on) {
-            if (!trusted()) return;
+        public void setLock(String key, boolean on) {
+            if (!trusted(key)) return;
             runOnUiThread(() -> confirm(getString(on ? R.string.lock_on_title : R.string.lock_off_title), (ok) -> {
                 if (ok) {
                     Prefs.setAppLock(MainActivity.this, on);
@@ -624,8 +737,8 @@ public class MainActivity extends Activity {
          * where the page finishes the switch and hands over the new token (setToken).
          */
         @JavascriptInterface
-        public void moveTo(String url, String secret) {
-            if (!trusted()) return;
+        public void moveTo(String key, String url, String secret) {
+            if (!trusted(key)) return;
             String o = Prefs.toOrigin(url);
             if (o == null || !o.startsWith("https://") || secret == null || !MOVE_SECRET.matcher(secret).matches()) return;
             runOnUiThread(() -> {
@@ -638,15 +751,44 @@ public class MainActivity extends Activity {
             });
         }
 
+        /**
+         * The setup screen, to check or change the address. The token, the notifications choice and the
+         * background connection stay: Connect forgets the token (and stops that connection) only for
+         * another address or a pairing link, so checking the same address changes nothing.
+         */
+        @JavascriptInterface
+        public void changeServer(String key) {
+            if (!trusted(key)) return;
+            runOnUiThread(() -> showSetup(null, null));
+        }
+
+        // The signatures before 2.7.25, still called by an older computer's page (the More screen offers
+        // this app's update as soon as the computer's GitHub check sees it, before the computer itself is
+        // updated): without them that page would stop at "Method not found". They change nothing, except
+        // that changeServer() still opens the setup screen for a page that never asked for the key (the
+        // way out when that page shows its offline screen from the cache); it changes no setting either.
+        @JavascriptInterface
+        public void setToken(String token, String deviceName) {}
+
+        @JavascriptInterface
+        public void clearToken() {}
+
+        @JavascriptInterface
+        public void setBackground(boolean on) {}
+
+        @JavascriptInterface
+        public void lookChanged() {}
+
+        @JavascriptInterface
+        public void setLock(boolean on) {}
+
+        @JavascriptInterface
+        public void moveTo(String url, String secret) {}
+
         @JavascriptInterface
         public void changeServer() {
-            if (!trusted()) return;
-            runOnUiThread(() -> {
-                ConnectionService.stop(MainActivity.this);
-                Prefs.setToken(MainActivity.this, null, null);
-                Prefs.setBackground(MainActivity.this, false);
-                showSetup(null, null);
-            });
+            if (handedOut || !trusted()) return;
+            runOnUiThread(() -> showSetup(null, null));
         }
     }
 

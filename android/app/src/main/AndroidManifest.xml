@@ -10,9 +10,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
 
-    <!-- usesCleartextTraffic: the local-network address is plain http (the secure address is https). -->
+    <!-- usesCleartextTraffic: the local-network address is plain http (the secure address is https).
+         allowBackup (before Android 12) and dataExtractionRules (from 12): nothing of the app goes into a
+         cloud backup or a transfer to a new phone, the device token included.
+         enableOnBackInvokedCallback: Back reaches the page through MainActivity's callback (Android 13+). -->
     <application
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher"
