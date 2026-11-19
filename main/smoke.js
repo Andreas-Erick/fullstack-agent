@@ -99,7 +99,9 @@ function seedSettings(data) {
   fs.mkdirSync(data, { recursive: true });
   // NEXUS_SMOKE_SETTINGS: JSON sections merged in, e.g. {"stt":{"engine":"groq"}} to leave Whisper out.
   const extra = JSON.parse(process.env.NEXUS_SMOKE_SETTINGS || '{}');
-  const s = { onboarded: true, privacy: { acceptedAt: Date.now() }, perf: { mode }, voice: { engine: 'local', greetOnLaunch: false } };
+  // The brain is named (without an llm section the install counts as one from before 2.0, and LEGACY's
+  // FreeLLMAPI brain is measured instead), and no helper app is started for it.
+  const s = { onboarded: true, privacy: { acceptedAt: Date.now() }, perf: { mode }, llm: { provider: 'claude-code' }, voice: { engine: 'local', greetOnLaunch: false }, helperApps: { autoStart: false } };
   for (const [k, v] of Object.entries(extra)) s[k] = v && typeof v === 'object' ? { ...s[k], ...v } : v;
   fs.writeFileSync(path.join(data, 'settings.json'), JSON.stringify(s));
 }
@@ -353,6 +355,10 @@ const FAILED_CARD_JS = (label) => `(async () => {
   await chat.openConversation('csmoke01');
   await wait(600);
   const found = [];
+  // The face's state label stays below the header, also where a narrow window wraps it to two rows.
+  const faceLabel = document.querySelector('#miniFaceLabel').getBoundingClientRect();
+  const chatHeader = document.querySelector('#view-chat .chat-header').getBoundingClientRect();
+  if (faceLabel.height && faceLabel.top < chatHeader.bottom - 1) found.push(${JSON.stringify(label)} + ': the chat header covers the face’s state label (' + Math.round(chatHeader.bottom - faceLabel.top) + ' px)');
   const card = document.querySelector('#replyCard');
   if (card.classList.contains('hidden') || !card.querySelector('.reply-error')) found.push(${JSON.stringify(label)} + ': the Face layout shows no card for the failed reply');
   else {

@@ -414,17 +414,29 @@ function registerIpc() {
 
   // Settings
   handle('settings:get', () => store.getSettings());
-  handle('settings:set', async (patch) => {
-    const s = await store.setSettings(patch);
+  // What a save changes beyond the file (the voice shortcut, logging, remote access, helper apps, the
+  // router), after Settings' saves and after a reset, which changes every section.
+  async function applySaved(s, patch) {
     if (patch?.stt?.globalShortcut !== undefined) registerShortcut().catch((error) => log.warn('voice shortcut not registered', { error }));
     if (patch?.logging) log.setDebug(s.logging.debug);
     if (patch?.remote) await companion.apply(s);
     // A newly used or re-enabled helper app (VoiceStudio, FreeLLMAPI) starts now.
     if (patch?.voice || patch?.llm || patch?.routing || patch?.helperApps) helperApps.ensureAll(s, 'settings');
     if (patch?.routing || patch?.llm?.provider || ['gemini', 'deepseek', 'groq', 'perplexity', 'anthropic', 'claudeCode'].some((k) => patch?.[k])) router.reset();
-    return s;
+  }
+  // opts.persona: the persona whose Settings cards the value was typed into. A persona field is then saved
+  // only while that persona is still active (persona.saveFor); dropped, the settings come back as they are.
+  handle('settings:set', async (patch, opts) => {
+    const r = typeof opts?.persona === 'string' && opts.persona ? await persona.saveFor(opts.persona, patch) : { settings: await store.setSettings(patch), saved: true };
+    if (r.saved) await applySaved(r.settings, patch);
+    return r.settings;
   });
-  handle('settings:reset', () => store.resetSettings());
+  // Remote access, the shortcut and the rest follow the reset at once (the server stopped when it goes off).
+  handle('settings:reset', async () => {
+    const r = await store.resetSettings();
+    await applySaved(r.settings, r.settings);
+    return r;
+  });
   // New versions (updates.js): the state, a check now, skipping one, and opening a GitHub download.
   handle('updates:status', () => require('./updates').status());
   handle('updates:check', () => require('./updates').check({ manual: true }));
@@ -739,7 +751,7 @@ function registerIpc() {
   handle('persona:scene', (payload) => persona.generateScene(payload));
   handle('persona:summaryStatus', () => persona.summaryStatus());
   handle('persona:summarize', () => persona.ensureSummary({ force: true }));
-  handle('persona:setSummary', (text) => persona.setSummary(String(text ?? '')));
+  handle('persona:setSummary', (text, forPersona) => persona.setSummary(String(text ?? ''), typeof forPersona === 'string' ? forPersona : ''));
   // Saved personas: each returns the new settings (the live persona changed).
   handle('persona:switch', (id) => persona.activate(String(id || '')));
   handle('persona:create', (opts) => persona.create({ name: String(opts?.name || ''), copy: opts?.copy === true, template: typeof opts?.template === 'string' ? opts.template : null, activate: opts?.activate !== false }));

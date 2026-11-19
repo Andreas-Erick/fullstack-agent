@@ -24,6 +24,9 @@ const FIRST_ID = 'p-main'; // the persona an install already had before personas
 
 const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 
+/** Whether a settings patch sets one of the persona's fields. */
+const touches = (patch) => FIELDS.some(([section, key]) => patch?.[section] != null && typeof patch[section] === 'object' && Object.hasOwn(patch[section], key));
+
 /** The active persona as it is in the live settings. */
 function snapshot(settings) {
   const out = {};
@@ -270,4 +273,4 @@ function aestheticGist(text, max = AESTHETIC_MAX) {
   return `${out}\n\n(The rest of this brief describes the app's visual design in detail; the app draws your look from it.)`;
 }
 
-module.exports = { FIELDS, REPLACE, FIRST_ID, MAX_PERSONAS, snapshot, patchFor, ensure, repairScenes, sync, find, create, remove, lastPersona, summary, digest, SUMMARY_FROM, SUMMARY_MAX, fingerprint, needsSummary, summaryFresh, forSmallModels, summaryPrompt, cleanSummary, aestheticGist, AESTHETIC_MAX };
+module.exports = { FIELDS, REPLACE, FIRST_ID, MAX_PERSONAS, touches, snapshot, patchFor, ensure, repairScenes, sync, find, create, remove, lastPersona, summary, digest, SUMMARY_FROM, SUMMARY_MAX, fingerprint, needsSummary, summaryFresh, forSmallModels, summaryPrompt, cleanSummary, aestheticGist, AESTHETIC_MAX };

@@ -860,7 +860,7 @@ class Session {
 function logToolError(info, ms, preview) {
   if (info.own && /^\s*\{/.test(preview)) return;
   const declined = /^(User did not approve|Not approved by the user)/.test(preview);
-  log[declined ? 'info' : 'warn'](declined ? 'tool declined' : 'tool failed', { name: info.name, ms, input: JSON.stringify(info.input || {}).slice(0, 300), preview: preview.slice(0, 500) });
+  log[declined ? 'info' : 'warn'](declined ? 'tool declined' : 'tool failed', { name: info.name, ms, input: JSON.stringify(info.input || {}).slice(0, 300), preview: (declined ? approvals.declineForLog(preview) : preview).slice(0, 500) });
 }
 
 // Claude Code's own memory (MEMORY.md and how to write it) belongs to whoever develops the app, not to

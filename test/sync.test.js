@@ -405,6 +405,33 @@ test('a short reply said again ("yes" after "yes") is still unsent: only a newer
   assert.strictEqual(unsentPlan({ convId: 'c1', sentText: 'yes', priorUsers: 99 }, 'c1', [...before, user('yes')]), 'show', 'a count past the conversation');
 });
 
+// Regression: a conversation opened while the computer was out of reach draws nothing (loadConversation
+// cleared the list and returned on NetError, keeping convId), so a "yes" sent then counted 0 earlier messages,
+// and once the conversation loaded an earlier "yes" in it was taken for this one: the unsent message and its
+// Try again disappeared.
+test('a message sent while its conversation isn’t drawn is never taken for an earlier one with the same words', async () => {
+  const { priorUsersFor, unsentPlan } = await client();
+  assert.strictEqual(priorUsersFor({ shownConv: undefined, convId: 'c1', count: 0 }), null, 'opened while out of reach, or still loading');
+  assert.strictEqual(priorUsersFor({ shownConv: 'c0', convId: 'c1', count: 3 }), null, 'another conversation’s messages are on screen');
+  assert.strictEqual(priorUsersFor({ shownConv: 'c1', convId: 'c1', count: 2 }), 2, 'drawn: counted');
+  assert.strictEqual(priorUsersFor({ shownConv: null, convId: null, count: 0 }), 0, 'a new conversation');
+  assert.strictEqual(priorUsersFor({ shownConv: null, convId: undefined, count: 1 }), 1);
+  assert.strictEqual(priorUsersFor({ shownConv: undefined, convId: null, count: 0 }), null, 'nothing drawn yet at all');
+  const earlier = [{ role: 'user', content: 'Add the dentist?' }, { role: 'assistant', content: 'At 9?' }, { role: 'user', content: 'yes' }, { role: 'assistant', content: 'Added.' }];
+  const failed = { convId: 'c1', sentText: 'yes', priorUsers: priorUsersFor({ shownConv: undefined, convId: 'c1', count: 0 }) };
+  assert.strictEqual(unsentPlan(failed, 'c1', earlier), 'show', 'the earlier "yes" is not this one');
+  assert.strictEqual(unsentPlan({ ...failed, priorUsers: 0 }, 'c1', earlier), 'drop', 'what counting the empty screen did');
+
+  // app.js: the count goes through priorUsersFor, and only a load that drew the messages marks them shown.
+  const app = fs.readFileSync(path.join(ROOT, 'renderer/remote/app.js'), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(app, /const priorUsers = priorUsersFor\(\{ shownConv: state\.shownConv, convId: state\.convId, count: /);
+  const load = app.slice(app.indexOf('async function loadConversation(id) {'), app.indexOf('\nfunction keepUnsent('));
+  assert.match(load, /for \(const m of conv\.messages\) addMessage\(m\);\n\s*state\.shownConv = id;/);
+  assert.match(load, /\$\('#messages'\)\.innerHTML = '';\n\s*state\.shownConv = undefined;/);
+  const offline = load.slice(load.indexOf('} catch (err) {'));
+  assert.ok(offline.indexOf('if (err instanceof NetError) return updateEmpty();') < offline.indexOf('state.shownConv'), 'out of reach: still nothing drawn');
+});
+
 test('unsent messages: any conversation the phone saw keeps the message; one more stored copy drops it (seeded)', async () => {
   const { unsentPlan } = await client();
   const WORDS = ['yes', 'no', 'ok', 'continue', ' yes ', 'Yes', '👍', ''];

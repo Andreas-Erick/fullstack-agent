@@ -394,7 +394,7 @@ async function executeTool(name, args, ctx) {
   } catch (err) {
     // Declined approvals are normal outcomes; everything else is logged with its stack.
     const declined = /^Not approved by the user/.test(err.message);
-    log[declined ? 'info' : 'warn'](declined ? 'tool declined' : 'tool failed', { name, ms: Date.now() - started, args: JSON.stringify(args || {}).slice(0, 300), error: declined ? err.message : err });
+    log[declined ? 'info' : 'warn'](declined ? 'tool declined' : 'tool failed', { name, ms: Date.now() - started, args: JSON.stringify(args || {}).slice(0, 300), error: declined ? approvals.declineForLog(err.message) : err });
     return { ok: false, result: { error: err.message } };
   }
 }

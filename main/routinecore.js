@@ -58,6 +58,17 @@ function normalize(r, { newId, now = Date.now() } = {}) {
   };
 }
 
+/** Whether a save of routine `old` only pauses it (enabled false; name, schedule and steps as they are): it can only make less run. */
+function onlyPauses(old, input) {
+  if (!old || input?.enabled !== false) return false;
+  try {
+    const next = normalize({ ...old, ...input }, { newId: () => old.id });
+    return next.name === old.name && next.instructions === old.instructions && JSON.stringify(next.schedule) === JSON.stringify(normalizeSchedule(old.schedule));
+  } catch {
+    return false; // not a valid routine: saving it fails anyway, after the usual question
+  }
+}
+
 /** The first scheduled time strictly after `after` (a Date). */
 function nextRun(schedule, after) {
   const s = schedule;
@@ -154,4 +165,4 @@ function retryPlan(routine, error, now = Date.now()) {
   return { retryAt: now + RETRY_MIN * 60000, retries, waitsFor: brain ? 'brain' : 'internet', summary: `Waiting for ${brain ? 'the AI brain' : 'the internet connection'} (${why}). Tries again in ${RETRY_MIN} minutes (${retries} of ${MAX_RETRIES}).` };
 }
 
-module.exports = { KINDS, normalize, normalizeSchedule, usableTime, nextRun, check, describe, prompt, CONNECTOR_CHECK, takenOver, brainNotReady, offline, retryPlan, RETRY_MIN, MAX_RETRIES };
+module.exports = { KINDS, normalize, normalizeSchedule, onlyPauses, usableTime, nextRun, check, describe, prompt, CONNECTOR_CHECK, takenOver, brainNotReady, offline, retryPlan, RETRY_MIN, MAX_RETRIES };

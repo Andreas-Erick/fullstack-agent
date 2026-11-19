@@ -5,12 +5,15 @@ import { switchView } from './nav.js';
 import { renderDocument } from './docview.js';
 
 let current = null;
+let openSeq = 0; // the latest open: a slow docs:load never replaces a document asked for after it
 
 export function initDocs() {
   $('#docOpen').onclick = async () => {
     try {
       const doc = await api.docs.pick();
-      if (doc) show(doc);
+      if (!doc) return;
+      openSeq++; // a load still running doesn't land over the picked file
+      show(doc);
     } catch (err) {
       toastError(err);
     }
@@ -36,12 +39,14 @@ export function initDocs() {
 }
 
 export async function openDocument(path) {
+  const seq = ++openSeq;
   try {
-    const doc = await api.docs.load(path);
+    const doc = await api.docs.load(path); // a large PDF or a Word file takes a while: a later open may finish first
+    if (seq !== openSeq) return; // a newer open or a picked file wins
     switchView('docs');
     show(doc);
   } catch (err) {
-    toastError(err);
+    if (seq === openSeq) toastError(err);
   }
 }
 

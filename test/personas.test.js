@@ -231,6 +231,45 @@ test('the user’s version is kept; a changed persona drops a late summary; no l
   await store.setSettings(localBrain);
 });
 
+// Regression: the summary's check read the settings (the cache) and then queued a plain save, so a switch
+// queued in between (behind a save still writing) took it: the other persona's own short version was
+// replaced by one written for someone else's master prompt. The check now runs inside the save queue.
+test('a short version finished while a switch waits in the queue lands nowhere; the user’s own words stay', async () => {
+  let release;
+  fakeLlm.complete = () => new Promise((r) => (release = r));
+  await store.setSettings(localBrain);
+  const writerId = (await persona.create({ name: 'Writer' })).personas.active;
+  await store.setSettings({ agent: { personality: longPrompt('Writer'), personaSummary: null } });
+  const keeperId = (await persona.create({ name: 'Keeper' })).personas.active;
+  await store.setSettings({ agent: { personality: longPrompt('Keeper') } });
+  await persona.setSummary('Keeper’s own short words.', keeperId);
+  await persona.activate(writerId);
+  const writing = persona.ensureSummary();
+  await new Promise((r) => setTimeout(r, 20)); // the model is writing
+  const busy = store.setSettings({ ui: { zoom: 1.05 } }); // a save still writing its file…
+  const switching = persona.activate(keeperId); // …with a switch queued behind it
+  release('You are Writer, a calm sovereign. '.repeat(20));
+  await Promise.all([writing, busy, switching]);
+  let s = await store.getSettings();
+  assert.strictEqual(s.personas.active, keeperId);
+  assert.strictEqual(s.agent.personaSummary?.text, 'Keeper’s own short words.', 'Keeper’s version stays hers');
+  assert.ok(!s.personas.list.find((x) => x.id === writerId).personaSummary?.text, 'nothing written for Writer either: it was no longer live');
+
+  // The studio's "Save my version" for a persona no longer live: refused, inside the queue too.
+  await persona.activate(writerId);
+  const busy2 = store.setSettings({ ui: { zoom: 1.1 } });
+  const switching2 = persona.activate(keeperId);
+  const r = await persona.setSummary('Typed for Writer.', writerId);
+  await Promise.all([busy2, switching2]);
+  assert.strictEqual(r.dropped, true);
+  s = await store.getSettings();
+  assert.ok(!s.personas.list.some((x) => x.personaSummary?.text === 'Typed for Writer.'), 'in no persona');
+  assert.strictEqual(s.agent.personaSummary?.text, 'Keeper’s own short words.');
+  assert.ok(!(await persona.setSummary('Keeper again.', keeperId)).dropped, 'for the live persona it is saved');
+  assert.strictEqual((await store.getSettings()).agent.personaSummary.text, 'Keeper again.');
+  await store.setSettings({ ui: { zoom: store.DEFAULTS.ui.zoom } });
+});
+
 // A generated look's whole UI design brief (~4k tokens) went into every chat call.
 test('aestheticGist keeps a short aesthetic whole and a long design brief to its vision', () => {
   const pc = load('main/personacore.js');

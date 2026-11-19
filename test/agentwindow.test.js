@@ -39,6 +39,22 @@ test('the address bar: addresses as is, domains get https, anything else is a se
   assert.strictEqual(core.fromAddressBar('  '), '');
 });
 
+// The window side of browser_open's redirect question (test/outbound.test.js plays the hops): every
+// main-frame request of the agent's own load asks before it is sent (held, cancelled when declined), set
+// before the load starts, ended once it commits or stops. Electron runs onBeforeRequest for each server
+// redirect hop (resourceType mainFrame, the view's webContentsId) and holds it until the callback.
+test('a server redirect of the agent’s own load is asked before it is requested', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../main/agentwindow.js'), 'utf8').replace(/\r\n/g, '\n');
+  const hook = src.slice(src.indexOf('ses.webRequest.onBeforeRequest('), src.indexOf('\n  });\n', src.indexOf('ses.webRequest.onBeforeRequest(')));
+  assert.match(hook, /const nav = details\.resourceType === 'mainFrame' && navAsk\?\.wc === details\.webContentsId \? navAsk : null;/);
+  assert.match(hook, /\(nav \? asked\(\(\) => nav\.ask\(details\.url\)\) : Promise\.resolve\(true\)\)\.then\(\s*\(ok\) => \{\s*if \(!ok\) return cb\(\{ cancel: true \}\);[\s\S]*\},\s*\(\) => cb\(\{ cancel: true \}\),\s*\);$/);
+  assert.ok(hook.indexOf('isPrivateHost') < hook.indexOf('nav.ask'), 'this computer and the network stay refused before any question');
+  const open = src.slice(src.indexOf('async function open('), src.indexOf('\nfunction requireOpen('));
+  assert.ok(open.indexOf('navAsk = byAgent && !c.globe && beforeRedirect') > 0 && open.indexOf('navAsk = ') < open.indexOf('wc.loadURL(c.url)'), 'set before the load starts (the user’s address bar sets none)');
+  assert.match(open, /while \(!loaded && asking && alive\(\)\)/, 'browser_open waits for the answer');
+  assert.match(src, /for \(const ev of \['did-navigate', 'did-stop-loading'\]\) wc\.on\(ev, \(\) => navAsk\?\.wc === wc\.id && \(navAsk = null\)\);/);
+});
+
 test('page scripts: ids are digits only, and the read script is one expression', () => {
   assert.ok(core.locateScript('3"]; alert(1); //').includes('data-nexus-id="31"'));
   assert.ok(core.focusScript('x7').includes('data-nexus-id="7"'));

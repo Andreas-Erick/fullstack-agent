@@ -9,7 +9,8 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { ROOT, stub, load, quietLog, tmpDir } = require('./helpers');
 
-stub({ './logger': quietLog });
+const launchCheck = { active: false }; // main/smoke.js: true under `electron . --smoke`
+stub({ './logger': quietLog, './smoke': launchCheck });
 const helperApps = load('main/helperapps.js');
 
 const freePort = () =>
@@ -103,6 +104,26 @@ test('restarted when needed: only for connection errors, only if allowed, not to
   assert.strictEqual(helperApps.onUnreachable('voicestudio', refused, voiceSettings(port)), false, 'already starting / just started');
   await new Promise((r) => setTimeout(r, 1500));
   assert.strictEqual(launches, 1);
+});
+
+// Regression: only main.js's launch call was skipped under the smoke check, so a settings change, a failed
+// request to the brain (llm:models from the Settings tab the check opens) or a scene's click still started
+// the user's real FreeLLMAPI or VoiceStudio from a run on a throwaway data folder.
+test('the launch check starts no helper app, whatever asks for one', async (t) => {
+  const port = await freePort(); // nothing answers there: every path would launch
+  helperApps.init({ spawnApp: fakeApp(port) });
+  helperApps._state.voicestudio.lastStart = 0;
+  launchCheck.active = true;
+  t.after(() => (launchCheck.active = false));
+  launches = 0;
+  const s = voiceSettings(port);
+  await Promise.all(helperApps.ensureAll(s, 'settings'));
+  const refused = Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+  assert.strictEqual(helperApps.onUnreachable('voicestudio', refused, s), false, 'nothing is "starting now"');
+  const r = await helperApps.start('voicestudio', s, { reason: 'manual', readyMs: 500 });
+  assert.notStrictEqual(r.status, 'starting');
+  await new Promise((r2) => setTimeout(r2, 300));
+  assert.strictEqual(launches, 0);
 });
 
 test('the agent can never change helper-app settings (they name programs Nexus runs)', () => {

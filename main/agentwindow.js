@@ -63,6 +63,19 @@ function agentActing() {
   setTimeout(pushState, 4100);
 }
 
+// The question browser_open set for the load it started ({ wc, ask(url) → allowed }): every main-frame
+// request of that load asks, the redirect hops included (the first is the address already asked about,
+// silent now). Cleared once the load commits or stops: what the page does after that (a click, a script)
+// is the page's own navigation. `asking`: a question still open, which open() waits for.
+let navAsk = null;
+let asking = null;
+function asked(question) {
+  const q = Promise.resolve().then(question); // a question that throws cancels the request, never leaves it hanging
+  asking = q;
+  q.finally(() => asking === q && (asking = null)).catch(() => {});
+  return q;
+}
+
 // Once per app run: the page session's rules.
 function prepareSession() {
   if (sessionReady) return;
@@ -89,10 +102,19 @@ function prepareSession() {
     if (!/^(https?|wss?):$/.test(u.protocol)) return cb({ cancel: false });
     if (isGlobeRequest(u, details)) return cb({ cancel: false });
     if (core.isPrivateHost(u.hostname)) return cb({ cancel: true });
-    if (core.isIpLiteral(u.hostname)) return cb({ cancel: false });
-    resolvesPrivate(ses, u.hostname).then(
-      (bad) => cb({ cancel: bad }),
-      () => cb({ cancel: false }), // no answer: the request fails on its own
+    // A server redirect of the agent's own load goes where the site chose: asked like a new address
+    // (browser_open's beforeRedirect) and held meanwhile; declined, it is never sent.
+    const nav = details.resourceType === 'mainFrame' && navAsk?.wc === details.webContentsId ? navAsk : null;
+    (nav ? asked(() => nav.ask(details.url)) : Promise.resolve(true)).then(
+      (ok) => {
+        if (!ok) return cb({ cancel: true });
+        if (core.isIpLiteral(u.hostname)) return cb({ cancel: false });
+        resolvesPrivate(ses, u.hostname).then(
+          (bad) => cb({ cancel: bad }),
+          () => cb({ cancel: false }), // no answer: the request fails on its own
+        );
+      },
+      () => cb({ cancel: true }),
     );
   });
 }
@@ -181,6 +203,8 @@ function create() {
     return { action: 'deny' };
   });
   for (const ev of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated']) wc.on(ev, pushState);
+  // The agent's load committed or stopped (a declined redirect too): its redirects have all been asked.
+  for (const ev of ['did-navigate', 'did-stop-loading']) wc.on(ev, () => navAsk?.wc === wc.id && (navAsk = null));
   wc.on('did-fail-load', (_e, code, desc, url, isMain) => isMain && code !== -3 && say(`Couldn't load ${url}: ${desc}`));
   wc.on('render-process-gone', (_e, details) => {
     log.warn('agent window page crashed', details);
@@ -226,9 +250,11 @@ function settle(ms = 15000) {
 
 /**
  * Shows an address. `byAgent` marks the agent as browsing (the user's address bar doesn't).
+ * `beforeRedirect(url)` → allowed: asked for each server redirect of this load before it is requested
+ * (browser_open: approvals.askOutbound); the load waits for the answer.
  * The globe reads its link only when the page loads, so a new view of it reloads the page.
  */
-async function open(raw, { byAgent = true, monitor, position, focus = false } = {}) {
+async function open(raw, { byAgent = true, monitor, position, focus = false, beforeRedirect = null } = {}) {
   const c = core.checkUrl(raw || HOME);
   if (!c.ok) throw new Error(c.reason);
   // Addresses from the agent are also checked by name lookup (a public name pointing at a local address).
@@ -237,12 +263,18 @@ async function open(raw, { byAgent = true, monitor, position, focus = false } = 
   if (monitor != null) require('./docwindows').move('agent window', monitor, position);
   if (byAgent) agentActing();
   const wc = view.webContents;
+  navAsk = byAgent && !c.globe && beforeRedirect ? { wc: wc.id, ask: beforeRedirect } : null;
   if (c.globe && core.onlyHashDiffers(wc.getURL(), c.url)) {
     await wc.executeJavaScript(`location.replace(${JSON.stringify(c.url)}); location.reload();`).catch(() => wc.loadURL(c.url));
   } else {
     wc.loadURL(c.url).catch(() => {}); // failures arrive as did-fail-load
   }
-  const loaded = await settle(c.globe ? 30000 : 15000);
+  let loaded = await settle(c.globe ? 30000 : 15000);
+  // Still loading because a redirect waits for the user's answer: the result says how that ended.
+  while (!loaded && asking && alive()) {
+    await asking.catch(() => {});
+    loaded = await settle(15000);
+  }
   return { url: wc.getURL(), title: wc.getTitle(), loaded, ...(loaded ? {} : { note: 'Still loading; check again with browser_read in a moment.' }) };
 }
 

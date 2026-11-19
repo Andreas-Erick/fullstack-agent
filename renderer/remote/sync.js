@@ -55,6 +55,16 @@ export function convCheck(list, convId) {
 }
 
 /**
+ * The `priorUsers` of a message being sent: the user's messages on screen (`count`), but only when the
+ * open conversation's messages are drawn (`shownConv`: the conversation drawn, null for a new one,
+ * undefined while none is), else null. Opened while the computer was out of reach (or still loading),
+ * nothing is drawn, and 0 would take an earlier "yes" in it for this one.
+ */
+export function priorUsersFor({ shownConv, convId, count }) {
+  return shownConv !== undefined && shownConv === (convId || null) ? count : null;
+}
+
+/**
  * A message this phone couldn't send (`failed`: { convId, sentText, priorUsers }) after conversation `id`
  * was loaded again with `messages`: 'show' it again (with its Try again), 'drop' it (the computer has it
  * after all: the answer was lost, not the message), or 'skip' (another conversation is shown).

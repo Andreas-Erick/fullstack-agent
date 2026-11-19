@@ -106,9 +106,17 @@ function set(id, patch) {
 
 const publicState = (id) => ({ status: state[id].status, startedByNexus: state[id].startedByNexus, error: state[id].error });
 
+// The launch check (npm run smoke, and its NEXUS_SHOTS pictures) runs on a throwaway data folder: it starts
+// none of the user's programs, whatever asks for one (a settings change, a failed request, a scene's click).
+const offHere = () => require('./smoke').active;
+
 /** Starts one helper app if it is needed here and not running. Resolves to its state. */
 function start(id, settings, { reason = 'manual', readyMs } = {}) {
   if (!APPS[id]) return Promise.reject(new Error(`Unknown helper app "${id}"`));
+  if (offHere()) {
+    log.info('helper app not started', { app: id, reason, why: 'launch check' });
+    return Promise.resolve(publicState(id));
+  }
   if (starting.has(id)) return starting.get(id);
   const p = (async () => {
     const app = APPS[id];
@@ -163,7 +171,7 @@ function ensureAll(settings, reason = 'launch') {
 
 /** A request to the app failed because nothing answered: start it again (at most every 2 minutes). */
 function onUnreachable(id, err, settings = lastSettings) {
-  if (!settings || cfg(settings).autoStart === false || !APPS[id]?.needed(settings)) return false;
+  if (offHere() || !settings || cfg(settings).autoStart === false || !APPS[id]?.needed(settings)) return false; // false: llm.js doesn't say "Starting it now"
   if (!/ECONNREFUSED|fetch failed|unreachable|ECONNRESET|socket hang up/i.test(`${err?.message || ''} ${err?.cause?.code || ''}`)) return false;
   if (starting.has(id) || Date.now() - state[id].lastStart < RETRY_AFTER_MS) return false;
   start(id, settings, { reason: 'needed' }).catch(() => {});

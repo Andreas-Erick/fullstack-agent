@@ -850,6 +850,11 @@ test('error messages reach devices without paths from this computer', { timeout:
   assert.strictEqual(f('cannot read /home/anna/x'), 'cannot read …');
   assert.strictEqual(f('ENOENT: /Users/anna/Library/x.md'), 'ENOENT: …');
   assert.strictEqual(f("open 'C:\\Users\\O'Brien\\n.md'"), 'open …');
+  // Bare paths keep their apostrophes too (Node's spawn ENOENT and "Cannot find module" name them unquoted).
+  assert.strictEqual(f("spawn C:\\Users\\O'Brien\\AppData\\Roaming\\npm\\claude.cmd ENOENT"), 'spawn … ENOENT');
+  assert.strictEqual(f("spawn C:\\Users\\Anna O'Brien\\npm\\claude.cmd ENOENT"), 'spawn … ENOENT');
+  assert.strictEqual(f("spawn /Users/o'brien/bin/claude ENOENT"), 'spawn … ENOENT');
+  assert.strictEqual(f("open C:\\x.md failed: it's busy"), "open … failed: it's busy", 'an apostrophe after the path’s end stays');
   assert.strictEqual(f('open "D:/Siren Vault/Notes/a b.md": EBUSY'), 'open …: EBUSY');
   for (const keep of ['You’ve hit your usage limit · resets 8pm', "You've hit your usage limit · resets 8pm", 'nothing answers at localhost:11434', 'https://api.example.com/x failed', 'LLM error 429: rate limited', 'مرحبا بالعالم']) assert.strictEqual(f(keep), keep);
   for (const empty of ['', '   ', 'C:\\x', '"C:\\Users\\x"', '\\\\server\\share']) assert.strictEqual(f(empty), 'FALLBACK', JSON.stringify(empty));
@@ -897,10 +902,11 @@ test('seeded: a path in an error message never reaches a device, quoted or bare,
   for (let i = 0; i < 300; i++) {
     const secret = `Zq${i}x`;
     const quoted = rand() < 0.5;
-    // Bare paths: a folder name may have spaces (several words, two in a row) when a slash follows; quoted
-    // ones also spaces anywhere and apostrophes inside a word (O'Brien), never the closing quote followed by
-    // a gap. A spaced folder after the name is cut too; a spaced file name at the end may leave its last word.
-    const bare = [secret, `${secret} Berg`, `Anna ${secret}`, `${secret} Maria Berg`, `Jo ${secret} Lee`, `Anna  ${secret}`, `${secret} van der Berg`, `Anna (${secret})`, `(${secret}) Berg`];
+    // Bare paths: a folder name may have spaces (several words, two in a row) when a slash follows, and
+    // apostrophes (O'Brien); quoted ones also spaces anywhere and apostrophes inside a word, never the closing
+    // quote followed by a gap. A spaced folder after the name is cut too; a spaced file name at the end may
+    // leave its last word.
+    const bare = [secret, `${secret} Berg`, `Anna ${secret}`, `${secret} Maria Berg`, `Jo ${secret} Lee`, `Anna  ${secret}`, `${secret} van der Berg`, `Anna (${secret})`, `(${secret}) Berg`, `O'${secret}`, `${secret}'s files`, `D'${secret} Berg`];
     const name = quoted ? pick([secret, `${secret} Berg`, `O'${secret}`, `${secret}'s files`, `${secret} Maria Berg`]) : pick(bare);
     const sep = rand() < 0.5 ? '\\' : '/';
     const tail = Array.from({ length: 1 + Math.floor(rand() * 3) }, () => pick(['AppData', 'Siren Vault', 'npm', 'Notes', 'a.md', 'x y', 'Program Files (x86)']));

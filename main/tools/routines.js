@@ -14,7 +14,7 @@ module.exports = [
     name: 'routine_save',
     group: 'routines',
     description:
-      'Create or change a routine: something you do on a schedule without being asked ("every morning at 8, check my Plaud for new recordings and summarize them"; "Sundays at 19:00, my weekly review"). Write instructions you can follow later on your own: which tools or connectors to use, what to save where (e.g. a vault note), and what to report. Each run happens in the routine\'s own conversation and the user gets a notification. Asks the user first (in Ask mode, and in any mode after reading outside content). Give id to change an existing one.',
+      'Create or change a routine: something you do on a schedule without being asked ("every morning at 8, check my Plaud for new recordings and summarize them"; "Sundays at 19:00, my weekly review"). Write instructions you can follow later on your own: which tools or connectors to use, what to save where (e.g. a vault note), and what to report. Each run happens in the routine\'s own conversation and the user gets a notification. Asks the user first (in Ask mode, and in any mode after reading outside content, unless it only pauses one). Give id to change an existing one.',
     parameters: obj(
       {
         id: str('Only to change an existing routine (routine_list)'),
@@ -28,7 +28,10 @@ module.exports = [
     run: async (a, ctx) => {
       const core = require('../routinecore');
       const schedule = core.normalizeSchedule(a.schedule);
-      await requireApproval(ctx, 'settings', `${a.id ? 'Change' : 'Create'} the routine "${a.name}" (${core.describe(schedule)})`, String(a.instructions || '').slice(0, 1500), { taintAsks: true });
+      // Only pausing one can only make less run: no extra question after outside content (a routine that
+      // switches itself off after reading a connector would wait out the time limit and be refused).
+      const old = a.id && a.enabled === false ? (await require('../routines').list()).find((r) => r.id === a.id) : null;
+      await requireApproval(ctx, 'settings', `${a.id ? 'Change' : 'Create'} the routine "${a.name}" (${core.describe(schedule)})`, String(a.instructions || '').slice(0, 1500), core.onlyPauses(old, { ...a, schedule }) ? {} : { taintAsks: true });
       const r = await require('../routines').save({ ...a, schedule });
       return { saved: r.name, id: r.id, when: r.when, nextRun: r.nextRun ? new Date(r.nextRun).toLocaleString() : null };
     },

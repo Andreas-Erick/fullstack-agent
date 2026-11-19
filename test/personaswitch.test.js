@@ -148,6 +148,33 @@ test('an edit and a switch at the same moment: the edit lands in exactly one per
   for (const id of ids) assert.deepStrictEqual(canon(entry(s, id)), expected[id]);
 });
 
+// Regression: Settings checked the active persona with settings:get (the cache, not the queue), then sent
+// a plain patch: a switch from the phone, the watch or a routine queued between the two took the value, and
+// the other persona's whole master prompt was replaced. persona.saveFor decides inside the save queue.
+test('a value typed for one persona while a switch waits in the queue is refused, and lands nowhere', async () => {
+  for (let round = 0; round < 6; round++) {
+    const from = ids[round % ids.length];
+    const to = ids[(round + 1) % ids.length];
+    await persona.activate(from);
+    const text = `Typed for ${from} in round ${round}.`;
+    const switching = persona.activate(to); // queued first: lands first
+    const typed = persona.saveFor(from, { agent: { personality: text } });
+    const [, r] = await Promise.all([switching, typed]);
+    assert.strictEqual(r.saved, false, `round ${round}`);
+    assert.strictEqual(r.settings.personas.active, to, 'what comes back has the other persona active');
+    const s = await store.getSettings();
+    assert.deepStrictEqual(s.personas.list.filter((x) => x.personality === text), [], `round ${round}: the text is in no persona`);
+    for (const id of ids) assert.deepStrictEqual(canon(entry(s, id)), expected[id], `round ${round}: ${id}`);
+  }
+  // In the persona it was typed for, it is saved (and a change to no persona field always is).
+  const now = (await store.getSettings()).personas.active;
+  const r = await persona.saveFor(now, { agent: { personality: 'Saved here.' } });
+  assert.strictEqual(r.saved, true);
+  assert.strictEqual(entry(await store.getSettings(), now).personality, 'Saved here.');
+  assert.strictEqual((await persona.saveFor('someone-else', { ui: { zoom: 1.1 } })).saved, true, 'not a persona field');
+  await store.setSettings({ agent: { personality: expected[now].personality }, ui: { zoom: store.DEFAULTS.ui.zoom } });
+});
+
 test('a switch touches only the persona: the brain, voice engine, remote access, vault and the rest stay', async () => {
   await store.setSettings({ llm: { provider: 'local', autoPace: false }, voice: { engine: 'cloud', ttsEnabled: true, fallback: 'system' }, remote: { enabled: true, shareData: false }, ui: { zoom: 1.25, fx: 'subtle', sleepAfterMin: 7 }, calendar: { enabled: true }, memory: { stream: true } });
   const strip = (s) => {
