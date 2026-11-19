@@ -17,7 +17,7 @@ entry `keyboard` points here).
 | Ctrl+, | Settings |
 | Ctrl+= / Ctrl+- / Ctrl+0 | Zoom in, out, reset |
 | F11 | Full screen (on the Face view: the face alone) |
-| Esc | Stop speaking; then stop a reply that is still being written (chat and face); leave the face's full screen; close a dialog; close History |
+| Esc | Stop speaking; then stop a reply that is still being written (chat and face); leave the face's full screen; close a dialog (on a form you've changed it asks first: Keep editing / Discard); say no to an approval; close History |
 | End | Jump to the latest message (chat) |
 | Push-to-talk key (Settings → Voice input) | Hold to speak |
 
@@ -34,13 +34,13 @@ The open view is marked as the current page for screen readers.
 | --- | --- | --- |
 | Chat | Enter sends, Shift+Enter a new line; `/` suggests skills (↑ ↓, Tab or Enter picks); Enter on a focused [[note]] link opens it (also on the reply card and in the Vault); ↑ in an empty message box edits your last message (Enter sends it in place of the old one; nothing while a reply is being written or a message waits for its files); Ctrl+V in the chat attaches a copied image (or copied files), while copied text is pasted as text (a browser's “Copy image” that also copies text pastes the text); Delete or Backspace on a focused attachment chip removes it | Closes the skill suggestions, else cancels editing (the box gets back what was in it), else stops speaking, else stops the reply; closes the reply card (Face layout) when it has focus |
 | Chat → History | Type to search: titles at once, words from the messages a moment later; ↓ goes into the list, ↑ ↓ Home End move, Enter opens (Enter in the search opens the first), Delete deletes the chat; while it is open over the chat, Tab stays inside it | Closes it, back to the message box; in the side panel: clears the search |
-| Calendar | ← / → previous / next, T today, N new entry; Enter on a day opens it | Closes the entry editor |
+| Calendar | ← / → previous / next, T today, N new entry; Enter on a day starts a new entry on it (Enter on an entry inside the day opens its details; on “+N more” it selects the day) | Closes the entry editor |
 | Notes | Ctrl+N new note, Ctrl+E edit / show rendered (or click the text to edit right there; Enter on the rendered note edits it; on a focused [[link]] it opens the link), Ctrl+S save now; while writing: Ctrl+B bold, Ctrl+I italic, Enter continues a list (on an empty item it ends it), Tab / Shift+Tab indent list items; `[[` suggests notes to link (↑ ↓, Enter or Tab picks); ↓ from the search goes into the list, ↑ ↓ move through it. In ⚡ Dump: Ctrl+Enter saves and gives a fresh page | Closes the link suggestions, else clears the search; in Dump: saves and closes |
 | Inner World | Arrows or WASD pan, + / - zoom, 0 the whole island; the side panel lists every place and resident as buttons | Leaves the timelapse, stops following, steps outside, clears the selection (in that order) |
 | Inner World timelapse | Space play / pause (when focus is not on a button); Tab reaches the bar's play button, slider and speed | Leaves the timelapse |
 | Architecture | + / - zoom, 0 or Home everything, L the lessons, R the replay, Space play / pause in the replay | Leaves the replay, else goes up one level |
 | Vault → Growth | Space play / pause | Closes the replay |
-| Settings | On the tab bar: ← / → the previous / next section, Home / End the first / last; the search field looks through every section | Clears the search |
+| Settings | On the tab bar: ← / → the previous / next section, Home / End the first / last; the search field looks through every section. Tab reaches every switch (in setup too, the privacy step's checkbox among them) and Space turns it on or off; a switch keeps the focus when the page redraws | Clears the search |
 | Agent window | Ctrl+L or a click edits the address | Leaves the address bar, else stops loading |
 | Pop-out document | — | Closes the window |
 
@@ -52,4 +52,17 @@ draw in HTML panels and lists, so a screen reader reaches the same content.
 - A finished reply is read once, in full (the hidden live region `#chatLive`); streamed words are not
   read one by one, and opening an old conversation does not read it all out.
 - Errors are announced the same way. The Inner World's "now" banner is a polite live region.
-- Approvals open as dialogs: answer with their buttons (Tab reaches them) or by voice.
+- Dialogs: focus moves into the dialog and back to where you were when it closes; Tab moves only through
+  the dialog (and any notice). Esc closes a dialog; on a form you've changed it asks first (Keep editing /
+  Discard).
+- Approvals open above every other dialog (notices stay on top) and take the focus on the card: Enter does
+  nothing until you Tab to a button; answer with their buttons or by voice. While the question is spoken,
+  Esc first stops the voice; Esc then says no.
+- Notices are read out politely, one at a time, and stay while the pointer or the keyboard focus is on them.
+
+## Phone and tablet
+
+- Android (phone app): Back closes, in this order, the “Can't reach your computer” screen, the conversation
+  list, the full-screen face, an open note (back to the Notes list) or building (back outside), a screen from
+  More (back to More) or another tab (back to the chat); from the bare chat or the pairing screen it leaves
+  the app.
