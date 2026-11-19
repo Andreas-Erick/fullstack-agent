@@ -681,14 +681,17 @@ function initReplyCard() {
   });
   // The card sits between the header (two rows in a narrow window) and the composer, however tall a draft
   // makes it (the box grows to 220px): the room they take, as --header-clear and --composer-clear
-  // (styles.css). Layout offsets, not screen boxes, so a view's entrance transform doesn't skew them.
+  // (styles.css). Layout offsets, not screen boxes, so a view's entrance transform doesn't skew them. Set
+  // on the view, so the face panel beside .chat-main (same top) reads them too: its state label sits below
+  // the header.
   const main = replyCard().parentElement;
+  const view = main.parentElement;
   const header = main.querySelector('.chat-header');
   const composer = main.querySelector('.composer');
   const clear = () => {
     if (!main.clientHeight) return; // the view is hidden
-    main.style.setProperty('--header-clear', `${Math.ceil(header.offsetTop + header.offsetHeight)}px`);
-    main.style.setProperty('--composer-clear', `${Math.ceil(main.clientHeight - composer.offsetTop)}px`);
+    view.style.setProperty('--header-clear', `${Math.ceil(header.offsetTop + header.offsetHeight)}px`);
+    view.style.setProperty('--composer-clear', `${Math.ceil(main.clientHeight - composer.offsetTop)}px`);
   };
   const watch = new ResizeObserver(clear);
   for (const node of [header, composer, $('#voiceStatus')]) watch.observe(node);

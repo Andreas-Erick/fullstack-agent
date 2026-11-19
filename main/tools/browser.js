@@ -27,12 +27,23 @@ module.exports = [
     parameters: obj({ url: str('The address (https://…)'), monitor: { ...MONITOR, description: `${MONITOR.description} Optional.` } }, ['url']),
     untrusted: true, // its result carries the page's title
     run: async (a, ctx) => {
+      const approvals = require('../approvals');
       const c = require('../agentwindowcore').checkUrl(a.url);
       if (c.ok && !c.globe) {
-        const ok = await require('../approvals').askOutbound(ctx.turn, c.url);
+        const ok = await approvals.askOutbound(ctx.turn, c.url);
         if (!ok.allow) throw new Error(`Not approved by the user: ${ok.reason || 'declined'}`);
       }
-      return require('../agentwindow').open(a.url, { monitor: a.monitor });
+      // Where the site redirects is asked the same way (after outside content, a host nobody named asks),
+      // before the window requests it: an open redirect can't carry the turn's data elsewhere unasked.
+      let declined = null;
+      const beforeRedirect = async (url) => {
+        const r = await approvals.askOutbound(ctx.turn, url);
+        if (!r.allow) declined ||= r;
+        return r.allow;
+      };
+      const r = await require('../agentwindow').open(a.url, { monitor: a.monitor, beforeRedirect });
+      if (declined) throw new Error(`Not approved by the user (the page redirected to another site): ${declined.reason || 'declined'}`);
+      return r;
     },
   },
   {

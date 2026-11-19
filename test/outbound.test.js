@@ -230,3 +230,55 @@ test('web_fetch: a redirect to a host the page chose asks too, and a declined on
     global.fetch = realFetch;
   }
 });
+
+// Regression (review): browser_open asked only for the address it was given; the agent window then followed
+// a server redirect to any public host, so an open redirect on a site the user named carried the turn's data
+// to a host nobody named, unasked. agentwindow.open now asks beforeRedirect for each main-frame request of
+// the load (the first one, then every hop) and holds it meanwhile; a stand-in plays those hops here.
+test('browser_open: a server redirect to a host nobody named asks, and declined, it is never loaded', async () => {
+  settings = { safety: { permissionMode: 'auto', taintGuard: true, approvalTimeoutSec: 5 } };
+  let allow = false;
+  asked.length = 0;
+  approvals.setSender((channel, payload) => {
+    if (channel !== 'approval:request') return;
+    asked.push(payload);
+    setImmediate(() => approvals.respond(payload.id, allow, allow ? '' : 'The user clicked Deny.'));
+  });
+  const requested = [];
+  const hops = ['http://93.184.216.34/go', 'http://93.184.216.35/?d=profile'];
+  stub({
+    '../store': { getSettings: async () => settings },
+    '../agentwindow': {
+      open: async (url, o) => {
+        for (const hop of [url, ...hops]) {
+          if (!(await o.beforeRedirect(hop))) return { url: hop, title: '', loaded: true }; // cancelled: never requested
+          requested.push(hop);
+        }
+        return { url: hops.at(-1), title: 'Done', loaded: true };
+      },
+    },
+  });
+  const browserOpen = load('main/tools/browser.js').find((t) => t.name === 'browser_open');
+  const ctxOf = () => {
+    const turn = approvals.newTurn({ userText: 'open http://93.184.216.34/ for me' });
+    approvals.markTainted(turn, 'WebFetch a page');
+    return { turn, emit() {} };
+  };
+  await assert.rejects(browserOpen.run({ url: 'http://93.184.216.34/' }, ctxOf()), /^Error: Not approved by the user \(the page redirected to another site\): The user clicked Deny\.$/);
+  assert.deepStrictEqual(asked.map((p) => [p.kind, p.title]), [['web_outbound', 'Open 93.184.216.35']], 'the named host and its own redirect pass; the new host asks');
+  assert.deepStrictEqual(requested, ['http://93.184.216.34/', 'http://93.184.216.34/go'], 'the declined hop was never requested');
+  assert.strictEqual(approvals.declineForLog('Not approved by the user (the page redirected to another site): The user clicked Deny.'), 'Not approved by the user (the page redirected to another site): The user clicked Deny.', 'a fixed reason stays readable in the log');
+
+  allow = true;
+  asked.length = 0;
+  requested.length = 0;
+  assert.strictEqual((await browserOpen.run({ url: 'http://93.184.216.34/' }, ctxOf())).title, 'Done');
+  assert.strictEqual(asked.length, 1);
+  assert.strictEqual(requested.at(-1), hops.at(-1));
+
+  asked.length = 0;
+  const clean = { turn: approvals.newTurn(), emit() {} };
+  await browserOpen.run({ url: 'http://93.184.216.34/' }, clean);
+  assert.strictEqual(asked.length, 0, 'before any outside content: silent');
+  assert.ok(clean.turn.knownHosts.has('93.184.216.35'), 'and the redirect’s host becomes known');
+});

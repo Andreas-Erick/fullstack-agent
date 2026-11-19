@@ -93,12 +93,31 @@ async function gate(turn, kind, title, detail = '', extra = {}) {
     return { allow: true, auto: true };
   }
   const res = await ask({ ...shown, kind, title, detail, tainted, voice: voicePolicy(kind, { tainted, taintBlocks }), sources: turn?.taintSources || [], timeoutSec: s.safety.approvalTimeoutSec || 75 }, turn?.signal);
-  log.info('approval', { kind, title, allow: res.allow, reason: res.reason, remember: res.remember, tainted: tainted || undefined });
+  const why = reasonForLog(res.reason);
+  log.info('approval', { kind, title, allow: res.allow, ...why, remember: res.remember, tainted: tainted || undefined });
+  if (why.reasonChars) log.debug('approval reason', { text: String(res.reason).slice(0, 200) });
   if (res.allow) {
     turn?.approved.add(kind);
     if (tainted) turn?.approvedTainted?.add(kind);
   }
   return res;
+}
+
+// The reasons the app itself gives for an answer: a click (Deny, Esc), the time limit, Stop, no window, a
+// device's no. Any other reason is what the user said (a spoken "no, …" goes back to the model as the
+// reason): the log keeps only its length, and the words only with Detailed logging on, as for every transcript.
+const OWN_REASON = /^(|declined|The user said no\.|The user pressed Esc\.|The user clicked Deny\.|The reply was stopped\.|No answer within \d+ seconds — treated as no\.|No app window is open to ask the user\.|The user said no \(on [^\n]{0,80}\)\.)$/;
+
+/** An answer's reason for the log: { reason } when the app wrote it, else { reasonChars }. */
+function reasonForLog(reason) {
+  const text = String(reason ?? '');
+  return OWN_REASON.test(text) ? { reason: text } : { reasonChars: text.length };
+}
+
+/** A declined call's message ("Not approved by the user[ (note)]: <reason>") for the log, without what the user said. */
+function declineForLog(message) {
+  const m = /^((?:User did not approve|Not approved by the user)(?: \([^)\n]*\))?): ([\s\S]*)$/.exec(String(message ?? ''));
+  return !m || OWN_REASON.test(m[2]) ? String(message ?? '') : `${m[1]} (${m[2].length} characters said)`;
 }
 
 function ask(payload, signal = null) {
@@ -190,4 +209,4 @@ function respond(id, allow, reason, remember) {
   return true;
 }
 
-module.exports = { ALWAYS_ASK, EACH_TIME, TAINT_ASKS, TAINT_EACH_TIME, STOPPED, setSender, newTurn, markTainted, voicePolicy, gate, askOutbound, respond, askSecret, askRecording };
+module.exports = { ALWAYS_ASK, EACH_TIME, TAINT_ASKS, TAINT_EACH_TIME, STOPPED, setSender, newTurn, markTainted, voicePolicy, gate, askOutbound, respond, askSecret, askRecording, reasonForLog, declineForLog };

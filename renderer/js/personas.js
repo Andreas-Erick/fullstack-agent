@@ -14,9 +14,17 @@ function took(settings, { greet = false } = {}) {
   return settings;
 }
 
+// Runs before a switch from anywhere in the window (the title bar too): Settings saves what was just typed
+// into the persona it was typed for (settings.js flushSaves), instead of dropping it after the switch.
+let beforeSwitch = async () => {};
+export function setBeforeSwitch(fn) {
+  beforeSwitch = fn;
+}
+
 export async function switchPersona(id) {
   if (!id || id === state.settings.personas?.active) return state.settings;
   try {
+    await beforeSwitch().catch(() => {});
     const settings = took(await api.persona.switch(id), { greet: true });
     // The new persona's session starts while it says hello, not with the next message.
     import('./chat.js').then((m) => m.currentConversationId() && api.llm.prewarm(m.currentConversationId())).catch(() => {});

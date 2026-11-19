@@ -195,6 +195,19 @@ async function remove(id) {
   }, { replace: core.REPLACE }); // only fields the patch has are replaced: none when the live one stays
 }
 
+/**
+ * A change made for persona `id` (typed into Settings cards drawn for it): a persona field is saved only
+ * while that persona is still the active one, decided inside the save queue, so a switch queued just
+ * before it (on the phone, the watch, by a routine) never takes the value. { settings, saved }.
+ */
+async function saveFor(id, patch) {
+  if (!core.touches(patch)) return { settings: await store.setSettings(patch), saved: true };
+  let saved = false;
+  const settings = await store.setSettings((s) => (s.personas?.active === id ? ((saved = true), patch) : null));
+  if (!saved) log.info('settings change dropped', { reason: 'the persona changed meanwhile' });
+  return { settings, saved };
+}
+
 // ------------------------------------------------------------ the summary for small models
 // Written by the user's own local model (the deep one when set: the best writer), so the master
 // prompt never leaves the computer for it; only local models read it (prompt.buildCompact), so
@@ -257,25 +270,39 @@ async function writeSummary({ force = false }) {
     return;
   }
   const fp = core.fingerprint(agent.personality);
+  const id = settings.personas?.active;
   const started = Date.now();
   const text = core.cleanSummary(await llm.complete(writer, core.summaryPrompt(agent.name, agent.personality), { maxTokens: 4000, timeoutMs: 300000 }));
   if (!text) throw new Error('The local model’s short version came back empty or too short. Try again, or write it yourself.');
-  const now = (await store.getSettings()).agent;
-  if (core.fingerprint(now.personality) !== fp || (!force && now.personaSummary?.by === 'user')) {
+  // Checked inside the save queue: a switch or an edit queued while the model wrote lands first and is seen here.
+  let written = false;
+  await store.setSettings((now) => {
+    if (now.personas?.active !== id || core.fingerprint(now.agent.personality) !== fp || (!force && now.agent.personaSummary?.by === 'user')) return null;
+    written = true;
+    return { agent: { personaSummary: { text, for: fp, by: 'model', model: writer.llm.model, at: Date.now() } } };
+  });
+  if (!written) {
     log.info('persona summary dropped', { reason: 'the persona changed meanwhile' });
     return;
   }
-  await store.setSettings({ agent: { personaSummary: { text, for: fp, by: 'model', model: writer.llm.model, at: Date.now() } } });
   log.info('persona summary written', { persona: agent.name, model: writer.llm.model, ms: Date.now() - started, chars: text.length });
 }
 
-/** The user's own short version (kept until they change it); empty text goes back to the written one. */
-async function setSummary(text) {
-  const s = await store.getSettings();
+/**
+ * The user's own short version (kept until they change it); empty text goes back to the written one.
+ * `forPersona`: the persona the Persona studio showed it for; another one active by the time the save's
+ * turn comes, nothing is saved (`dropped` in what comes back).
+ */
+async function setSummary(text, forPersona = '') {
   const t = String(text || '').trim().slice(0, core.SUMMARY_MAX * 2);
-  await store.setSettings({ agent: { personaSummary: t ? { text: t, for: core.fingerprint(s.agent.personality), by: 'user', at: Date.now() } : null } });
+  let dropped = false;
+  await store.setSettings((s) => {
+    if (forPersona && s.personas?.active !== forPersona) return (dropped = true), null;
+    return { agent: { personaSummary: t ? { text: t, for: core.fingerprint(s.agent.personality), by: 'user', at: Date.now() } : null } };
+  });
+  if (dropped) return { ...(await summaryStatus()), dropped: true };
   if (!t) ensureSummary().catch((error) => log.warn('persona summary failed', { error }));
   return summaryStatus();
 }
 
-module.exports = { generate, generateScene, extractJson, jsonWithRetry, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, templates: templates.list, summaryWriter, summaryStatus, ensureSummary, setSummary };
+module.exports = { generate, generateScene, extractJson, jsonWithRetry, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, saveFor, templates: templates.list, summaryWriter, summaryStatus, ensureSummary, setSummary };

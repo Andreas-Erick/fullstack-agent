@@ -195,16 +195,23 @@ public class ConnectionService extends Service {
         int nid = notifId(id);
         String title = a.optString("title", getString(R.string.approval_title));
         String detail = a.optString("detail", "");
-        Notification.Builder b = alertBuilder(getString(R.string.approval_title) + ": " + title, detail.length() > 300 ? detail.substring(0, 300) + "…" : detail)
+        if (detail.length() > 300) detail = detail.substring(0, 300) + "…";
+        // A change to the app's own code or a connector's trust is answered only on the computer (companion.js
+        // refuses a device's answer): no Allow or Deny here or on the watch, which would only make it go away.
+        boolean desktopOnly = a.optBoolean("desktopOnly", false);
+        if (desktopOnly) detail = getString(R.string.approval_desktop_only) + (detail.isEmpty() ? "" : "\n" + detail);
+        Notification.Builder b = alertBuilder(getString(R.string.approval_title) + ": " + title, detail)
                 .setCategory(Notification.CATEGORY_REMINDER)
-                .setOnlyAlertOnce(true) // open approvals are replayed after a reconnect
-                .addAction(action(R.string.action_deny, ApprovalReceiver.intent(this, id, false, nid), nid * 2))
-                // Allow on the phone only once it is unlocked: a locked phone in someone else's hand can't say yes.
-                .addAction(action(R.string.action_allow, ApprovalReceiver.intent(this, id, true, nid), nid * 2 + 1, true))
-                // On a paired watch (locked by its own PIN once off the wrist) both answers work right away.
-                .extend(new Notification.WearableExtender()
-                        .addAction(action(R.string.action_deny, ApprovalReceiver.intent(this, id, false, nid), nid * 2))
-                        .addAction(action(R.string.action_allow, ApprovalReceiver.intent(this, id, true, nid), nid * 2 + 1)));
+                .setOnlyAlertOnce(true); // open approvals are replayed after a reconnect
+        if (!desktopOnly) {
+            b.addAction(action(R.string.action_deny, ApprovalReceiver.intent(this, id, false, nid), nid * 2))
+                    // Allow on the phone only once it is unlocked: a locked phone in someone else's hand can't say yes.
+                    .addAction(action(R.string.action_allow, ApprovalReceiver.intent(this, id, true, nid), nid * 2 + 1, true))
+                    // On a paired watch (locked by its own PIN once off the wrist) both answers work right away.
+                    .extend(new Notification.WearableExtender()
+                            .addAction(action(R.string.action_deny, ApprovalReceiver.intent(this, id, false, nid), nid * 2))
+                            .addAction(action(R.string.action_allow, ApprovalReceiver.intent(this, id, true, nid), nid * 2 + 1)));
+        }
         if (a.optInt("timeoutSec", 0) > 0) b.setTimeoutAfter(a.optInt("timeoutSec") * 1000L);
         getSystemService(NotificationManager.class).notify(nid, b.build());
     }

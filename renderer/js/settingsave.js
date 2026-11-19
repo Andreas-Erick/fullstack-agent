@@ -21,22 +21,35 @@ export async function staleNow(path, persona, active, readActive) {
   return stale(path, persona, await readActive());
 }
 
-/** One waiting save per path: queue(path, value, persona) calls save(path, value, persona) after `delay` ms; flushAll() saves what waits now. */
+/**
+ * One waiting save per path: queue(path, value, persona) calls save(path, value, persona) after `delay` ms;
+ * flushAll() saves what waits now and also waits for the saves already on their way (save() asks main
+ * first), so a persona switch after it never lands before one of them. It resolves to what each waiting
+ * save said.
+ */
 export function createSaves({ save, delay = 400, timers = { set: (fn, ms) => setTimeout(fn, ms), clear: (t) => clearTimeout(t) } }) {
   const pending = new Map(); // path → { value, persona, timer }
+  const running = new Set(); // saves whose time came, not finished yet
   const flush = (path) => {
     const x = pending.get(path);
     if (!x) return Promise.resolve(true);
     pending.delete(path);
     timers.clear(x.timer);
-    return Promise.resolve(save(path, x.value, x.persona));
+    const job = Promise.resolve(save(path, x.value, x.persona)).finally(() => running.delete(job));
+    running.add(job);
+    return job;
   };
   return {
     queue(path, value, persona) {
       timers.clear(pending.get(path)?.timer);
       pending.set(path, { value, persona, timer: timers.set(() => flush(path), delay) });
     },
-    flushAll: () => Promise.all([...pending.keys()].map(flush)),
+    flushAll: async () => {
+      const onTheirWay = [...running];
+      const results = await Promise.all([...pending.keys()].map(flush));
+      await Promise.allSettled(onTheirWay);
+      return results;
+    },
     size: () => pending.size,
   };
 }

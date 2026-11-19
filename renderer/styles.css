@@ -756,7 +756,8 @@ body:is(.fx-hud, .fx-subtle):not(.fx-still) #view-chat.history-open .conv-panel 
 #view-chat.layout-face .messages, #view-chat.layout-face .scroll-latest { visibility: hidden; }
 #view-chat.layout-face .chat-header { background: rgba(var(--bg-rgb), 0.35); border-radius: 12px; padding: 6px 10px; backdrop-filter: blur(6px); }
 #view-chat.layout-face .face-caption.mini { display: block; position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); width: min(820px, 84%); margin: 0; font-size: 18px; z-index: 1; pointer-events: none; }
-#view-chat.layout-face .face-label { top: 62px; bottom: auto; }
+/* Below the header, also when a narrow window wraps it to two rows (--header-clear: chat.js, from the same top). */
+#view-chat.layout-face .face-label { top: max(62px, calc(var(--header-clear, 0px) + 8px)); bottom: auto; }
 /* The latest reply on a card over the face (js/chat.js showCard): above the composer however tall a draft
    makes it, below the header (--composer-clear, --header-clear: measured in chat.js), and short enough to
    leave the face's eyes in view; a long reply scrolls inside it. No fade-in: it would freeze under fx-rest. */

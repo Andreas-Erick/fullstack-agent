@@ -1,7 +1,7 @@
 // Phone client for the companion server (main/companion.js, docs/ROADMAP-mobile.md step 2).
 // Talks only to the server it was loaded from. The device token lives in this browser's storage.
 import { initScreens, render as renderScreen, busy as screenBusy, TITLES, screenBack, hasScreenBack } from './screens.js';
-import { streamStale, refreshPlan, reconcile, convCheck, batcher, backPlan, unsentPlan, DEADLINES, transcribeDeadline, retryAction } from './sync.js';
+import { streamStale, refreshPlan, reconcile, convCheck, batcher, backPlan, unsentPlan, priorUsersFor, DEADLINES, transcribeDeadline, retryAction } from './sync.js';
 // Served by the desktop from renderer/js/ (companion.js STATIC), so loaded by URL, not by file.
 let mathtext = null;
 import('./js/mathtext.js').then((m) => (mathtext = m)).catch(() => {});
@@ -46,6 +46,7 @@ const store = {
 const state = {
   token: store.get(TOKEN_KEY),
   convId: store.get(CONV_KEY),
+  shownConv: undefined, // the conversation whose messages are drawn (null: a new one; undefined: none yet)
   active: null, // { requestId, bubble, tools, text }
   mine: new Set(), // requestIds sent from this device
   turns: new Map(), // requestId -> turn view, for turns started elsewhere in this conversation
@@ -571,6 +572,7 @@ function onChat(ev) {
       return;
     }
     if (mine) {
+      if (state.shownConv === null && !state.convId) state.shownConv = ev.conversationId; // a new conversation got its id
       state.convId = ev.conversationId;
       store.set(CONV_KEY, ev.conversationId);
       setConvTitle(ev.title || 'Conversation');
@@ -816,8 +818,9 @@ const updateEmpty = () => $('#empty').classList.toggle('hidden', $('#messages').
 async function send(text) {
   if (!text.trim() || state.active) return;
   // The user's messages shown so far, without those that never reached the computer: after a reload only
-  // a newer message with these words is this one (keepUnsent, sync.js unsentPlan).
-  const priorUsers = $('#messages').querySelectorAll('.msg.user:not([data-unsent])').length;
+  // a newer message with these words is this one (keepUnsent, sync.js unsentPlan). Not counted when the
+  // conversation's messages aren't drawn (opened while out of reach): then it is always shown again.
+  const priorUsers = priorUsersFor({ shownConv: state.shownConv, convId: state.convId, count: $('#messages').querySelectorAll('.msg.user:not([data-unsent])').length });
   const userNode = addMessage({ role: 'user', content: text });
   const turn = newTurnView(null, true);
   turn.userNode = userNode; // Try again takes both away and sends the same words
@@ -840,6 +843,7 @@ async function send(text) {
     if (r.conversationId && !state.convId) {
       state.convId = r.conversationId;
       store.set(CONV_KEY, r.conversationId);
+      if (state.shownConv === null) state.shownConv = r.conversationId; // the new conversation on screen is this one
     }
   } catch (err) {
     turn.requestId = 'failed';
@@ -891,10 +895,12 @@ let convSeq = 0; // only the latest load draws (a reconnect and a tap can overla
 async function loadConversation(id) {
   const seq = ++convSeq;
   $('#messages').innerHTML = '';
+  state.shownConv = undefined; // drawn again below, once its messages are in
   state.turns.clear();
   scrollDown(true);
   $('#empty').classList.add('hidden'); // not while the conversation loads
   if (!id) {
+    state.shownConv = null;
     setConvTitle('New conversation');
     if (state.active) $('#messages').append(state.active.wrap); // being sent: its reply view stays
     keepUnsent(null, []);
@@ -906,6 +912,7 @@ async function loadConversation(id) {
     if (seq !== convSeq) return;
     setConvTitle(conv.title || 'Conversation');
     for (const m of conv.messages) addMessage(m);
+    state.shownConv = id;
     followRunning(conv.running);
     keepUnsent(id, conv.messages);
     scrollDown(true);
@@ -914,6 +921,7 @@ async function loadConversation(id) {
     // Out of reach: keep it (the reconnect loads it again). Gone on the computer: start a new one.
     if (err instanceof NetError) return updateEmpty();
     state.convId = null;
+    state.shownConv = null; // an empty new conversation
     store.set(CONV_KEY, null);
     setConvTitle('New conversation');
     if (state.active) endTurn(state.active);

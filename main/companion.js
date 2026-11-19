@@ -495,10 +495,12 @@ function json(res, code, body) {
 // e.g. C:\Users\…\vault\note.md: EBUSY). The log keeps the whole error. A quoted path is cut up to its
 // closing quote (folder names have spaces, even apostrophes), a bare one on through spaced words as long
 // as a slash follows them (C:\Users\Anna Maria Berg\npm\claude.cmd, Program Files (x86)\…); a ")" right
-// after a path ends it, and the s:/ of https:// is not a drive. Each spaced word starts with its one space
-// and holds no other, so the match never backtracks far. Only the first 2,000 characters are looked at.
+// after a path ends it, and the s:/ of https:// is not a drive. A bare path keeps its apostrophes
+// (C:\Users\O'Brien\…): the quoted ones are cut first, so one left after a path's start belongs to it.
+// Each spaced word starts with its one space and holds no other, so the match never backtracks far. Only
+// the first 2,000 characters are looked at.
 const QUOTED_PATH = /(['"`])(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|var|tmp)\/).*?\1(?=$|[\s,;:.)\]])/g;
-const BARE_PATH = /(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|var|tmp)\/)[^\s'"`)]*(?:(?: [^\s'"`\\/]*)+[\\/][^\s'"`)]*)*/g;
+const BARE_PATH = /(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|var|tmp)\/)[^\s"`)]*(?:(?: [^\s"`\\/]*)+[\\/][^\s"`)]*)*/g;
 function forDevice(err, fallback) {
   const msg = String(err?.message || '').slice(0, 2000).replace(QUOTED_PATH, '…').replace(BARE_PATH, '…').slice(0, 300).trim();
   return msg && msg !== '…' ? msg : fallback;

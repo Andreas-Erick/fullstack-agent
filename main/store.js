@@ -582,19 +582,24 @@ async function applySettings(patchOrFn, { replace = [] } = {}) {
   settingsCache = next;
   await writeJsonAtomic(settingsFile(), onDisk);
   setSealing(next.privacy?.encryptConversations !== false);
+  tellListeners(next, patch);
+  return next;
+}
+
+function tellListeners(settings, patch) {
   for (const fn of changeListeners) {
     try {
-      fn(next, patch);
+      fn(settings, patch);
     } catch (err) {
       // A listener's problem is its own, not the save's.
       log.warn('settings listener failed', { error: err });
     }
   }
-  return next;
 }
 
 // Reset: settings.json is moved aside (settings.before-reset-<time>.json), never deleted: it holds every
-// persona, the encrypted keys and the permissions. Inside the save queue, like every other save.
+// persona, the encrypted keys and the permissions. Inside the save queue, like every other save, and heard
+// like one (onChange), with every section as what changed: paired devices learn the persona went back.
 function resetSettings() {
   const run = saving.then(async () => {
     const kept = path.join(dataDir(), `settings.before-reset-${Date.now()}.json`);
@@ -603,6 +608,7 @@ function resetSettings() {
     settingsLoad = null;
     const settings = await getSettings();
     log.info('settings reset', { kept: moved ? path.basename(moved) : '' });
+    tellListeners(settings, { ...settings });
     return { settings, kept: moved };
   });
   saving = run.catch(() => {});

@@ -46,8 +46,9 @@ export async function loadSettings() {
   return state.settings;
 }
 
-export async function saveSettings(patch) {
-  state.settings = await api.settings.set(patch);
+// opts.persona: the persona the change was made for; main saves its persona fields only while it is active.
+export async function saveSettings(patch, opts) {
+  state.settings = await (opts ? api.settings.set(patch, opts) : api.settings.set(patch));
   emit('settings', state.settings);
   return state.settings;
 }

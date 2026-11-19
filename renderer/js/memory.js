@@ -2,8 +2,6 @@
 import { $, api, el, escapeHtml, timeAgo, toast, toastError, modal, confirmDialog, plainError, debounce, on } from './util.js';
 
 let entries = [];
-// What main said, without Electron's "Error invoking remote method '…': Error: " in front.
-const ipcMessage = (err) => String(err?.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
 export function initMemory() {
   $('#memSearch').addEventListener('input', debounce(render, 120));
@@ -33,7 +31,7 @@ export function initMemory() {
         }
       }
     } catch (err) {
-      toastError(ipcMessage(err)); // e.g. "This file isn't a memory export…"
+      toastError(plainError(err)); // e.g. "This file isn't a memory export…"
     }
   };
   $('#streamReflect').onclick = reflectNow;
@@ -125,7 +123,7 @@ function render() {
     $('#memSummary').textContent = 'Memories couldn’t be read just now.';
     grid.innerHTML = '';
     const again = el('button', { class: 'btn small', onclick: (ev) => ((ev.currentTarget.disabled = true), (retried = true), refresh()) }, 'Try again');
-    grid.append(el('div', { class: 'test-result err', role: 'alert' }, `Couldn’t read your memories: ${ipcMessage(failed)} `, again));
+    grid.append(el('div', { class: 'test-result err', role: 'alert' }, `Couldn’t read your memories: ${plainError(failed)} `, again));
     if (refocus) again.focus();
     return;
   }
@@ -164,7 +162,7 @@ function render() {
                     try {
                       await api.memory.delete(e.id);
                     } catch (err) {
-                      toastError(ipcMessage(err));
+                      toastError(plainError(err));
                     } finally {
                       refresh();
                     }

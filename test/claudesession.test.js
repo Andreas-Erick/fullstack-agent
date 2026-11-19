@@ -4,13 +4,15 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { stub, load, quietLog } = require('./helpers');
 
+const approvalsStub = { gate: async () => ({ allow: true }), markTainted: () => {} };
 stub({
   './store': { getSettings: async () => ({}) },
   './bridge': {},
   './github': {},
   './logger': quietLog,
-  './approvals': { gate: async () => ({ allow: true }), markTainted: () => {} },
+  './approvals': approvalsStub,
 });
+approvalsStub.declineForLog = load('main/approvals.js').declineForLog; // the real log rule (pure), over the stand-ins above
 const claudecode = load('main/claudecode.js');
 
 function session() {
@@ -349,6 +351,7 @@ test('a failed tool is logged once, and a declined one is not a fault', async ()
       ['t3', 'mcp__nexus_more__skill_run', 'Error: This tool session has ended.'],
       ['t4', 'mcp__claude_ai_Consensus__search', 'User did not approve: declined'],
       ['t5', 'mcp__claude_ai_Consensus__search', 'Rate limit exceeded. Please wait a moment.'],
+      ['t6', 'mcp__claude_ai_TickTick__delete_task', 'User did not approve: no, not that one, my PIN is 4417'], // a spoken no
     ];
     sess.onLine(JSON.stringify({ type: 'assistant', message: { content: calls.map(([id, name]) => ({ type: 'tool_use', id, name, input: { q: 1 } })) } }));
     sess.onLine(JSON.stringify({ type: 'user', message: { content: calls.map(([id, , text]) => ({ type: 'tool_result', tool_use_id: id, is_error: true, content: [{ type: 'text', text }] })) } }));
@@ -364,7 +367,11 @@ test('a failed tool is logged once, and a declined one is not a fault', async ()
     'warn tool failed skill_run', // the bridge failed before tools.js
     'info tool declined mcp__claude_ai_Consensus__search',
     'warn tool failed mcp__claude_ai_Consensus__search',
+    'info tool declined mcp__claude_ai_TickTick__delete_task',
   ]);
+  // What the user said when declining reaches the model, never the log; the app's own reasons stay readable.
+  const declined = lines.filter((l) => l.event === 'tool declined').map((l) => l.data.preview);
+  assert.deepStrictEqual(declined, ['User did not approve: declined', 'User did not approve (32 characters said)']);
 });
 
 // Files the user attached in the chat (main/attachments.js): a session may read its own conversation's

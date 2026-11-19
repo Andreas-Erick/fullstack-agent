@@ -119,6 +119,72 @@ test('flushAll answers what each save said (false: dropped), and waits for slow 
   assert.deepStrictEqual(await all, [true, false]);
 });
 
+// Regression: a save whose 400 ms had passed was out of the waiting list while save() still asked main
+// (staleNow → settings:get), so flushAll() returned at once, and the Persona studio's switch reached main
+// before that save: the value was filed under the persona switched to.
+test('flushAll also waits for a save already on its way', async () => {
+  const timers = fakeTimers();
+  let release;
+  const asking = new Promise((r) => (release = r));
+  const saved = [];
+  const s = m.createSaves({ save: async (p, v) => (await asking, saved.push([p, v]), true), timers });
+  s.queue('agent.name', 'typed for A', 'A');
+  timers.advance(400);
+  assert.strictEqual(s.size(), 0, 'its time came: no longer waiting');
+  let done = false;
+  const flushed = s.flushAll().then((r) => ((done = true), r));
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(done, false, 'the flush waits for it');
+  release();
+  assert.deepStrictEqual(await flushed, [], 'it answers for what waited (nothing); the running save still finished first');
+  assert.deepStrictEqual(saved, [['agent.name', 'typed for A']]);
+  // A save that fails on its way doesn't fail the flush.
+  const s2 = m.createSaves({ save: async () => Promise.reject(new Error('IPC down')), timers });
+  s2.queue('agent.name', 'x', 'A');
+  timers.advance(400);
+  await assert.doesNotReject(s2.flushAll());
+});
+
+test('the studio’s switches after a flush, with saves slow on their way: a persona only ever holds its own values', async () => {
+  const PATHS = ['agent.personality', 'agent.name', 'appearance.greeting', 'voice.speed'];
+  const PERSONAS = ['A', 'B', 'C'];
+  for (let seed = 1; seed <= 60; seed++) {
+    const rnd = mulberry32(seed);
+    const pick = (list) => list[Math.floor(rnd() * list.length)];
+    const timers = fakeTimers();
+    const w = { main: 'A', stored: {} };
+    let rendered = 'A';
+    let n = 0;
+    const gap = () => new Promise((r) => setImmediate(r));
+    // As settings.js save(): main's persona checked, a moment on the wire, then main saves it inside its
+    // queue only while that persona is still active (persona.saveFor).
+    const save = async (p, value, persona) => {
+      if (await m.staleNow(p, persona, w.main, async () => (await gap(), w.main))) return false;
+      await gap();
+      if (m.PERSONA_PATHS.has(p) && w.main !== persona) return false;
+      (w.stored[w.main] ||= {})[p] = value;
+      return true;
+    };
+    const s = m.createSaves({ save, timers });
+    for (let step = 0; step < 50; step++) {
+      const action = pick(['type', 'type', 'type', 'advance', 'studio', 'phone']);
+      if (action === 'type') s.queue(pick(PATHS), `${rendered}:${++n}`, rendered);
+      else if (action === 'advance') timers.advance(Math.floor(rnd() * 901));
+      else if (action === 'studio') {
+        await s.flushAll(); // settings.js personaBar: flushSaves(), then the switch
+        w.main = rendered = pick(PERSONAS);
+      } else w.main = pick(PERSONAS); // the phone, the watch, a routine: whenever
+      await gap();
+      for (const [persona, fields] of Object.entries(w.stored)) {
+        for (const [p, v] of Object.entries(fields)) {
+          if (m.PERSONA_PATHS.has(p)) assert.ok(String(v).startsWith(`${persona}:`), `seed ${seed} step ${step} (${action}): ${persona} holds ${p} = ${v}`);
+        }
+      }
+    }
+    await s.flushAll();
+  }
+});
+
 test('the default timers save the last value on flushAll', async () => {
   const saved = [];
   const s = m.createSaves({ save: (p, v) => saved.push([p, v]) });
@@ -354,17 +420,24 @@ test('the Persona studio saves what was typed before its own switch, New, Duplic
   assert.ok(studio.split('flushSaves()').length - 1 >= 5, 'every persona action flushes first');
   assert.doesNotMatch(studio, /\brender\(\)/, 'the new active persona redraws the studio (the settings listener)');
   assert.match(src, /on\('settings', \(s\) => currentView === 'settings' && s\?\.personas\?\.active !== drawingFor && render\(\)\);/);
-  // Every direct persona save is guarded.
-  assert.match(part('themeEditor'), /const update = async \(mutate\) => \{\s*if \(await dropped\('appearance\.theme'\)\) return;/);
-  assert.match(part('drawScene'), /if \(await dropped\('appearance\.scene', persona\)\) return null;/);
+  // Every direct persona save is guarded: checked here first, then again by main inside its save queue
+  // (saveForPersona → settings:set { persona } → persona.saveFor), where a switch queued meanwhile is seen.
+  assert.match(part('themeEditor'), /const update = async \(mutate\) => \{\s*const persona = renderedPersona;\s*if \(await dropped\('appearance\.theme', persona\)\) return;[\s\S]*?await saveForPersona\(\{ appearance: \{ theme: t \} \}, persona\);/);
+  assert.match(part('drawScene'), /if \(await dropped\('appearance\.scene', persona\)\) return null;\s*return \(await saveForPersona\(\{ appearance: \{ scene \} \}, persona\)\) \? scene : null;/);
   const agent = part('agentCard');
   assert.match(agent, /if \(await dropped\('appearance\.theme', persona\)\) return showResult/);
   // Generate look & feel: checked before the minute-long model call too, and the persona's voice is saved
   // in the same call as its theme (a switch between two saves put this voice into the next persona).
   assert.ok(agent.indexOf("if (await dropped('appearance.theme', persona)) return;") < agent.indexOf('api.persona.generate('), 'checked before the model is asked');
-  assert.match(agent, /await saveSettings\(\{ appearance: \{ theme, personaNotes: res\.personaNotes, greeting: res\.greeting \}, \.\.\.\(voice \? \{ voice: \{ voice \} \} : \{\}\) \}\);/);
+  assert.match(agent, /await saveForPersona\(\{ appearance: \{ theme, personaNotes: res\.personaNotes, greeting: res\.greeting \}, \.\.\.\(voice \? \{ voice: \{ voice \} \} : \{\}\) \}, persona\)/);
   assert.doesNotMatch(agent, /saveSettings\(\{ voice:/, 'no separate voice save');
-  assert.match(src, /async function save\(p, value, persona = renderedPersona\) \{\s*try \{\s*if \(await dropped\(p, persona\)\) return false;/);
+  assert.match(src, /async function save\(p, value, persona = renderedPersona\) \{\s*try \{\s*if \(await dropped\(p, persona\)\) return false;\s*if \(PERSONA_PATHS\.has\(p\)\) \{\s*if \(!\(await saveForPersona\(patchFor\(p, value\), persona\)\)\) return false;/);
+  assert.match(part('saveForPersona'), /const s = await saveSettings\(patch, persona \? \{ persona \} : undefined\);\s*if \(!persona \|\| s\?\.personas\?\.active === persona\) return true;/);
+  assert.doesNotMatch(src, /saveSettings\(\{ (appearance|agent|ui: \{ face)\b/, 'no persona field saved past the queue check');
+  assert.match(part('summaryRow'), /api\.persona\.setSummary\(textBox\.value, persona\)/);
+  // Main decides inside its queue, and a dropped change re-applies nothing.
+  const main = read('main/main.js');
+  assert.match(main, /handle\('settings:set', async \(patch, opts\) => \{\s*const r = typeof opts\?\.persona === 'string' && opts\.persona \? await persona\.saveFor\(opts\.persona, patch\) : \{ settings: await store\.setSettings\(patch\), saved: true \};\s*if \(r\.saved\) await applySaved\(r\.settings, patch\);\s*return r\.settings;/);
 });
 
 test('the Safety copy says what really asks (ORDER.md §3.13), in Settings and in the wizard', () => {
