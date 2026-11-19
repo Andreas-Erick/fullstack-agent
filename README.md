@@ -261,13 +261,13 @@ A paired phone can chat, read conversations, answer approvals sent to it, and (u
 | Ctrl/Cmd+Shift+N | ⚡ Dump: a blank page for a brain dump, saved to Inbox |
 | `/` in the message box | Run a skill (Tab completes) |
 | F11 | Full screen (on Face: full-screen face) |
-| Esc | Stop speaking / exit full screen / close a document window |
+| Esc | Stop speaking / exit full screen / close a document window / say no to an approval |
 
 </details>
 
 ## Safety and permissions
 
-Choose **Ask** (approve consequential actions) or **Auto**. Approve by clicking or by saying "yes" ("yeah", "okay", "go ahead"…); "details" reads the action aloud; anything else declines, and your words go back to the agent as the reason. No answer within 75 s counts as no.
+Choose **Ask** (approve consequential actions) or **Auto**. Approve by clicking or by saying "yes" ("yeah", "okay", "go ahead", "approve"…); "details" reads the action aloud; anything else declines, and your words go back to the agent as the reason (the log keeps only their length unless Detailed logging is on). Esc says no. No answer within 75 s counts as no, and Stop closes the reply's open questions. Spoken approvals: with hands-free on, the approvals that always ask take a spoken yes only through the talk key, and a command or a code change after outside content needs a click; words you began saying before the question appeared go into the message box instead.
 
 | Action | Ask mode | Auto mode |
 | --- | --- | --- |
@@ -275,14 +275,18 @@ Choose **Ask** (approve consequential actions) or **Auto**. Approve by clicking 
 | Removing an entry from your schedule, local commits | asks | allowed |
 | Changing its own code | **always asks** (and warns if it has just read a web page or document) | **always asks** (same) |
 | Shell commands | **always asks** | **always asks** |
+| Each command after outside content | asks | asks, each one, by click |
 | Using a connected service (a Claude connector) | **asks each time**, unless you allowed that service | same |
+| Deleting or inviting through a connector after outside content | asks | asks (even at Allow everything) |
+| Opening a site nobody named after outside content (also by a redirect) | asks | asks |
+| Saving a routine or skill after outside content | asks | asks (not for only pausing a routine) |
 | Changing the address its brain or voice connects to | **always asks, each time** | **always asks, each time** |
 | Pushing to GitHub, opening a pull request | **always asks, each time** | **always asks, each time** |
 | Cloning a voice from an audio file (recording yourself in the app is your consent) | **always asks, each time** | **always asks, each time** |
 | Seeing your screen | only while **you** share it | only while **you** share it |
 | Answering an approval from a paired phone | on the phone's approval card or Android notification (passwords, keys, voice recordings, changes to its own code and letting a connected service run without asking only on the computer) | same |
 
-It can never change its own safety settings, permissions or code access, and it can't read secrets. Web pages, documents, issues and repository files are treated as data, never as instructions. Found a security problem? Please report it privately: [SECURITY.md](SECURITY.md).
+It can never change its own safety settings, permissions or code access, and it can't read secrets. Web pages, documents, issues and repository files are treated as data, never as instructions; after it has read them in a reply, every approval dialog says so (the guard in Settings → Safety) and none offers "Always allow". Found a security problem? Please report it privately: [SECURITY.md](SECURITY.md).
 
 ## Disclaimer
 
@@ -307,9 +311,9 @@ Ask it: *"what's wrong with your voice?"*. It runs its health checks, groups the
 <details>
 <summary><b>Where your data lives</b></summary>
 
-- **App data** (`%APPDATA%\Siren Assistant` on Windows, `~/Library/Application Support/Siren Assistant` on macOS; moved there from `Nexus Agent` on the first start of 2.0): settings (secrets encrypted with the OS keychain, plus a last-good backup), conversations (sealed at rest), `logs/`, custom faces (Siren's own is placed there), the watch's face recordings, the Inner World's state, paired devices (only a hash of each device's token) and the "where we left off" note.
+- **App data** (`%APPDATA%\Siren Assistant` on Windows, `~/Library/Application Support/Siren Assistant` on macOS; moved there from `Nexus Agent` on the first start of 2.0): settings (secrets encrypted with the OS keychain, plus a last-good backup and a copy kept by each Reset settings), conversations (sealed at rest), `logs/`, custom faces (Siren's own is placed there), the watch's face recordings, the Inner World's state, paired devices (only a hash of each device's token) and the "where we left off" note.
 - **Vault:** `Documents/Siren Vault` by default (an existing `Documents/Nexus Vault` stays where it is), with its own git history for every note (including `Where We Left Off.md`).
-- **On a paired phone:** only its device token, the open conversation's id and a few display preferences.
+- **On a paired phone:** only its device token, the open conversation's id and a few display preferences. The Android app keeps them out of cloud backups and phone transfers: pair a new phone again.
 - **Cloned repos:** `~/SirenRepos` (`~/NexusRepos` if you already had it; configurable).
 - **Code history:** the `.git` folder of the app itself.
 
