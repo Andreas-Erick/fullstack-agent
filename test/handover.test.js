@@ -304,8 +304,12 @@ test('a question about the user’s own plans changes nothing on a local brain; 
 
 // Efficiency pass: every chat opened in History started a Claude process at once (main.js llm:prewarm).
 // A chat merely opened waits; a newer request replaces a waiting one; `now` (launch, persona switch) doesn't wait.
-test('settler: only the latest request runs, after the settle time; now runs at once', async () => {
+test('settler: only the latest request runs, after the settle time; now runs at once', async (t) => {
   assert.strictEqual(llm.PREWARM_SETTLE_MS, 4000);
+  // The settler's timer is unref'd (it must never keep the app alive); here nothing else holds the event loop,
+  // and Node 22 cancels a test whose awaits hold none ("Promise resolution is still pending…").
+  const hold = setInterval(() => {}, 1000);
+  t.after(() => clearInterval(hold));
   const ran = [];
   const settle = llm.settler(30);
   const a = settle(() => (ran.push('a'), true));
