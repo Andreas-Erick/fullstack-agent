@@ -14,10 +14,17 @@ const ID = ['-c', 'user.name=Siren Assistant', '-c', 'user.email=nexus-agent@loc
 const timers = new Map();
 const pendingMsgs = new Map();
 
+// A git that hangs (a lock held by another program, a credential prompt) ends after a while instead of
+// leaving the history panel or a commit waiting for good; packing a big vault gets longer.
+const GIT_LIMIT_MS = 60000;
+const GC_LIMIT_MS = 10 * 60000;
+
 function git(root, args) {
   return new Promise((resolve, reject) => {
-    execFile('git', [...ID, ...args], { cwd: root, maxBuffer: 20 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
-      if (err) reject(new Error(String(stderr || err.message).trim()));
+    const timeout = args[0] === 'gc' ? GC_LIMIT_MS : GIT_LIMIT_MS;
+    execFile('git', [...ID, ...args], { cwd: root, maxBuffer: 20 * 1024 * 1024, windowsHide: true, timeout }, (err, stdout, stderr) => {
+      if (err?.killed) reject(new Error(`git ${args[0]} took longer than ${timeout / 1000} s and was stopped.`));
+      else if (err) reject(new Error(String(stderr || err.message).trim()));
       else resolve(String(stdout));
     });
   });
@@ -46,7 +53,7 @@ function commitSoon(root, message) {
   msgs.push(message);
   pendingMsgs.set(root, msgs);
   clearTimeout(timers.get(root));
-  timers.set(root, setTimeout(() => flush(root).catch((e) => log.warn('vault commit', e.message)), 4000));
+  timers.set(root, setTimeout(() => flush(root).catch((e) => log.warn('vault commit failed', { error: e })), 4000));
 }
 
 async function flush(root) {
@@ -59,7 +66,7 @@ async function flush(root) {
   await git(root, ['add', '-A']);
   const subject = msgs.length === 1 ? msgs[0] : `${msgs.length} changes: ${[...new Set(msgs)].slice(0, 3).join('; ')}`;
   await git(root, ['commit', '-q', '-m', subject.slice(0, 200)]);
-  maintain(root).catch((e) => log.warn('vault git gc', e.message));
+  maintain(root).catch((e) => log.warn('vault git gc failed', { error: e }));
 }
 
 // The history only grows: about once a week, after a commit, git packs it (gc --auto does nothing when

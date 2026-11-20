@@ -71,6 +71,23 @@ function keyOf(problem) {
   return h.toString(36);
 }
 
+// The trail logged with an error ("-4.2s I tool · -1.1s W tool failed": event names only, logger.js) as a
+// list. A name that isn't plain words (anything that could carry content) shows as "(other)".
+const CRUMB = /^-(\d{1,4}(?:\.\d)?)s ([DIWE]) (.{1,60})$/;
+const PLAIN_EVENT = /^[\w:.' ()-]{1,60}$/;
+function justBefore(trail, a) {
+  const rows = String(trail || '')
+    .split(' · ')
+    .map((c) => CRUMB.exec(c.trim()))
+    .filter(Boolean)
+    .slice(-10)
+    .map(([, secs, level, event]) => {
+      const name = a(event);
+      return `- ${secs} s before · ${level} · ${PLAIN_EVENT.test(name) ? `\`${name}\`` : '(other)'}`;
+    });
+  return rows.length ? `\n### Just before (event names only)\n${rows.join('\n')}` : '';
+}
+
 /**
  * The issue for one problem group (errorinsight.analyze). env: { version, os, electron, brain }.
  * Returns { key, title, body }, already anonymized.
@@ -87,6 +104,7 @@ function report(problem, env = {}, known = {}) {
     `- Seen ${problem.count || 1}× (first ${String(problem.first || '').slice(0, 10) || '?'}, last ${String(problem.last || '').slice(0, 10) || '?'})`,
     problem.where ? `- Logged in: \`${a(problem.where)}\`` : '',
     where.length ? `\n### Where in the code\n${where.join('\n')}` : '',
+    justBefore(problem.trail, a),
     '',
     '### Environment',
     `- Siren ${a(env.version || '?')} · ${a(env.os || '?')} · Electron ${a(env.electron || '?')}`,

@@ -25,6 +25,7 @@ const selfchange = require('./selfchange');
 const websearch = require('./websearch');
 const persona = require('./persona');
 const log = require('./logger');
+const { plainIpcError } = require('./plainerror');
 const approvals = require('./approvals');
 const diagnostics = require('./diagnostics');
 const journal = require('./journal');
@@ -367,17 +368,31 @@ function handle(channel, fn) {
     } catch (err) {
       // The UI shows the message; the log keeps where it came from.
       if (channel !== 'log:write') log.warn('ipc failed', { channel, error: err });
-      return { ok: false, error: err?.message || String(err) };
+      return { ok: false, error: plainIpcError(err) };
     }
   });
 }
 
-// Errors printed in any window's console (also scripts that fail to load) end up in the log.
+// shell.openPath reports a failure as its result (an empty string is success): say it instead of nothing.
+function opened(problem) {
+  if (problem) throw new Error(`Couldn't open it: ${problem}`);
+  return true;
+}
+
+// Errors printed in any window's console (also scripts that fail to load) end up in the log. An uncaught
+// error is already logged by the page's own trap (util.js installErrorTrap) with its stack: once is enough.
 function captureConsole(wc, label) {
   wc.on('console-message', (e) => {
-    if (e.level !== 'error') return;
+    if (e.level !== 'error' || /^Uncaught\b/.test(String(e.message))) return;
     log.warn(`${label} console error`, { message: String(e.message).slice(0, 500), source: `${String(e.sourceId || '').replace(/^.*\/renderer\//, 'renderer/')}:${e.lineNumber}` });
   });
+  // A preload that fails or a page that doesn't load leaves an empty window: say so in the log.
+  wc.on('preload-error', (_e, preloadPath, error) => log.error(`${label} preload failed`, { error, preload: path.basename(String(preloadPath || '')) }));
+  wc.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
+    if (isMainFrame && code !== -3) log.warn(`${label} page failed to load`, { code, description, scheme: String(url || '').split(':')[0] }); // -3: aborted by a newer load
+  });
+  // The main window logs (and recovers from) its own crashes in createWindow; the others only say so.
+  if (label !== 'window') wc.on('render-process-gone', (_e, details) => details?.reason !== 'clean-exit' && log.error(`${label} crashed`, { reason: details?.reason, exitCode: details?.exitCode }));
 }
 
 function registerIpc() {
@@ -450,7 +465,7 @@ function registerIpc() {
   });
   // The window finished booting (renderer/js/app.js): how long it took, and the launch check's signal.
   handle('app:ready', (ms) => {
-    log.info('window ready', { ms: Math.round(Number(ms) || 0) });
+    log.info('window ready', { ms: Math.round(Number(ms) || 0), sinceStartMs: Math.round(process.uptime() * 1000) }); // ms: the page's own boot
     smoke.ready(ms);
     return true;
   });
@@ -567,7 +582,7 @@ function registerIpc() {
   handle('memory:delete', (id) => memory.remove(id));
   handle('memory:clear', () => memory.clear());
   handle('memory:dir', () => memory.vaultDir());
-  handle('memory:openDir', async () => shell.openPath(await memory.vaultDir()));
+  handle('memory:openDir', async () => opened(await shell.openPath(await memory.vaultDir())));
   handle('memory:export', async (format) => {
     if (format === 'json') return saveFile('nexus-memory.json', JSON.stringify(await memory.list(), null, 2), [{ name: 'JSON', extensions: ['json'] }]);
     return saveFile('nexus-memory.md', await memory.exportMarkdown(), [{ name: 'Markdown', extensions: ['md'] }]);
@@ -634,12 +649,12 @@ function registerIpc() {
   handle('docs:clearRecent', () => documents.clearRecent());
   handle('docs:roots', () => documents.allowedRoots());
   handle('docs:showInFolder', async (p) => shell.showItemInFolder(await documents.resolveAllowed(p)));
-  handle('docs:openExternal', async (p) => shell.openPath(await documents.externalPath(p)));
+  handle('docs:openExternal', async (p) => opened(await shell.openPath(await documents.externalPath(p))));
 
   // Vault (the agent's own Obsidian vault)
   handle('obsidian:write', (p, content, mode) => obsidian.writeNote(p, content, mode));
   handle('obsidian:delete', (p) => obsidian.deleteNote(p));
-  handle('obsidian:openFolder', async () => shell.openPath(await obsidian.vaultPath()));
+  handle('obsidian:openFolder', async () => opened(await shell.openPath(await obsidian.vaultPath())));
   handle('obsidian:openInObsidian', async (p) => {
     const root = await obsidian.vaultPath();
     const target = p ? (await obsidian.resolveNote(p)).full : root;
@@ -715,7 +730,7 @@ function registerIpc() {
   handle('skills:import', (repo, paths) => require('./skillimport').install(String(repo || ''), Array.isArray(paths) ? paths.map(String) : []).then(skillsChanged));
   handle('skills:openFolder', async () => {
     await fsp.mkdir(skills.dir(), { recursive: true });
-    return shell.openPath(skills.dir());
+    return opened(await shell.openPath(skills.dir()));
   });
 
   // PDF export and quick notes (a new PDF opens in a document window)
@@ -815,7 +830,13 @@ function registerIpc() {
 
   // Mechanic: diagnostics + log
   handle('diag:run', () => diagnostics.run());
-  handle('log:write', (level, event, data) => log[['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info'](`ui: ${event}`, data));
+  // A window's line that names its turn (`turn`: the last 6 characters of the requestId, as startTurn tags it)
+  // is written under that turn's tag, so `turn=…` finds the window's side of a turn too.
+  handle('log:write', (level, event, data) => {
+    const write = () => log[['debug', 'info', 'warn', 'error'].includes(level) ? level : 'info'](`ui: ${event}`, data);
+    const turn = data && typeof data === 'object' ? data.turn : null;
+    return typeof turn === 'string' && /^\w{1,12}$/.test(turn) ? log.withContext({ turn }, write) : write();
+  });
   handle('log:tail', (n, filter) => log.tail(n || 300, filter || ''));
   handle('log:open', () => shell.showItemInFolder(log.file()));
   handle('issues:pending', () => require('./issues').pending());
@@ -836,7 +857,7 @@ function registerIpc() {
     const epoch = claudecode.epochOf(convId);
     const conv = await store.getConversation(convId);
     if (conv?.setup) return false;
-    llm.prewarm(s, conv, { epoch }).catch((e) => log.warn('prewarm failed', e.message));
+    llm.prewarm(s, conv, { epoch }).catch((e) => log.warn('prewarm failed', { error: e }));
     return true;
   });
   handle('chat:endSession', (convId) => claudecode.endSession(convId));
@@ -872,7 +893,7 @@ function registerIpc() {
 
   // Faces (built-in + custom faces in <userData>/faces)
   handle('faces:list', () => listCustomFaces());
-  handle('faces:openFolder', async () => shell.openPath(await facesDir()));
+  handle('faces:openFolder', async () => opened(await shell.openPath(await facesDir())));
 
   // Misc
   handle('dialog:pickFolder', async (title) => {
@@ -1111,7 +1132,7 @@ async function startTurn({ conversationId, text, requestId, voice: viaVoice = fa
       if (attempt) store.updateConversation(conv.id, (c) => redo.withAttempt(c, userMsg.id, attempt)).catch((e) => log.warn('could not record the failed attempt', { error: e }));
     } finally {
       activeRequests.delete(requestId);
-      if (trackChanges) recordSelfChanges(before, text, [...touched]).catch((e) => log.warn('self-change tracking', e.message));
+      if (trackChanges) recordSelfChanges(before, text, [...touched]).catch((e) => log.warn('self-change tracking failed', { error: e }));
     }
   });
   return { conversationId: conv.id };
@@ -1204,7 +1225,7 @@ app.whenReady().then(async () => {
   agentwindow.init({ root: ROOT, preload: path.join(ROOT, 'preload.js'), mainWindow: () => win, guard: guardNavigation, captureConsole });
   documents.setPopup(docwindows);
   obsidian.setChangeListener((rel) => send('vault:changed', rel));
-  log.info('==================== app start', { version: app.getVersion(), pid: process.pid });
+  log.info('==================== app start', { version: app.getVersion(), pid: process.pid, sinceStartMs: Math.round(process.uptime() * 1000) });
   envinfo.environment().then((env) => log.info('environment', env), (err) => log.warn('environment unavailable', err));
   // Health heartbeat: memory and uptime, so leaks and slowdowns show up in the log.
   setInterval(() => {

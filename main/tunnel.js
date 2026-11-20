@@ -45,7 +45,7 @@ const cleanHost = (h) => String(h || '').trim().toLowerCase().replace(/^https?:\
 function findBinary(configured, name = 'cloudflared', candidates = CANDIDATES) {
   return new Promise((resolve) => {
     if (configured) return resolve(fs.existsSync(configured) ? configured : null);
-    execFile(process.platform === 'win32' ? 'where' : 'which', [name], { windowsHide: true }, (err, out) => {
+    execFile(process.platform === 'win32' ? 'where' : 'which', [name], { windowsHide: true, timeout: 5000 }, (err, out) => {
       const first = !err && String(out).split(/\r?\n/).find(Boolean);
       resolve(first || candidates.find((c) => fs.existsSync(c)) || null);
     });
