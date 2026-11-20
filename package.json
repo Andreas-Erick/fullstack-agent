@@ -1,7 +1,7 @@
 {
   "name": "siren-assistant",
   "productName": "Siren Assistant",
-  "version": "2.7.26",
+  "version": "2.7.27",
   "description": "Siren Assistant: a personal AI assistant for Windows and macOS with voice, memory, a vault of notes, learning and coaching, an animated face and a phone app.",
   "engines": {
     "node": ">=22.12"
