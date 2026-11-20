@@ -11,7 +11,7 @@ entry `keyboard` points here).
 | --- | --- |
 | Ctrl+1 … Ctrl+9 | Chat, Face, Memory, Calendar, Vault, Documents, Evolution, Skills, Notes |
 | Ctrl+Shift+1 / 2 / 3 | Chat layout: chat only, split, face |
-| Ctrl+N | New chat (in the Notes view: a new note) |
+| Ctrl+N | New chat (while the Notes view is open: a new note, also right after Ctrl+9) |
 | Ctrl+H | History: your earlier chats and the search through them (opens the chat; again: back to the message box) |
 | Ctrl+Shift+N | ⚡ Dump: a blank page for a brain dump (Notes) |
 | Ctrl+, | Settings |
@@ -36,7 +36,7 @@ The open view is marked as the current page for screen readers.
 | Chat → History | Type to search: titles at once, words from the messages a moment later; ↓ goes into the list, ↑ ↓ Home End move, Enter opens (Enter in the search opens the first), Delete deletes the chat; while it is open over the chat, Tab stays inside it | Closes it, back to the message box; in the side panel: clears the search |
 | Calendar | ← / → previous / next, T today, N new entry; Enter on a day starts a new entry on it (Enter on an entry inside the day opens its details; on “+N more” it selects the day) | Closes the entry editor |
 | Notes | Ctrl+N new note, Ctrl+E edit / show rendered (or click the text to edit right there; Enter on the rendered note edits it; on a focused [[link]] it opens the link), Ctrl+S save now; while writing: Ctrl+B bold, Ctrl+I italic, Enter continues a list (on an empty item it ends it), Tab / Shift+Tab indent list items; `[[` suggests notes to link (↑ ↓, Enter or Tab picks); ↓ from the search goes into the list, ↑ ↓ move through it. In ⚡ Dump: Ctrl+Enter saves and gives a fresh page | Closes the link suggestions, else clears the search; in Dump: saves and closes |
-| Inner World | Arrows or WASD pan, + / - zoom, 0 the whole island; the side panel lists every place and resident as buttons | Leaves the timelapse, stops following, steps outside, clears the selection (in that order) |
+| Inner World | Arrows or WASD (also with Shift or Caps Lock) pan, + / - zoom, 0 the whole island; the side panel lists every place and resident as buttons | Leaves the timelapse, stops following, steps outside, clears the selection (in that order) |
 | Inner World timelapse | Space play / pause (when focus is not on a button); Tab reaches the bar's play button, slider and speed | Leaves the timelapse |
 | Architecture | + / - zoom, 0 or Home everything, L the lessons, R the replay, Space play / pause in the replay | Leaves the replay, else goes up one level |
 | Vault → Growth | Space play / pause | Closes the replay |
