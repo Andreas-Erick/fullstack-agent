@@ -3,7 +3,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { stub, load, tmpDir, quietLog, fileStore } = require('./helpers');
 
-stub({ './store': fileStore(tmpDir('nexus-facecap-')), './logger': quietLog });
+const dataDir = tmpDir('nexus-facecap-');
+stub({ './store': fileStore(dataDir), './logger': quietLog });
 const fc = load('main/facecapture.js');
 
 test('the recipe: face, theme and name; anything odd falls back to Siren', () => {
@@ -15,6 +16,24 @@ test('the recipe: face, theme and name; anything odd falls back to Siren', () =>
   const withScene = fc.recipe({ ui: { face: 'siren' }, appearance: { scene: { svg: '<svg/>', caption: 'x' } } });
   assert.strictEqual(withScene.scene, '<svg/>');
   assert.notStrictEqual(fc.keyOf(withScene), fc.keyOf({ ...withScene, scene: '' }), 'a new scene behind the face records again');
+});
+
+// Efficiency pass: the warm-up (every 2 min) and the 304 read the whole multi-MB pack to learn it existed.
+test('cached(): the pack’s key and time from a stat, null until recorded', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const s = { ui: { face: 'siren' }, agent: { name: 'Mira' } };
+  assert.strictEqual(await fc.cached(s), null);
+  const key = fc.keyOf(fc.recipe(s));
+  const dir = path.join(dataDir, 'face-frames');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${key}.bin`), 'SRF1');
+  const hit = await fc.cached(s);
+  assert.strictEqual(hit.key, key);
+  assert.ok(hit.at > 0);
+  assert.strictEqual(await fc.cached({ ...s, agent: { name: 'Other' } }), null, 'another recipe: not recorded');
+  fs.mkdirSync(path.join(dir, `${fc.keyOf(fc.recipe({ ui: { face: 'rain' } }))}.bin`));
+  assert.strictEqual(await fc.cached({ ui: { face: 'rain' } }), null, 'a folder by that name is no pack');
 });
 
 test('pack and unpack keep every frame, state by state', () => {

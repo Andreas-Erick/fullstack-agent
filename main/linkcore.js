@@ -42,31 +42,58 @@ function resolver(paths) {
   };
 }
 
+/** One note's link targets resolved: `to` (no self-links or duplicates) and how many point to no note. */
+function linkNote(notePath, targets, resolve) {
+  const to = [];
+  let unresolved = 0;
+  for (const target of targets || []) {
+    const p = resolve(target);
+    if (!p) {
+      unresolved++;
+      continue;
+    }
+    if (p === notePath || to.includes(p)) continue;
+    to.push(p);
+  }
+  return { to, unresolved };
+}
+
 /**
- * The index over notes [{ path, text }]: links (path → the notes it links to), backlinks (path → the
- * notes linking to it), and how many links point to no note yet.
+ * The index over notes [{ path, text }] (or { path, targets } from linksOf, as linkindex.js keeps them):
+ * links (path → the notes it links to), backlinks (path → the notes linking to it), and how many links
+ * point to no note yet.
  */
-function build(notes) {
-  const resolve = resolver(notes.map((n) => n.path));
+function build(notes, resolve = resolver(notes.map((n) => n.path))) {
   const links = {};
   const backlinks = {};
   let unresolved = 0;
   for (const n of notes) {
-    const to = [];
-    for (const target of linksOf(n.text)) {
-      const p = resolve(target);
-      if (!p) {
-        unresolved++;
-        continue;
-      }
-      if (p === n.path || to.includes(p)) continue;
-      to.push(p);
-      (backlinks[p] ||= []).push(n.path);
-    }
-    if (to.length) links[n.path] = to;
+    const r = linkNote(n.path, n.targets || linksOf(n.text), resolve);
+    unresolved += r.unresolved;
+    for (const p of r.to) (backlinks[p] ||= []).push(n.path);
+    if (r.to.length) links[n.path] = r.to;
   }
   for (const list of Object.values(backlinks)) list.sort();
   return { links, backlinks, unresolved, notes: notes.length };
+}
+
+/**
+ * The index after one note's links changed while the set of notes stayed the same (an edit): a new index,
+ * the given one untouched (a caller may still hold its lists). `before`/`after` are linkNote results;
+ * equal to build() over the changed notes.
+ */
+function relinkNote(index, notePath, before, after) {
+  const links = { ...index.links };
+  const backlinks = { ...index.backlinks };
+  for (const p of before.to) {
+    const list = (backlinks[p] || []).filter((x) => x !== notePath);
+    if (list.length) backlinks[p] = list;
+    else delete backlinks[p];
+  }
+  for (const p of after.to) backlinks[p] = [...(backlinks[p] || []), notePath].sort();
+  if (after.to.length) links[notePath] = after.to;
+  else delete links[notePath];
+  return { links, backlinks, unresolved: index.unresolved + after.unresolved - before.unresolved, notes: index.notes };
 }
 
 /** The links as map edges between notes on a vault map (replaycore.vaultMap): f:<path> → f:<path>. */
@@ -79,4 +106,4 @@ function edges(links, present) {
   return out;
 }
 
-module.exports = { linksOf, resolver, build, edges };
+module.exports = { linksOf, resolver, linkNote, build, relinkNote, edges };

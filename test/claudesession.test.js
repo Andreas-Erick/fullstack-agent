@@ -536,3 +536,76 @@ test('every --model and --effort on a CLI line is a value that went through cliV
   assert.strictEqual(pushes.length, flags.length, 'each flag is pushed with a plain variable');
   for (const [line, kind, v] of pushes) assert.ok(new RegExp(`const ${v} = cliValue\\('${kind}', `).test(src), `${line}: ${v} must come from cliValue('${kind}', …)`);
 });
+
+// Efficiency pass: a session that exited (idle, closed to save memory) stays in `sessions` for its resumable
+// id, but lets go of the last turn, the spec with the stable prompt and the child process.
+test('an exited session keeps its resumable id and drops what it held for the process', () => {
+  const s = new claudecode.Session('conv-exit');
+  s.child = { exitCode: null };
+  s.spec = { system: 'x'.repeat(1000), key: 'k' };
+  s.turn = { settled: true, ctx: { big: true } };
+  s.resumable = 'sess-1';
+  s.stderr = 'noise';
+  assert.ok(s.alive());
+  s.onExit(0);
+  assert.strictEqual(s.alive(), false);
+  assert.strictEqual(s.turn, null);
+  assert.strictEqual(s.spec, null);
+  assert.strictEqual(s.child, null);
+  assert.strictEqual(s.resumable, 'sess-1');
+  s.kill(); // nothing to stop: never throws
+  // A turn still open when the process died is rejected first, then dropped.
+  const t = new claudecode.Session('conv-exit2');
+  let rejected = null;
+  t.child = { exitCode: null };
+  t.turn = { settled: false, reject: (e) => (rejected = e) };
+  t.onExit(1, new Error('gone'));
+  assert.match(String(rejected?.message), /gone/);
+  assert.strictEqual(t.turn, null);
+});
+
+// Regression (efficiency pass): stdout was joined with `buf += chunk`, so a character split across two
+// chunks (UTF-8 '€' is three bytes) became two U+FFFD in the reply text.
+test('a character split across two output chunks stays whole (onText, complete())', async () => {
+  const { EventEmitter } = require('events');
+  const em = new EventEmitter();
+  const got = [];
+  claudecode.onText(em, (t) => got.push(t));
+  const euro = Buffer.from('5 €', 'utf8');
+  em.emit('data', euro.subarray(0, 3));
+  em.emit('data', euro.subarray(3));
+  em.emit('data', 'as text');
+  assert.strictEqual(got.join(''), '5 €as text');
+  assert.ok(!got.join('').includes('�'));
+
+  const realCp = require('child_process');
+  const bytes = Buffer.from(JSON.stringify({ result: 'costs 5 € — ok' }), 'utf8');
+  const cut = bytes.indexOf(Buffer.from('€')) + 1;
+  stub({
+    child_process: {
+      ...realCp,
+      spawn() {
+        const child = new EventEmitter();
+        Object.assign(child, { stdout: new EventEmitter(), stderr: new EventEmitter(), exitCode: null, pid: 1 });
+        child.stdin = {
+          end() {
+            setImmediate(() => {
+              child.stdout.emit('data', bytes.subarray(0, cut));
+              child.stdout.emit('data', bytes.subarray(cut));
+              child.exitCode = 0;
+              child.emit('close', 0);
+            });
+          },
+        };
+        return child;
+      },
+    },
+    './store': { getSettings: async () => ({ claudeCode: { cliPath: __filename } }) },
+  });
+  try {
+    const cc = load('main/claudecode.js');
+    assert.strictEqual(await cc.complete('hi'), 'costs 5 € — ok');
+  } finally {
+    stub({ child_process: realCp, './store': { getSettings: async () => ({}) } });
+  }
+});

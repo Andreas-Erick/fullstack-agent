@@ -407,6 +407,7 @@ async function deleteNote(ref) {
 
 async function afterChange(root, rel, message, { deleted = false } = {}) {
   statusMemo = null; // status() counts the notes again
+  if (noteList && (deleted || !noteList.set.has(rel))) noteList = null; // a note came or went
   vaultChanges++;
   const top = rel.split('/')[0];
   // The folder's list changes only when a note is added or removed: editing one of a thousand daily
@@ -594,6 +595,22 @@ const STATUS_MS = 5 * 60000;
 let statusMemo = null; // { root, at, count, registered }
 let vaultChanges = 0; // afterChange calls: a walk that overlapped one is not kept
 
+// Every note's vault path, for matching titles without reading notes (prompt.js matchesFor, each local-model
+// turn). Kept for NOTE_LIST_MS or until a note is added or removed here (afterChange); a note added in
+// Obsidian itself shows within NOTE_LIST_MS.
+const NOTE_LIST_MS = 60000;
+let noteList = null; // { root, at, paths, set }
+
+async function notePaths() {
+  const root = await requireVault();
+  const m = noteList;
+  if (m && m.root === root && Date.now() - m.at < NOTE_LIST_MS) return m.paths;
+  const seen = vaultChanges;
+  const paths = (await walk(root, { exts: ['.md'], ignore: IGNORE })).map((f) => toPosix(path.relative(root, f)));
+  if (seen === vaultChanges) noteList = { root, at: Date.now(), paths, set: new Set(paths) };
+  return paths;
+}
+
 async function status() {
   const s = await store.getSettings();
   const root = await vaultPath();
@@ -705,6 +722,7 @@ module.exports = {
   quickNote,
   deleteNote,
   search,
+  notePaths,
   status,
   resolveNote,
   logSession,

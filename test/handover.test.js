@@ -301,3 +301,38 @@ test('a question about the user’s own plans changes nothing on a local brain; 
   const asked = await turn('Can you remember that I like tea?', settings(false));
   assert.ok(asked.r.toolCalls.some((c) => c.name === 'memory_save' && c.ok), '"can you…?" is a request');
 });
+
+// Efficiency pass: every chat opened in History started a Claude process at once (main.js llm:prewarm).
+// A chat merely opened waits; a newer request replaces a waiting one; `now` (launch, persona switch) doesn't wait.
+test('settler: only the latest request runs, after the settle time; now runs at once', async () => {
+  assert.strictEqual(llm.PREWARM_SETTLE_MS, 4000);
+  const ran = [];
+  const settle = llm.settler(30);
+  const a = settle(() => (ran.push('a'), true));
+  const b = settle(() => (ran.push('b'), true));
+  const c = settle(() => (ran.push('c'), 'c'));
+  assert.deepStrictEqual(ran, [], 'nothing runs before the settle time');
+  assert.strictEqual(await a, false);
+  assert.strictEqual(await b, false);
+  assert.strictEqual(await c, 'c');
+  assert.deepStrictEqual(ran, ['c']);
+  // now: at once, and it replaces a waiting one.
+  const d = settle(() => (ran.push('d'), true));
+  const e = await settle(() => (ran.push('e'), 'e'), { now: true });
+  assert.strictEqual(e, 'e');
+  assert.strictEqual(await d, false);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepStrictEqual(ran, ['c', 'e'], 'the replaced one never runs');
+  // A failing run resolves false rather than rejecting into the IPC caller.
+  assert.strictEqual(await settle(() => Promise.reject(new Error('x'))), false);
+  // The handler waits for opened chats and passes `now` from launch and the persona switch.
+  const fs = require('fs');
+  const path = require('path');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main', 'main.js'), 'utf8');
+  const handler = main.slice(main.indexOf("handle('llm:prewarm'"), main.indexOf("handle('chat:endSession'"));
+  assert.match(handler, /llm\.settlePrewarm\(/);
+  assert.match(handler, /now: opts\?\.now === true/);
+  for (const f of ['renderer/js/app.js', 'renderer/js/personas.js']) {
+    assert.match(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), /api\.llm\.prewarm\(.*, \{ now: true \}\)/, f);
+  }
+});

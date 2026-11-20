@@ -320,7 +320,7 @@ function greetOnLaunch() {
   }
   setTimeout(() => {
     const id = currentConversationId();
-    if (id) api.llm.prewarm(id).catch(() => {});
+    if (id) api.llm.prewarm(id, { now: true }).catch(() => {}); // at once, not after the settle time
   }, 1500);
 }
 

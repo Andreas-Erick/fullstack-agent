@@ -27,7 +27,7 @@ export async function switchPersona(id) {
     await beforeSwitch().catch(() => {});
     const settings = took(await api.persona.switch(id), { greet: true });
     // The new persona's session starts while it says hello, not with the next message.
-    import('./chat.js').then((m) => m.currentConversationId() && api.llm.prewarm(m.currentConversationId())).catch(() => {});
+    import('./chat.js').then((m) => m.currentConversationId() && api.llm.prewarm(m.currentConversationId(), { now: true })).catch(() => {});
     return settings;
   } catch (err) {
     toastError(err);

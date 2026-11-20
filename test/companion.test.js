@@ -20,6 +20,8 @@ const turns = []; // what hooks.startTurn was asked
 const alerts = []; // hooks.notify events
 let uiFace = ''; // ui.face on the desktop
 let scene = null; // appearance.scene on the desktop
+let faceRecorded = false; // the watch face pack is in the cache (facecapture.cached)
+let faceReads = 0; // facecapture.frames calls (each reads the multi-MB pack)
 const facesDir = path.join(dir, 'faces');
 fs.mkdirSync(path.join(facesDir, 'Aurora', 'img'), { recursive: true });
 fs.writeFileSync(path.join(facesDir, 'Aurora', 'index.html'), '<script src="core.js"></script>');
@@ -60,7 +62,11 @@ stub({
     note: async (p) => ({ path: p, title: 'X', content: '# X' }),
   },
   './logger': quietLog,
-  './facecapture': { frames: async () => ({ key: 'k1', data: Buffer.from('SRF1') }) },
+  // cached(): a stat of the recorded pack (null until the first frames() call); frames() reads it.
+  './facecapture': {
+    frames: async () => (faceReads++, (faceRecorded = true), { key: 'k1', data: Buffer.from('SRF1'), at: 1 }),
+    cached: async () => (faceRecorded ? { key: 'k1', at: 1 } : null),
+  },
   './faces': { dir: async () => facesDir, list: async () => [{ id: 'custom:Aurora', folder: 'Aurora', title: 'Aurora' }] },
   './tunnel': { apply: async () => {}, stop() {}, status: () => tunnelState, publicHost: () => tunnelState.host || '' },
   './calendar': {
@@ -416,8 +422,13 @@ test('the watch face pack: paired devices only, cached by its key', async () => 
   assert.strictEqual(r.status, 200);
   assert.strictEqual(r.headers.get('etag'), '"k1"');
   assert.strictEqual(Buffer.from(await r.arrayBuffer()).toString(), 'SRF1');
+  const reads = faceReads;
   r = await fetch(`${base}/api/face/frames`, { headers: { ...auth, 'If-None-Match': '"k1"' } });
   assert.strictEqual(r.status, 304, 'unchanged: nothing sent again');
+  assert.strictEqual(faceReads, reads, 'the 304 comes from a stat, before the pack is read');
+  r = await fetch(`${base}/api/face/frames`, { headers: { ...auth, 'If-None-Match': '"old"' } });
+  assert.strictEqual(r.status, 200, 'another key: the pack is sent');
+  assert.strictEqual(faceReads, reads + 1);
   await new Promise((res) => setTimeout(res, 50));
   const dev = JSON.parse(fs.readFileSync(devicesFile, 'utf8')).find((d) => d.name === 'Watch phone');
   assert.strictEqual(dev.watch, true, 'a device that asked for the face gets it recorded ahead from now on');

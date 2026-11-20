@@ -259,7 +259,9 @@ async function warmFace() {
   warming = true;
   try {
     if (!(await readDevices()).some((d) => d.watch)) return;
-    await facecapture.frames(await store.getSettings());
+    const settings = await store.getSettings();
+    if (await facecapture.cached(settings)) return; // recorded already: a stat, not a read of the pack
+    await facecapture.frames(settings);
   } catch (err) {
     log.warn('face frames not recorded ahead', { error: err });
   } finally {
@@ -823,7 +825,15 @@ async function route(req, res) {
   // The face as recorded loops, for the watch (facecapture.js); unchanged → 304.
   if (req.method === 'GET' && p === '/api/face/frames') {
     if (!underLimit('frames', device.id, 6)) return fail(res, 429, 'Too many requests; wait a minute');
-    const { key, data, at } = await facecapture.frames(await store.getSettings());
+    const settings = await store.getSettings();
+    // The watch has this pack already: answered from a stat of the cache, before the pack is read.
+    const known = await facecapture.cached(settings);
+    if (known && req.headers['if-none-match'] === `"${known.key}"`) {
+      noteWatchFace(device.id, known.at).catch(() => {});
+      res.writeHead(304, { ETag: `"${known.key}"`, 'Cache-Control': 'no-cache' });
+      return res.end();
+    }
+    const { key, data, at } = await facecapture.frames(settings);
     noteWatchFace(device.id, at).catch(() => {});
     if (req.headers['if-none-match'] === `"${key}"`) {
       res.writeHead(304, { ETag: `"${key}"`, 'Cache-Control': 'no-cache' });

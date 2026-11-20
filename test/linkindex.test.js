@@ -65,3 +65,54 @@ test('the index follows the vault: new, changed and removed notes', async () => 
   assert.strictEqual(b.notes, 2);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// Efficiency pass: the index kept every linking note's full text and rebuilt everything after each write.
+test('relinkNote: one note edited gives the same index as a full build, and leaves the old one alone', () => {
+  const notes = [
+    { path: 'A.md', text: '[[B]] [[C]] [[Nowhere]]' },
+    { path: 'B.md', text: '[[A]]' },
+    { path: 'C.md', text: '[[B]]' },
+    { path: 'Deep/C.md', text: '' },
+  ];
+  const resolve = core.resolver(notes.map((n) => n.path));
+  const before = core.build(notes, resolve);
+  const frozen = JSON.stringify(before);
+  for (const text of ['[[C]] [[Deep/C]] [[Gone]] [[Gone2]]', '', '[[B]] [[C]] [[Nowhere]]', '[[A]] [[B]]']) {
+    const after = notes.map((n) => (n.path === 'A.md' ? { ...n, text } : n));
+    const updated = core.relinkNote(before, 'A.md', core.linkNote('A.md', core.linksOf(notes[0].text), resolve), core.linkNote('A.md', core.linksOf(text), resolve));
+    assert.deepStrictEqual(updated, core.build(after), text);
+    assert.strictEqual(JSON.stringify(before), frozen, 'the old index is untouched');
+  }
+  assert.deepStrictEqual(core.linkNote('X.md', [], resolve), { to: [], unresolved: 0 });
+  assert.deepStrictEqual(core.build([]), { links: {}, backlinks: {}, unresolved: 0, notes: 0 });
+  assert.deepStrictEqual(core.build([{ path: 'A.md', targets: ['B'] }, { path: 'B.md', targets: [] }]).links, { 'A.md': ['B.md'] }, 'targets in place of text');
+});
+
+test('the index updates an edited note in place, keeps no note text, and matches a fresh build', async () => {
+  stub({ './logger': quietLog });
+  const idx = load('main/linkindex.js');
+  const dir = tmpDir('nexus-links-inc-');
+  const write = (rel, text) => (fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }), fs.writeFileSync(path.join(dir, rel), text));
+  for (let i = 0; i < 70; i++) write(`N${i}.md`, `Note ${i} links [[N${(i + 1) % 70}]] ${'filler '.repeat(50)}`);
+  write('Hub.md', '[[N1]] [[N2]]');
+  const first = await idx.get(dir);
+  assert.deepStrictEqual(first.backlinks['N2.md'], ['Hub.md', 'N1.md']);
+  // An edit made by the app (touched) with the mtime unchanged is read again.
+  const hub = path.join(dir, 'Hub.md');
+  const st = fs.statSync(hub);
+  fs.writeFileSync(hub, '[[N3]] [[Missing]]');
+  fs.utimesSync(hub, st.atime, st.mtime);
+  idx.touched('Hub.md');
+  const second = await idx.get(dir);
+  assert.notStrictEqual(second, first);
+  assert.deepStrictEqual(first.backlinks['N2.md'], ['Hub.md', 'N1.md'], 'a list handed out before never changes');
+  assert.deepStrictEqual(second.backlinks['N2.md'], ['N1.md']);
+  assert.deepStrictEqual(second.links['Hub.md'], ['N3.md']);
+  assert.strictEqual(second.unresolved, first.unresolved + 1);
+  // The same as a fresh index over the same files.
+  const fresh = load('main/linkindex.js');
+  assert.deepStrictEqual(await fresh.get(dir), second);
+  // Nothing changed: the same index object comes back.
+  assert.strictEqual(await idx.get(dir), second);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

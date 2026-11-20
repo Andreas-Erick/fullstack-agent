@@ -7,6 +7,21 @@ const vaultgit = require('../vaultgit');
 const attachcore = require('../attachcore');
 const { arr, obj, str, int, requireApproval } = require('./common');
 
+const DAY_MS = 86400000;
+// Can a conversation (an index entry) hold messages from this local day (YYYY-MM-DD)? Its messages fall
+// between its createdAt and updatedAt; a day's margin each side, and a missing time never rules it out.
+function mayHoldDay(c, date) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || ''));
+  if (!m) return true;
+  const start = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+  if (!Number.isFinite(start)) return true;
+  const created = Number(c?.createdAt);
+  const updated = Number(c?.updatedAt);
+  if (updated > 0 && updated < start - DAY_MS) return false; // last touched well before that day
+  if (created > 0 && created >= start + 2 * DAY_MS) return false; // started well after it
+  return true;
+}
+
 module.exports = [
   {
     name: 'vault_search',
@@ -170,7 +185,12 @@ module.exports = [
     run: async (a) => {
       const terms = String(a.query || '').toLowerCase().split(/\s+/).filter((t) => t.length > 1);
       const out = [];
+      let read = 0;
       for (const c of await store.listConversations()) {
+        // With a date, only conversations whose [createdAt, updatedAt] can hold that day are opened.
+        if (a.date && !mayHoldDay(c, a.date)) continue;
+        // Each file is read and unsealed on the main thread: let the window breathe between a few.
+        if (++read % 8 === 0) await new Promise((r) => setImmediate(r));
         const conv = await store.getConversation(c.id);
         for (const m of conv?.messages || []) {
           const day = new Date(m.createdAt || conv.updatedAt);

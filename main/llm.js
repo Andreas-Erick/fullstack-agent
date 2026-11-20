@@ -443,6 +443,35 @@ async function prewarm(settings, conv, { epoch = claudecode.epochOf(conv?.id) } 
 let warmingFor = null;
 const WARM_DELAY_MS = 1500;
 
+// Runs `fn` after `delayMs` unless a newer request comes first (that one replaces it; the replaced one
+// resolves false); `now` runs at once, still replacing a waiting one. main.js llm:prewarm: a chat merely
+// opened is warmed only once the user stays on it, so browsing History starts one Claude process, not
+// one per chat (each ~250–400 MB with its tool servers, and a cold warm-up on the plan).
+function settler(delayMs) {
+  let waiting = null; // { timer, resolve }
+  return function request(fn, { now = false } = {}) {
+    if (waiting) {
+      clearTimeout(waiting.timer);
+      waiting.resolve(false);
+      waiting = null;
+    }
+    if (now) return Promise.resolve().then(fn);
+    return new Promise((resolve) => {
+      const mine = {
+        resolve,
+        timer: setTimeout(() => {
+          if (waiting === mine) waiting = null;
+          Promise.resolve().then(fn).then(resolve, () => resolve(false));
+        }, delayMs),
+      };
+      mine.timer.unref?.();
+      waiting = mine;
+    });
+  };
+}
+const PREWARM_SETTLE_MS = 4000;
+const settlePrewarm = settler(PREWARM_SETTLE_MS);
+
 // The model and effort the conversation's next message will most likely use: after a spoken message
 // the voice model, as for a short spoken greeting (pace.plan); after a typed one the everyday model.
 function warmTarget(settings, messages = []) {
@@ -1055,4 +1084,4 @@ async function runAnthropic({ settings, conv, history, emit, signal, active, sys
 }
 
 module.exports = {
-  anthropicHistory, openaiHistory, withPictures, withCacheMark, runTurn, listModels, testConnection, complete, prewarm, warmTarget, effectiveModel, sessionConfigKey };
+  anthropicHistory, openaiHistory, withPictures, withCacheMark, runTurn, listModels, testConnection, complete, prewarm, settler, settlePrewarm, PREWARM_SETTLE_MS, warmTarget, effectiveModel, sessionConfigKey };
