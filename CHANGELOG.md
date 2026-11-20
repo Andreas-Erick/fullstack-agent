@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.27 — 2026-11-20
+
+- The release build works again: two tests passed on Node 24 but were cancelled on the release build's Node 22, so neither 2.7.25 nor 2.7.26 produced installers. This version carries both of their changes (see below); nothing else changed.
+
 ## 2.7.26 — 2026-11-20
 
 - **No more model calls on repeat**: when the journal couldn't summarize a conversation (offline, your plan's limit, a sign-in problem), it asked the model again every minute, each time counting against your Claude plan. It now waits 5 minutes, then longer up to an hour, and then not again until the conversation changes.
