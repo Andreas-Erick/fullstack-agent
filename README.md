@@ -9,14 +9,15 @@
 Voice-first · Claude-powered · Obsidian memory · Windows & macOS · Android app · Galaxy Watch · Runs on your own machine
 
 ![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)
-![Node](https://img.shields.io/badge/Node-%E2%89%A5%2022-339933?logo=nodedotjs&logoColor=white)
+![Node](https://img.shields.io/badge/Node-%E2%89%A5%2022.12-339933?logo=nodedotjs&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-555)
 ![Android](https://img.shields.io/badge/companion-Android%208%2B%20%7C%20Wear%20OS%20%7C%20any%20phone%20browser-3DDC84?logo=android&logoColor=white)
 ![Claude](https://img.shields.io/badge/brain-Claude%20%2B%20multi--provider-D97757?logo=anthropic&logoColor=white)
 ![Release](https://img.shields.io/github/v/release/Andreas-Erick/fullstack-agent?label=installer)
 ![License](https://img.shields.io/badge/license-MIT-blue)
+[![Security](https://github.com/Andreas-Erick/fullstack-agent/actions/workflows/security.yml/badge.svg)](https://github.com/Andreas-Erick/fullstack-agent/actions/workflows/security.yml)
 
-[Features](#features) · [Install](#quick-start) · [System requirements](#system-requirements) · [Quick start](#quick-start) · [On your phone](#on-your-phone) · [Talking to it](#talking-to-it) · [Safety](#safety-and-permissions) · [Privacy](PRIVACY.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Troubleshooting](TROUBLESHOOTING.md) · [Architecture](CLAUDE.md)
+[Features](#features) · [Install](#quick-start) · [System requirements](#system-requirements) · [On your phone](#on-your-phone) · [Talking to it](#talking-to-it) · [Safety](#safety-and-permissions) · [Privacy](PRIVACY.md) · [Security](SECURITY.md) · [Changelog](CHANGELOG.md) · [Troubleshooting](TROUBLESHOOTING.md) · [Architecture](#architecture) · [Development](#development-and-tests)
 
 </div>
 
@@ -24,7 +25,7 @@ Voice-first · Claude-powered · Obsidian memory · Windows & macOS · Android a
 
 Siren is an assistant you talk to like a trusted colleague: a chief of staff, a tutor and a good friend in one. Hold a key (or just speak, hands-free), and she answers in a natural voice within a few seconds, with your schedule, your notes, your documents and your GitHub repos at hand. She keeps her memory in an Obsidian vault you can read and edit, asks before she does anything consequential, and can change her own code when you ask for a feature, with every change checked, tested, recorded and reversible. Away from your desk, the Android app (or any phone browser) has the same assistant, your day, your notes and what you're learning, and a Galaxy Watch puts her on your wrist, while the brain, the memory and the keys stay on your computer. She even has a place of her own: an Inner World, a small village where her personas live a day you can watch and whose buildings grow with your real progress.
 
-> **Formerly Nexus Agent.** Updating keeps everything: your data folder moves to its new name by itself, and your assistant's name, look, face, voice and brain stay as they were. Siren, the new default persona, is one click away in Settings → Persona.
+> **Formerly Nexus Agent.** Updating keeps everything: your data folder moves to its new name by itself, and your assistant's name, look, face, voice and brain stay as they were. Siren, the new default persona, is one click away in Settings → Persona & look.
 
 > Inspired by [jaredrhod/fullstack-agent](https://github.com/jaredrhod/fullstack-agent): a warm Claude session, memory loaded on demand, standing rules, an agent that is its own mechanic, and hardened voice handling.
 
@@ -167,7 +168,7 @@ Download **`Siren-Android-x.y.z.apk`** on the phone and install it (Android 8 or
 ### From source
 
 **Requirements**
-- [Node.js](https://nodejs.org) 22 or newer
+- [Node.js](https://nodejs.org) 22.12 or newer
 - A brain: **[Claude Code](https://claude.com/claude-code)** signed in to your Claude account (recommended), an Anthropic API key, a Gemini / DeepSeek / Groq / Perplexity key, or an OpenAI-compatible server (any combination in multi-provider mode)
 - Optional: [VoiceStudio](https://github.com/debpalash/VoiceStudio) for even more natural, cloneable voices (installed, it is started by Siren; you don't open it yourself), the [GitHub CLI](https://cli.github.com) (`gh auth login`) for GitHub, a GPU with WebGPU for the fastest speech recognition
 
@@ -258,6 +259,8 @@ A paired phone can chat, read conversations, answer approvals sent to it, and (u
 | Ctrl/Cmd + / − / 0, Ctrl + wheel | Zoom in / out / reset (over a document: zoom the document) |
 | Ctrl/Cmd+, | Settings |
 | Ctrl/Cmd+N | New conversation (in Notes: a new note) |
+| Ctrl/Cmd+H | History: earlier chats and the search through them |
+| End | Jump to the latest message |
 | Ctrl/Cmd+Shift+N | ⚡ Dump: a blank page for a brain dump, saved to Inbox |
 | `/` in the message box | Run a skill (Tab completes) |
 | F11 | Full screen (on Face: full-screen face) |
@@ -321,6 +324,69 @@ Everything stays on your machine except what the brain, the web search and the s
 
 </details>
 
+
+## Architecture
+
+Siren is an Electron app in plain JavaScript with **no build step**: the window loads ES modules over a
+private `app://` protocol, and the main process owns everything that touches the disk, the network or
+another program.
+
+```mermaid
+flowchart LR
+  subgraph Desktop["Desktop app (Electron)"]
+    direction TB
+    R["Renderer<br/>chat · views · faces · HUD"]
+    W["Web workers<br/>Whisper · Silero VAD · Kokoro"]
+    P["preload.js<br/>allowlisted IPC channels"]
+    M["main.js<br/>windows · app:// · IPC handlers"]
+    L["llm.js + router.js<br/>agent loop · fallback · pace"]
+    T["tools.js + main/tools/*<br/>JSON-Schema tools"]
+    A["approvals.js<br/>permission gate · outside-content taint"]
+    S["store.js<br/>encrypted settings · sealed conversations"]
+    C["companion.js<br/>HTTP + SSE for paired devices"]
+    CC["claudecode.js<br/>headless Claude Code sessions"]
+    B["mcp-server.js → bridge.js<br/>app tools over MCP"]
+    SC["selfchange.js<br/>check · tests · git commit"]
+  end
+  R <--> W
+  R <-->|"api.ns.method()"| P
+  P <-->|IPC| M
+  M --> L
+  M --> S
+  M --> C
+  L --> T
+  T --> A
+  L --> CC
+  CC --> CLI["Claude Code CLI<br/>(your Claude account)"]
+  CLI -->|"MCP stdio"| B
+  B --> T
+  L --> API["Anthropic API · OpenAI-compatible<br/>Gemini · DeepSeek · Groq · Ollama · LM Studio"]
+  T --> V[("Obsidian vault<br/>Markdown + git history")]
+  T --> SC
+  C <-->|"LAN, Tailscale or Cloudflare Tunnel"| PH["Phone client<br/>renderer/remote/"]
+  PH --- AND["Android app<br/>WebView + keyed bridge"]
+  AND <-->|"Wear Data Layer"| WATCH["Galaxy Watch app"]
+```
+
+**Design decisions**
+- **One narrow bridge.** The renderer is sandboxed with context isolation; it reaches the main process only
+  through the channels listed in `preload.js`, and every handler checks that the call comes from the app's
+  own page. Links in content never navigate an app window (`navguard.js`).
+- **One permission gate.** Every consequential tool asks through `approvals.js`. After the agent reads
+  outside content (a web page, an attachment, a connector's result), the turn is marked, and deleting,
+  reaching people or opening a new site needs a fresh yes.
+- **Pure cores, thin shells.** Rules live in pure modules (`*core.js`: scheduling, routing, redo, attachments,
+  the village's map) that run in Node without Electron, so most of the ~1,300 tests need no window.
+- **Self-change you can undo.** When Siren changes her own code, the change is kept only if the syntax and
+  integrity checks and the test suite pass; every change is a git commit, checked again after the next
+  start, and `npm run recover` undoes the last one.
+- **Remote access as a small, read-only surface.** Paired devices get a token-checked HTTP + SSE API with
+  trimmed copies of chats and data, never settings, secrets or tools.
+
+The full map of modules, conventions and safety rails is [`CLAUDE.md`](CLAUDE.md) (also what the agent reads
+before changing itself); [`docs/ENGINEERING.md`](docs/ENGINEERING.md) is how to change it well. Inside the
+app, the Architecture view (rail "Arch") draws the same map from the code.
+
 <details>
 <summary><b>Project layout</b></summary>
 
@@ -342,17 +408,33 @@ test/             Automated tests (Node's built-in runner, no dependencies); tes
 docs/             The engineering playbook, keyboard reference, Tailscale and connector guides, the roadmaps
 ```
 
+</details>
+
+## Development and tests
+
 ```bash
-npm run check          # syntax of every file + cross-file integrity checks
-npm test               # the test suite (a few seconds, offline)
-npm run smoke          # a real start: every view, window sizes, nothing cut off
+npm install
+npm start              # run it (npm run dev: DevTools open)
+npm run check          # syntax of every file + cross-file integrity (IPC ↔ preload ↔ renderer, settings, tools)
+npm test               # the test suite: offline, no extra dependencies, about a minute
+npm run smoke          # a real start on a throwaway data folder: every view, window sizes, nothing cut off
 npm run test:browser   # the phone client at phone and tablet sizes, against the real companion server
 npm run eval -- --brain claude:sonnet   # the assistant's test set against a real brain (counts toward your plan)
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for the architecture and conventions and [`docs/ENGINEERING.md`](docs/ENGINEERING.md) for how to change it well; the agent reads both before changing itself.
+The release workflow runs the check, the tests, the launch check and the phone-client check on Windows and
+macOS before it builds anything. The app reads no keys from the environment (they live in Settings,
+encrypted); a few variables exist for tests and portable installs:
 
-</details>
+| Variable | Purpose |
+| --- | --- |
+| `NEXUS_USER_DATA` / `NEXUS_DOCUMENTS` | Use another data / Documents folder (portable installs, tests) |
+| `NEXUS_OBSIDIAN_REGISTRY` | Another Obsidian vault list (tests) |
+| `NEXUS_LOG_DEBUG=1` | Detailed logging from the first line (also when the window never opens) |
+| `NEXUS_SHOTS` / `NEXUS_SHOTS_SCENES` | Save a PNG of every view (and extra scenes) during `npm run smoke` / `test:browser` |
+| `NEXUS_SMOKE_MEM`, `NEXUS_SMOKE_PERF`, `NEXUS_SMOKE_SETTINGS`, `NEXUS_SMOKE_FACE`, `NEXUS_SMOKE_TIMEOUT_MS` | Extra launch-check profiles: memory, performance, seeded settings, the watch face, the time limit |
+| `NEXUS_BROWSER_TESTS` | Also run `*.browser.test.js` (what `npm run test:browser` sets) |
+| `NEXUS_EVAL_LOG` | Append `npm run eval` output to a file |
 
 ## Roadmap
 
@@ -360,7 +442,7 @@ The mobile plan is built (phone app, secure remote access, Android app, the watc
 
 ## Releasing (maintainers)
 
-Bump `version` in `package.json`, add a [changelog](CHANGELOG.md) entry, then push a tag: `git tag v2.0.0 && git push origin v2.0.0`. The [release workflow](.github/workflows/release.yml) runs the checks, the tests, the launch check and the phone-client check on Windows and on macOS, builds the setup `.exe`, `.msi` and portable `.exe` on Windows, the `.dmg` and `.zip` for Apple silicon and Intel on macOS (ad-hoc signed), and the phone and watch `.apk`s, and attaches them to a GitHub Release. The APK is signed with your own key when the four `ANDROID_KEY*` repository secrets are set, and is a debug build otherwise (see [`android/README.md`](android/README.md)). Code signing for the desktop is optional too: `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD` (a Windows code-signing certificate, base64 .pfx) sign the installers; `MAC_CSC_LINK` + `MAC_CSC_KEY_PASSWORD` (a Developer ID Application certificate) sign the Mac build with the hardened runtime (`build/entitlements.mac.plist`), and `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` notarize it. Without them the builds are unsigned / ad-hoc as before. Installed copies get Electron fuses (`build.electronFuses`); actions are pinned to commits, and Dependabot plus `.github/workflows/security.yml` watch the dependencies. Locally: `npm run dist:win` or, on a Mac, `npm run dist:mac` (output in `dist/`). The icons and the installer panel come from `tools/brand/` (`npx electron tools/brand/render.js`).
+Bump `version` in `package.json`, add a [changelog](CHANGELOG.md) entry, then push a tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The [release workflow](.github/workflows/release.yml) runs the checks, the tests, the launch check and the phone-client check on Windows and on macOS, builds the setup `.exe`, `.msi` and portable `.exe` on Windows, the `.dmg` and `.zip` for Apple silicon and Intel on macOS (ad-hoc signed), and the phone and watch `.apk`s, and attaches them to a GitHub Release. The APK is signed with your own key when the four `ANDROID_KEY*` repository secrets are set, and is a debug build otherwise (see [`android/README.md`](android/README.md)). Code signing for the desktop is optional too: `WIN_CSC_LINK` + `WIN_CSC_KEY_PASSWORD` (a Windows code-signing certificate, base64 .pfx) sign the installers; `MAC_CSC_LINK` + `MAC_CSC_KEY_PASSWORD` (a Developer ID Application certificate) sign the Mac build with the hardened runtime (`build/entitlements.mac.plist`), and `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` notarize it. Without them the builds are unsigned / ad-hoc as before. Installed copies get Electron fuses (`build.electronFuses`); actions are pinned to commits, and Dependabot plus `.github/workflows/security.yml` watch the dependencies. Locally: `npm run dist:win` or, on a Mac, `npm run dist:mac` (output in `dist/`). The icons and the installer panel come from `tools/brand/` (`npx electron tools/brand/render.js`).
 
 ## Credits
 
