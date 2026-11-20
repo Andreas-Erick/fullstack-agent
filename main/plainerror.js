@@ -15,7 +15,9 @@ const FS_WORDS = {
 function plainIpcError(err) {
   const words = Object.hasOwn(FS_WORDS, String(err?.code)) ? FS_WORDS[err.code] : '';
   if (!words || typeof err?.path !== 'string' || !err.path) return err?.message || String(err);
-  return `“${path.basename(err.path).slice(0, 120)}” ${words}.`;
+  // Both separators on every system (path.basename on macOS keeps a Windows path whole).
+  const name = err.path.split(/[\\/]/).filter(Boolean).pop() || path.basename(err.path);
+  return `“${name.slice(0, 120)}” ${words}.`;
 }
 
 module.exports = { plainIpcError, FS_WORDS };
