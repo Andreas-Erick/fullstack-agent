@@ -52,6 +52,10 @@ test('folder skills: frontmatter from elsewhere, companion files, and reads stay
 test('importing: repository links and which files are copied', () => {
   assert.deepStrictEqual(imp.parseRepo('https://github.com/mattpocock/skills/tree/main/skills'), { owner: 'mattpocock', repo: 'skills' });
   assert.deepStrictEqual(imp.parseRepo('cathrynlavery/diagram-design.git'), { owner: 'cathrynlavery', repo: 'diagram-design' });
+  // A link pasted without its scheme is still GitHub's, not an owner called "github.com".
+  assert.deepStrictEqual(imp.parseRepo('github.com/anthropics/skills'), { owner: 'anthropics', repo: 'skills' });
+  assert.deepStrictEqual(imp.parseRepo('  www.github.com/anthropics/skills/tree/main/skills  '), { owner: 'anthropics', repo: 'skills' });
+  assert.deepStrictEqual(imp.parseRepo('http://github.com/anthropics/skills.git'), { owner: 'anthropics', repo: 'skills' });
   assert.throws(() => imp.parseRepo('not a repo'), /owner\/repo/);
   assert.throws(() => imp.parseRepo('../etc'), /owner\/repo/);
   assert.ok(imp.importable('references/type-flowchart.md', 1000));

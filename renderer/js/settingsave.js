@@ -22,6 +22,31 @@ export async function staleNow(path, persona, active, readActive) {
 }
 
 /**
+ * A number field's text → its number, or null when there is nothing to save (empty, half typed, not a
+ * number): the field then keeps the stored value instead of saving 0 (Number('') is 0). Counts accept
+ * "1,000", "1 000", "1_000" and "1'000"; `decimal` fields (temperature) read one comma as the decimal point
+ * ("0,7") and refuse nothing else that is a plain decimal.
+ */
+export function parseNumber(raw, { decimal = false } = {}) {
+  let t = String(raw ?? '').normalize('NFKC').trim();
+  if (!t) return null;
+  if (decimal) {
+    t = t.replace(/[\s_]/g, '');
+    t = !t.includes('.') && t.split(',').length === 2 ? t.replace(',', '.') : t.replace(/,/g, '');
+  } else t = t.replace(/[\s,_'’]/g, '');
+  if (!(decimal ? /^-?(\d+\.?\d*|\.\d+)$/ : /^-?\d+$/).test(t)) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** A folder or program path as pasted: trimmed, without the quotes Explorer's "Copy as path" adds. */
+export function cleanPath(raw) {
+  const t = String(raw ?? '').trim();
+  const m = /^(["'])(.*)\1$/s.exec(t);
+  return m ? m[2].trim() : t;
+}
+
+/**
  * One waiting save per path: queue(path, value, persona) calls save(path, value, persona) after `delay` ms;
  * flushAll() saves what waits now and also waits for the saves already on their way (save() asks main
  * first), so a persona switch after it never lands before one of them. It resolves to what each waiting

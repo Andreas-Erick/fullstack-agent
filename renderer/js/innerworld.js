@@ -594,7 +594,7 @@ function setupCamera() {
       Escape: () => (lapse ? endLapse() : follow ? stopFollowing() : interior ? leave() : selected ? select(null) : null),
       ' ': () => lapse && document.activeElement?.tagName !== 'BUTTON' && (lapse.replay.state.playing ? lapse.replay.pause() : lapse.replay.play(), lapse.bar.update(), loop()),
     };
-    const fn = keys[e.key];
+    const fn = keys[e.key.length === 1 ? e.key.toLowerCase() : e.key]; // W A S D with Shift or Caps Lock too
     if (!fn) return;
     e.preventDefault();
     fn();

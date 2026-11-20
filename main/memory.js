@@ -181,6 +181,31 @@ async function remove(id) {
   return { deleted: id };
 }
 
+// Undo of a delete (the Memory view): the entry back as it was, id, dates and all. Never over a memory that
+// took the file meanwhile: then it comes back under a new id, as a save would make it.
+async function restore(entry) {
+  if (!entry || typeof entry !== 'object') throw new Error('Nothing to restore');
+  if (typeof entry.content !== 'string' || !entry.content.trim()) throw new Error('Memory content is required');
+  const id = checkId(entry.id);
+  const dir = await vaultDir();
+  const full = path.join(dir, `${id}.md`);
+  if (await fsp.access(full).then(() => true, () => false)) return save(entry);
+  const now = Date.now();
+  const time = (t) => (Number.isFinite(t) && t > 0 ? t : now);
+  const back = {
+    id,
+    title: String(entry.title || entry.content.slice(0, 60)).trim(),
+    category: String(entry.category || 'general').trim(),
+    created: time(entry.created),
+    updated: time(entry.updated),
+    content: entry.content,
+  };
+  await store.writeTextAtomic(full, serialize(back));
+  forget();
+  notify(full, `memory: restore ${back.title}`);
+  return back;
+}
+
 async function search(query) {
   const terms = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
   const all = await list();
@@ -242,4 +267,4 @@ async function relevant(query, k = 8) {
   return top.map((r) => r.entry);
 }
 
-module.exports = { vaultDir, list, get, save, update, remove, search, exportMarkdown, importEntries, clear, relevant, NOT_AN_EXPORT };
+module.exports = { vaultDir, list, get, save, update, remove, restore, search, exportMarkdown, importEntries, clear, relevant, NOT_AN_EXPORT };

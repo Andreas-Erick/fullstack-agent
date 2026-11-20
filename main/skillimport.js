@@ -15,10 +15,10 @@ const MAX_SKILL_FILES = 400;
 const SCAN_TTL_MS = 15 * 60000;
 const HEADERS = { 'User-Agent': 'Siren-Assistant (skill import)', Accept: 'application/vnd.github+json' };
 
-/** "owner/repo", "https://github.com/owner/repo", "…/tree/main/skills" → { owner, repo }. */
+/** "owner/repo", "https://github.com/owner/repo", "github.com/owner/repo" (no scheme), "…/tree/main/skills" → { owner, repo }. */
 function parseRepo(input) {
   const s = String(input || '').trim().replace(/\.git$/, '');
-  const m = /^(?:https?:\/\/(?:www\.)?github\.com\/)?([\w.-]+)\/([\w.-]+)(?:\/.*)?$/i.exec(s);
+  const m = /^(?:(?:https?:\/\/)?(?:www\.)?github\.com\/)?([\w.-]+)\/([\w.-]+)(?:\/.*)?$/i.exec(s);
   if (!m || m[1] === '.' || m[2] === '.' || m[1] === '..' || m[2] === '..') throw new Error('Give a GitHub repository as owner/repo or its github.com link.');
   return { owner: m[1], repo: m[2] };
 }

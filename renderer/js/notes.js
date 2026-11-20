@@ -567,7 +567,7 @@ async function acceptPolish() {
   renderEditor();
 }
 
-async function newNote({ title = '', body = '' } = {}) {
+export async function newNote({ title = '', body = '' } = {}) {
   await flush();
   if (currentView !== 'notes') switchView('notes');
   try {

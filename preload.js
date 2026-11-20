@@ -35,7 +35,7 @@ const channels = {
   issues: ['pending', 'open', 'dismiss'],
   faces: ['list', 'openFolder'],
   conv: ['list', 'get', 'new', 'delete', 'rename', 'clear', 'export', 'search'],
-  memory: ['list', 'search', 'save', 'update', 'delete', 'clear', 'dir', 'openDir', 'export', 'import'],
+  memory: ['list', 'search', 'save', 'update', 'delete', 'restore', 'clear', 'dir', 'openDir', 'export', 'import'],
   tts: ['speak', 'voices', 'ping', 'cloudVoices'],
   stt: ['transcribe'],
   calendar: ['status', 'events', 'entries', 'add', 'update', 'remove'],
