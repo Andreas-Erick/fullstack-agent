@@ -69,7 +69,10 @@ export async function render(view, box, { quiet = false } = {}) {
       box.replaceChildren(el('div', { class: 'panel-empty panel-offline' }, ctx.icon('unlink'), el('h3', {}, 'Your computer is out of reach'), el('p', { class: 'muted' }, `${TITLES[view] || 'This screen'} comes from your computer. It shows up again as soon as the link is back.`), el('button', { class: 'btn', type: 'button', onclick: () => render(view, box) }, 'Try again')));
       return;
     }
-    box.replaceChildren(el('div', { class: 'panel-empty panel-offline' }, el('h3', {}, 'This screen didn’t load'), el('p', { class: 'muted' }, err.message), el('button', { class: 'btn', type: 'button', onclick: () => render(view, box) }, 'Try again')));
+    // The computer's own words when it answered with an error (app.js api: fromServer); a script error
+    // on this device in a plain sentence, its text under Details.
+    const said = err?.fromServer ? el('p', { class: 'muted' }, err.message) : [el('p', { class: 'muted' }, 'Something went wrong while drawing it on this device.'), details(err)];
+    box.replaceChildren(el('div', { class: 'panel-empty panel-offline' }, el('h3', {}, 'This screen didn’t load'), said, el('button', { class: 'btn', type: 'button', onclick: () => render(view, box) }, 'Try again')));
   }
 }
 
@@ -108,6 +111,8 @@ const card = (title, ...children) => ctx.el('section', { class: 'card' }, title 
 // An empty screen: an icon in a soft ring, what is missing, and the one thing to do about it.
 const empty = (text, action, ico) => ctx.el('div', { class: 'panel-empty' }, ico ? ctx.el('div', { class: 'empty-orb', 'aria-hidden': 'true' }, ctx.icon(ico)) : null, ctx.el('p', {}, text), action || null);
 const chip = (text, cls = '') => ctx.el('span', { class: `chip ${cls}` }, text);
+// A script's own words for a failure (for a report), folded away under the plain sentence.
+const details = (err) => ctx.el('details', { class: 'err-details' }, ctx.el('summary', {}, 'Details'), ctx.el('pre', {}, String(err?.message || err || 'Error')));
 const ask = (label, message) => ctx.el('button', { class: 'btn ghost small', type: 'button', onclick: () => (ctx.showView('chat'), ctx.send(message)) }, label);
 const pct = (node, v) => (node.style.setProperty('--p', `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`), node);
 const timeOf = (s) => new Date(s).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -268,7 +273,8 @@ async function openNote(path) {
       else ctx.toast(`No note called “${name}” yet`);
     });
   } catch (err) {
-    if (!(err instanceof ctx.AuthError)) box.replaceChildren(empty(err.message));
+    if (err instanceof ctx.AuthError) return;
+    box.replaceChildren(err?.fromServer || err instanceof ctx.NetError ? empty(err.message) : empty('This note couldn’t be shown on this device.', details(err)));
   }
 }
 
@@ -441,7 +447,7 @@ async function world() {
       }
     } catch (err) {
       stopWorld();
-      info.replaceChildren(empty(`The village couldn’t be drawn on this device: ${err.message}`, ask('Tell Siren', `The Inner World screen on my phone failed with: ${err.message}`)));
+      info.replaceChildren(empty('The village couldn’t be drawn on this device.', [details(err), ask('Tell Siren', `The Inner World screen on my phone failed with: ${err.message}`)]));
       return;
     }
     worldLoop.raf = requestAnimationFrame(tick);
@@ -659,7 +665,8 @@ async function arch() {
     const sig = path.map((n) => n.id).join('>');
     if (sig === lastCrumbs) return;
     lastCrumbs = sig;
-    crumbs.replaceChildren(el('button', { type: 'button', onclick: () => home() }, ctx.state.name), ...path.flatMap((n) => [el('span', { class: 'sep' }, '›'), el('button', { type: 'button', title: LEVEL[n.level], onclick: () => dive(n) }, n.name)]));
+    // The name in its own span: the button stays unclipped, so its touch area can reach past it (styles.css).
+    crumbs.replaceChildren(el('button', { type: 'button', onclick: () => home() }, el('span', {}, ctx.state.name)), ...path.flatMap((n) => [el('span', { class: 'sep' }, '›'), el('button', { type: 'button', title: LEVEL[n.level], onclick: () => dive(n) }, el('span', {}, n.name))]));
   };
   const tick = (t) => {
     if (!canvas.isConnected) return stopArch();
@@ -678,7 +685,7 @@ async function arch() {
       }
     } catch (err) {
       stopArch();
-      info.replaceChildren(empty(`The map couldn’t be drawn on this device: ${err.message}`));
+      info.replaceChildren(empty('The map couldn’t be drawn on this device.', details(err)));
       return;
     }
     archLoop.raf = requestAnimationFrame(tick);

@@ -472,7 +472,7 @@ const javaMethod = (src, name, params = '') => {
   return javaBody(src, m.index);
 };
 const ANDROID = 'android/app/src/main/java/com/nexusagent/android/';
-const KEYED = ['setToken', 'clearToken', 'changeServer', 'setBackground', 'setLock', 'moveTo', 'lookChanged'];
+const KEYED = ['setToken', 'clearToken', 'changeServer', 'setBackground', 'setLock', 'moveTo', 'lookChanged', 'openAppSettings'];
 const KEYLESS = ['hello', 'appVersion', 'backgroundEnabled', 'lockAvailable', 'lockEnabled', 'backTarget'];
 
 test('the bridge: what changes something takes the key first; everything else is read-only or a no-op', () => {
