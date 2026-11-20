@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.7.28 — 2026-11-20
+
+- The first installers since 2.7.24: 2.7.25, 2.7.26 and 2.7.27 stopped at tests that behaved differently on the release build's Node 22 and on macOS (a test's time limit, a file name in an error message), so this version carries all three versions' changes (see below). On a Mac, a file error now names just the file, as on Windows.
+
 ## 2.7.27 — 2026-11-20
 
 - The release build works again: two tests passed on Node 24 but were cancelled on the release build's Node 22, so neither 2.7.25 nor 2.7.26 produced installers. This version carries both of their changes (see below); nothing else changed.
