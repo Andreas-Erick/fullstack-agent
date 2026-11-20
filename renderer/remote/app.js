@@ -1,7 +1,7 @@
 // Phone client for the companion server (main/companion.js, docs/ROADMAP-mobile.md step 2).
 // Talks only to the server it was loaded from. The device token lives in this browser's storage.
 import { initScreens, render as renderScreen, busy as screenBusy, TITLES, screenBack, hasScreenBack } from './screens.js';
-import { streamStale, refreshPlan, reconcile, convCheck, batcher, backPlan, unsentPlan, priorUsersFor, DEADLINES, transcribeDeadline, retryAction } from './sync.js';
+import { streamStale, refreshPlan, reconcile, convCheck, batcher, backPlan, unsentPlan, priorUsersFor, DEADLINES, transcribeDeadline, retryAction, plainStatus, networkFailure, micError, toastMs, keyboardState, releasePlan } from './sync.js';
 // Served by the desktop from renderer/js/ (companion.js STATIC), so loaded by URL, not by file.
 let mathtext = null;
 import('./js/mathtext.js').then((m) => (mathtext = m)).catch(() => {});
@@ -123,31 +123,32 @@ const ago = (t) => {
   return new Date(t).toLocaleDateString();
 };
 
+// A notice above the composer. Without a button it lets taps through (it often sits on the message box);
+// `action` ({ label, run }) adds one, and then it takes taps.
 let toastTimer;
-function toast(msg) {
+function toast(msg, action = null) {
   const t = $('#toast');
-  t.textContent = msg;
+  t.replaceChildren(el('span', {}, msg));
+  if (action) t.append(el('button', { class: 'toast-btn', type: 'button', onclick: () => (t.classList.add('hidden'), action.run()) }, action.label));
+  t.classList.toggle('actionable', Boolean(action));
   t.classList.remove('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add('hidden'), 4000);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), toastMs(msg, Boolean(action)));
 }
 
 // A phone has no developer console: a script error (a screen that failed to draw, a browser missing a
-// feature) shows as a notice instead of a silent blank, so it can be reported.
+// feature) shows as a notice instead of a silent blank, so it can be reported; its own words under Details.
 let lastError = '';
-window.addEventListener('error', (e) => {
-  const text = String(e.message || e.error?.message || 'Script error');
+function scriptError(text) {
   if (text === lastError) return;
   lastError = text;
-  toast(`Something went wrong: ${text.slice(0, 160)}`);
-});
+  toast('Something went wrong on this device.', { label: 'Details', run: () => toast(text.slice(0, 300)) });
+}
+window.addEventListener('error', (e) => scriptError(String(e.message || e.error?.message || 'Script error')));
 window.addEventListener('unhandledrejection', (e) => {
   const r = e.reason;
   if (r instanceof AuthError || r?.name === 'AbortError') return;
-  const text = String(r?.message || r || 'Error');
-  if (text === lastError) return;
-  lastError = text;
-  toast(`Something went wrong: ${text.slice(0, 160)}`);
+  scriptError(String(r?.message || r || 'Error'));
 });
 
 class AuthError extends Error {}
@@ -164,10 +165,24 @@ async function fetchWithin(url, init, ms) {
     return await fetch(url, { ...init, signal: ctl.signal });
   } catch (err) {
     if (ctl.signal.aborted) throw new NetError('Your computer isn’t answering right now.');
+    if (networkFailure(err)) throw new NetError('Can’t reach your computer right now.'); // not the browser's "Failed to fetch"
     throw err;
   } finally {
     clearTimeout(timer);
   }
+}
+
+// A tunnel or proxy answering for a computer that is off (Cloudflare's or Tailscale Serve's error page);
+// the computer's own errors (voice 502/503 among them) are JSON.
+const tunnelDown = (res) => [502, 503, 504, 530].includes(res.status) && !/json/i.test(res.headers.get('content-type') || '');
+
+// An answer that isn't ok, as an Error with the server's own words, else its status in plain words.
+// `fromServer`: the text is meant for the user (screens.js shows it as it is).
+async function answerError(res, opts) {
+  const data = await res.json().catch(() => ({}));
+  const err = new Error(typeof data.error === 'string' && data.error ? data.error : plainStatus(res.status, opts));
+  err.fromServer = true;
+  return err;
 }
 
 async function api(path, { method = 'GET', body, raw = false, timeoutMs = 0 } = {}) {
@@ -182,14 +197,12 @@ async function api(path, { method = 'GET', body, raw = false, timeoutMs = 0 } = 
     if (err instanceof NetError || err?.name === 'AbortError') throw err;
     throw new NetError('Can’t reach your computer right now.');
   }
-  // A tunnel or proxy answering for a computer that is off (Cloudflare's or Tailscale Serve's error page);
-  // the computer's own errors (voice 502/503 among them) are JSON.
-  if ([502, 503, 504, 530].includes(res.status) && !/json/i.test(res.headers.get('content-type') || '')) throw new NetError('Your computer isn’t answering right now.');
+  if (tunnelDown(res)) throw new NetError('Your computer isn’t answering right now.');
   if (res.status === 401) {
     unpair('This device was disconnected from the assistant. Pair it again.');
     throw new AuthError('Not paired');
   }
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Error ${res.status}`);
+  if (!res.ok) throw await answerError(res);
   return raw ? res : res.json();
 }
 
@@ -275,11 +288,12 @@ async function pair(proof) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...proof, name: $('#pairName').value.trim() || guessName() }),
     }, DEADLINES.pair);
-    const data = await res.json().catch(() => ({}));
+    if (tunnelDown(res)) throw new NetError('Your computer isn’t answering right now.');
     if (!res.ok) {
       if (proof.secret && res.status === 403) throw new Error('This QR code has expired or was already used. Click “Pair a device” on the computer again.');
-      throw new Error(data.error || `Error ${res.status}`);
+      throw await answerError(res);
     }
+    const data = await res.json().catch(() => ({}));
     state.token = data.token;
     store.set(TOKEN_KEY, data.token);
     store.set(NAME_KEY, data.name);
@@ -337,7 +351,7 @@ async function openStream() {
         state.connecting = false;
       });
       if (res.status === 401) return unpair('This device was disconnected from the assistant. Pair it again.');
-      if (!res.ok) throw new Error(`Error ${res.status}`);
+      if (!res.ok) throw new Error(plainStatus(res.status));
       state.lastByte = Date.now();
       setConn(true);
       $('#approvals').innerHTML = ''; // the server replays every approval that is still open
@@ -806,6 +820,9 @@ $('#messages').addEventListener('scroll', () => {
   stick = m.scrollHeight - m.scrollTop - m.clientHeight < 60;
   $('#jumpBtn').classList.toggle('hidden', stick);
 }, { passive: true });
+// The list gets shorter without scrolling (the keyboard opens, the message box grows, an approval or the
+// recording bar appears): still following, the end of the reply stays in view instead of under the composer.
+if (window.ResizeObserver) new ResizeObserver(() => stick && ($('#messages').scrollTop = $('#messages').scrollHeight)).observe($('#messages'));
 $('#jumpBtn').addEventListener('click', () => {
   const m = $('#messages');
   stick = true;
@@ -881,8 +898,8 @@ $('#input').addEventListener('keydown', (e) => {
 });
 const autosize = () => {
   const i = $('#input');
-  i.style.height = '46px';
-  i.style.height = `${Math.min(140, Math.max(46, i.scrollHeight + 2))}px`;
+  i.style.height = '48px';
+  i.style.height = `${Math.min(140, Math.max(48, i.scrollHeight + 2))}px`;
 };
 $('#input').addEventListener('input', autosize);
 $('#stopBtn').addEventListener('click', () => {
@@ -1157,13 +1174,21 @@ $('#speakBtn').addEventListener('click', () => {
 const MAX_REC_MS = 120000; // the server takes as much (main/companion.js MAX_AUDIO_SEC)
 let rec = null;
 
-// toggle: started from the Talk tile or shortcut; it stops on the next tap of the mic, not on release.
+// toggle: a tap (or the Talk tile, a shortcut, Enter): it stops on the next tap of the mic, not on release.
 async function startRecording({ toggle = false } = {}) {
   if (rec || state.active) return;
-  rec = { chunks: [], starting: true, toggle };
+  const mine = { chunks: [], starting: true, toggle, asked: Date.now() };
+  rec = mine;
+  $('#micBtn').setAttribute('aria-pressed', 'true'); // live from the press on, also while the microphone starts
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-    if (!rec) return stream.getTracks().forEach((t) => t.stop()); // released while asking for permission
+    state.micBlocked = false;
+    if (rec !== mine) {
+      stream.getTracks().forEach((t) => t.stop());
+      // The permission prompt took the touch away (pointercancel, blur): say it is ready now, instead of nothing.
+      if (mine.lost && Date.now() - mine.asked > 600) toast('Microphone allowed. Tap or hold the mic to talk.');
+      return;
+    }
     const ctx = new AudioContext();
     const src = ctx.createMediaStreamSource(stream);
     const node = ctx.createScriptProcessor(4096, 1, 1);
@@ -1182,14 +1207,28 @@ async function startRecording({ toggle = false } = {}) {
     setFace('listening');
     navigator.vibrate?.(30);
   } catch (err) {
-    rec = null;
-    toast(err.name === 'NotAllowedError' ? 'Allow the microphone for this page to talk.' : err.message);
+    if (rec === mine) (rec = null), $('#micBtn').setAttribute('aria-pressed', 'false');
+    // Refused for good in the Android app: the way back is its settings (nexusMicBlocked, below).
+    if (android && state.micBlocked && err?.name === 'NotAllowedError') micBlockedNotice();
+    else toast(micError(err, { app: Boolean(android) }));
   }
 }
+
+// Inside the Android app the microphone is the app's permission, not the page's: refused with "don't ask
+// again" (MainActivity), only Android's settings can allow it.
+function micBlockedNotice() {
+  const settings = typeof android?.openAppSettings === 'function';
+  toast('The microphone is off for Siren in Android settings.', settings ? { label: 'Open settings', run: () => bridge('openAppSettings', 'app') } : null);
+}
+window.nexusMicBlocked = () => {
+  state.micBlocked = true;
+  micBlockedNotice();
+};
 
 async function stopRecording() {
   const r = rec;
   rec = null;
+  $('#micBtn').setAttribute('aria-pressed', 'false');
   if (!r || r.starting) return;
   clearTimeout(r.limit);
   r.node.disconnect();
@@ -1198,7 +1237,7 @@ async function stopRecording() {
   state.micLevel = 0;
   $('#micBtn').classList.remove('live');
   hideRecBar();
-  if (Date.now() - r.started < 400) return setFace('idle'), toast('Hold the button while you speak.');
+  if (Date.now() - r.started < 400) return setFace('idle'), toast('Too short to hear anything: tap the mic, speak, then tap it again.');
   const mic = $('#micBtn');
   mic.classList.add('busy');
   setFace('thinking');
@@ -1208,9 +1247,9 @@ async function stopRecording() {
     const res = await fetchWithin('/api/transcribe', { method: 'POST', headers: { Authorization: `Bearer ${state.token}`, 'Content-Type': 'audio/wav' }, body: wav }, transcribeDeadline(wav.byteLength));
     if (res.status === 401) return unpair('This device was disconnected from the assistant. Pair it again.');
     // A tunnel's error page for a computer that is off (as api() reads it): not the computer's own JSON.
-    if ([502, 503, 504, 530].includes(res.status) && !/json/i.test(res.headers.get('content-type') || '')) throw new NetError('Your computer isn’t answering right now.');
+    if (tunnelDown(res)) throw new NetError('Your computer isn’t answering right now.');
+    if (!res.ok) throw await answerError(res, { recording: true });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
     setFace('idle');
     if (data.text?.trim()) send(data.text.trim());
     else toast('I didn’t catch that.');
@@ -1279,19 +1318,54 @@ function encodeWav(samples) {
 }
 
 if (window.isSecureContext && navigator.mediaDevices?.getUserMedia) {
+  // Hold and release to send, or tap to start and tap again to send (sync.js releasePlan): a quick touch,
+  // TalkBack's double tap, Enter or Space all listen until the next tap.
   const mic = $('#micBtn');
   mic.classList.remove('hidden');
+  let pressAt = 0; // the press in progress (0: none)
+  let pointerAt = 0; // the last press by pointer: the click that follows it was handled already
+  const toToggle = () => {
+    rec.toggle = true;
+    if (!rec.starting) $('#recHint').textContent = 'Tap the mic to send';
+  };
+  // The touch was taken away (the permission prompt, another app): a hold that recorded sends, one that
+  // hadn't started is dropped (startRecording says when the microphone is ready).
+  const lostPress = () => {
+    if (!pressAt) return;
+    pressAt = 0;
+    pointerAt = Date.now();
+    if (!rec || rec.toggle) return;
+    if (rec.starting) (rec.lost = true), (rec = null), mic.setAttribute('aria-pressed', 'false');
+    else stopRecording();
+  };
   mic.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    if (rec?.toggle) return stopRecording();
+    pointerAt = Date.now();
+    if (rec) return stopRecording(); // the second tap; or a hold whose release never arrived
     try {
       mic.setPointerCapture(e.pointerId); // keep the release even if the finger slides off
     } catch {
       /* not a real pointer */
     }
+    pressAt = Date.now();
     startRecording();
   });
-  for (const ev of ['pointerup', 'pointercancel']) mic.addEventListener(ev, () => !rec?.toggle && stopRecording());
+  mic.addEventListener('pointerup', () => {
+    if (!pressAt) return;
+    const heldMs = Date.now() - pressAt;
+    pressAt = 0;
+    pointerAt = Date.now();
+    if (!rec || rec.toggle) return;
+    if (releasePlan({ heldMs, starting: rec.starting }) === 'toggle') toToggle();
+    else stopRecording();
+  });
+  mic.addEventListener('pointercancel', lostPress);
+  window.addEventListener('blur', lostPress);
+  mic.addEventListener('click', () => {
+    if (Date.now() - pointerAt < 700) return; // the press above did it
+    if (rec) return stopRecording();
+    startRecording({ toggle: true });
+  });
   mic.addEventListener('contextmenu', (e) => e.preventDefault());
   // The Android Talk tile / shortcut: start listening; tap the mic to send.
   window.nexusTalk = () => {
@@ -1778,8 +1852,9 @@ async function finishMove(secret) {
   $('#pairBtn').textContent = 'Switching…';
   try {
     const res = await fetchWithin('/api/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ move: secret }) }, DEADLINES.pair);
+    if (tunnelDown(res)) throw new NetError('Your computer isn’t answering right now.');
+    if (!res.ok) throw await answerError(res);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
     state.token = data.token;
     store.set(TOKEN_KEY, data.token);
     store.set(NAME_KEY, data.name);
@@ -1939,9 +2014,13 @@ if (android) {
   const sw = el('input', { type: 'checkbox', id: 'bgToggle' });
   sw.checked = android.backgroundEnabled();
   sw.addEventListener('change', () => bridge('setBackground', sw.checked));
-  window.nexusBackgroundChanged = (on) => {
+  // `blocked`: off in Android's settings (refused for good, or switched off there), where only they can
+  // turn them back on. The app checks again whenever it comes back to the front.
+  window.nexusBackgroundChanged = (on, blocked = false) => {
     sw.checked = on;
-    if (!on) toast('Notifications are off. Allow them in Android settings to get approvals while the app is closed.');
+    if (on) return;
+    if (blocked && typeof android.openAppSettings === 'function') toast('Notifications are off for Siren in Android settings. Turn them on there to get approvals while the app is closed.', { label: 'Open settings', run: () => bridge('openAppSettings', 'notifications') });
+    else toast('Notifications are off. Allow them in Android settings to get approvals while the app is closed.');
   };
   // The app lock (android AppLock): the phone's fingerprint, face or screen lock before anything shows.
   const lockSw = el('input', { type: 'checkbox', id: 'lockToggle' });
@@ -1975,6 +2054,22 @@ function applyWide() {
 }
 wide.addEventListener('change', applyWide);
 applyWide();
+
+// The soft keyboard is up (sync.js keyboardState): the face and the tab bar step aside on a phone, so the
+// conversation keeps more than a few lines (styles.css body.kbd).
+let kbd = null;
+function syncKeyboard() {
+  const a = document.activeElement;
+  const typing = Boolean(a?.matches?.('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"])'));
+  kbd = keyboardState(kbd, { width: innerWidth, height: innerHeight, typing });
+  document.body.classList.toggle('kbd', kbd.up);
+}
+window.addEventListener('resize', syncKeyboard);
+window.visualViewport?.addEventListener('resize', syncKeyboard);
+// Focus moves before the keyboard opens or closes; the resize that follows decides again.
+document.addEventListener('focusin', syncKeyboard);
+document.addEventListener('focusout', () => setTimeout(syncKeyboard, 0));
+syncKeyboard();
 
 // Keyboard (tablet keyboards, DeX): Ctrl+1–5 the tabs, Ctrl+K a new chat, Esc back to the chat.
 document.addEventListener('keydown', (e) => {

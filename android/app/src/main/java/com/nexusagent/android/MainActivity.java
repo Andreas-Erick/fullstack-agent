@@ -2,12 +2,15 @@ package com.nexusagent.android;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.NotificationManager;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.text.InputType;
 import android.util.Base64;
 import android.util.TypedValue;
@@ -68,6 +71,8 @@ public class MainActivity extends Activity {
     private Object backCb; // OnBackInvokedCallback on API 33+
     private String pendingJs;
     private PermissionRequest pendingPermission;
+    // What the page's background switch was last told (backgroundEnabled, reportBackground); null: not asked yet.
+    private volatile Boolean bgReported;
     /** "#pair=…" for the next page load only (from a pairing link entered on the setup screen). */
     private String pendingPair;
     // The app lock (AppLock): while locked, the page is hidden under lockView and intents wait.
@@ -112,6 +117,8 @@ public class MainActivity extends Activity {
         if (!locked && Prefs.appLock(this) && leftAt > 0 && System.currentTimeMillis() - leftAt > AppLock.RELOCK_MS) lock();
         // The background connection gives up after a while without the computer; opening the app starts it again.
         if (Prefs.background(this)) ConnectionService.start(this);
+        // Notifications switched off (or back on) in Android's settings while away: the page's switch follows.
+        if (web != null && loaded && bgReported != null && backgroundOn() != bgReported) reportBackground(backgroundOn(), Prefs.background(this) && !notificationsAllowed());
     }
 
     @Override
@@ -554,14 +561,39 @@ public class MainActivity extends Activity {
         boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
         if (code == REQ_MIC && pendingPermission != null) {
             if (granted) pendingPermission.grant(pendingPermission.getResources());
-            else pendingPermission.deny();
+            else {
+                // "Don't ask again" (or refused twice): no dialog comes any more, only Android's settings
+                // can allow it; the page offers the way there (openAppSettings). Told before the page's
+                // own refusal arrives, so its notice is the one that stays.
+                if (!shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) runJs("window.nexusMicBlocked && nexusMicBlocked()");
+                pendingPermission.deny();
+            }
             pendingPermission = null;
         }
         if (code == REQ_NOTIFY) {
             Prefs.setBackground(this, granted);
             if (granted) ConnectionService.start(this);
-            runJs("window.nexusBackgroundChanged && nexusBackgroundChanged(" + granted + ")");
+            boolean blocked = !granted && !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS);
+            reportBackground(granted, blocked);
         }
+    }
+
+    // ------------------------------------------------------------ notifications
+    /** Android lets this app post notifications (off in its settings, or the permission refused: false). */
+    private boolean notificationsAllowed() {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        return nm != null && nm.areNotificationsEnabled();
+    }
+
+    /** What the background switch on the page should show: the choice, and Android still allowing it. */
+    private boolean backgroundOn() {
+        return Prefs.background(this) && notificationsAllowed();
+    }
+
+    /** Tells the page (its switch, and the notice with "Open settings" when only Android's settings can help). */
+    private void reportBackground(boolean on, boolean blocked) {
+        bgReported = on;
+        runJs("window.nexusBackgroundChanged && nexusBackgroundChanged(" + on + ", " + blocked + ")");
     }
 
     // ------------------------------------------------------------ intents
@@ -680,9 +712,13 @@ public class MainActivity extends Activity {
             }
         }
 
+        /** The choice, and Android still allowing notifications (they can be switched off in its settings). */
         @JavascriptInterface
         public boolean backgroundEnabled() {
-            return trusted() && Prefs.background(MainActivity.this);
+            if (!trusted()) return false;
+            boolean on = backgroundOn();
+            bgReported = on;
+            return on;
         }
 
         /** Notifications while the app is closed (a foreground service keeps the connection). */
@@ -693,11 +729,33 @@ public class MainActivity extends Activity {
                 if (!on) {
                     Prefs.setBackground(MainActivity.this, false);
                     ConnectionService.stop(MainActivity.this);
+                    bgReported = false;
                 } else if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                     requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFY);
+                } else if (!notificationsAllowed()) {
+                    reportBackground(false, true); // switched off in Android's settings: no dialog can turn them on
                 } else {
                     Prefs.setBackground(MainActivity.this, true);
                     ConnectionService.start(MainActivity.this);
+                    bgReported = true;
+                }
+            });
+        }
+
+        /**
+         * Android's settings for this app, where a permission refused for good comes back: "notifications"
+         * opens its notification settings, anything else the app's details (permissions).
+         */
+        @JavascriptInterface
+        public void openAppSettings(String key, String kind) {
+            if (!trusted(key)) return;
+            runOnUiThread(() -> {
+                Intent details = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+                Intent i = "notifications".equals(kind) ? new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()) : details;
+                try {
+                    startActivity(i);
+                } catch (ActivityNotFoundException e) {
+                    if (i != details) startActivity(details);
                 }
             });
         }
