@@ -14,6 +14,7 @@ const { pathToFileURL } = require('url');
 const { ROOT, stub, load, tmpDir, quietLog } = require('./helpers');
 
 const BASE = '6336559'; // 2.7.24, where the round's packages started
+const END = 'cdc54c9'; // 2.7.25, the round's last commit: later rounds are judged by their own tests
 const dir = tmpDir('siren-round3-');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -747,10 +748,11 @@ test('§4.15 the Gate 14 scanner finds what it looks for (and leaves prose comme
 test('§4.15 Gate 14: the round adds no console.*, marker, commented-out code or environment knob in main/ or renderer/js', (t) => {
   try {
     git(['cat-file', '-e', `${BASE}^{commit}`]);
+    git(['cat-file', '-e', `${END}^{commit}`]);
   } catch {
-    return t.skip(`${BASE} is not in this checkout`);
+    return t.skip(`${BASE} or ${END} is not in this checkout`);
   }
-  const diff = git(['-c', 'core.quotepath=off', 'diff', '-U0', '--no-color', '--no-ext-diff', BASE, '--', 'main', 'renderer/js']);
+  const diff = git(['-c', 'core.quotepath=off', 'diff', '-U0', '--no-color', '--no-ext-diff', BASE, END, '--', 'main', 'renderer/js']);
   assert.ok(diff.includes('+++ b/main/'), 'the round changed main/');
   const known = (name) => {
     try {

@@ -121,12 +121,22 @@ function stopGodsEye() {
   else child.kill('SIGTERM');
 }
 
+const STEP_LIMIT_MS = 10 * 60000;
+
 /** Clones and installs God's Eye View into `parent` (the user's click in Settings only). */
 async function installGodsEye(parent, onProgress = () => {}) {
   const dir = path.join(parent, 'gods-eye-view');
   if (fs.existsSync(dir) && checkGodsEye(dir).ok) return { dir, already: true };
+  // Each step ends after STEP_LIMIT_MS (a stuck download or install would leave Settings on "Installing…").
   const run = (label, child) =>
     new Promise((resolve, reject) => {
+      const limit = setTimeout(() => {
+        reject(new Error(`${label} took longer than ${STEP_LIMIT_MS / 60000} minutes and was stopped.`));
+        if (isWin) execFile('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true }, () => {});
+        else child.kill('SIGTERM');
+      }, STEP_LIMIT_MS);
+      child.on('exit', () => clearTimeout(limit));
+      child.on('error', () => clearTimeout(limit));
       onProgress({ step: label });
       child.stdout?.on('data', (d) => onProgress({ step: label, line: String(d).trim().split('\n').pop().slice(0, 160) }));
       child.stderr?.on('data', (d) => onProgress({ step: label, line: String(d).trim().split('\n').pop().slice(0, 160) }));

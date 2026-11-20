@@ -60,7 +60,7 @@ async function listModels(settings) {
   if (settings.llm.provider === 'anthropic') {
     const client = anthropicClient(settings);
     const out = [];
-    for await (const m of client.models.list({ limit: 100 })) out.push({ id: m.id, name: m.display_name || m.id });
+    for await (const m of client.models.list({ limit: 100 }, { timeout: 15000 })) out.push({ id: m.id, name: m.display_name || m.id });
     return out;
   }
   const fixed = router.PROVIDERS[id]?.models; // providers without a /models endpoint
@@ -102,7 +102,7 @@ async function testConnection(settings) {
       max_tokens: 1024,
       output_config: { effort: 'low' },
       messages: [{ role: 'user', content: 'Reply with the single word: online' }],
-    });
+    }, { timeout: 30000 }); // the SDK's default is 10 minutes a try: "Testing…" would sit that long
     const text = msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
     return { ok: true, model: msg.model, reply: text.trim(), ms: Date.now() - started };
   }
@@ -508,7 +508,7 @@ async function completeOn(settings, text, { image, maxTokens, timeoutMs } = {}) 
       max_tokens: 16000,
       output_config: { effort: 'low' },
       messages: [{ role: 'user', content }],
-    });
+    }, { timeout: Math.max(180000, Number(timeoutMs) || 0) }); // as the OpenAI path below
     if (msg.stop_reason === 'refusal') throw new Error('The model declined this request.');
     return msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
   }
@@ -666,7 +666,7 @@ async function compactHistory(settings, conv, history, limit = Math.max(4, setti
     log.info('compacted conversation', { conversation: conv.id, upTo: cutoff });
     return { summary: summary.trim(), patch: { summary: summary.trim(), summaryUpTo: cutoff } };
   } catch (err) {
-    log.warn('compaction failed', err.message);
+    log.warn('compaction failed', { error: err });
     return { summary: conv.summary || '', patch: null };
   }
 }

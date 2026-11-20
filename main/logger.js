@@ -19,7 +19,9 @@ const { app } = require('electron');
 const MAX_BYTES = 5 * 1024 * 1024;
 const KEEP = 3;
 const als = new AsyncLocalStorage();
-let debugEnabled = false;
+// Detailed logging: the setting (setDebug), or NEXUS_LOG_DEBUG=1 from the start (also when the window never boots).
+const debugFromEnv = process.env.NEXUS_LOG_DEBUG === '1';
+let debugEnabled = debugFromEnv;
 
 // Lines are buffered and written together every quarter second (errors at once, and everything on
 // flush(): quit and crash handlers call it), so a busy turn doesn't stall the main process with one
@@ -144,6 +146,39 @@ function serialize(data) {
 // --------------------------------------------------------------- writing
 let last = { key: '', at: 0, count: 0, level: 'INFO' };
 
+// Breadcrumbs: the names of the last lines (event, level, time, turn; never their details), so an ERROR line
+// says what happened just before it: `trail` = the same turn's lines, else the last minute's, newest last.
+// Written into the line itself, so a report read later (issues.js) still has it.
+const TRAIL_KEEP = 40;
+const TRAIL_SHOWN = 10;
+const TRAIL_WINDOW_MS = 60000;
+const crumbs = [];
+
+function noteCrumb(at, level, event, turn) {
+  crumbs.push({ at, level: level[0], event: String(event).slice(0, 60), turn });
+  if (crumbs.length > TRAIL_KEEP) crumbs.shift();
+}
+
+/** "-4.2s I tool · -1.1s W tool failed" for an error at `at` (empty when nothing came before it). */
+function trailFor(at, turn) {
+  return crumbs
+    .filter((c) => (turn ? c.turn === turn : at - c.at <= TRAIL_WINDOW_MS))
+    .slice(-TRAIL_SHOWN)
+    .map((c) => `-${((at - c.at) / 1000).toFixed(1)}s ${c.level} ${c.event}`)
+    .join(' · ')
+    .slice(-600);
+}
+
+// The trail goes into a JSON detail as one more field ({"trail": …} when there was none); a plain-text
+// detail is left as it is.
+function withTrail(detail, trail) {
+  if (!trail) return detail;
+  const field = `"trail":${JSON.stringify(trail)}`;
+  if (!detail || detail === '{}') return `{${field}}`;
+  if (detail.startsWith('{') && detail.endsWith('}')) return `${detail.slice(0, -1)},${field}}`;
+  return detail;
+}
+
 let buffer = [];
 let timer = null;
 
@@ -187,16 +222,18 @@ function write(level, event, data) {
     // One event, one line: a string detail with line breaks (JSON never has raw ones) would become lines the
     // level and turn filters drop.
     let detail = redact(serialize(data)).replace(/\r?\n/g, ' | ');
+    const now = Date.now();
+    if (level === 'ERROR') detail = withTrail(detail, redact(trailFor(now, ctx?.turn)));
     const cap = level === 'ERROR' ? 6000 : 2500;
     if (detail.length > cap) detail = `${detail.slice(0, cap)}… (${detail.length} chars)`;
     const body = `${level.padEnd(5)} ${tags ? `[${tags}] ` : ''}${event}${detail ? ` ${detail}` : ''}`;
-    const now = Date.now();
     if (body === last.key && now - last.at < 10000) {
       last.count++;
       last.at = now;
       return;
     }
     flushRepeats();
+    noteCrumb(now, level, event, ctx?.turn);
     last = { key: body, at: now, count: 0, level };
     append(`${new Date(now).toISOString()} ${body}`, level === 'ERROR');
   } catch {
@@ -250,7 +287,7 @@ module.exports = {
   /** Runs fn with tags (e.g. { turn, conv }) added to every line it logs, including async work. */
   withContext: (tags, fn) => als.run({ ...(als.getStore() || {}), ...tags }, fn),
   context: () => als.getStore() || {},
-  setDebug: (on) => (debugEnabled = Boolean(on)),
+  setDebug: (on) => (debugEnabled = Boolean(on) || debugFromEnv),
   flush: () => {
     try {
       flushRepeats();

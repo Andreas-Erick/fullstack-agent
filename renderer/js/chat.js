@@ -1057,7 +1057,7 @@ function handleEvent(ev) {
         announce(`Error: ${help.title}. ${help.text}`);
         raiseAlert(help.title);
         // 'info': main.js already logs the failed turn as an error, with its stack (one problem report, not two).
-        logEvent('info', 'reply failed', ev.message);
+        logEvent('info', 'reply failed', { turn: String(active?.requestId || '').slice(-6), error: String(ev.message || '').slice(0, 300) });
       }
       finish();
       refreshList();

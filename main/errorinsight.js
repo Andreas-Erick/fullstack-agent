@@ -45,7 +45,9 @@ function parseLine(row) {
   const turn = /turn=(\w+)/.exec(tags)?.[1];
   // A line without a JSON detail (a window's "ui: …" text) carries its ids and numbers in the event.
   const kind = brace === -1 ? normalize(event) : event;
-  return { time, level, event, kind, where, message: String(message).slice(0, 400), locations: [...locations], turn };
+  // The names of the lines just before an error (logger.js trailFor), when the line carries them.
+  const trail = typeof data?.trail === 'string' ? data.trail.slice(0, 600) : '';
+  return { time, level, event, kind, where, message: String(message).slice(0, 400), locations: [...locations], turn, trail };
 }
 
 /** groups: [{ level, event, where, message, count, first, last, turns[], locations[] }] */
@@ -73,6 +75,7 @@ function analyze(logText, { sinceMs = 24 * 3600000, now = Date.now(), limit = 15
     g.last = p.time;
     if (p.turn && g.turns.length < 3 && !g.turns.includes(p.turn)) g.turns.push(p.turn);
     for (const l of p.locations) if (g.locations.length < 4 && !g.locations.includes(l)) g.locations.push(l);
+    if (p.trail) g.trail = p.trail; // the latest time's
     prev = g;
   }
   // Errors first, then by how often and how recently.

@@ -33,7 +33,7 @@ function candidates() {
 function which() {
   return new Promise((resolve) => {
     const cmd = process.platform === 'win32' ? 'where' : 'which';
-    execFile(cmd, ['claude'], { windowsHide: true }, (err, out) => resolve(err ? null : String(out).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0] || null));
+    execFile(cmd, ['claude'], { windowsHide: true, timeout: 5000 }, (err, out) => resolve(err ? null : String(out).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)[0] || null));
   });
 }
 
@@ -1140,7 +1140,7 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, images 
     } catch (err) {
       // A saved conversation the CLI can't find ("No conversation found with session ID") never started either.
       if (signal.aborted || (first.session.gotOutput && !NO_SAVED_SESSION.test(err.message))) throw err;
-      log.warn('claude session failed to start; retrying with a fresh session', { conversation: conv.id, error: err.message });
+      log.warn('claude session failed to start; retrying with a fresh session', { conversation: conv.id, error: err });
       conv.claudeSessionId = null;
       first.session.sessionId = null;
       first.session.resumable = null;

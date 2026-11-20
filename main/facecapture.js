@@ -22,6 +22,7 @@ const SIZE = 240;
 const CROP = 32; // a round watch shows the middle: the margin around the face is cut
 const QUALITY = 72;
 const WARMUP_MS = 1200; // let the face settle into a state before recording it
+const RECORD_LIMIT_MS = 90000; // a pack takes ~25 s
 const MAGIC = 'SRF1';
 
 let running = null; // { key, promise }
@@ -124,28 +125,44 @@ async function record(r) {
   const wc = win.webContents;
   wc.setWindowOpenHandler(() => ({ action: 'deny' }));
   wc.on('will-navigate', (e) => e.preventDefault());
+  // A face that hangs its page would leave the watch's request (and every warm-up after it) waiting
+  // forever: past the limit the window goes and the recording fails.
+  let limit;
+  const overdue = new Promise((_resolve, reject) => {
+    limit = setTimeout(() => {
+      log.warn('face frames timed out', { limitMs: RECORD_LIMIT_MS, face: String(r?.face || '').slice(0, 40) });
+      if (!win.isDestroyed()) win.destroy();
+      reject(new Error('Recording the face took too long.'));
+    }, RECORD_LIMIT_MS);
+  });
+  overdue.catch(() => {});
   try {
-    wc.setFrameRate(CAPTURE_FPS);
-    await win.loadURL('app://bundle/renderer/facecapture.html');
-    await wc.executeJavaScript(`window.__face.mount(${JSON.stringify(r)})`);
-    const frames = {};
-    for (const s of STATES) {
-      await wc.executeJavaScript(`window.__face.set(${JSON.stringify(s)})`);
-      await wait(WARMUP_MS);
-      const shots = await paints(wc, ((FRAMES + BLEND) * 1000) / FPS + 150);
-      if (!shots.length) {
-        // No paint at all (shouldn't happen): one screenshot, held.
-        const img = await wc.capturePage({ x: CROP, y: CROP, width: DRAW - 2 * CROP, height: DRAW - 2 * CROP });
-        frames[s] = [img.resize({ width: SIZE, height: SIZE, quality: 'good' }).toJPEG(QUALITY)];
-        continue;
-      }
-      const picked = evenly(shots.map((x) => x.t), FPS, FRAMES + BLEND).map((i) => shots[i].img.toBitmap());
-      frames[s] = seamless(picked, BLEND).map((b) => nativeImage.createFromBitmap(b, { width: SIZE, height: SIZE }).toJPEG(QUALITY));
-    }
-    return frames;
+    return await Promise.race([overdue, draw(r, win, wc, nativeImage)]);
   } finally {
+    clearTimeout(limit);
     if (!win.isDestroyed()) win.destroy();
   }
+}
+
+async function draw(r, win, wc, nativeImage) {
+  wc.setFrameRate(CAPTURE_FPS);
+  await win.loadURL('app://bundle/renderer/facecapture.html');
+  await wc.executeJavaScript(`window.__face.mount(${JSON.stringify(r)})`);
+  const frames = {};
+  for (const s of STATES) {
+    await wc.executeJavaScript(`window.__face.set(${JSON.stringify(s)})`);
+    await wait(WARMUP_MS);
+    const shots = await paints(wc, ((FRAMES + BLEND) * 1000) / FPS + 150);
+    if (!shots.length) {
+      // No paint at all (shouldn't happen): one screenshot, held.
+      const img = await wc.capturePage({ x: CROP, y: CROP, width: DRAW - 2 * CROP, height: DRAW - 2 * CROP });
+      frames[s] = [img.resize({ width: SIZE, height: SIZE, quality: 'good' }).toJPEG(QUALITY)];
+      continue;
+    }
+    const picked = evenly(shots.map((x) => x.t), FPS, FRAMES + BLEND).map((i) => shots[i].img.toBitmap());
+    frames[s] = seamless(picked, BLEND).map((b) => nativeImage.createFromBitmap(b, { width: SIZE, height: SIZE }).toJPEG(QUALITY));
+  }
+  return frames;
 }
 
 /** The pack for the current face and theme: from the cache, or recorded now (~25 s); `at` = when it was recorded. */

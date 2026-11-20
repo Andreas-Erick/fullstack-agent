@@ -12,8 +12,8 @@ const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 
 function start() {
   clearInterval(timer);
-  timer = setInterval(() => sweep().catch((e) => log.warn('journal sweep', e.message)), 60000);
-  setTimeout(() => sweep().catch((e) => log.warn('journal sweep', e.message)), 20000);
+  timer = setInterval(() => sweep().catch((e) => log.warn('journal sweep failed', { error: e })), 60000);
+  setTimeout(() => sweep().catch((e) => log.warn('journal sweep failed', { error: e })), 20000);
 }
 
 async function sweep() {
@@ -60,7 +60,7 @@ ${transcript}`;
     const text = await llm.complete(fast, prompt);
     entry = await require('./persona').jsonWithRetry(text, (fix) => llm.complete(fast, fix));
   } catch (err) {
-    log.warn('journal summarize failed', err.message);
+    log.warn('journal summarize failed', { error: err });
     return;
   }
   await obsidian.logSession({

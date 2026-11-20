@@ -208,7 +208,7 @@ async function scaffold(dir, agentName) {
     const t = await fsp.readFile(home, 'utf8');
     if (!t.includes('[[VAULT-INDEX]]')) await fsp.appendFile(home, '\n\nThe full map and rules now live in [[VAULT-INDEX]].\n');
   }
-  require('./vaultgit').ensure(dir).catch((e) => log.warn('vault git', e.message));
+  require('./vaultgit').ensure(dir).catch((e) => log.warn('vault git unavailable', { error: e }));
 }
 
 let scaffolded = '';
@@ -224,7 +224,7 @@ async function vaultPath() {
     }
     return dir;
   } catch (err) {
-    log.error('vault unavailable', { dir, error: err.message });
+    log.error('vault unavailable', { dir, error: err });
     return null;
   }
 }
@@ -656,8 +656,8 @@ async function isRegistered(dir) {
 
 function obsidianRunning() {
   return new Promise((resolve) => {
-    if (process.platform === 'win32') execFile('tasklist', ['/FI', 'IMAGENAME eq Obsidian.exe', '/NH'], { windowsHide: true }, (_e, out) => resolve(/obsidian\.exe/i.test(String(out))));
-    else execFile('pgrep', ['-if', 'obsidian'], (_e, out) => resolve(Boolean(String(out || '').trim())));
+    if (process.platform === 'win32') execFile('tasklist', ['/FI', 'IMAGENAME eq Obsidian.exe', '/NH'], { windowsHide: true, timeout: 5000 }, (_e, out) => resolve(/obsidian\.exe/i.test(String(out))));
+    else execFile('pgrep', ['-if', 'obsidian'], { timeout: 5000 }, (_e, out) => resolve(Boolean(String(out || '').trim())));
   });
 }
 

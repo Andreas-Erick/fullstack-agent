@@ -124,11 +124,11 @@ const OPENERS = {
     'return shell.openExternal(String(url));',
     'return shell.openExternal(`obsidian://open?path=${encodeURIComponent(target)}`);',
     'return shell.openExternal(url);',
-    "handle('memory:openDir', async () => shell.openPath(await memory.vaultDir()));",
-    "handle('docs:openExternal', async (p) => shell.openPath(await documents.externalPath(p)));",
-    "handle('obsidian:openFolder', async () => shell.openPath(await obsidian.vaultPath()));",
-    'return shell.openPath(skills.dir());',
-    "handle('faces:openFolder', async () => shell.openPath(await facesDir()));",
+    "handle('memory:openDir', async () => opened(await shell.openPath(await memory.vaultDir())));",
+    "handle('docs:openExternal', async (p) => opened(await shell.openPath(await documents.externalPath(p))));",
+    "handle('obsidian:openFolder', async () => opened(await shell.openPath(await obsidian.vaultPath())));",
+    'return opened(await shell.openPath(skills.dir()));',
+    "handle('faces:openFolder', async () => opened(await shell.openPath(await facesDir())));",
   ],
   'main/issues.js': ["await require('electron').shell.openExternal(url);"],
 };
@@ -173,7 +173,7 @@ function ipcRule(file, src) {
 function openExternalRule(file, src) {
   if (file !== 'main/main.js') return [];
   const problems = [];
-  if (!src.includes("handle('docs:openExternal', async (p) => shell.openPath(await documents.externalPath(p)));")) problems.push(`${file}: docs:openExternal must be shell.openPath(await documents.externalPath(p))`);
+  if (!src.includes("handle('docs:openExternal', async (p) => opened(await shell.openPath(await documents.externalPath(p))));")) problems.push(`${file}: docs:openExternal must be shell.openPath(await documents.externalPath(p))`);
   if (!/handle\('shell:openExternal', \(url\) => \{\n\s*if \(!\/\^https\?:\\\/\\\/\/i\.test\(url\)\) throw/.test(src)) problems.push(`${file}: shell:openExternal must refuse anything but http(s) first`);
   return problems;
 }

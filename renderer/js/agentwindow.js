@@ -2,9 +2,11 @@
 // frame): the address, back/forward/reload, who is using the window (the agent while it browses, else
 // you), and notices (a blocked address, a download that was refused). Typing in the address bar searches
 // or opens a site. It wears the active persona's theme and effects level, re-read whenever it gets focus.
-import { $, api } from './util.js';
+import { $, api, installErrorTrap } from './util.js';
 import { applyTheme } from './theme.js';
 import { effectsLevel } from './perfcore.js';
+
+installErrorTrap(); // uncaught errors in this window go to the log
 
 const GLOBE_PORT = 4173; // God's Eye View's local server (main/agentwindowcore.js)
 const ICONS = {

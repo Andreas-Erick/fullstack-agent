@@ -347,3 +347,23 @@ export const on = (type, fn) => {
 export function logEvent(level, event, data) {
   api.log.write(level, event, data).catch(() => {});
 }
+
+// Safety net: an unexpected error in a page is logged (the same one at most once a minute) instead of
+// disappearing; the page keeps running. Logged as `{ error: { message, stack } }`, so the log reader
+// (errorinsight.js) and a problem report see the message and where in the code it came from.
+const seenErrors = new Map();
+export function reportUiError(kind, err) {
+  const message = String(err?.message || err || 'unknown error').slice(0, 300);
+  const key = `${kind}:${message}`;
+  if (Date.now() - (seenErrors.get(key) || 0) < 60000) return;
+  if (seenErrors.size > 200) seenErrors.clear(); // a long session's distinct errors don't pile up
+  seenErrors.set(key, Date.now());
+  const stack = String(err?.stack || '').split('\n').slice(0, 6).join(' | ');
+  logEvent('error', `ui ${kind}`, { error: stack ? { message, stack } : { message } });
+}
+
+/** Every page with the preload calls this once: uncaught errors and rejections go to the log. */
+export function installErrorTrap() {
+  window.addEventListener('error', (e) => reportUiError('error', e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => reportUiError('unhandled rejection', e.reason));
+}

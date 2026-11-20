@@ -216,7 +216,7 @@ async function restart(want) {
   if (!want.enabled) return;
   lastError = '';
   await new Promise((resolve) => {
-    const s = http.createServer({ connectionsCheckingInterval: 5000 }, (req, res) => route(req, res).catch((err) => fail(res, 500, 'Server error', err)));
+    const s = http.createServer({ connectionsCheckingInterval: 5000 }, (req, res) => route(req, res).catch((err) => fail(res, 500, 'Server error', err, req)));
     // Slow or idle connections can't pile up (event streams are long responses, not slow requests).
     s.headersTimeout = 10000;
     s.requestTimeout = 60000;
@@ -506,8 +506,17 @@ function forDevice(err, fallback) {
   return msg && msg !== '…' ? msg : fallback;
 }
 
-function fail(res, code, message, err) {
-  if (err) log.warn('remote request failed', { error: err });
+// Which route failed, without its query or ids (conversation ids, face keys, tokens): /api/conversations/:id.
+const routeOf = (url) =>
+  String(url || '')
+    .split('?')[0]
+    .slice(0, 120)
+    .split('/')
+    .map((part) => (part.length > 24 || /\d/.test(part) ? ':id' : part))
+    .join('/');
+
+function fail(res, code, message, err, req) {
+  if (err) log.warn('remote request failed', { error: err, ...(req ? { method: req.method, route: routeOf(req.url) } : {}) });
   if (code === 413) {
     res.setHeader('Connection', 'close');
     res.on('finish', () => res.socket?.destroy());

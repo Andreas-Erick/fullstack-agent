@@ -1,5 +1,5 @@
 // Renderer entry point: wires views, the agent face, push-to-talk and status indicators together.
-import { $, $$, api, on, emit, el, toast, logEvent, dialogOpen } from './util.js';
+import { $, $$, api, on, emit, el, toast, logEvent, dialogOpen, reportUiError, installErrorTrap } from './util.js';
 import { state, loadSettings, saveSettings, ttsActive, raiseAlert, noteActivity } from './state.js';
 import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
@@ -37,18 +37,8 @@ import { practiceLanguage, languageName } from './practice.js';
 import { initPerf, perfReady } from './perf.js';
 import { launchGreeting, HANDOFF_LATE_MS } from './phrasecore.js';
 
-// Safety net: an unexpected error anywhere in the UI is logged (repeats at most once a minute)
-// instead of disappearing; the app keeps running.
-const seenErrors = new Map();
-function reportUiError(kind, err) {
-  const message = String(err?.message || err || 'unknown error').slice(0, 300);
-  const key = `${kind}:${message}`;
-  if (Date.now() - (seenErrors.get(key) || 0) < 60000) return;
-  seenErrors.set(key, Date.now());
-  logEvent('error', `ui ${kind}`, { message, stack: String(err?.stack || '').split('\n').slice(0, 4).join(' | ') });
-}
-window.addEventListener('error', (e) => reportUiError('error', e.error || e.message));
-window.addEventListener('unhandledrejection', (e) => reportUiError('unhandled rejection', e.reason));
+// Safety net: an unexpected error anywhere in the UI is logged instead of disappearing (util.js).
+installErrorTrap();
 
 let appliedTheme = '';
 function syncTheme() {

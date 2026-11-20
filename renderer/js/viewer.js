@@ -2,9 +2,11 @@
 // movable window, under a custom title bar: what kind of file it is, its name and folder, zoom and
 // page controls, and actions. The main process sends a new path to show another document in the
 // same window.
-import { $, api, el, toast, toastError } from './util.js';
+import { $, api, el, toast, toastError, installErrorTrap } from './util.js';
 import { applyTheme } from './theme.js';
 import { renderDocument, disposeDocument } from './docview.js';
+
+installErrorTrap(); // uncaught errors in this window go to the log
 
 const viewer = document.getElementById('popupViewer');
 const KIND = { pdf: 'PDF', docx: 'WORD', markdown: 'MD', html: 'HTML', image: 'IMAGE', text: 'TEXT' };
