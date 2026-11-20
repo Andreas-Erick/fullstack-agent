@@ -1,7 +1,7 @@
 // Shared helpers for all faces: theme palette per state (with the red alert override) and the
 // current audio level (TTS analyser, system-voice fallback, microphone, or the scripted demo).
 // Everything about the app comes through env.js, so the phone client can use the same faces.
-import { env, LITE_FRAME_MS } from './env.js';
+import { env, LITE_FRAME_MS, motionScale } from './env.js';
 import { hexToRgb } from '../themecore.js';
 
 export const MOTION = {
@@ -159,7 +159,10 @@ export class BaseFace {
     const d = capFrame(this.due || 0, now, env.maxFps());
     if (d === null) return;
     this.due = d;
-    const dt = Math.min(0.05, (now - this.last) / 1000);
+    // Reduced motion slows the whole face (its clock and every step); a face that scales its own motion
+    // (ownMotion) gets real time and reads this.reduced.
+    this.reduced = motionScale() < 1;
+    const dt = Math.min(0.05, (now - this.last) / 1000) * (this.ownMotion ? 1 : motionScale());
     this.last = now;
     this.t += dt;
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);

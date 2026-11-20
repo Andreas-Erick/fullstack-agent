@@ -401,7 +401,7 @@ async function render({ reload = false } = {}) {
     const back = refocus?.persona === persona && root.querySelector(`[data-setting="${CSS.escape(refocus.path)}"]`);
     if (back && (!document.activeElement || document.activeElement === document.body)) back.focus({ preventScroll: true });
     refocus = null;
-    if (scrollTarget) $(`#set-${scrollTarget}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (scrollTarget) $(`#set-${scrollTarget}`)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
     scrollTarget = null;
     return true;
   } finally {
@@ -2056,7 +2056,7 @@ function remoteCard() {
     try {
       const p = await api.remote.pair();
       clearInterval(pairTimer);
-      const left = el('span', { class: 'muted' });
+      const left = el('span', { class: 'muted num' });
       const qrBox = el('div', { class: 'qr-box' });
       const tick = () => {
         const s = Math.max(0, Math.round((p.expiresAt - Date.now()) / 1000));

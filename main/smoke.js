@@ -879,8 +879,20 @@ async function scanText() {
       for (const p of await wc.executeJavaScript(SETTINGS_JS(`settings render @${w}`), true)) found.add(p);                                     // settings
     }
   }
+  // Zoomed in on the smallest window: 900 × 600 at 150 % is 600 × 400 CSS px (the side lists stack).
+  await wc.executeJavaScript(`window.resizeTo(900, 600); import('./js/layout.js').then((m) => m.setZoom(1.5))`, true);
+  await wait(800);
+  for (const v of ZOOM_VIEWS) {
+    await wc.executeJavaScript(`document.querySelector('.rail-btn[data-view="${v}"]').click()`, true);
+    await wait(900);
+    for (const p of await wc.executeJavaScript(scanJs(`${v} @900x600 zoom 150%`), true)) found.add(p);
+  }
+  await wc.executeJavaScript(`import('./js/layout.js').then((m) => m.setZoom(1))`, true);
+  await wait(500);
   return [...found];
 }
+// The views with a side list beside a detail pane, which stack when narrow (styles.css, max-width 760px).
+const ZOOM_VIEWS = ['knowledge', 'docs', 'evolution'];
 
 // NEXUS_SMOKE_FACE=1: also record the watch's face (main/facecapture.js, ~30 s) and check the pack:
 // every state, a steady frame rate, frames that move, and a loop without a jump where it repeats.

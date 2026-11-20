@@ -16,11 +16,11 @@ const TARGETS = {
 };
 const RINGS = 4;
 const WHITE = [255, 255, 255];
-const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 
 export class SirenFace extends BaseFace {
   constructor(canvas, opts) {
     super(canvas, opts);
+    this.ownMotion = true; // reduced motion: her drift and rings slow below (this.reduced), the easing doesn't
     this.cur = { ...TARGETS.idle };
     const p = paletteFor('idle');
     this.main = p.main;
@@ -66,7 +66,7 @@ export class SirenFace extends BaseFace {
     this.lvl = lerp(this.lvl, level, ease(12));
     const cur = this.cur;
     const lvl = this.lvl;
-    const motion = reduced.matches ? 0.25 : 1;
+    const motion = this.reduced ? 0.25 : 1;
     this.sim += dt * cur.speed * motion;
     const sim = this.sim;
 
@@ -121,7 +121,7 @@ export class SirenFace extends BaseFace {
     g.save();
     g.translate(cx, cy);
     const dir = cur.inward > 0.5 ? -1 : 1;
-    const speed = (0.22 + lvl * 0.45) * (reduced.matches ? 0.3 : 1);
+    const speed = (0.22 + lvl * 0.45) * (this.reduced ? 0.3 : 1);
     for (let i = 0; i < RINGS; i++) {
       this.rings[i] = (this.rings[i] + dt * speed * dir + 1) % 1;
       const prog = this.rings[i];

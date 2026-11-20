@@ -27,8 +27,8 @@ test('after the faces, every part of boot() starts through start()', () => {
   assert.ok(from > 0, 'boot() awaits refreshFaceList()');
   const lines = body.slice(from).split('\n').slice(1).filter((l) => /^ {2}\S/.test(l));
   assert.ok(lines.length > 30, `found ${lines.length} lines`);
-  for (const line of lines) assert.match(line, /^ {2}(start\(|\}|\/\/|boot\.done\(\);)/, `outside start(): ${line.trim()}`);
-  assert.ok(body.trimEnd().endsWith('boot.done();'), 'the boot screen ends last');
+  for (const line of lines) assert.match(line, /^ {2}(start\(|\}|\/\/)/, `outside start(): ${line.trim()}`);
+  assert.doesNotMatch(src, /bootScreen|boot\.done/, 'the boot screen is gone (it was never shown)');
 });
 
 test('every view and part imported by app.js is started in boot()', () => {

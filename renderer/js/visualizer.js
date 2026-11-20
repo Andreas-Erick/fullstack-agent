@@ -9,7 +9,7 @@
 //   happy     – a burst of pulses and an expanding ring when a reply is done
 //   sleeping  – dim, barely moving, with drifting "z"s
 import { hexToRgb } from './themecore.js';
-import { env, LITE_FRAME_MS } from './faces/env.js';
+import { env, LITE_FRAME_MS, motionScale } from './faces/env.js';
 import { audio, faceState, capFrame, paletteFor as themedPalette } from './faces/common.js';
 
 const POLY = { octagon: [8, Math.PI / 8], hexagon: [6, 0], diamond: [4, 0], triangle: [3, -Math.PI / 2] };
@@ -292,7 +292,7 @@ export class CircuitFace {
     const d = capFrame(this.due || 0, now, env.maxFps());
     if (d === null) return;
     this.due = d;
-    const dt = Math.min(0.05, (now - this.last) / 1000);
+    const dt = Math.min(0.05, (now - this.last) / 1000) * motionScale(); // reduced motion: slower
     this.last = now;
     this.t += dt;
     this.update(dt);

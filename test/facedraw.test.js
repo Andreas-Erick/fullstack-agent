@@ -78,3 +78,46 @@ test('built-in faces construct and draw every state', async () => {
     }
   }
 });
+
+// Reduced motion (env.reducedMotion: the system setting or the desktop's body.fx-still) slows every
+// built-in face. The phone wires env without it: the default reads the same two signals.
+test('reduced motion slows every built-in face, the Circuit face too', async () => {
+  fs.copyFileSync(path.join(ROOT, 'renderer/js/visualizer.js'), path.join(ESM, 'js', 'visualizer.js'));
+  globalThis.getComputedStyle ||= () => ({ getPropertyValue: () => '' }); // the Circuit face reads its font
+  const envMod = await import(pathToFileURL(path.join(ESM, 'js/faces/env.js')).href);
+  const { configureFaces, env, REDUCED_MOTION } = envMod;
+  // The default: the media query (stubbed off above) or body.fx-still.
+  const fallback = env.reducedMotion;
+  assert.strictEqual(fallback(), false);
+  const prevDoc = globalThis.document;
+  globalThis.document = { ...prevDoc, body: { classList: { contains: (c) => c === 'fx-still' } } };
+  assert.strictEqual(fallback(), true, 'body.fx-still counts');
+  globalThis.document = prevDoc;
+  const all = [...FACES, ['renderer/js/visualizer.js', 'CircuitFace']];
+  const clock = async ([file, cls], reduced) => {
+    configureFaces({ agentState: () => 'speaking', reducedMotion: () => reduced });
+    const Face = (await import(pathToFileURL(path.join(ESM, file.replace('renderer/', ''))).href))[cls];
+    const face = new Face(fakeCanvas(), { compact: false });
+    face.setLabel?.('Siren');
+    face.resize();
+    const step = (face.frame || face.loop).bind(face);
+    face.last = 1000;
+    for (let k = 1; k <= 10; k++) step(1000 + k * 16);
+    const out = { t: face.t, reduced: face.reduced };
+    face.destroy();
+    return out;
+  };
+  for (const f of all) {
+    const normal = await clock(f, false);
+    const calm = await clock(f, true);
+    assert.ok(Math.abs(normal.t - 0.16) < 1e-9, `${f[1]} runs in real time: ${normal.t}`);
+    if (f[1] === 'SirenFace') {
+      // Siren scales her own drift and rings (this.reduced); her clock stays real.
+      assert.strictEqual(calm.reduced, true);
+      assert.ok(Math.abs(calm.t - 0.16) < 1e-9);
+    } else {
+      assert.ok(Math.abs(calm.t - 0.16 * REDUCED_MOTION) < 1e-9, `${f[1]} slows under reduced motion: ${calm.t}`);
+    }
+  }
+  configureFaces({ reducedMotion: fallback });
+});

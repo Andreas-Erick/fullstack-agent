@@ -90,6 +90,76 @@ export const luminance = (hex) => {
   });
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
+// WCAG contrast ratio of two colors (1 to 21).
+export const contrast = (a, b) => {
+  const x = luminance(a);
+  const y = luminance(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+};
+
+// ------------------------------------------------------- contrast guard
+// A generated or hand-edited palette may put grey text on a grey card. normalizeTheme keeps every theme
+// readable: the backgrounds stay on one side (dark ones dark enough for light text, light ones light
+// enough for dark text), then each ink is nudged toward white or black until it clears its minimum
+// against every background. Colors that already pass are kept exactly, so the shipped palettes don't move.
+export const CONTRAST = {
+  text: 7, // body text: WCAG AAA
+  text2: 7,
+  muted: 4.5, // hints: WCAG AA
+  accent: 3, // glows, borders, chips, status colors: WCAG non-text 3:1
+  accent2: 3,
+  accent3: 3,
+  success: 3,
+  warning: 3,
+  danger: 3,
+};
+const DARK_MAX = 0.09; // a dark background's highest luminance: white text still reaches 7.5:1
+const LIGHT_MIN = 0.325; // a light surface's lowest luminance: black text still reaches 7.5:1
+const LIGHT_BG = 0.42; // a page background lifted into light mode lands here (mode is light above 0.4)
+const SURFACES = ['bg', 'bg2', 'bg3', 'surface'];
+// Glass is the surface over a background at these alphas besides the theme's own (styles.css: --glass-strong,
+// and the opaque panels of the Balanced profile). Mixed in sRGB, a glass can be darker than both colors it
+// mixes, so the guard measures it too.
+export const GLASS_ALPHAS = [0.85, 0.96, 0.97];
+
+// The smallest step of mix(hex, toward, t) that passes `ok` (which holds at t = 1); hex itself if it passes.
+function nudge(hex, toward, ok) {
+  if (ok(hex)) return hex;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 18; i++) {
+    const t = (lo + hi) / 2;
+    if (ok(mix(hex, toward, t))) hi = t;
+    else lo = t;
+  }
+  const out = mix(hex, toward, hi);
+  return ok(out) ? out : toward;
+}
+
+// The palette made readable (see above), for glass at `opacity`. Returns the colors and their mode.
+export function guardContrast(colors, { opacity = DEFAULT_THEME.glass.opacity } = {}) {
+  const c = { ...colors };
+  const alphas = [opacity, ...GLASS_ALPHAS];
+  const glasses = (surface) => [c.bg, c.bg2, c.bg3].flatMap((under) => alphas.map((a) => mix(under, surface, a)));
+  const L = luminance(c.bg);
+  // The page background: a mid tone goes to whichever side is nearer.
+  if (L > DARK_MAX && L <= 0.4) {
+    c.bg = L - DARK_MAX <= LIGHT_BG - L ? nudge(c.bg, '#000000', (h) => luminance(h) <= DARK_MAX) : nudge(c.bg, '#ffffff', (h) => luminance(h) >= LIGHT_BG);
+  }
+  const mode = luminance(c.bg) > 0.4 ? 'light' : 'dark';
+  const dark = mode === 'dark';
+  const ink = dark ? '#ffffff' : '#000000';
+  const fits = dark ? (h) => luminance(h) <= DARK_MAX : (h) => luminance(h) >= LIGHT_MIN;
+  for (const k of ['bg2', 'bg3']) c[k] = nudge(c[k], dark ? '#000000' : '#ffffff', fits);
+  // The surface, alone and as glass over each background (moving it toward the ink's opposite moves
+  // every glass the same way, so the search stays monotone).
+  c.surface = nudge(c.surface, dark ? '#000000' : '#ffffff', (h) => fits(h) && glasses(h).every(fits));
+  const grounds = [...SURFACES.map((k) => c[k]), ...glasses(c.surface)];
+  for (const [k, min] of Object.entries(CONTRAST)) {
+    c[k] = nudge(c[k], ink, (h) => grounds.every((g) => contrast(h, g) >= min));
+  }
+  return { colors: c, mode };
+}
 
 // Fill gaps and clamp values so a partially specified / LLM-generated theme is always usable.
 export function normalizeTheme(t) {
@@ -100,13 +170,15 @@ export function normalizeTheme(t) {
   const isHex = (v) => typeof v === 'string' && /^#?[0-9a-f]{3}([0-9a-f]{3})?$/i.test(v.trim());
   const hex = (v) => (v.trim().startsWith('#') ? v.trim() : `#${v.trim()}`);
   for (const k of Object.keys(d.colors)) if (isHex(t.colors?.[k])) out.colors[k] = hex(t.colors[k]);
-  out.mode = luminance(out.colors.bg) > 0.4 ? 'light' : 'dark';
   if (FONTS[t.fonts?.display]) out.fonts.display = t.fonts.display;
   if (FONTS[t.fonts?.body]) out.fonts.body = t.fonts.body;
   if (typeof t.uppercaseDisplay === 'boolean') out.uppercaseDisplay = t.uppercaseDisplay;
   if (Number.isFinite(+t.radius)) out.radius = Math.max(0, Math.min(28, +t.radius));
   if (Number.isFinite(+t.glass?.blur)) out.glass.blur = Math.max(0, Math.min(40, +t.glass.blur));
   if (Number.isFinite(+t.glass?.opacity)) out.glass.opacity = Math.max(0.15, Math.min(0.97, +t.glass.opacity));
+  const guarded = guardContrast(out.colors, { opacity: out.glass.opacity });
+  out.colors = guarded.colors;
+  out.mode = guarded.mode;
   if (PATTERNS.includes(t.background?.pattern)) out.background.pattern = t.background.pattern;
   if (Number.isFinite(+t.background?.intensity)) out.background.intensity = Math.max(0, Math.min(1, +t.background.intensity));
   const f = t.face || {};
