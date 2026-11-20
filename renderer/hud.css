@@ -106,7 +106,7 @@
 :is(.fx-hud, .fx-subtle) .views { counter-reset: hud-panel; }
 :is(.fx-hud, .fx-subtle) .panel-head h3::before {
   counter-increment: hud-panel;
-  content: counter(hud-panel, decimal-leading-zero) ' // ';
+  content: counter(hud-panel, decimal-leading-zero) ' // ' / ''; /* decorative codes: '/ ""' keeps them from screen readers */
   color: rgba(var(--c1), 0.7);
 }
 :is(.fx-hud, .fx-subtle) :is(.panel-head h3, .conv-group, .rail-btn span, .brand-state, .pill, .face-label, .face-state) { font-family: var(--hud-mono); }
@@ -189,7 +189,7 @@
 /* Tool and connection groups: a lit top edge, a "LINK" label, connection lights that breathe. */
 :is(.fx-hud, .fx-subtle) .tb-group { position: relative; box-shadow: inset 0 1px 0 rgba(var(--c1), 0.1); }
 :is(.fx-hud, .fx-subtle) .tb-group::after { content: ''; position: absolute; left: 20%; right: 20%; top: -1px; height: 1px; background: linear-gradient(90deg, transparent, rgba(var(--c1), 0.7), transparent); pointer-events: none; }
-:is(.fx-hud, .fx-subtle) .tb-systems::before { content: 'LINK'; padding: 0 4px 0 8px; font-family: var(--hud-mono); font-size: 9px; letter-spacing: 0.22em; color: rgba(var(--c1), 0.6); }
+:is(.fx-hud, .fx-subtle) .tb-systems::before { content: 'LINK' / ''; padding: 0 4px 0 8px; font-family: var(--hud-mono); font-size: 9px; letter-spacing: 0.22em; color: rgba(var(--c1), 0.6); }
 :is(.fx-hud, .fx-subtle) .tb-group .pill { border-radius: 4px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
 :is(.fx-hud, .fx-subtle) .tb-group .zoom-ctl { border-radius: 4px; font-family: var(--hud-mono); }
 .fx-hud .tb-systems .pill.ok i { animation: hud-led 3.2s ease-in-out infinite; }
@@ -243,7 +243,7 @@
 }
 .fx-hud :is(.btn, .chip-btn, .suggestion):hover::after { transform: translateX(110%); transition: transform 0.6s ease; }
 :is(.fx-hud, .fx-subtle) .suggestion { border-radius: 6px; font-family: var(--hud-mono); font-size: 12px; letter-spacing: 0.02em; }
-:is(.fx-hud, .fx-subtle) .suggestion::before { content: '› '; color: rgb(var(--c1)); }
+:is(.fx-hud, .fx-subtle) .suggestion::before { content: '› ' / ''; color: rgb(var(--c1)); }
 :is(.fx-hud, .fx-subtle) .input:focus { box-shadow: 0 0 0 1px rgba(var(--c1), 0.5), 0 0 18px rgba(var(--c1), 0.18); }
 
 /* ---------------------------------------------------------------- messages */
@@ -281,7 +281,7 @@
 @keyframes hud-shimmer { from { background-position: 150% 0; } to { background-position: -100% 0; } }
 /* Tool calls look like a process log. */
 :is(.fx-hud, .fx-subtle) .tool-chip { border-radius: 4px; font-family: var(--hud-mono); font-size: 11.5px; border-left: 2px solid rgba(var(--c1), 0.5); }
-:is(.fx-hud, .fx-subtle) .tool-chip summary::before { content: '>'; color: rgba(var(--c1), 0.8); }
+:is(.fx-hud, .fx-subtle) .tool-chip summary::before { content: '>' / ''; color: rgba(var(--c1), 0.8); }
 :is(.fx-hud, .fx-subtle) .bubble pre { border-radius: 4px; border-left: 2px solid rgba(var(--c3), 0.7); }
 :is(.fx-hud, .fx-subtle) .bubble th { font-family: var(--hud-mono); font-size: 0.85em; letter-spacing: 0.06em; text-transform: uppercase; color: rgb(var(--c1-soft)); background: rgba(var(--c1), 0.06); }
 
@@ -357,8 +357,8 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 }
 .fx-hud .face-panel::after { animation: hud-face-scan 5s ease-in-out infinite; }
 @keyframes hud-face-scan { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(calc(100vh - 140px)); } }
-:is(.fx-hud, .fx-subtle) .face-label::before { content: '[ '; color: rgba(var(--c1), 0.6); }
-:is(.fx-hud, .fx-subtle) .face-label::after { content: ' ]'; color: rgba(var(--c1), 0.6); }
+:is(.fx-hud, .fx-subtle) .face-label::before { content: '[ ' / ''; color: rgba(var(--c1), 0.6); }
+:is(.fx-hud, .fx-subtle) .face-label::after { content: ' ]' / ''; color: rgba(var(--c1), 0.6); }
 
 /* ---------------------------------------------------------------- notifications */
 :is(.fx-hud, .fx-subtle) .toast {
@@ -380,9 +380,9 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 
 /* ---------------------------------------------------------------- calendar */
 /* An instrument-panel calendar: readouts, cut corners, a bracketed "today", a live time line. */
-:is(.fx-hud, .fx-subtle) .cal-stamp::before { content: '// '; color: rgba(var(--c1), 0.7); }
+:is(.fx-hud, .fx-subtle) .cal-stamp::before { content: '// ' / ''; color: rgba(var(--c1), 0.7); }
 :is(.fx-hud, .fx-subtle) .cal-range { text-shadow: 0 0 12px rgba(var(--c1), 0.45); }
-:is(.fx-hud, .fx-subtle) .cal-dow div::before { content: '·'; margin-right: 6px; color: rgba(var(--c1), 0.6); }
+:is(.fx-hud, .fx-subtle) .cal-dow div::before { content: '·' / ''; margin-right: 6px; color: rgba(var(--c1), 0.6); }
 :is(.fx-hud, .fx-subtle) .cal-pill { border-radius: 2px; }
 :is(.fx-hud, .fx-subtle) .cal-block { border-radius: 2px; clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%); }
 :is(.fx-hud, .fx-subtle) .cal-cell.today::after {
@@ -421,30 +421,6 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 /* ---------------------------------------------------------------- scrollbars */
 :is(.fx-hud, .fx-subtle) ::-webkit-scrollbar { width: 6px; height: 6px; }
 :is(.fx-hud, .fx-subtle) ::-webkit-scrollbar-thumb { border: 0; border-radius: 2px; background: rgba(var(--c1), 0.22); }
-
-/* ---------------------------------------------------------------- boot sequence */
-.hud-boot {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-boot);
-  display: grid;
-  place-items: center;
-  background: radial-gradient(ellipse at center, rgba(var(--c1), 0.08), transparent 60%), var(--bg);
-  font-family: var(--font-mono);
-  cursor: pointer;
-  transition: opacity 0.45s ease, filter 0.45s ease;
-}
-.hud-boot.out { opacity: 0; filter: blur(6px) brightness(1.6); pointer-events: none; }
-.hud-boot-box { width: min(440px, 86vw); }
-.hud-boot-title { font-family: var(--font-display); font-size: 26px; letter-spacing: 0.4em; color: rgb(var(--c1-soft)); text-shadow: 0 0 22px rgba(var(--c1), 0.7); margin-bottom: 4px; }
-.hud-boot-sub { font-size: 11px; letter-spacing: 0.2em; color: var(--muted); margin-bottom: 22px; }
-.hud-boot-line { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; letter-spacing: 0.08em; padding: 5px 0; border-bottom: 1px dashed rgba(var(--c1), 0.15); color: var(--text-2); opacity: 0; transform: translateX(-6px); transition: 0.2s; }
-.hud-boot-line.on { opacity: 1; transform: none; }
-.hud-boot-line b { font-weight: 400; color: rgb(var(--ok)); }
-.hud-boot-line b.off { color: var(--muted); }
-.hud-boot-bar { margin-top: 18px; height: 2px; background: rgba(var(--c1), 0.15); overflow: hidden; }
-.hud-boot-bar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, rgb(var(--c2)), rgb(var(--c1))); box-shadow: 0 0 10px rgb(var(--c1)); transform: scaleX(0); transform-origin: left; transition: transform 0.25s ease; }
-.hud-boot-hint { margin-top: 10px; font-size: 10px; letter-spacing: 0.16em; color: var(--muted); text-align: right; }
 
 /* ---------------------------------------------------------------- reduced motion */
 .fx-still *, .fx-still *::before, .fx-still *::after, .fx-still::after { animation: none !important; transition-duration: 0.01ms !important; }
@@ -487,7 +463,7 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 
 /* ---------------------------------------------------------------- view titles */
 :is(.fx-hud, .fx-subtle) [data-hud-code]::before {
-  content: attr(data-hud-code);
+  content: attr(data-hud-code) / '';
   display: block;
   margin-bottom: 5px;
   font-family: var(--hud-mono);
@@ -633,10 +609,10 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 /* ---------------------------------------------------------------- memory, settings: numbered records */
 :is(.fx-hud, .fx-subtle) .mem-grid { counter-reset: hud-rec; }
 :is(.fx-hud, .fx-subtle) .mem-card { counter-increment: hud-rec; }
-:is(.fx-hud, .fx-subtle) .mem-card h4::before { content: 'REC.' counter(hud-rec, decimal-leading-zero) '  '; font-family: var(--hud-mono); font-size: 10px; font-weight: 400; letter-spacing: 0.14em; color: rgba(var(--c1), 0.6); }
+:is(.fx-hud, .fx-subtle) .mem-card h4::before { content: 'REC.' counter(hud-rec, decimal-leading-zero) '  ' / ''; font-family: var(--hud-mono); font-size: 10px; font-weight: 400; letter-spacing: 0.14em; color: rgba(var(--c1), 0.6); }
 :is(.fx-hud, .fx-subtle) .settings { counter-reset: hud-cfg; }
 :is(.fx-hud, .fx-subtle) .settings > .card { counter-increment: hud-cfg; }
-:is(.fx-hud, .fx-subtle) .settings > .card > h3::after { content: 'CFG.' counter(hud-cfg, decimal-leading-zero); margin-left: auto; font-family: var(--hud-mono); font-size: 9.5px; letter-spacing: 0.18em; color: var(--muted); }
+:is(.fx-hud, .fx-subtle) .settings > .card > h3::after { content: 'CFG.' counter(hud-cfg, decimal-leading-zero) / ''; margin-left: auto; font-family: var(--hud-mono); font-size: 9.5px; letter-spacing: 0.18em; color: var(--muted); }
 .fx-hud .settings > .card > h3 .dot { animation: hud-blink 2.4s ease-in-out infinite; }
 
 
@@ -652,7 +628,7 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 /* ---------------------------------------------------------------- docs: awaiting input */
 :is(.fx-hud, .fx-subtle) .doc-empty { position: relative; overflow: hidden; }
 :is(.fx-hud, .fx-subtle) .doc-empty p { position: relative; max-width: 420px; font-family: var(--hud-mono); font-size: 12px; letter-spacing: 0.06em; line-height: 1.7; }
-:is(.fx-hud, .fx-subtle) .doc-empty p::before { content: 'AWAITING INPUT'; display: block; margin-bottom: 10px; font-size: 13px; letter-spacing: 0.4em; color: rgb(var(--c1)); text-shadow: 0 0 12px rgba(var(--c1), 0.7); }
+:is(.fx-hud, .fx-subtle) .doc-empty p::before { content: 'AWAITING INPUT' / ''; display: block; margin-bottom: 10px; font-size: 13px; letter-spacing: 0.4em; color: rgb(var(--c1)); text-shadow: 0 0 12px rgba(var(--c1), 0.7); }
 :is(.fx-hud, .fx-subtle) .doc-empty::before,
 :is(.fx-hud, .fx-subtle) .doc-empty::after { content: ''; position: absolute; left: 50%; top: 50%; border-radius: 50%; pointer-events: none; }
 :is(.fx-hud, .fx-subtle) .doc-empty::before { width: 340px; height: 340px; margin: -170px 0 0 -170px; border: 1px dashed rgba(var(--c1), 0.3); }

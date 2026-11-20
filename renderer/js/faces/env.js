@@ -17,10 +17,19 @@ export const env = {
   // The most frames a second a face should draw now; 0 = as many as the display shows. The desktop caps
   // it while its offline voice works and on Balanced; the phone and the watch's recording keep 0.
   maxFps: () => 0,
+  // True when the user asked for less motion: the system setting, or the window's body.fx-still (the
+  // desktop's HUD under reduced motion). Works as it is on the phone too; a host may replace it.
+  reducedMotion: () => Boolean(reduceQuery?.matches || globalThis.document?.body?.classList?.contains('fx-still')),
 };
+
+const reduceQuery = typeof globalThis.matchMedia === 'function' ? globalThis.matchMedia('(prefers-reduced-motion: reduce)') : null;
 
 // The frame interval when lite (a little under 1/30 s, so a 60 Hz display shows every second frame).
 export const LITE_FRAME_MS = 30;
+
+// How fast a face moves under reduced motion (siren.js has its own, finer scaling).
+export const REDUCED_MOTION = 0.3;
+export const motionScale = () => (env.reducedMotion?.() ? REDUCED_MOTION : 1);
 
 export function configureFaces(parts) {
   Object.assign(env, parts);

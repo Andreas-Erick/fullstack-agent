@@ -101,7 +101,7 @@ function show(req) {
   const card = document.getElementById('approvalCard');
   // The main process's time limit started when the request was sent, also while it waited in line.
   let left = Math.max(1, (req.timeoutSec || 75) - Math.round((Date.now() - (req.queuedAt || Date.now())) / 1000));
-  const countdown = el('span', { class: 'muted' }, `${left}s`);
+  const countdown = el('span', { class: 'muted num' }, `${left}s`);
   const timer = setInterval(() => {
     left -= 1;
     countdown.textContent = `${Math.max(0, left)}s`;
@@ -166,7 +166,7 @@ function showRecording(req) {
   const wrap = document.getElementById('approvalModal');
   const card = document.getElementById('approvalCard');
   const max = Math.min(60, Math.max(8, Number(req.seconds) || 20));
-  const status = el('div', { class: 'test-result' }, 'Press Record, then read the text aloud in your normal voice, in a quiet room.');
+  const status = el('div', { class: 'test-result num' }, 'Press Record, then read the text aloud in your normal voice, in a quiet room.');
   const recordBtn = el('button', { class: 'btn primary' }, '● Record');
   const useBtn = el('button', { class: 'btn primary', style: { display: 'none' } }, 'Stop & use');
   let clip = null;
@@ -174,7 +174,7 @@ function showRecording(req) {
   current = { ...req, timer: null, recording: true, cleanup: () => (clearInterval(ticker), clip?.cancel()) };
 
   const retry = (message) => {
-    status.className = 'test-result err';
+    status.className = 'test-result num err';
     status.textContent = message;
     recordBtn.textContent = '● Record again';
     recordBtn.style.display = '';
@@ -189,7 +189,7 @@ function showRecording(req) {
     if (req.mode !== 'calibrate') return answer(true, toBase64(take.wav()));
     // Calibration only needs what speech-to-text heard and how loud it was; the audio stays here.
     useBtn.style.display = 'none';
-    status.className = 'test-result';
+    status.className = 'test-result num';
     status.textContent = 'Listening back to how that came through…';
     try {
       const result = await analyzeClip(take.samples, take.rate);
@@ -203,11 +203,11 @@ function showRecording(req) {
     try {
       clip = await recordClip();
     } catch (err) {
-      status.className = 'test-result err';
+      status.className = 'test-result num err';
       status.textContent = `Microphone: ${err.message}`;
       return;
     }
-    status.className = 'test-result ok';
+    status.className = 'test-result num ok';
     recordBtn.style.display = 'none';
     useBtn.style.display = '';
     ticker = setInterval(() => {

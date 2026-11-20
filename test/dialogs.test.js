@@ -717,7 +717,7 @@ test('the top-level z-index scale: tokens in order, the layers use them', () => 
   const css = read('renderer/styles.css');
   const root = /:root \{([\s\S]*?)\n\}/.exec(css)[1];
   const z = Object.fromEntries([...root.matchAll(/--z-([a-z]+):\s*(\d+)/g)].map((m) => [m[1], Number(m[2])]));
-  const order = ['drop', 'popover', 'wizard', 'dialog', 'approval', 'toast', 'boot'];
+  const order = ['drop', 'popover', 'wizard', 'dialog', 'approval', 'toast'];
   assert.deepStrictEqual(Object.keys(z).sort(), [...order].sort());
   for (let i = 1; i < order.length; i++) assert.ok(z[order[i - 1]] < z[order[i]], `${order[i - 1]} < ${order[i]}`);
   assert.match(css, /\.modal\.approval-layer \{ z-index: var\(--z-approval\); \}/);
@@ -729,8 +729,8 @@ test('the top-level z-index scale: tokens in order, the layers use them', () => 
     assert.doesNotMatch(rule, /z-index:\s*\d/, `${sel} has no numeric z-index`);
   }
   assert.match(/^\.modal \{([^}]*)\}/m.exec(css)[1], /overflow-y: auto;[\s\S]*place-items: safe center|place-items: safe center;[\s\S]*overflow-y: auto/, 'a tall dialog scrolls');
-  const hud = read('renderer/hud.css');
-  assert.match(/\.hud-boot \{([^}]*)\}/.exec(hud)[1], /z-index: var\(--z-boot\)/);
+  // The boot screen is gone (it was never shown): no layer above the notices.
+  assert.doesNotMatch(read('renderer/hud.css') + read('renderer/js/hud.js') + css, /hud-boot|bootScreen|--z-boot/);
 });
 
 // ------------------------------------------------------------------ the editors, as the user drives them

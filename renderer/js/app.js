@@ -14,7 +14,7 @@ import { initIssues } from './issues.js';
 import { initSysmon } from './sysmon.js';
 import { handoffNote } from './handoff.js';
 import { toggleHistory } from './history.js';
-import { initHud, bootScreen } from './hud.js';
+import { initHud } from './hud.js';
 import { tryCommand } from './commands.js';
 import { startThinkingSound, stopThinkingSound, thinkingStyle } from './sounds.js';
 import { initSetup, handleSetupVoice } from './setup.js';
@@ -63,7 +63,6 @@ async function boot() {
   state.agentState = state.sleeping ? 'sleeping' : 'idle';
   syncTheme();
   start('hud', initHud);
-  const boot = bootScreen();
 
   miniFace = new FaceHost($('#miniFace'), { compact: true });
   bigFace = new FaceHost($('#bigFace'));
@@ -262,7 +261,6 @@ async function boot() {
     for (const b of ['#micBtn', '#faceMicBtn']) $(b)?.addEventListener('pointerdown', noteActivity);
     if (!setupOpen) greetOnLaunch();
   });
-  boot.done();
 }
 
 // One part failing to start (a view after a bad self-change, a title-bar widget) mustn't take the window

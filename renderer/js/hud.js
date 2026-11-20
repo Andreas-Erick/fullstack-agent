@@ -1,6 +1,6 @@
 // The futuristic HUD layer's behaviour (styles in renderer/hud.css): the effects level from
 // Settings → Interface (ui.fx: hud | subtle | off), the agent state on <body> for the CSS, the clock in
-// the command bar, timestamps on notifications, the "materialize" view transition and the boot screen.
+// the command bar, timestamps on notifications, the "materialize" view transition and the cinematic layer.
 import { $, $$, el, on } from './util.js';
 import { state } from './state.js';
 import { effectsLevel, profile } from './perfcore.js';
@@ -189,53 +189,5 @@ function reticle() {
   setInterval(tick, 1000);
 }
 
-// ------------------------------------------------------------ boot screen
-// A short systems check while the app starts. It lists what is actually configured (not invented
-// readings); real connectivity shows in the status pills right after. Click to skip.
+// The brain's name on the face's telemetry (what is configured, never an invented reading).
 const PROVIDERS = { 'claude-code': 'Claude account', anthropic: 'Claude API', auto: 'Multi-provider', openai: 'OpenAI-compatible', local: 'Local model', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', perplexity: 'Perplexity' };
-
-export function bootScreen({ show = false } = {}) {
-  const s = state.settings;
-  if (!show || !s?.onboarded || fxLevel() !== 'hud' || reduceMotion.matches) return { done() {} };
-  const on_ = (v, yes = 'ENABLED') => [v ? yes : 'OFF', !v];
-  const lines = [
-    ['NEURAL CORE', [PROVIDERS[s.llm.provider] || s.llm.provider, false]],
-    ['VOICE SYNTHESIS', on_(s.voice.ttsEnabled)],
-    ['SPEECH INPUT', on_(s.stt.enabled, s.stt.engine === 'local' ? (s.stt.cloudFallback ? 'LOCAL WHISPER + GROQ' : 'LOCAL WHISPER') : s.stt.engine === 'groq' ? 'GROQ WHISPER' : 'REMOTE')],
-    ['MEMORY VAULT', on_(s.obsidian.enabled, 'MOUNTED')],
-    ['CALENDAR LINK', on_(s.calendar.enabled)],
-    ['REMOTE ACCESS', on_(s.remote?.enabled, 'ON')],
-    ['SELF-IMPROVEMENT', on_(s.code.allowSelfModify, 'ARMED')],
-  ];
-  const bar = el('i');
-  const rows = lines.map(([k, [v, off]]) => el('div', { class: 'hud-boot-line' }, el('span', {}, k), el('b', { class: off ? 'off' : '' }, String(v).toUpperCase())));
-  const screen = el('div', { class: 'hud-boot', role: 'status', 'aria-label': 'Starting' },
-    el('div', { class: 'hud-boot-box' },
-      el('div', { class: 'hud-boot-title' }, String(s.agent?.name || 'Siren').toUpperCase()),
-      el('div', { class: 'hud-boot-sub' }, 'SYSTEMS CHECK // INITIALIZING'),
-      rows,
-      el('div', { class: 'hud-boot-bar' }, bar),
-      el('div', { class: 'hud-boot-hint' }, 'CLICK TO SKIP'),
-    ),
-  );
-  document.body.append(screen);
-  let shown = 0;
-  const reveal = setInterval(() => {
-    rows[shown]?.classList.add('on');
-    shown++;
-    bar.style.transform = `scaleX(${Math.min(1, shown / rows.length)})`;
-    if (shown >= rows.length) clearInterval(reveal);
-  }, 140);
-  const minUntil = Date.now() + 140 * rows.length + 350;
-  let closed = false;
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    clearInterval(reveal);
-    screen.classList.add('out');
-    setTimeout(() => screen.remove(), 500);
-  };
-  screen.addEventListener('click', close);
-  setTimeout(close, 6000); // never stuck, whatever happens during startup
-  return { done: () => setTimeout(close, Math.max(0, minUntil - Date.now())) };
-}

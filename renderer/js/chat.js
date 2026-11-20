@@ -89,7 +89,7 @@ export function initChat() {
     if (box.scrollTop < 200) showEarlier();
   });
   latest.onclick = () => {
-    box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+    box.scrollTo({ top: box.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     latest.classList.add('hidden');
   };
   // Talking over the agent silences the rest of this reply, unless it answers an approval or turns out
