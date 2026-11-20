@@ -148,6 +148,20 @@ test('Balanced closes the least recently used idle sessions, never a busy one or
   assert.deepStrictEqual(main.sessionsToClose([s('a', 1, false, false), s('b', 2)], 2, 'new'), [], 'dead ones are not counted');
 });
 
+// Efficiency pass: Full had no cap, so every chat opened kept a ~250–400 MB process for 20 minutes.
+test('Full caps live Claude sessions too, above Balanced', () => {
+  assert.strictEqual(main.sessionCap({ perf: { mode: 'balanced' } }), main.BALANCED.sessionCap);
+  assert.strictEqual(main.sessionCap({ perf: { mode: 'full' } }), main.FULL.sessionCap);
+  assert.strictEqual(main.sessionCap({ perf: { mode: 'auto', detected: 'low' } }), main.BALANCED.sessionCap);
+  assert.strictEqual(main.sessionCap({}), main.FULL.sessionCap);
+  assert.strictEqual(main.sessionCap(undefined), main.FULL.sessionCap);
+  assert.ok(main.FULL.sessionCap > main.BALANCED.sessionCap);
+  assert.strictEqual(main.FULL.sessionCap, 4);
+  const s = (id, lastUsed) => ({ id, lastUsed, busy: false, alive: true });
+  const six = ['a', 'b', 'c', 'd', 'e', 'f'].map((id, i) => s(id, i + 1));
+  assert.deepStrictEqual(main.sessionsToClose(six, main.FULL.sessionCap, 'new'), ['a', 'b', 'c']);
+});
+
 test('the performance setting is the user\'s: it has a default and the agent cannot change it', () => {
   const store = fs.readFileSync(path.join(ROOT, 'main/store.js'), 'utf8');
   assert.match(store, /perf: \{\s*\n\s*mode: 'auto'/);

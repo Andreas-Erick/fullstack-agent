@@ -8,12 +8,20 @@ const BALANCED = {
   sessionIdleMin: 5, // a session closes after this long without a turn
 };
 
+// Full keeps more sessions warm, but not one per chat ever opened (each ~250–400 MB with its servers).
+const FULL = {
+  sessionCap: 4,
+};
+
 /** 'balanced' or 'full' for these settings (perf.mode: auto | balanced | full). */
 function profile(settings) {
   const p = settings?.perf || {};
   if (p.mode === 'balanced' || p.mode === 'full') return p.mode;
   return p.detected === 'low' ? 'balanced' : 'full';
 }
+
+/** How many Claude Code processes may live at once under these settings. */
+const sessionCap = (settings) => (profile(settings) === 'balanced' ? BALANCED : FULL).sessionCap;
 
 /**
  * Which idle sessions to close so that at most `cap` stay alive once a new one starts: the least
@@ -31,4 +39,4 @@ function sessionsToClose(sessions, cap, keep) {
     .map((s) => s.id);
 }
 
-module.exports = { BALANCED, profile, sessionsToClose };
+module.exports = { BALANCED, FULL, profile, sessionCap, sessionsToClose };

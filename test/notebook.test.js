@@ -210,3 +210,49 @@ test('Undo of a delete brings the note back byte for byte, never over a note tha
   assert.ok(!fs.existsSync(path.join(vault, t5)), 'and left the bin');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// Efficiency pass: summary() (the Inner World, the phone's Today and Notes) ran the full list(): a stat and a
+// read of every note, one after another. It now stats them in batches and reads only today's notes.
+test('summary() gives what list() gave, reading only today’s notes', async () => {
+  const vault = tmpDir('nexus-nbsummary-');
+  const put = (rel, text, daysAgo = 0) => {
+    const full = path.join(vault, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, text);
+    const t = new Date(Date.now() - daysAgo * 86400000);
+    fs.utimesSync(full, t, t);
+  };
+  put('Notes/Plain.md', 'today, unpinned');
+  put('Notes/Pinned today.md', '---\npinned: true\n---\ntoday and pinned');
+  put('Notes/Robotics/Arm.md', 'old', 3);
+  put('Notes/Robotics/Leg.md', 'older', 5);
+  put('Notes/Robotics/Hand.md', 'new');
+  put('Notes/Math/Eigen.md', 'old', 2);
+  put('Inbox/Quick.md', 'dump', 1);
+  put('Notes/Notes.md', '- the folder index, not a note');
+  put('Notes/Big.md', 'x'.repeat(2000001));
+  stub({ './logger': quietLog, './obsidian': { vaultPath: async () => vault }, './linkindex': { forNote: async () => ({ backlinks: [] }) } });
+  const nb = load('main/notebook.js');
+  const { notes, today } = await nb.list();
+  const before = { count: notes.length, today: notes.filter((n) => n.day === today).map((n) => n.title), notebooks: core.notebooks(notes, today) };
+  const reads = [];
+  const realRead = fs.promises.readFile;
+  fs.promises.readFile = (f, ...rest) => (reads.push(path.relative(vault, String(f)).split(path.sep).join('/')), realRead(f, ...rest));
+  let after;
+  try {
+    after = await nb.summary();
+  } finally {
+    fs.promises.readFile = realRead;
+  }
+  assert.deepStrictEqual(after, before);
+  assert.deepStrictEqual([...after.today].sort(), ['Hand', 'Pinned today', 'Plain']);
+  assert.strictEqual(after.today[0], 'Pinned today', 'pinned first');
+  assert.strictEqual(after.count, 7, 'the folder index and the too-big file are not counted');
+  assert.deepStrictEqual(reads.sort(), ['Notes/Pinned today.md', 'Notes/Plain.md', 'Notes/Robotics/Hand.md']);
+  // No notes at all: empty, not an error.
+  const bare = tmpDir('nexus-nbsummary0-');
+  stub({ './obsidian': { vaultPath: async () => bare } });
+  assert.deepStrictEqual(await load('main/notebook.js').summary(), { count: 0, today: [], notebooks: [] });
+  fs.rmSync(vault, { recursive: true, force: true });
+  fs.rmSync(bare, { recursive: true, force: true });
+});

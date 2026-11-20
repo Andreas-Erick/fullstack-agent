@@ -39,34 +39,51 @@ async function walk(dir, out = []) {
   return out;
 }
 
+const BATCH = 16; // files stat'ed or read at a time
+
+// fn over items, BATCH at a time, results in the items' order.
+async function inBatches(items, fn) {
+  const out = [];
+  for (let i = 0; i < items.length; i += BATCH) out.push(...(await Promise.all(items.slice(i, i + BATCH).map(fn))));
+  return out;
+}
+
+// Every note file with its stat, in walk order: [{ rel, top, full, st }] (too big or unreadable ones left out).
+async function scan(r) {
+  const found = [];
+  for (const top of core.ROOTS) {
+    for (const full of await walk(path.join(r, top))) {
+      const rel = path.relative(r, full).split(path.sep).join('/');
+      if (core.isNotePath(rel)) found.push({ rel, top, full });
+    }
+  }
+  const stats = await inBatches(found, (f) => fsp.stat(f.full).catch(() => null));
+  return found.map((f, i) => ({ ...f, st: stats[i] })).filter((f) => f.st && f.st.size <= MAX_BYTES);
+}
+
+const folderOf = ({ rel, top }) => (top === 'Inbox' ? 'Inbox' : rel.split('/').slice(1, -1).join('/'));
+
 /** Every note, newest first (pinned on top): { path, title, folder, mtime, day, words, snippet, tags, pinned }. */
 async function list() {
   const r = await root();
   const today = ymd(Date.now());
-  const out = [];
-  for (const top of core.ROOTS) {
-    for (const full of await walk(path.join(r, top))) {
-      const rel = path.relative(r, full).split(path.sep).join('/');
-      if (!core.isNotePath(rel)) continue;
-      const st = await fsp.stat(full).catch(() => null);
-      if (!st || st.size > MAX_BYTES) continue;
-      const text = await fsp.readFile(full, 'utf8').catch(() => '');
-      const { front, body } = core.parse(text);
-      const parts = rel.split('/');
-      out.push({
-        path: rel,
-        title: core.titleOf(rel),
-        folder: top === 'Inbox' ? 'Inbox' : parts.slice(1, -1).join('/'),
-        mtime: st.mtimeMs,
-        day: ymd(st.mtimeMs),
-        words: core.words(body),
-        snippet: core.snippet(body),
-        text: body.slice(0, 4000), // for the search in the list
-        tags: core.tags(text),
-        pinned: core.pinnedIn(front),
-      });
-    }
-  }
+  const files = await scan(r);
+  const out = await inBatches(files, async (f) => {
+    const text = await fsp.readFile(f.full, 'utf8').catch(() => '');
+    const { front, body } = core.parse(text);
+    return {
+      path: f.rel,
+      title: core.titleOf(f.rel),
+      folder: folderOf(f),
+      mtime: f.st.mtimeMs,
+      day: ymd(f.st.mtimeMs),
+      words: core.words(body),
+      snippet: core.snippet(body),
+      text: body.slice(0, 4000), // for the search in the list
+      tags: core.tags(text),
+      pinned: core.pinnedIn(front),
+    };
+  });
   return { notes: core.sortNotes(out), today };
 }
 
@@ -231,10 +248,17 @@ async function polish(rel) {
   }
 }
 
-/** For the Inner World: how many notes, which changed today, and the notebooks. */
+/** For the Inner World and the phone: how many notes, which changed today, and the notebooks. Only stats,
+ *  plus a read of today's notes (pinned ones come first in `today`, as in list()). */
 async function summary() {
-  const { notes, today } = await list();
-  return { count: notes.length, today: notes.filter((n) => n.day === today).map((n) => n.title), notebooks: core.notebooks(notes, today) };
+  const r = await root();
+  const today = ymd(Date.now());
+  const notes = (await scan(r)).map((f) => ({ f, title: core.titleOf(f.rel), folder: folderOf(f), mtime: f.st.mtimeMs, day: ymd(f.st.mtimeMs), pinned: false }));
+  const fresh = notes.filter((n) => n.day === today);
+  await inBatches(fresh, async (n) => {
+    n.pinned = core.pinnedIn(core.parse(await fsp.readFile(n.f.full, 'utf8').catch(() => '')).front);
+  });
+  return { count: notes.length, today: core.sortNotes(fresh).map((n) => n.title), notebooks: core.notebooks(core.sortNotes(notes), today) };
 }
 
 module.exports = { list, read, create, save, rename, remove, restore, pin, polish, summary };

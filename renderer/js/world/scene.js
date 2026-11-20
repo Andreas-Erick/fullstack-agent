@@ -242,6 +242,14 @@ export function weatherOf(text) {
 // ------------------------------------------------------------ the frame
 let layer = null;
 
+/** Lets go of the frame's island layer (a view-sized canvas); the next frame makes a new one. */
+export function releaseLayer() {
+  if (!layer) return;
+  layer.width = 0;
+  layer.height = 0;
+  layer = null;
+}
+
 /**
  * Draws one frame. f: { w, h, dpr, cam, island, P, t, anim, lite, minute, weather, residents
  * (world px: x, y, + person fields), live: place id | null, busy: { place: n } }.

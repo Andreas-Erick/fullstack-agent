@@ -165,6 +165,14 @@ async function draw(r, win, wc, nativeImage) {
   return frames;
 }
 
+/** The current pack's key and when it was recorded, by a stat of the cached file (the pack is a few MB and
+ *  isn't read); null when it isn't recorded yet. For the warm-up and a 304 before anything is read. */
+async function cached(settings) {
+  const key = keyOf(recipe(settings));
+  const st = await fsp.stat(path.join(cacheDir(), `${key}.bin`)).catch(() => null);
+  return st?.isFile() ? { key, at: st.mtimeMs } : null;
+}
+
 /** The pack for the current face and theme: from the cache, or recorded now (~25 s); `at` = when it was recorded. */
 async function frames(settings) {
   const r = recipe(settings);
@@ -194,4 +202,4 @@ async function frames(settings) {
   }
 }
 
-module.exports = { frames, recipe, keyOf, pack, unpack, evenly, seamless, STATES, FPS };
+module.exports = { frames, cached, recipe, keyOf, pack, unpack, evenly, seamless, STATES, FPS };

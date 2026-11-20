@@ -55,9 +55,15 @@ const stem = (w) => {
 };
 const wordsOf = (s) => new Set(String(s).toLowerCase().normalize('NFKD').replace(/[’']s\b/g, '').match(/\p{L}{3,}/gu)?.filter((w) => !FILLER.has(w)).map(stem).filter((w) => w.length >= 3 && !FILLER.has(w)) || []);
 function sharesWord(query, text) {
+  return sharesWordWith(query)(text);
+}
+// The same, with the message's words worked out once (for matching it against every note title).
+function sharesWordWith(query) {
   const q = wordsOf(query);
-  for (const w of wordsOf(text)) if (q.has(w)) return true;
-  return false;
+  return (text) => {
+    for (const w of wordsOf(text)) if (q.has(w)) return true;
+    return false;
+  };
 }
 
 /**
@@ -501,7 +507,16 @@ async function matchesFor(query, activeToolNames) {
     if (entries.length) out.push(`## Schedule entries that match this message\n${entries.map((e) => `- ${e.title}: ${e.when}${e.location ? ` @ ${e.location}` : ''}`).join('\n')}`);
   }
   if (has('vault_')) {
-    const hits = ((await Promise.resolve().then(() => obsidian.search(query, 6)).catch(() => null)) || []).filter((h) => sharesWord(query, h.title)).slice(0, 2);
+    // Titles from the cached list of note paths (obsidian.notePaths), not a full-text search of the vault
+    // on every message; then only the (at most) two best-matching notes are read.
+    const matches = sharesWordWith(query);
+    const terms = String(query).toLowerCase().split(/[\s,]+/).filter((t) => t.length > 1);
+    const hits = ((await Promise.resolve().then(() => obsidian.notePaths()).catch(() => null)) || [])
+      .map((p) => ({ path: p, title: String(p).split('/').pop().replace(/\.md$/, '') }))
+      .filter((h) => matches(h.title))
+      .map((h) => ({ ...h, score: terms.filter((t) => h.title.toLowerCase().includes(t)).length }))
+      .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+      .slice(0, 2);
     const notes = [];
     for (const h of hits) {
       const n = await obsidian.readNote(h.path, 1200).catch(() => null);

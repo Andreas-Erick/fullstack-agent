@@ -849,17 +849,22 @@ function registerIpc() {
     return r;
   });
 
-  // Warm the Claude Code session for a conversation (called at launch / when a chat opens)
-  handle('llm:prewarm', async (convId) => {
+  // Warm the Claude Code session for a conversation (at launch and after a persona switch: `now`; when a
+  // chat opens: after llm.PREWARM_SETTLE_MS, and a newer request replaces a waiting one, so browsing
+  // History warms only the chat the user stays on).
+  handle('llm:prewarm', async (convId, opts) => {
     if (smoke.active) return false; // the launch check never reaches a real model (test/smokemodel.test.js)
-    const s = await store.getSettings();
-    if (s.llm.provider !== 'claude-code' || !s.claudeCode.warmOnLaunch || !convId) return false;
-    // Taken before the read: a message run again while it reads (claudecode.forget) makes this copy stale.
+    if (!convId) return false;
+    // Taken at the request, before the read: a message run again meanwhile (claudecode.forget) makes this copy stale.
     const epoch = claudecode.epochOf(convId);
-    const conv = await store.getConversation(convId);
-    if (conv?.setup) return false;
-    llm.prewarm(s, conv, { epoch }).catch((e) => log.warn('prewarm failed', { error: e }));
-    return true;
+    return llm.settlePrewarm(async () => {
+      const s = await store.getSettings();
+      if (s.llm.provider !== 'claude-code' || !s.claudeCode.warmOnLaunch) return false;
+      const conv = await store.getConversation(convId);
+      if (conv?.setup) return false;
+      llm.prewarm(s, conv, { epoch }).catch((e) => log.warn('prewarm failed', { error: e }));
+      return true;
+    }, { now: opts?.now === true });
   });
   handle('chat:endSession', (convId) => claudecode.endSession(convId));
 

@@ -17,7 +17,7 @@ import { createWalker, activeTarget, offDuty, byPlan, strollOrder } from './worl
 import { seasonOf } from './world/season.js';
 import { loadSprites, spritesReady } from './world/sprites.js';
 import { palette, W, HZ } from './world/art.js';
-import { buildIsland, release as releaseIsland, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf, bounds as sceneBounds } from './world/scene.js';
+import { buildIsland, release as releaseIsland, releaseLayer, frame as drawFrame, labels as drawLabels, bubble, fit, toScreen, toWorld, weatherOf, bounds as sceneBounds } from './world/scene.js';
 import { createReplay, replayBar } from './replay.js';
 import { initRoom, openRoom, closeRoom, roomOpen, refreshRoom } from './roomview.js';
 import { canvasFps } from './perfcore.js';
@@ -107,6 +107,10 @@ export function initInnerWorld() {
   fps.onchange = () => saveSettings({ innerWorld: { fps: fps.value } }).then(() => loop());
   on('settings', () => (fps.value = String(state.settings?.innerWorld?.fps || 'auto')));
   on('world-changed', refresh);
+  on('view', ({ name }) => {
+    clearTimeout(awayTimer);
+    if (name !== 'world') awayTimer = setTimeout(releaseWhileAway, AWAY_RELEASE_MS);
+  });
   on('settings', () => {
     P = null;
     islandKey = '';
@@ -321,6 +325,7 @@ function resize() {
   const atHome = !cam || !home || (Math.abs(cam.z - home.z) < 1e-6 && Math.abs(cam.x - home.x) < 1e-3 && Math.abs(cam.y - home.y) < 1e-3);
   home = fit(size.w, size.h, map);
   if (atHome && !interior) cam = { ...home };
+  releaseIsland(island); // its bitmap's memory now, not when the GC gets to it
   island = null;
   draw();
 }
@@ -390,6 +395,18 @@ function ensureIsland(force = false) {
   releaseIsland(old);
   islandKey = key;
   logEvent('info', 'inner world painted', { w: island.canvas.width, h: island.canvas.height, mpx: Math.round((island.canvas.width * island.canvas.height) / 1e5) / 10, ms: Math.round(performance.now() - started), sharp: Math.round((scale / want) * 100) / 100 });
+}
+
+// Away from the World view for a minute: the island's bitmap (up to ~40 MB) and the night layer go; the
+// next draw paints them again (ensureIsland).
+const AWAY_RELEASE_MS = 60000;
+let awayTimer = 0;
+function releaseWhileAway() {
+  if (currentView === 'world') return;
+  releaseIsland(island);
+  island = null;
+  islandKey = '';
+  releaseLayer();
 }
 
 // The island's picture area in world pixels (from the island's bounds, see scene.bounds).

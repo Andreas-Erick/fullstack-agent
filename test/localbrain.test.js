@@ -178,6 +178,7 @@ test('few memories: a local model gets all of them (an allergy shares no word wi
 });
 
 test('schedule entries and notes whose title matches the message come with it', async () => {
+  const reads = [];
   stub({
     './logger': quietLog,
     './store': fileStore(tmpDir('nexus-compact-match-')),
@@ -186,8 +187,10 @@ test('schedule entries and notes whose title matches the message come with it', 
     './obsidian': {
       ymd: () => '2026-10-30',
       startupContext: async () => '',
-      search: async () => [{ path: 'Notes/Incident 2026-10-27.md', title: 'Incident 2026-10-27' }, { path: 'Notes/Groceries.md', title: 'Groceries' }],
-      readNote: async (p) => ({ content: p.includes('Incident') ? 'Cause: the database connection pool was exhausted.' : 'milk' }),
+      // Titles come from the cached list of note paths; the full-text search is never run for this.
+      search: async () => assert.fail('no full-text search per message'),
+      notePaths: async () => ['Notes/Groceries.md', 'Notes/Incident 2026-10-27.md', 'Notes/Payments incident review.md', 'Daily/2026-10-27.md', 'Notes/Incident archive.md'],
+      readNote: async (p) => (reads.push(p), { content: p.includes('Incident') ? 'Cause: the database connection pool was exhausted.' : p.includes('Payments') ? 'Review notes.' : 'milk' }),
     },
   });
   const prompt = load('main/prompt.js');
@@ -198,6 +201,12 @@ test('schedule entries and notes whose title matches the message come with it', 
   const incident = (await prompt.buildCompact(s, ['vault_search'], { query: 'What caused last week’s payments incident?' })).context;
   assert.ok(incident.includes('### Notes/Incident 2026-10-27.md\nCause: the database connection pool was exhausted.'));
   assert.doesNotMatch(incident, /milk/, 'only notes whose title matches');
+  // Two notes at most, the best title match first ("payments" and "incident" both), and only they are read.
+  assert.deepStrictEqual(reads, ['Notes/Payments incident review.md', 'Notes/Incident 2026-10-27.md']);
+  reads.length = 0;
+  const none = (await prompt.buildCompact(s, ['vault_search'], { query: 'How are you today?' })).context;
+  assert.doesNotMatch(none, /Notes that match/);
+  assert.deepStrictEqual(reads, [], 'no note read when no title matches');
 });
 
 test('naming one of the user’s personas loads the persona tools (not the brain switch)', () => {

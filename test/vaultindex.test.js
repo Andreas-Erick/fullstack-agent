@@ -56,6 +56,27 @@ test('the vault status reuses its note count until a note changes', async (t) =>
   assert.strictEqual((await obsidian.status()).count, first.count + 3, 'after 5 minutes the vault is walked again');
 });
 
+// Efficiency pass: a local model's turn searched the whole vault only to match note titles (prompt.js
+// matchesFor). The list of note paths is kept for a minute or until a note is added or removed here.
+test('notePaths is kept until a note comes or goes here, or a minute passes', async (t) => {
+  const first = await obsidian.notePaths();
+  assert.ok(first.includes('Research/Eigenvalues.md'));
+  fs.writeFileSync(path.join(vault, 'Notes', 'Outside.md'), '# Outside\n');
+  assert.strictEqual(await obsidian.notePaths(), first, 'an edit in Obsidian shows after the minute');
+  await obsidian.writeNote('Research/Eigenvalues', '# Eigenvalues\n\nedited', 'overwrite');
+  assert.strictEqual(await obsidian.notePaths(), first, 'an edit of a listed note keeps the list');
+  await obsidian.writeNote('Research/Delta', '# Delta', 'overwrite');
+  const second = await obsidian.notePaths();
+  assert.ok(second.includes('Research/Delta.md') && second.includes('Notes/Outside.md'), 'a new note: walked again');
+  await obsidian.deleteNote('Research/Delta');
+  assert.ok(!(await obsidian.notePaths()).includes('Research/Delta.md'), 'a deleted note drops out');
+  fs.rmSync(path.join(vault, 'Notes', 'Outside.md'));
+  const realNow = Date.now;
+  Date.now = () => realNow() + 61000;
+  t.after(() => (Date.now = realNow));
+  assert.ok(!(await obsidian.notePaths()).includes('Notes/Outside.md'), 'after a minute the vault is walked again');
+});
+
 test('guide notes are placed once; one the user deleted stays deleted', async () => {
   const note = path.join(vault, 'Notes', 'Make Your Own Face.md');
   assert.ok(fs.existsSync(note), 'the face guide is in Notes/');

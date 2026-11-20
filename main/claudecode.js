@@ -8,6 +8,7 @@ const fsp = fs.promises;
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { StringDecoder } = require('string_decoder');
 const store = require('./store');
 const bridge = require('./bridge');
 const github = require('./github');
@@ -19,6 +20,16 @@ const claudeUsage = require('./claudeusage');
 const perf = require('./perfcore');
 
 const MCP_SERVER = path.join(__dirname, 'mcp-server.js');
+
+// A process's output as text: a character split across two chunks (UTF-8 '€' is three bytes) is put
+// back together; `text += buffer` turned each half into U+FFFD.
+function onText(stream, fn) {
+  const decoder = new StringDecoder('utf8');
+  stream.on('data', (d) => {
+    const text = typeof d === 'string' ? d : decoder.write(d);
+    if (text) fn(text);
+  });
+}
 
 // ------------------------------------------------------------- CLI lookup
 function candidates() {
@@ -97,8 +108,8 @@ function collect(cli, args, { cwd, input, timeout = 120000 } = {}) {
       killTree(child);
       reject(new Error('Claude Code did not respond in time'));
     }, timeout);
-    child.stdout.on('data', (d) => (out += d));
-    child.stderr.on('data', (d) => (err += d));
+    onText(child.stdout, (d) => (out += d));
+    onText(child.stderr, (d) => (err += d));
     child.on('error', (e) => {
       clearTimeout(timer);
       reject(e);
@@ -463,7 +474,7 @@ class Session {
     // late must not end the new one's turn or delete its files.
     const current = () => this.child === child;
     this.gotOutput = false;
-    child.stdout.on('data', (chunk) => {
+    onText(child.stdout, (chunk) => {
       if (!current()) return;
       this.gotOutput = true;
       buf += chunk;
@@ -474,7 +485,7 @@ class Session {
         if (line) this.inTurn(() => this.onLine(line));
       }
     });
-    child.stderr.on('data', (d) => {
+    onText(child.stderr, (d) => {
       if (!current()) return;
       this.stderr = (this.stderr + d).slice(-4000);
       this.inTurn(() => log.debug('claude stderr', String(d).slice(0, 1500)));
@@ -502,6 +513,12 @@ class Session {
       if (auth) invalidateStatus(); // the title bar and multi-provider mode check the sign-in again
       this.turn.reject(new Error(auth ? `${detail}\nConnect your Claude account in Settings → AI brain.` : detail));
     } else if (!wasDead && code) log.warn('claude session exited', { conversation: this.convId, code, stderr: this.stderr.slice(-300) });
+    // The Session stays in `sessions` for its resumable id; what it held for the process goes (the last
+    // turn's context and tool records, the spec with the stable prompt, the child and its streams).
+    this.turn = null;
+    this.spec = null;
+    this.child = null;
+    this.stderr = '';
   }
 
   // Stops the current reply but keeps the process and its warm cache: the CLI ends the turn with a
@@ -1065,17 +1082,17 @@ async function startOrReuse(session, conv, { settings, configKey, buildPrompt, a
     session.resumable = null;
   }
   session.memIds = p.memIds;
-  if (perf.profile(settings) === 'balanced') closeExcessSessions(conv.id);
+  closeExcessSessions(conv.id, perf.sessionCap(settings));
   await session.spawn(spec);
   session.setEffort(effort);
   return session;
 }
 
-// Balanced performance: at most a few live processes; the least recently used idle ones close (they
-// resume their conversation when it is used again).
-function closeExcessSessions(keep) {
+// At most a few live processes (perfcore.sessionCap: fewer on Balanced); the least recently used idle
+// ones close (they resume their conversation when it is used again).
+function closeExcessSessions(keep, cap) {
   const list = [...sessions.entries()].map(([id, s]) => ({ id, alive: s.alive(), busy: Boolean(s.turn && !s.turn.settled), lastUsed: s.lastUsed }));
-  for (const id of perf.sessionsToClose(list, perf.BALANCED.sessionCap, keep)) {
+  for (const id of perf.sessionsToClose(list, cap, keep)) {
     log.info('claude session closed to save memory', { conversation: id });
     sessions.get(id)?.kill();
   }
@@ -1297,4 +1314,4 @@ async function complete(prompt, { imagePath, model, timeoutMs } = {}) {
   return String(json.result || '');
 }
 
-module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, invalidateStatus, STATUS_TTL_MS, STATUS_RETRY_MS, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, warmCache, startFresh, endSession, forget, epochOf, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions, cliValue, spawnCli };
+module.exports = { CORE_TOOLS, COMPANIONS, mcpServersFor, sessionArgs, changedParts, findCli, status, invalidateStatus, STATUS_TTL_MS, STATUS_RETRY_MS, listConnectors, cachedConnectors, sessionSpec, Session, openLogin, installHint, runTurn, prewarm, warmCache, startFresh, endSession, forget, epochOf, rollover, needsRollover, ROLLOVER_TOKENS, shutdown, complete, sweepStaleTemp, liveSessions, closeIdleSessions, cliValue, spawnCli, onText };

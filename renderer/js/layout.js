@@ -242,12 +242,17 @@ export function toggleAppFullscreen() {
 
 // ------------------------------------------------------- screen sharing
 let previewTimer = null;
+let previewTick = null; // while sharing: refreshes the thumbnail
 
 function initScreenShare() {
   $('#shareBtn').onclick = async () => ((await api.screen.state()).active ? api.screen.stop() : pickScreen());
   $('#pillScreen').onclick = () => api.screen.stop();
   api.on('screen:state', showShareState);
   api.screen.state().then(showShareState).catch(() => {});
+  // A hidden window shows no thumbnail: the capture waits, and runs once when the window is back.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) previewTick?.();
+  });
 }
 
 function showShareState(st) {
@@ -260,8 +265,13 @@ function showShareState(st) {
   const thumb = $('#screenThumb');
   thumb.classList.toggle('hidden', !st.active);
   clearInterval(previewTimer);
+  previewTick = null;
   if (st.active) {
-    const tick = () => api.screen.preview().then((url) => url && (thumb.src = url)).catch(() => {});
+    const tick = () => {
+      if (document.hidden) return; // each capture grabs every window's thumbnail
+      api.screen.preview().then((url) => url && (thumb.src = url)).catch(() => {});
+    };
+    previewTick = tick;
     tick();
     previewTimer = setInterval(tick, 3000);
   } else if (st.reason === 'source gone') toast('The shared window was closed, so screen sharing stopped.');
