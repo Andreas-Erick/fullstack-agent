@@ -25,7 +25,10 @@ test('the runner ends hanging tests and leaked timers', () => {
 
 test('a test that never settles times out, the next one runs, and a leaked timer doesn’t hang the file', { timeout: 90000 }, () => {
   fs.writeFileSync(path.join(dir, 'leak.test.js'), "const test = require('node:test');\nsetInterval(() => {}, 1000);\ntest('leaks a timer', () => {});\n");
-  fs.writeFileSync(path.join(dir, 'hang.test.js'), "const test = require('node:test');\ntest('never settles', () => new Promise(() => {}));\ntest('after', () => {});\n");
+  // The hang holds a timer, as a real one does (a socket, a child process): a bare `new Promise(() => {})` is
+  // cancelled by Node 22 as soon as the event loop is empty ("Promise resolution is still pending…"), while
+  // Node 24 waits for the time limit, so the release run (Node 22) failed where the local run passed.
+  fs.writeFileSync(path.join(dir, 'hang.test.js'), "const test = require('node:test');\ntest('never settles', () => new Promise(() => { setInterval(() => {}, 1000); }));\ntest('after', () => {});\n");
   const args = NODE_TEST_ARGS.map((a) => (a.startsWith('--test-timeout=') ? '--test-timeout=2000' : a));
   // The runner marks its child processes with NODE_TEST_CONTEXT; a nested runner that sees it reports to
   // the outer one and prints nothing.
