@@ -152,6 +152,21 @@ test('long and hostile error texts are read at once', () => {
   assert.ok(performance.now() - t0 < 2000, `took ${Math.round(performance.now() - t0)} ms`);
 });
 
+// Settings' and the wizard's Test connection: the same plain words, the provider's text kept for Details.
+test('a failed connection test in plain words, the raw text only when it adds something', () => {
+  const r = c.testFailure('Chat completion failed: 401 {"error":{"message":"Invalid API key"}}', { label: 'Groq' });
+  assert.strictEqual(r.line, '✕ Groq: The brain isn’t signed in. Connect your Claude account or check the key in Settings → AI brain.');
+  assert.match(r.raw, /^Groq: Chat completion failed: 401/);
+  const plain = c.testFailure('fetch failed');
+  assert.match(plain.line, /^✕ Couldn’t reach the brain\./);
+  assert.strictEqual(plain.raw, 'fetch failed');
+  const empty = c.testFailure('');
+  assert.strictEqual(empty.line, '✕ Something went wrong. The reply failed.');
+  assert.strictEqual(empty.raw, '', 'nothing to show under Details');
+  const toolsran = c.testFailure('Gemini already used tools, so this reply was not repeated.');
+  assert.strictEqual(toolsran.raw, '', 'the text already says it all');
+});
+
 test('the phone can load it: no imports', () => {
   const src = fs.readFileSync(path.join(ROOT, 'renderer/js/chatcore.js'), 'utf8');
   assert.ok(!/^import /m.test(src));

@@ -580,6 +580,7 @@ function registerIpc() {
   handle('memory:save', (e) => memory.save(e));
   handle('memory:update', (id, patch) => memory.update(id, patch));
   handle('memory:delete', (id) => memory.remove(id));
+  handle('memory:restore', (e) => memory.restore(e));
   handle('memory:clear', () => memory.clear());
   handle('memory:dir', () => memory.vaultDir());
   handle('memory:openDir', async () => opened(await shell.openPath(await memory.vaultDir())));

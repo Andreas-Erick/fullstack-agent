@@ -26,7 +26,7 @@
     <header class="titlebar">
       <div class="brand">
         <div class="brand-avatar" id="brandAvatar"></div>
-        <span class="brand-name" id="brandName">NEXUS</span>
+        <span class="brand-name" id="brandName">Siren</span>
         <select class="input persona-select hidden" id="personaSelect" title="Switch persona"></select>
         <span class="brand-status">
           <span class="state-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
@@ -149,7 +149,7 @@
             <div class="messages" id="messages" role="region" aria-label="Conversation">
               <div class="empty-state" id="emptyState">
                 <div class="empty-orb"></div>
-                <h1 class="display" id="welcomeTitle">NEXUS ONLINE</h1>
+                <h1 class="display" id="welcomeTitle">Siren</h1>
                 <p class="greeting" id="welcomeGreeting"></p>
                 <p>Type a message, or hold <kbd id="pttHint">F8</kbd> / the mic button to talk.</p>
                 <div class="suggestions">
@@ -205,7 +205,7 @@
           <div class="face-scene" id="bigScene" aria-hidden="true"></div>
           <div class="face-host" id="bigFace"></div>
           <div class="face-overlay">
-            <div class="face-name display" id="faceName">NEXUS</div>
+            <div class="face-name display" id="faceName">Siren</div>
             <div class="face-state" id="faceState">SLEEPING</div>
             <div class="face-caption" id="faceCaption"></div>
             <div class="face-controls">
@@ -457,9 +457,9 @@
         <section class="view padded" id="view-settings">
           <div class="view-head">
             <h2 class="display">Configuration</h2>
-            <div class="actions"><span class="save-state" id="saveState"></span></div>
           </div>
-          <div class="settings-tabs" id="settingsTabs"></div>
+          <!-- "✓ Saved" lives in the sticky tab bar, where the user is (settings.js drawTabs keeps it there). -->
+          <div class="settings-tabs" id="settingsTabs"><span class="save-state" id="saveState">✓ Saved</span></div>
           <div class="settings" id="settingsRoot"></div>
         </section>
       </main>

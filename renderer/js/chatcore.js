@@ -198,3 +198,13 @@ export function errorHelp(message, { usage = null, settings = null, now = Date.n
   }
   return out('default', 'Something went wrong', first || 'The reply failed.');
 }
+
+/**
+ * A failed connection test (Settings, the setup wizard) in plain words: `line` = "✕ label: title. text",
+ * `raw` = the provider's own text for a Details box ('' when it adds nothing).
+ */
+export function testFailure(message, { label = '', settings = null } = {}) {
+  const help = errorHelp(message, { settings });
+  const name = label ? `${label}: ` : '';
+  return { line: `✕ ${name}${help.title}. ${help.text}`, raw: help.raw && help.raw !== help.text ? `${name}${help.raw}` : '' };
+}

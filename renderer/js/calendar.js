@@ -510,7 +510,7 @@ function details(e) {
       el(
         'div',
         { class: 'modal-actions' },
-        el('button', { class: 'btn danger', onclick: () => (close(), removeEntry(entry || { id: e.entryId, title: e.title })) }, 'Delete'),
+        el('button', { class: 'btn danger', style: { marginRight: 'auto' }, onclick: () => (close(), removeEntry(entry || { id: e.entryId, title: e.title })) }, 'Delete'),
         e.recurring ? el('button', { class: 'btn', onclick: () => (close(), skipDay(e, day)) }, 'Skip this day') : null,
         entry ? el('button', { class: 'btn', onclick: () => (close(), editor(entry)) }, 'Edit') : null,
         el('button', { class: 'btn primary', onclick: () => close() }, 'Close'),

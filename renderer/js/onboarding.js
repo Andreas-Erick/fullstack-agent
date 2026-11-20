@@ -12,7 +12,7 @@ import { speaker, listMics, testLocalVoice } from './voice.js';
 import { BUILT_IN, FaceHost } from './faces/host.js';
 import { scanInto } from './hwscan.js';
 import { KOKORO_VOICES } from './kokorotext.js';
-import { localFinder } from './settings.js';
+import { localFinder, connectClaude, testOutcome, showResult, showFailure } from './settings.js';
 import { speechPlan } from './perfcore.js';
 import { faceChoices, stepsFor, finishPatch, launchMode, accepted } from './onboardcore.js';
 
@@ -196,13 +196,29 @@ async function render() {
     draft.provider ||= s.llm.provider;
     const area = el('div', { class: 'field' });
     const out = el('div', { class: 'test-result hidden' });
+    // The same outcome as Settings' Test connection: plain words, the provider's own text under Details.
+    const testBrain = async (ev) => {
+      const btn = ev.currentTarget;
+      if (btn.disabled) return;
+      btn.disabled = true;
+      out.className = 'test-result';
+      out.textContent = 'Testing…';
+      try {
+        const o = testOutcome(await api.llm.test());
+        showResult(out, o.ok, o.text, o.raw);
+      } catch (e) {
+        showFailure(out, e);
+      } finally {
+        btn.disabled = false;
+      }
+    };
     const drawArea = async () => {
       area.innerHTML = '';
       if (draft.provider === 'claude-code') {
         const st = await api.claude.status({ fresh: true }).catch((e) => ({ installed: true, checked: false, error: e.message }));
         if (!st.installed) area.append(el('div', { class: 'test-result err' }, `Claude Code isn’t installed. Install it, then click Re-check:\n  ${await api.claude.installHint()}`));
-        else if (st.checked === false) area.append(el('div', { class: 'test-result err' }, `Couldn’t check your Claude account: ${st.error}`), el('button', { class: 'btn', onclick: () => api.claude.login() }, 'Connect Claude account'));
-        else if (!st.loggedIn) area.append(el('div', { class: 'test-result' }, `Claude Code ${st.version} found — connect your account:`), el('button', { class: 'btn primary', onclick: () => api.claude.login() }, 'Connect Claude account'));
+        else if (st.checked === false) area.append(el('div', { class: 'test-result err' }, `Couldn’t check your Claude account: ${st.error}`), el('button', { class: 'btn', onclick: () => connectClaude('Re-check') }, 'Connect Claude account'));
+        else if (!st.loggedIn) area.append(el('div', { class: 'test-result' }, `Claude Code ${st.version} found — connect your account:`), el('button', { class: 'btn primary', onclick: () => connectClaude('Re-check') }, 'Connect Claude account'));
         else area.append(el('div', { class: 'test-result ok' }, `✓ Connected as ${st.email} (${st.subscription || st.authMethod} plan)`));
         area.append(el('button', { class: 'btn', onclick: drawArea }, '⟳ Re-check'));
       } else if (draft.provider === 'openai') {
@@ -238,7 +254,7 @@ async function render() {
         async (v) => ((draft.provider = v), await saveSettings({ llm: { provider: v } }), drawArea()),
       ),
       area,
-      el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: async () => { out.className = 'test-result'; out.textContent = 'Testing…'; try { const r = await api.llm.test(); out.className = 'test-result ok'; out.textContent = `✓ ${r.model} replied “${r.reply}” in ${r.ms} ms`; } catch (e) { out.className = 'test-result err'; out.textContent = `✕ ${e.message}`; } } }, '⚡ Test')),
+      el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: testBrain }, '⚡ Test')),
       out,
     );
     drawArea();

@@ -628,3 +628,63 @@ test('Evolution: refreshes that overlap draw once, whatever order their answers 
     assert.strictEqual(u.nodes['#evoList'].children.length, 1, `seed ${seed}: the list holds one change`);
   }
 });
+
+// Number fields: an empty or half-typed value saves nothing (Number('') was 0: a cleared "Journal after"
+// journaled at once, a half-typed port restarted the server); counts take "1,000".
+test('number fields: empty, invalid and half-typed values give null; thousands separators are read', () => {
+  for (const v of ['', '   ', null, undefined, 'abc', '1.5', '1,5,x', '-', '12a', 'NaN', 'Infinity', '1e3', '٣']) assert.strictEqual(m.parseNumber(v), null, JSON.stringify(v));
+  assert.strictEqual(m.parseNumber('15'), 15);
+  assert.strictEqual(m.parseNumber(' 0 '), 0, 'a typed 0 is a value');
+  assert.strictEqual(m.parseNumber('1,000'), 1000);
+  assert.strictEqual(m.parseNumber('1 000'), 1000);
+  assert.strictEqual(m.parseNumber('1\u00a0500'), 1500, 'a no-break space');
+  assert.strictEqual(m.parseNumber('1_000'), 1000);
+  assert.strictEqual(m.parseNumber("1'000"), 1000);
+  assert.strictEqual(m.parseNumber('１２'), 12, 'full-width digits');
+  assert.strictEqual(m.parseNumber('-5'), -5);
+  // Decimal fields (temperature): one comma is the decimal point; a dot stays one.
+  assert.strictEqual(m.parseNumber('0,7', { decimal: true }), 0.7);
+  assert.strictEqual(m.parseNumber('0.7', { decimal: true }), 0.7);
+  assert.strictEqual(m.parseNumber('.5', { decimal: true }), 0.5);
+  assert.strictEqual(m.parseNumber('1,000.5', { decimal: true }), 1000.5);
+  for (const v of ['', ' ', '1.2.3', '0,7,1x', 'x', '-']) assert.strictEqual(m.parseNumber(v, { decimal: true }), null, JSON.stringify(v));
+});
+
+test('paths: one pair of surrounding quotes and the spaces go (Explorer’s "Copy as path")', () => {
+  assert.strictEqual(m.cleanPath('"C:\\Users\\Anna\\Vault"'), 'C:\\Users\\Anna\\Vault');
+  assert.strictEqual(m.cleanPath("  'C:\\Program Files\\claude.cmd'  "), 'C:\\Program Files\\claude.cmd');
+  assert.strictEqual(m.cleanPath(' C:\\x '), 'C:\\x');
+  assert.strictEqual(m.cleanPath('"C:\\x'), '"C:\\x', 'an unmatched quote stays');
+  assert.strictEqual(m.cleanPath('"'), '"');
+  assert.strictEqual(m.cleanPath('""'), '');
+  assert.strictEqual(m.cleanPath(''), '');
+  assert.strictEqual(m.cleanPath(null), '');
+  assert.strictEqual(m.cleanPath('"C:\\Bücher\\Ω"'), 'C:\\Bücher\\Ω');
+  assert.strictEqual(m.cleanPath('C:\\a "b" c'), 'C:\\a "b" c', 'quotes inside stay');
+});
+
+test('settings.js: number fields never save Number(""), paths are cleaned, "✓ Saved" sits in the sticky tab bar', () => {
+  const src = read('renderer/js/settings.js');
+  const part = (name) => {
+    const i = src.indexOf(`function ${name}(`);
+    assert.ok(i >= 0, `settings.js has ${name}`);
+    return src.slice(i, src.indexOf('\n}\n', i));
+  };
+  const text = part('text');
+  assert.doesNotMatch(text, /Number\(input\.value\)/);
+  assert.match(text, /v = parseNumber\(v, \{ decimal \}\);[\s\S]*if \(v === null\) return;/);
+  assert.match(text, /addEventListener\('blur'/, 'the last good value comes back on blur');
+  assert.match(part('folder'), /cleanPath\(input\.value\)/);
+  assert.match(src, /text\('claudeCode\.cliPath', [^\n]*\{ path: true/);
+  assert.match(src, /text\('llm\.temperature', 'Temperature', \{ type: 'number', decimal: true \}\)/);
+  assert.match(part('drawTabs'), /bar\.replaceChildren\(list, saved, search\)/);
+  assert.match(read('renderer/index.html'), /<div class="settings-tabs" id="settingsTabs"><span class="save-state" id="saveState">/);
+  // Test connection: plain words, the raw text under Details (chatcore.testFailure); the wizard shares it.
+  assert.match(part('showFailure'), /testFailure\(plainError\(err\)/);
+  assert.match(part('brainCard'), /showFailure\(out, err\)/);
+  assert.doesNotMatch(src, /`✕ \$\{p\.name\}: \$\{p\.error\}`/);
+  const wizard = read('renderer/js/onboarding.js');
+  assert.match(wizard, /testOutcome\(await api\.llm\.test\(\)\)/);
+  assert.doesNotMatch(wizard, /onclick: \(\) => api\.claude\.login\(\)/, 'Connect says what to do next (connectClaude)');
+  assert.match(part('brainCard'), /Finish signing out in the window that opened, then click Refresh\./);
+});

@@ -1,5 +1,5 @@
 // Chat view: conversation history, streaming messages, tool-call chips, voice integration.
-import { $, api, el, renderMarkdown, timeAgo, toast, toastActions, toastError, confirmDialog, promptDialog, on, emit } from './util.js';
+import { $, api, el, renderMarkdown, timeAgo, toast, toastActions, toastError, confirmDialog, promptDialog, on, emit, plainError } from './util.js';
 import { bargeIn, bargeInOver } from './bargein.js';
 import * as redo from './redocore.mjs';
 import { switchView, currentView } from './nav.js';
@@ -304,7 +304,7 @@ function emptyStateNode() {
   const node = emptyTemplate.cloneNode(true);
   node.querySelectorAll('.suggestion').forEach((b) => (b.onclick = () => send(b.textContent)));
   const name = state.settings?.agent?.name || 'Siren';
-  node.querySelector('#welcomeTitle').textContent = `${name} online`;
+  node.querySelector('#welcomeTitle').textContent = name; // no status claim: the title bar's lights say whether the brain is ready
   node.querySelector('#welcomeGreeting').textContent = state.settings?.appearance?.greeting || '';
   node.querySelector('#pttHint').textContent = state.settings?.stt?.pttKey || 'F8';
   node.querySelector('.suggestions').before(handoffSlot(openConversation)); // "Where we left off"
@@ -818,6 +818,7 @@ export async function send(text, { voice = false, hidden = false, attach = false
   closeHistory({ focus: false });
   $('#emptyState')?.remove();
   messagesEl().querySelector('.empty-state')?.remove();
+  messagesEl().querySelectorAll('.msg.send-failed').forEach((n) => n.remove());
 
   const requestId = `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   const sharing = !$('#screenThumb').classList.contains('hidden') && state.settings.screen?.attachToMessages !== false;
@@ -857,22 +858,36 @@ export async function send(text, { voice = false, hidden = false, attach = false
     currentId = res.conversationId;
   } catch (err) {
     restoreAttachments(files);
-    finish();
+    if (again) {
+      finish();
+      wrap.remove();
+      toast(plainError(err), 'error');
+      openConversation(currentId); // nothing was dropped on the computer
+      return;
+    }
+    // The message never reached the computer: as for a refusal, the pending copy goes and the words come back,
+    // and the reason shows in plain words where the reply would have been (Details: the raw text).
+    const help = chatcore.errorHelp(plainError(err), { usage: currentUsage(), settings: state.settings });
+    wrap.classList.add('send-failed'); // no reply of a stored message: syncActions passes it, the next send removes it
+    refusedSend(null, text, requestId, wrap, { keepWrap: true });
+    bubble.classList.remove('streaming');
     bubble.classList.add('error-bubble');
-    bubble.textContent = err.message;
-    if (again) (toast(err.message, 'error'), openConversation(currentId)); // nothing was dropped on the computer
+    bubble.replaceChildren(errorNode({ ...help, text: `${help.text} Your message wasn't sent: it is back in the box.` }));
+    toast(`⚠ ${help.title}`, 'error', 6000); // the Face layout hides the bubble
+    announce(`Error: ${help.title}. ${help.text}`);
   }
 }
 
 // An attachment expired before the message was stored (main/attachments.js claim): nothing was sent.
-// The message shown while sending goes; the words come back to an empty box.
-function refusedSend(message, text, requestId, wrap) {
+// The message shown while sending goes; the words come back to an empty box. keepWrap: the reply's
+// place stays, to show why (a send that failed).
+function refusedSend(message, text, requestId, wrap, { keepWrap = false } = {}) {
   finish();
   messagesEl().querySelector(`.msg[data-pending="${CSS.escape(requestId)}"]`)?.remove();
-  wrap.remove();
+  if (!keepWrap) wrap.remove();
   const input = $('#input');
   if (!input.value) ((input.value = text), autosize());
-  toast(message, 'error');
+  if (message) toast(message, 'error');
   syncActions();
 }
 
@@ -1101,13 +1116,12 @@ function syncActions() {
     return;
   }
   let reply = userNode.nextElementSibling;
-  while (reply && !reply.matches('.msg.assistant')) reply = reply.nextElementSibling;
+  while (reply && !reply.matches('.msg.assistant:not(.send-failed)')) reply = reply.nextElementSibling;
   if (reply) {
-    // A reply that was stopped (or failed, with its own button): Try again under it.
+    // A reply that was stopped (or failed, with its own button): the same visible card with Try again as a
+    // conversation opened later shows, not a button hidden in the meta row.
     if (reply.querySelector('.reply-error')) return;
-    const body = reply.querySelector('.msg-body');
-    const meta = body.querySelector(':scope > .msg-meta') || body.appendChild(el('div', { class: 'msg-meta' }));
-    meta.append(redoButton('↻ Try again', 'Send this message again (the stopped reply is replaced)', () => runAgain('again', a.again)));
+    reply.querySelector('.msg-body')?.append(el('div', { class: 'msg-failed' }, stopNode('Stopped.', a.again)));
     return;
   }
   // A conversation opened later: the failure (or the stop) under the message itself.

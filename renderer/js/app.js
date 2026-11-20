@@ -26,7 +26,7 @@ import { initDocs } from './docs.js';
 import { initSettings } from './settings.js';
 import { initEvolution, refresh as refreshEvolution } from './evolution.js';
 import { initSkills, refresh as refreshSkills } from './skills.js';
-import { initNotes, refresh as refreshNotes, openDump } from './notes.js';
+import { initNotes, refresh as refreshNotes, openDump, newNote } from './notes.js';
 import { initRoutines, refresh as refreshRoutines } from './routines.js';
 import { initInnerWorld, refresh as refreshInnerWorld } from './innerworld.js';
 import { initArchMap, refresh as refreshArchMap } from './archmap.js';
@@ -468,6 +468,11 @@ function setupShortcuts() {
       toggleHistory();
     } else if (mod && e.key.toLowerCase() === 'n') {
       e.preventDefault();
+      // In the Notes view a new note, also when the focus is outside the view (Ctrl+9 moves none); a chat elsewhere.
+      if (currentView === 'notes') {
+        if (!dialogOpen() && !$('#notesDumpLayer')) newNote();
+        return;
+      }
       switchView('chat');
       newChat();
     } else if (e.key === 'F11' && currentView === 'face') {

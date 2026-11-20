@@ -1,5 +1,5 @@
 // Memory vault view: browse, search, add, edit, delete, import/export.
-import { $, api, el, escapeHtml, timeAgo, toast, toastError, modal, confirmDialog, plainError, debounce, on } from './util.js';
+import { $, api, el, escapeHtml, timeAgo, toast, toastActions, toastError, modal, confirmDialog, plainError, debounce, on } from './util.js';
 
 let entries = [];
 
@@ -161,6 +161,8 @@ function render() {
                   if (await confirmDialog('Delete memory', `Forget “${e.title}”?`, 'Delete')) {
                     try {
                       await api.memory.delete(e.id);
+                      // The entry is still in hand: Undo writes it back as it was (memory:restore).
+                      toastActions(`Forgot “${e.title}”`, [['Undo', () => api.memory.restore(e).then(() => toast(`“${e.title}” is back.`), (err) => toastError(plainError(err))).finally(refresh)]]);
                     } catch (err) {
                       toastError(plainError(err));
                     } finally {

@@ -1,5 +1,6 @@
 // Configuration dashboard. Every control auto-saves to settings.json (secrets are encrypted at rest).
-import { $, api, el, escapeHtml, toast, toastError, confirmDialog, on, emit, modal, logEvent } from './util.js';
+import { $, api, el, escapeHtml, toast, toastError, confirmDialog, on, emit, modal, logEvent, plainError } from './util.js';
+import { testFailure } from './chatcore.js';
 import { state, saveSettings, loadSettings } from './state.js';
 import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice, forgetVoiceLines } from './voice.js';
 import { KOKORO_VOICES } from './kokorotext.js';
@@ -17,7 +18,7 @@ import { detect } from './perf.js';
 import { profile, speechPlan } from './perfcore.js';
 import { checkNow as checkUpdatesNow } from './updates.js';
 import { TABS, tabFor, validTab, stepTab, matches } from './settingstabs.js';
-import { PERSONA_PATHS, stale, staleNow, createSaves } from './settingsave.js';
+import { PERSONA_PATHS, stale, staleNow, createSaves, parseNumber, cleanPath } from './settingsave.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -78,10 +79,11 @@ async function save(p, value, persona = renderedPersona) {
       if (!(await saveForPersona(patchFor(p, value), persona))) return false;
     } else await saveSettings(patchFor(p, value));
     const s = $('#saveState');
-    s.textContent = '✓ Saved';
-    s.classList.add('show');
-    clearTimeout(savedTimer);
-    savedTimer = setTimeout(() => s.classList.remove('show'), 1400);
+    if (s) {
+      s.classList.add('show');
+      clearTimeout(savedTimer);
+      savedTimer = setTimeout(() => s.classList.remove('show'), 1400);
+    }
     return true;
   } catch (err) {
     toastError(err);
@@ -93,12 +95,28 @@ const queueSave = (p, value) => saves.queue(p, value, renderedPersona);
 const flushSaves = () => saves.flushAll();
 
 // ---------------------------------------------------------- field builders
-function text(p, label, { type = 'text', placeholder = '', hint = '', onChange } = {}) {
-  const input = el('input', { class: 'input', type, value: get(p) ?? '', placeholder, spellcheck: 'false', step: type === 'number' ? 'any' : null, 'data-setting': p });
+// type 'number': a text box with a numeric keyboard (so "1,000" can be read, settingsave.parseNumber); an
+// empty or half-typed value saves nothing and the box gets the last good value back when it loses focus.
+// decimal: a fraction is allowed (temperature). path: Explorer's "Copy as path" quotes are dropped.
+function text(p, label, { type = 'text', placeholder = '', hint = '', onChange, decimal = false, path = false } = {}) {
+  const number = type === 'number';
+  const input = el('input', { class: 'input', type: number ? 'text' : type, inputmode: number ? (decimal ? 'decimal' : 'numeric') : null, value: get(p) ?? '', placeholder, spellcheck: 'false', 'data-setting': p });
+  let good = get(p) ?? '';
   input.addEventListener('input', () => {
-    const v = type === 'number' ? Number(input.value) : input.value;
+    let v = input.value;
+    if (number) {
+      v = parseNumber(v, { decimal });
+      if (v === null && input.value.trim() !== '') input.setAttribute('aria-invalid', 'true');
+      else input.removeAttribute('aria-invalid');
+      if (v === null) return;
+      good = v;
+    } else if (path) v = cleanPath(v);
     queueSave(p, v);
     onChange?.(v);
+  });
+  input.addEventListener('blur', () => {
+    if (number && parseNumber(input.value, { decimal }) === null) (input.value = good), input.removeAttribute('aria-invalid');
+    else if (path && input.value !== cleanPath(input.value)) input.value = cleanPath(input.value);
   });
   return field(label, input, hint);
 }
@@ -152,7 +170,9 @@ function field(label, control, hint) {
 function folder(p, label, { hint = '', placeholder = '', onChange } = {}) {
   const input = el('input', { class: 'input', value: get(p) || '', placeholder, spellcheck: 'false', 'data-setting': p });
   input.addEventListener('change', async () => {
-    await save(p, input.value.trim());
+    const dir = cleanPath(input.value); // a pasted "C:\…\Vault" (Copy as path) keeps no quotes
+    if (input.value !== dir) input.value = dir;
+    await save(p, dir);
     onChange?.();
   });
   const browse = el('button', {
@@ -176,10 +196,17 @@ function card(id, title, desc, ...children) {
 function result() {
   return el('div', { class: 'test-result hidden' });
 }
-function showResult(box, ok, msg) {
+export function showResult(box, ok, msg, raw = '') {
   box.classList.remove('hidden', 'ok', 'err');
   box.classList.add(ok ? 'ok' : 'err');
   box.textContent = msg;
+  if (raw) box.append(el('details', { class: 'reply-error-raw' }, el('summary', {}, 'Details'), el('pre', {}, raw)));
+}
+
+// A failed connection test in plain words (chatcore.testFailure), the provider's own text under Details.
+export function showFailure(box, err) {
+  const f = testFailure(plainError(err), { settings: state.settings });
+  showResult(box, false, f.line, f.raw);
 }
 
 // ------------------------------------------------------------------- render
@@ -280,7 +307,8 @@ function drawTabs() {
   search.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && search.value) (e.preventDefault(), (search.value = ''), (query = ''), drawTabsKeepingSearch(), showCards());
   });
-  bar.replaceChildren(list, search);
+  const saved = $('#saveState') || el('span', { class: 'save-state', id: 'saveState' }, '✓ Saved');
+  bar.replaceChildren(list, saved, search);
 }
 
 // Redraws the tabs' state while the search field keeps its focus and caret.
@@ -905,12 +933,12 @@ function brainCard() {
       showResult(out, true, 'Testing…');
       try {
         const r = await api.llm.test();
-        if (r.providers) showResult(out, true, r.providers.map((p) => (p.ok ? `✓ ${p.name} · ${p.model} · ${p.ms} ms` : `✕ ${p.name}: ${p.error}`)).join('\n'));
-        else showResult(out, true, `✓ Connected in ${r.ms} ms · model: ${r.model}${r.models ? ` · ${r.models} models available` : ''}\nReply: “${r.reply}”`);
+        const o = testOutcome(r);
+        showResult(out, o.ok, o.text, o.raw);
         if (r.providers) refreshRouting?.();
         emit('status-refresh');
       } catch (err) {
-        showResult(out, false, `✕ ${err.message}`);
+        showFailure(out, err);
       } finally {
         test.disabled = false;
         test.textContent = '⚡ Test connection';
@@ -932,7 +960,7 @@ function brainCard() {
       actions.innerHTML = '';
       // A check that failed (timed out, crashed) says nothing about the sign-in: it isn't "not installed".
       const st = await api.claude.status({ fresh: true }).catch((e) => ({ installed: true, checked: false, error: e.message }));
-      const connect = (cls) => el('button', { class: cls, onclick: async () => (await api.claude.login(), toast('Finish signing in in the terminal/browser window, then click Refresh.', 'info', 8000)) }, 'Connect Claude account');
+      const connect = (cls) => el('button', { class: cls, onclick: () => connectClaude() }, 'Connect Claude account');
       if (!st.installed) {
         const hint = await api.claude.installHint();
         line.className = 'test-result err';
@@ -948,9 +976,10 @@ function brainCard() {
       } else {
         line.className = 'test-result ok';
         line.textContent = `✓ Connected as ${st.email || 'your Claude account'} · ${st.subscription ? `${st.subscription} plan` : st.authMethod} · Claude Code ${st.version}`;
-        actions.append(el('button', { class: 'btn', onclick: () => api.claude.logout() }, 'Sign out'));
       }
       actions.append(el('button', { class: 'btn', onclick: () => (refreshStatus(), emit('status-refresh')) }, '⟳ Refresh'));
+      // Sign out opens Claude Code's own window: say what happens next, and keep it apart from Refresh.
+      if (st.installed && st.checked !== false && st.loggedIn) actions.append(el('button', { class: 'btn danger', style: { marginLeft: '12px' }, onclick: () => api.claude.logout().then(() => toast('Finish signing out in the window that opened, then click Refresh.', 'info', 8000), (e) => toastError(plainError(e))) }, 'Sign out'));
     };
     refreshStatus();
     body.push(
@@ -963,7 +992,7 @@ function brainCard() {
         select('claudeCode.model', 'Model', [['default', 'Account default'], ['opus', 'Opus (latest)'], ['sonnet', 'Sonnet (latest)'], ['haiku', 'Haiku (fastest)'], ['fable', 'Fable (most capable)']]),
         select('claudeCode.effort', 'Effort', [['default', 'Default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']]),
       ),
-      text('claudeCode.cliPath', 'Path to the claude executable', { placeholder: 'auto-detect', hint: 'Uses your Claude subscription through Claude Code — no API key. Claude Code’s own web search and file tools are available to the agent; usage counts toward your plan’s limits.' }),
+      text('claudeCode.cliPath', 'Path to the claude executable', { path: true, placeholder: 'auto-detect', hint: 'Uses your Claude subscription through Claude Code — no API key. Claude Code’s own web search and file tools are available to the agent; usage counts toward your plan’s limits.' }),
       el('div', { class: 'grid2' }, text('claudeCode.fastModel', 'Fast model', { placeholder: 'haiku' }), text('claudeCode.deepModel', 'Deep model', { placeholder: 'opus' })),
       text('claudeCode.normalModel', 'Model for everyday messages', { placeholder: 'same as Model', hint: 'Quick lookups use the fast model, explanations and plans the deep one, everything else this one. Sonnet starts a reply that uses tools in a few seconds; Opus often takes 15. Empty = the model above.' }),
       el('div', { class: 'grid2' }, toggle('claudeCode.warmOnLaunch', 'Keep a warm session (faster replies)'), text('claudeCode.idleMinutes', 'Close idle session after (min)', { type: 'number' })),
@@ -1014,7 +1043,7 @@ function brainCard() {
       text('llm.apiKey', 'Bearer token', { type: 'password', placeholder: 'optional' }),
       field('Model', el('div', { class: 'row' }, modelSel, el('button', { class: 'btn', onclick: () => loadModels(false) }, '⟳ Load models'))),
       modelNote,
-      el('div', { class: 'grid2' }, text('llm.temperature', 'Temperature', { type: 'number' }), text('llm.maxTokens', 'Max output tokens', { type: 'number' })),
+      el('div', { class: 'grid2' }, text('llm.temperature', 'Temperature', { type: 'number', decimal: true }), text('llm.maxTokens', 'Max output tokens', { type: 'number' })),
       text('llm.historyLimit', 'Messages of history sent per request', { type: 'number', hint: 'Keeps prompts within the context window of free models.' }),
       toggle('llm.compaction', 'Summarize older messages instead of dropping them'),
       el('div', { class: 'grid2' }, text('llm.fastModel', 'Fast model', { placeholder: 'same as above' }), text('llm.deepModel', 'Deep model', { placeholder: 'same as above' })),
@@ -1090,6 +1119,24 @@ const compactSelect = () =>
   select('llm.compactPrompt', 'Prompt for local models', [['auto', 'Automatic (compact for every local model)'], ['on', 'Always compact'], ['off', 'Always the full prompt']], {
     hint: 'A local model re-reads the whole prompt with every message. The compact one (the everyday tools, a few hundred words) answers in a second or two; the full one has every tool and is slow on most computers, and can overflow a local model’s memory. Quick and normal messages are answered without hidden thinking; deep questions may think.',
   });
+
+// Connect Claude account (Settings, the setup wizard): opens Claude Code's sign-in window and says what to do
+// next. recheck: the label of the button that checks again there.
+export function connectClaude(recheck = 'Refresh') {
+  return api.claude.login().then(() => toast(`Finish signing in in the terminal/browser window, then click ${recheck}.`, 'info', 8000), (e) => toastError(plainError(e)));
+}
+
+// A connection test's outcome (Settings, the setup wizard): one line per provider in multi-provider mode, a
+// failure in plain words with the provider's own text under Details (chatcore.testFailure).
+export function testOutcome(r) {
+  if (!r.providers) return { ok: true, text: `✓ Connected in ${r.ms} ms · model: ${r.model}${r.models ? ` · ${r.models} models available` : ''}\nReply: “${r.reply}”`, raw: '' };
+  const failed = new Map(r.providers.filter((p) => !p.ok).map((p) => [p, testFailure(String(p.error || ''), { label: p.name, settings: state.settings })]));
+  return {
+    ok: r.providers.some((p) => p.ok),
+    text: r.providers.map((p) => (p.ok ? `✓ ${p.name} · ${p.model} · ${p.ms} ms` : failed.get(p).line)).join('\n'),
+    raw: [...failed.values()].map((f) => f.raw).filter(Boolean).join('\n\n'),
+  };
+}
 
 // Finds Ollama and LM Studio on this computer and the models they have; picking one fills in the
 // server address and the model of `section` (llm, or local in multi-provider mode).
@@ -1979,7 +2026,7 @@ function remoteCard() {
             },
           }, d.readOnly ? 'Allow full access' : 'Make view only'),
           el('button', {
-            class: 'btn small',
+            class: 'btn small danger',
             onclick: async () => {
               if (!(await confirmDialog('Remove device', `“${d.name}” will no longer be able to reach the assistant.`, 'Remove'))) return;
               await api.remote.revoke(d.id).catch(toastError);

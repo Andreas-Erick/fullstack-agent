@@ -203,6 +203,9 @@ select.input option { background: var(--bg-3); }
 .dropdown-menu.open { display: flex; }
 .dropdown-menu button { text-align: left; padding: 8px 10px; border: none; background: none; border-radius: 8px; cursor: pointer; }
 .dropdown-menu button:hover { background: rgba(var(--c1), 0.08); }
+/* A destructive entry stands apart from the ones above it. */
+.dropdown-menu :not(.danger) + .danger { position: relative; margin-top: 9px; }
+.dropdown-menu :not(.danger) + .danger::before { content: ''; position: absolute; left: 6px; right: 6px; top: -5px; border-top: 1px solid var(--line); pointer-events: none; }
 
 /* ================= Chat ================= */
 #view-chat { gap: 14px; padding: 14px; }
@@ -292,8 +295,14 @@ select.input option { background: var(--bg-3); }
 .msg-meta { display: flex; gap: 10px; margin-top: 6px; font-size: 11px; color: var(--muted); opacity: 0; transition: 0.15s; }
 .msg:hover .msg-meta { opacity: 1; }
 .msg:focus-within .msg-meta { opacity: 1; }
-.msg-meta button { border: none; background: none; color: var(--muted); cursor: pointer; padding: 0; font-size: 11px; }
+.msg-meta button { border: none; background: none; color: var(--muted); cursor: pointer; padding: 5px; margin: -5px; font-size: 11px; }
 .msg-meta button:hover { color: rgb(var(--c1)); }
+/* The latest exchange's actions (✎ Edit, ↻ Regenerate) stay findable at rest; all of them on touch screens. */
+.msg-meta:has(.redo-btn) { opacity: 0.55; }
+.msg:is(:hover, :focus-within) .msg-meta { opacity: 1; }
+@media (hover: none), (pointer: coarse) {
+  .msg-meta, .code-copy, .conv-item .x, .mem-card .foot .acts { opacity: 1; }
+}
 .msg-body { min-width: 0; display: flex; flex-direction: column; max-width: calc(100% - 44px); }
 .msg.user .msg-body { align-items: flex-end; }
 .msg-body .bubble { max-width: 100%; }
@@ -310,7 +319,7 @@ select.input option { background: var(--bg-3); }
 /* A failed reply in plain words (chat.js errorNode, chatcore.errorHelp): the reason, the way out, the raw text. */
 .reply-error-title { color: rgb(var(--err)); font-weight: 600; }
 .reply-error p { margin: 4px 0; color: var(--text); }
-.reply-error-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.reply-error-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .reply-error-raw summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 .reply-error-raw pre { max-height: 160px; overflow: auto; white-space: pre-wrap; font-size: 11.5px; }
 .msg-failed { margin-top: 6px; max-width: 100%; }
@@ -362,13 +371,14 @@ body.fullscreen-face .shell, body.fullscreen-app .shell { height: 100%; }
 .mem-card h4 { margin: 0; font-size: 15px; }
 .mem-card .content { color: var(--text-2); font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; max-height: 150px; overflow: hidden; mask-image: linear-gradient(#000 75%, transparent); }
 .mem-card .foot { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--muted); margin-top: auto; }
-.mem-card .foot .acts { display: flex; gap: 6px; opacity: 0; transition: 0.15s; }
-.mem-card:hover .foot .acts { opacity: 1; }
+.mem-card .foot .acts { display: flex; gap: 8px; opacity: 0; transition: 0.15s; }
+.mem-card:is(:hover, :focus-within) .foot .acts { opacity: 1; }
+.mem-card .foot .acts .danger { margin-left: 12px; }
 /* The memory stream under the memories: a dated log, insights highlighted. */
 .stream-panel { margin-top: 22px; padding: 14px 16px; }
 .stream-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .stream-head h3 { margin: 0; font-size: 16px; }
-.stream-head .actions { margin-left: auto; display: flex; gap: 6px; }
+.stream-head .actions { margin-left: auto; display: flex; gap: 8px; }
 .stream-list { list-style: none; margin: 10px 0 0; padding: 0; max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
 .stream-row { display: grid; grid-template-columns: 150px 40px 1fr auto; gap: 10px; align-items: baseline; padding: 6px 8px; border-radius: 8px; font-size: 13px; }
 .stream-row:hover { background: rgba(var(--text-rgb), 0.04); }
@@ -443,7 +453,7 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 /* ================= Settings ================= */
 /* The tab bar (settingstabs.js): stays at the top while a long tab scrolls; wraps on narrow windows. */
 .settings-tabs { position: sticky; top: -22px; z-index: 3; margin: -6px -10px 16px; padding: 8px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; background: var(--glass-strong); border: 1px solid var(--line); border-radius: var(--radius); backdrop-filter: blur(10px); }
-.settings-tablist { display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 auto; min-width: 0; }
+.settings-tablist { display: flex; flex-wrap: wrap; gap: 8px; flex: 1 1 auto; min-width: 0; }
 .settings-tab { border: 1px solid transparent; background: none; color: var(--text-2); padding: 7px 13px; border-radius: 9px; cursor: pointer; font: inherit; font-size: 13px; white-space: nowrap; transition: background 0.15s, color 0.15s, border-color 0.15s; }
 .settings-tab:hover { color: var(--text); background: rgba(var(--c1), 0.07); }
 .settings-tab.active { color: rgb(var(--c1)); background: rgba(var(--c1), 0.15); border-color: rgba(var(--c1), 0.35); }
@@ -499,8 +509,8 @@ body.perf-lite .settings-tabs { backdrop-filter: none; }
 .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
 .seg button { border: none; background: none; padding: 7px 14px; cursor: pointer; color: var(--text-2); }
 .seg button.active { background: rgba(var(--c1), 0.15); color: rgb(var(--c1)); }
-.save-state { font-size: 12px; color: rgb(var(--ok)); opacity: 0; transition: 0.3s; }
-.save-state.show { opacity: 1; }
+.save-state { flex: none; font-size: 12px; white-space: nowrap; color: rgb(var(--ok)); opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; }
+.save-state.show { opacity: 1; visibility: visible; }
 .card.wide { grid-column: 1 / -1; }
 
 /* Toasts + modal */
@@ -568,7 +578,7 @@ body.perf-lite .settings-tabs { backdrop-filter: none; }
 .evo-banner.warn { border-color: rgba(var(--err), 0.5); background: rgba(var(--err), 0.08); align-items: flex-start; }
 .evo-banner.warn > div { flex: 1; min-width: 0; }
 .evo-banner ul { margin: 4px 0; padding-left: 18px; overflow-wrap: anywhere; }
-.toast .toast-actions { display: flex; gap: 6px; margin-top: 8px; }
+.toast .toast-actions { display: flex; gap: 8px; margin-top: 8px; }
 
 /* ================= Vault editor ================= */
 .kb-editor { display: flex; flex-direction: column; gap: 10px; height: 100%; }
@@ -621,7 +631,8 @@ body.perf-lite .face-scene svg g { will-change: auto; }
 .health-item .d { color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; margin-top: 2px; }
 .health-item .f { color: rgb(var(--warn)); font-size: 12px; margin-top: 2px; }
 /* A paired device's buttons share the third column (each in a column of its own, "Remove" ended up in the 22px light column, one letter per line). */
-.health-item .device-actions { gap: 6px; justify-content: flex-end; align-self: center; }
+.health-item .device-actions { gap: 8px; justify-content: flex-end; align-self: center; }
+.health-item .device-actions .danger { margin-left: 4px; }
 .health-item .device-actions .btn { white-space: nowrap; }
 .log-view { max-height: 320px; overflow: auto; font-family: var(--font-mono); font-size: 11.5px; white-space: pre-wrap; background: rgba(var(--well), 0.7); border: 1px solid var(--line); border-radius: 10px; padding: 10px; color: var(--text-2); }
 
@@ -770,7 +781,7 @@ body:is(.fx-hud, .fx-subtle):not(.fx-still) #view-chat.history-open .conv-panel 
 .reply-card-kicker { flex: 1; min-width: 0; font-family: var(--font-display); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: rgb(var(--c1-soft)); }
 .reply-card-head .chip-btn { padding: 4px 10px; font-size: 12px; }
 .reply-card-body { overflow-y: auto; min-height: 0; max-width: none; background: none; border: 0; padding: 0 4px 0 0; }
-.reply-card-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.reply-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .reply-card-actions:empty { display: none; }
 .reply-card-actions .chip-btn { padding: 4px 10px; font-size: 12px; }
 @media (max-width: 1100px) { #view-chat.layout-split .face-panel { display: flex; } }
@@ -803,7 +814,8 @@ body:is(.fx-hud, .fx-subtle):not(.fx-still) #view-chat.history-open .conv-panel 
 .skill-card .steps { font-size: 12.5px; color: var(--muted); white-space: pre-wrap; max-height: 76px; overflow: hidden; mask-image: linear-gradient(#000 60%, transparent); cursor: pointer; }
 .skill-card .trig { display: flex; flex-wrap: wrap; gap: 4px; }
 .skill-card .trig .tag { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.skill-card .acts { display: flex; gap: 6px; margin-top: auto; padding-top: 4px; }
+.skill-card .acts { display: flex; gap: 8px; margin-top: auto; padding-top: 4px; }
+.skill-card .acts .danger { margin-left: auto; }
 .skill-empty { grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--muted); }
 .skill-empty .examples { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
 
@@ -1340,7 +1352,7 @@ body.agent .aw-frame::before { border-color: rgba(var(--c1), 0.85); box-shadow: 
 .notes { display: grid; grid-template-columns: minmax(250px, 320px) 1fr; flex: 1; width: 100%; height: 100%; min-height: 0; }
 .notes-side { display: flex; flex-direction: column; gap: 10px; padding: 22px 14px 12px 22px; border-right: 1px solid var(--line); min-height: 0; }
 .notes-head { margin-bottom: 0; }
-.notes-head .actions { display: flex; gap: 6px; }
+.notes-head .actions { display: flex; gap: 8px; }
 .notes-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .notes-chips:empty { display: none; }
 .chip { border: 1px solid var(--line); background: none; color: var(--text-2); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
@@ -1358,7 +1370,7 @@ body.agent .aw-frame::before { border-color: rgba(var(--c1), 0.85); box-shadow: 
 .notes-msg { padding: 10px 6px; }
 .notes-foot { padding-top: 6px; border-top: 1px solid var(--line); }
 .notes-editor { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; }
-.note-tools { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 12px 22px; background: var(--glass-strong); border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); }
+.note-tools { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 22px; background: var(--glass-strong); border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); }
 .note-tools .spacer { flex: 1; }
 .note-tools .btn.on { color: rgb(var(--c1)); border-color: rgba(var(--c1), 0.5); }
 .note-status { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }

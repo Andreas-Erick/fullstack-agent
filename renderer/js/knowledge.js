@@ -1,5 +1,5 @@
 // Vault view: the agent's own Obsidian vault — browse, search, read, create and edit notes.
-import { $, api, el, renderMarkdown, timeAgo, debounce, toast, toastError, confirmDialog, promptDialog, modal, on } from './util.js';
+import { $, api, el, renderMarkdown, timeAgo, debounce, toast, toastError, confirmDialog, promptDialog, modal, on, plainError } from './util.js';
 import { state } from './state.js';
 import { switchView, currentView } from './nav.js';
 import { openDocument } from './docs.js';
@@ -133,8 +133,11 @@ async function openNote(ref) {
             class: 'btn small danger',
             onclick: async () => {
               if (!(await confirmDialog('Delete note', `Move “${n.title}” to the vault’s trash?`, 'Delete'))) return;
-              await api.obsidian.delete(n.path).catch(toastError);
+              // A delete that failed leaves the note open (it is still there).
+              const ok = await api.obsidian.delete(n.path).then(() => true, (err) => (toastError(plainError(err)), false));
+              if (!ok) return;
               selected = null;
+              toast(`Moved “${n.title}” to the vault’s trash (.trash).`);
               refresh();
             },
           }, 'Delete'),
