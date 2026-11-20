@@ -9,7 +9,7 @@ entry `keyboard` points here).
 
 | Keys | What it does |
 | --- | --- |
-| Ctrl+1 … Ctrl+9 | Chat, Face, Memory, Calendar, Knowledge, Documents, Evolution, Skills, Notes |
+| Ctrl+1 … Ctrl+9 | Chat, Face, Memory, Calendar, Vault, Documents, Evolution, Skills, Notes |
 | Ctrl+Shift+1 / 2 / 3 | Chat layout: chat only, split, face |
 | Ctrl+N | New chat (in the Notes view: a new note) |
 | Ctrl+H | History: your earlier chats and the search through them (opens the chat; again: back to the message box) |
@@ -41,8 +41,8 @@ The open view is marked as the current page for screen readers.
 | Architecture | + / - zoom, 0 or Home everything, L the lessons, R the replay, Space play / pause in the replay | Leaves the replay, else goes up one level |
 | Vault → Growth | Space play / pause | Closes the replay |
 | Settings | On the tab bar: ← / → the previous / next section, Home / End the first / last; the search field looks through every section. Tab reaches every switch (in setup too, the privacy step's checkbox among them) and Space turns it on or off; a switch keeps the focus when the page redraws | Clears the search |
-| Agent window | Ctrl+L or a click edits the address | Leaves the address bar, else stops loading |
-| Pop-out document | — | Closes the window |
+| Agent window | Ctrl+L or a click edits the address; F5 reloads; Alt+← / Alt+→ back / forward | Leaves the address bar, else stops loading |
+| Pop-out document | Ctrl+= / Ctrl+- zoom, Ctrl+0 fit | Closes the window |
 
 The canvas views (the village, the architecture map, the replays) mirror what they
 draw in HTML panels and lists, so a screen reader reaches the same content.

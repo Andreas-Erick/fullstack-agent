@@ -2,7 +2,10 @@
   "name": "siren-assistant",
   "productName": "Siren Assistant",
   "version": "2.7.25",
-  "description": "Siren Assistant: a personal AI assistant for Windows and macOS with voice, memory, a vault of notes, learning and habit coaching, an animated face and a phone app.",
+  "description": "Siren Assistant: a personal AI assistant for Windows and macOS with voice, memory, a vault of notes, learning and coaching, an animated face and a phone app.",
+  "engines": {
+    "node": ">=22.12"
+  },
   "main": "main/main.js",
   "author": "Andreas Erick",
   "license": "MIT",

@@ -18,6 +18,9 @@ __pycache__/
 /Nexus Next Features.md
 /Next_Features_to_Implement.md
 /Prompt edits.md
+/Instructions_for_AI.md
 
 # Claude Code: personal settings for this project
 .claude/settings.local.json
+.claude/resume/
+.claude/worktrees/
