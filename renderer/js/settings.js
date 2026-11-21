@@ -579,7 +579,7 @@ function sceneRow() {
       }
     },
   }, scene ? '↻ Draw the scene again' : '✨ Draw the scene');
-  const remove = scene ? el('button', { class: 'btn', onclick: async () => (await dropped('appearance.scene')) || ((await saveForPersona({ appearance: { scene: null } })) && render()) }, 'Remove') : '';
+  const remove = scene ? el('button', { class: 'btn', onclick: () => saveFromClick({ appearance: { scene: null } }, 'appearance.scene', renderedPersona) }, 'Remove') : '';
   return field('Scene behind the face', el('div', {}, el('div', { class: 'row' }, el('span', { class: 'hint' }, scene ? `“${scene.caption || 'A scene'}” · ${Math.round(scene.svg.length / 1024)} KB${scene.portrait ? ` wide + ${Math.round(scene.portrait.length / 1024)} KB tall` : ' (wide only: narrow panels crop it)'}` : 'None yet: a drawing of the place the persona lives in, in the theme’s colors.'), draw, remove), out), 'Drawn by the AI from the persona and aesthetic, wide and tall (for the chat’s face panel); its layers drift slowly and it dims while the face sleeps.');
 }
 
@@ -657,16 +657,38 @@ function faceSelect() {
   return box;
 }
 
+// A persona-field change made with a button (Remove the scene, Reset the theme): for the persona whose cards
+// were on screen at the click, dropped with a notice when it is no longer active; the cards redraw when saved.
+async function saveFromClick(patch, path, persona = renderedPersona) {
+  try {
+    if (await dropped(path, persona)) return;
+    if (await saveForPersona(patch, persona)) render();
+  } catch (err) {
+    toastError(err);
+  }
+}
+
+let themeEdits = Promise.resolve(); // the theme editor's edits, in order (themeEditor update)
+
 // Live fine-tuning of the active theme (colors, fonts, background, face).
 function themeEditor() {
   const theme = normalizeTheme(state.settings.appearance?.theme);
   const isDefault = !state.settings.appearance?.theme;
-  const update = async (mutate) => {
+  // One edit at a time, each on the theme the one before saved: two quick edits both read the same theme,
+  // and the second saved over the first. The persona is the one the editor was drawn for, taken at the edit.
+  const update = (mutate) => {
     const persona = renderedPersona;
-    if (await dropped('appearance.theme', persona)) return;
-    const t = normalizeTheme(state.settings.appearance?.theme);
-    mutate(t);
-    await saveForPersona({ appearance: { theme: t } }, persona);
+    themeEdits = themeEdits.then(async () => {
+      try {
+        if (await dropped('appearance.theme', persona)) return;
+        const t = normalizeTheme(state.settings.appearance?.theme);
+        mutate(t);
+        await saveForPersona({ appearance: { theme: t } }, persona);
+      } catch (err) {
+        toastError(err);
+      }
+    });
+    return themeEdits;
   };
   const swatches = el('div', { class: 'swatches' });
   for (const [key, label] of [['bg', 'Background'], ['surface', 'Cards'], ['text', 'Text'], ['accent', 'Accent'], ['accent2', 'Accent 2'], ['accent3', 'Accent 3'], ['success', 'Listening / OK'], ['danger', 'Error']]) {
@@ -703,7 +725,7 @@ function themeEditor() {
     sceneRow(),
     field('Voice & tone notes (from the aesthetic)', notes, 'Added to the system prompt so the agent writes in the matching style.'),
     text('appearance.greeting', 'Welcome greeting'),
-    isDefault ? '' : el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => (await dropped('appearance.theme')) || ((await saveForPersona({ appearance: { theme: null } })) && render()) }, '↺ Reset to the default theme')),
+    isDefault ? '' : el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => saveFromClick({ appearance: { theme: null } }, 'appearance.theme', renderedPersona) }, '↺ Reset to the default theme')),
   );
 }
 
