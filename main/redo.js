@@ -53,7 +53,11 @@ function overlay(conv) {
   return (conv.messages || []).map((m) => (m?.id === mem.messageId && m.role === 'user' ? { ...m, attempt: mem.attempt } : m));
 }
 
-const options = (conv) => ({ title: conv.title || '', hasSession: Boolean(conv.claudeSessionId), readOnly, harmless, tainting });
+// The conversation's Claude session (claudesession.js): whether there is one to keep, and taking it out.
+// Required when used: it brings the brains with it.
+const session = () => require('./claudesession');
+
+const options = (conv) => ({ title: conv.title || '', hasSession: session().hasSession(conv), readOnly, harmless, tainting });
 
 /** The plan for an explicit redo, or { ok: false, error, changed? }. */
 function check(conv, req, { busy = false } = {}) {
@@ -72,14 +76,10 @@ function supersedes(conv, text, { busy = false } = {}) {
 }
 
 /** Takes the old exchange out of `conv` (in memory; turns.js saves it) and ends a session that holds it. */
-function apply(conv, p, { forget = null } = {}) {
+function apply(conv, p) {
   Object.assign(conv, core.clampMarks(conv, p.cut));
   conv.messages = (conv.messages || []).slice(0, p.cut);
-  if (p.resetSession) {
-    forget?.(conv.id, conv.claudeSessionId);
-    conv.claudeSessionId = null;
-    conv.claudeTokens = 0;
-  }
+  if (p.resetSession) Object.assign(conv, session().withdraw(conv));
   remember(conv.id, null);
   return {
     kind: p.kind === 'edit' ? 'edit' : p.replyDropped ? 'regenerate' : 'again',
@@ -100,17 +100,17 @@ function apply(conv, p, { forget = null } = {}) {
  * The gates of a turn (turns.js start): an explicit redo (desktop only, confirmed when it must be) or the
  * same message sent again after a failure. Returns { again, text, voice }; throws for a refusal.
  */
-function prepare({ conv, redo = null, text, voice = false, remote = null, routine = '', auto = '', hidden = false, busy = false, forget = null }) {
+function prepare({ conv, redo = null, text, voice = false, remote = null, routine = '', auto = '', hidden = false, busy = false }) {
   if (redo) {
     if (remote) throw new Error('Only the computer can send a message again.');
     const p = check(conv, redo, { busy });
     if (!p.ok) throw Object.assign(new Error(p.error), p.changed ? { changed: true } : {});
     if ((p.ask.length || p.more || p.uncertain) && redo.confirmed !== true) throw new Error('Confirm first: the earlier reply already did something.');
-    return { again: apply(conv, p, { forget }), text: p.text, voice: p.voice };
+    return { again: apply(conv, p), text: p.text, voice: p.voice };
   }
   if (!routine && !auto && !hidden && !conv.setup) {
     const s = supersedes(conv, text, { busy });
-    if (s) return { again: apply(conv, s, { forget }), text, voice };
+    if (s) return { again: apply(conv, s), text, voice };
   }
   return { again: null, text, voice };
 }

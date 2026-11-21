@@ -7,7 +7,7 @@
 const store = require('./store');
 const log = require('./logger');
 const llm = require('./llm');
-const claudecode = require('./claudecode');
+const claudesession = require('./claudesession');
 const selfchange = require('./selfchange');
 const skills = require('./skills');
 const screenshare = require('./screenshare');
@@ -54,7 +54,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
   async function deleteConversation(id) {
     marked([id]);
     for (const c of active.values()) if (c.conversationId === id) c.abort();
-    claudecode.forget(id);
+    claudesession.deleted(id);
     try {
       const r = await store.deleteConversation(id);
       await attachments.removeFor(id).catch((error) => log.warn('attachments not removed', { error }));
@@ -68,7 +68,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
   async function clearConversations() {
     const ids = (await store.listConversations()).map((c) => c.id);
     marked(ids);
-    for (const id of ids) claudecode.forget(id);
+    for (const id of ids) claudesession.deleted(id);
     for (const c of active.values()) c.abort();
     try {
       const r = await store.clearConversations();
@@ -122,7 +122,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
     // Try again / Regenerate / Edit, and the same message sent again after a failure (main/redo.js).
     let prep;
     try {
-      prep = redo.prepare({ conv, redo: redoReq, text, voice: viaVoice, remote, routine, auto, hidden, busy: busy(conv.id), forget: claudecode.forget });
+      prep = redo.prepare({ conv, redo: redoReq, text, voice: viaVoice, remote, routine, auto, hidden, busy: busy(conv.id) });
     } catch (err) {
       fail(err);
     }
@@ -171,7 +171,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
       ...(screenShot ? { screen: true } : {}),
       ...(hidden ? { hidden: true } : {}),
       ...(remote ? { remote } : {}),
-      ...(viaVoice ? { spoken: true } : {}), // the cache warm-up guesses the next model from it (llm.warmTarget)
+      ...(viaVoice ? { spoken: true } : {}), // the cache warm-up guesses the next model from it (claudesession.warmTarget)
       ...(own ? { attempt: { outcome: 'running', at: Date.now() } } : {}),
     };
     conv.messages.push(userMsg);
@@ -185,7 +185,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
     attachments.release(tokens);
 
     // Until that save, the file still had the old exchange: a warm-up that read it meanwhile is stale too.
-    if (again?.fresh) claudecode.forget(conv.id);
+    if (again?.fresh) claudesession.forget(conv.id);
     // Timing for the log: when the first words of the reply arrived, and when it finished.
     const startedAt = Date.now();
     let firstTextMs = null;
@@ -261,12 +261,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
         fresh.messages.push(assistantMsg);
         redo.stripAttempt(fresh, userMsg.id); // answered: nothing to try again
         redo.remember(conv.id, null);
-        // A session that rolled over (too big, llm.runOn) is not resumed: the next one starts fresh.
-        if (result.rollover) fresh.claudeSessionId = null;
-        else if (result.sessionId) fresh.claudeSessionId = result.sessionId;
-        if (result.freshTokens) fresh.claudeFreshTokens = result.freshTokens; // how big a fresh session starts here (rollover)
-        // How big the session is now: a cold one well past a fresh one isn't resumed (claudecode.startFresh).
-        if (result.contextTokens) fresh.claudeTokens = result.rollover ? 0 : result.contextTokens;
+        // What the brain keeps with the conversation: loaded tool groups, the Claude session's fields (claudesession.js).
         if (result.convPatch) Object.assign(fresh, result.convPatch);
         await store.saveConversation(fresh);
         emit({ type: 'done', message: stripRaw(assistantMsg) });
@@ -276,7 +271,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
         // The turn switched persona (or another setting that defines the session): the next session
         // starts now, while the reply is read or heard, not when the user speaks again.
         const after = await store.getSettings();
-        if (!fresh.setup && after.claudeCode?.warmOnLaunch && llm.sessionConfigKey(after) !== llm.sessionConfigKey(settings)) llm.prewarm(after, fresh).catch((error) => log.warn('prewarm failed', { error }));
+        claudesession.afterTurn(settings, after, fresh).catch((error) => log.warn('prewarm failed', { error }));
       } catch (err) {
         const aborted = controller.signal.aborted || err?.name === 'AbortError';
         // A routine whose brain isn't ready yet, or that ran while the computer was offline, waits and
