@@ -57,20 +57,27 @@ module.exports = [
     run: async (a, ctx) => {
       const persona = require('../persona');
       const s = await store.getSettings();
+      const forPersona = s.personas?.active; // the look asked for is this persona's, whatever is switched to meanwhile
       if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', 'Change my look', 'Asked after reading external content.', { taintAsks: true });
-      const patch = {};
-      if (a.reset) patch.appearance = { theme: null };
-      else {
-        const { face: _f, face_shape: faceShape, reset: _r, ...rest } = a;
-        if (Object.keys(rest).length || faceShape) patch.appearance = { theme: persona.themeChange(s.appearance.theme, { ...rest, face: faceShape }) };
-      }
+      const { face: _f, face_shape: faceShape, reset: _r, ...rest } = a;
+      const changes = !a.reset && (Object.keys(rest).length || faceShape) ? { ...rest, face: faceShape } : null;
+      if (changes) persona.themeChange(s.appearance.theme, changes); // checked now: a bad value is said before anything is saved
+      let face;
       if (a.face !== undefined) {
         const custom = (await require('../faces').list().catch(() => [])).map((f) => f.id);
         if (!FACES.includes(a.face) && !custom.includes(a.face)) throw new Error(`Unknown face "${a.face}". Faces: ${[...FACES, ...custom].join(', ')}`);
-        patch.ui = { face: a.face };
+        face = a.face;
       }
-      if (!Object.keys(patch).length) throw new Error('Nothing to change: give colors, fonts, background, face_shape, face or reset.');
-      await store.setSettings(patch);
+      if (!a.reset && !changes && face === undefined) throw new Error('Nothing to change: give colors, fonts, background, face_shape, face or reset.');
+      // Computed inside the save queue from the theme as it is then (an edit saved meanwhile stays), and saved
+      // only while the persona it was asked for is still active (else the error says nothing was saved).
+      await store.setSettings((now) => {
+        const patch = {};
+        if (a.reset) patch.appearance = { theme: null };
+        else if (changes) patch.appearance = { theme: persona.themeChange(now.appearance.theme, changes) };
+        if (face !== undefined) patch.ui = { face };
+        return patch;
+      }, { persona: forPersona });
       ctx.emit({ type: 'settings_changed' });
       return { applied: true, persona: s.agent.name, previous: { theme: s.appearance.theme || 'default', face: s.ui.face } };
     },

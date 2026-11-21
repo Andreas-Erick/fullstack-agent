@@ -102,7 +102,8 @@ const SETTINGS_TOOLS = [
       const endpoint = ENDPOINTS.has(`${a.section}.${a.key}`);
       if (endpoint && !/^https?:\/\/[^\s/]+/i.test(String(a.value))) throw new Error('An address must start with http:// or https://.');
       await requireApproval(ctx, endpoint ? 'endpoint' : 'settings', `Change setting ${a.section}.${a.key}`, `${JSON.stringify(old)} → ${JSON.stringify(a.value)}${endpoint ? ' (your API key and conversations will be sent to this address)' : ''}`);
-      await store.setSettings({ [a.section]: { [a.key]: a.value } });
+      // For the persona active when asked (voice.voice, ui.face…): a switch during the approval drops it.
+      await store.setSettings({ [a.section]: { [a.key]: a.value } }, { persona: s.personas?.active });
       ctx.emit({ type: 'settings_changed' });
       return { changed: `${a.section}.${a.key}`, from: old, to: a.value };
     },
@@ -207,7 +208,7 @@ const SETUP_TOOLS = [
       // The vault too: whatever folder it is, the agent may read and write all of it (review 2026-10-29).
       const widens = (a.setting === 'safety.permissionMode' && value === 'auto') || (a.setting === 'code.allowSelfModify' && value === true) || (['documents.workspace', 'obsidian.vaultPath'].includes(a.setting) && value && value !== old);
       if (widens) await requireApproval(ctx, 'permissions', `Give the assistant more access: ${a.setting}`, `${JSON.stringify(old)} → ${JSON.stringify(value)}`);
-      await store.setSettings({ [section]: { [key]: value } });
+      await store.setSettings({ [section]: { [key]: value } }, { persona: s.personas?.active });
       log.info('setup configured', { setting: a.setting, value: typeof value === 'string' ? value.slice(0, 80) : value });
       ctx.emit({ type: 'settings_changed' });
       return { set: a.setting, value: typeof value === 'string' && value.length > 120 ? `${value.slice(0, 120)}…` : value };
@@ -234,8 +235,9 @@ const SETUP_TOOLS = [
       const voices = (await require('./voice').voices().catch(() => [])).map((v) => v.id);
       const persona = require('./persona');
       const res = await persona.generate({ masterPrompt: s.agent.personality, aesthetic: s.agent.aesthetic, palette: [], voices, image: s.agent.avatar, options: persona.DEFAULT_OPTIONS });
-      await store.setSettings({ appearance: { theme: res.theme, personaNotes: res.personaNotes, greeting: res.greeting } });
-      if (res.voice && s.appearance.applyVoice) await store.setSettings({ voice: { voice: res.voice } });
+      // Designed for the persona active when asked: a switch while the model worked drops it, look and voice together.
+      const voice = res.voice && s.appearance.applyVoice ? { voice: { voice: res.voice } } : {};
+      await store.setSettings({ appearance: { theme: res.theme, personaNotes: res.personaNotes, greeting: res.greeting }, ...voice }, { persona: s.personas?.active });
       ctx.emit({ type: 'settings_changed' });
       return { applied: res.theme?.name, greeting: res.greeting, voice: res.voice || 'unchanged' };
     },
@@ -394,6 +396,12 @@ async function executeTool(name, args, ctx) {
   } catch (err) {
     // Declined approvals are normal outcomes; everything else is logged with its stack.
     const declined = /^Not approved by the user/.test(err.message);
+    // A change dropped because the persona changed meanwhile (store.setSettings opts.persona) is normal too;
+    // the store logged it, and the model reads why nothing was saved.
+    if (err?.code === store.PERSONA_CHANGED) {
+      log.info('tool not saved', { name, ms: Date.now() - started, why: 'persona changed' });
+      return { ok: false, result: { error: err.message } };
+    }
     log[declined ? 'info' : 'warn'](declined ? 'tool declined' : 'tool failed', { name, ms: Date.now() - started, args: JSON.stringify(args || {}).slice(0, 300), error: declined ? approvals.declineForLog(err.message) : err });
     return { ok: false, result: { error: err.message } };
   }
