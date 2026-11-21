@@ -55,10 +55,11 @@ test('chat: a live stop shows the visible Try again card; a send that never left
   const sync = chat.slice(chat.indexOf('function syncActions('), chat.indexOf('\n}\n', chat.indexOf('function syncActions(')));
   assert.match(sync, /reply\.querySelector\('\.msg-body'\)\?\.append\(el\('div', \{ class: 'msg-failed' \}, stopNode\('Stopped\.', a\.again\)\)\)/);
   assert.doesNotMatch(sync, /redoButton\('↻ Try again'/, 'no Try again hidden in the meta row');
-  const send = chat.slice(chat.indexOf('export async function send('), chat.indexOf('\n}\n', chat.indexOf('export async function send(')));
+  const send = chat.slice(chat.indexOf('async function deliver('), chat.indexOf('\n}\n', chat.indexOf('async function deliver(')));
   assert.doesNotMatch(send, /bubble\.textContent = err\.message/);
   assert.match(send, /chatcore\.errorHelp\(plainError\(err\)/);
-  assert.match(send, /refusedSend\(null, text, requestId, wrap, \{ keepWrap: true \}\)/);
+  // The words and files come back through the outbox (test/outbox.test.js); the reply's place stays.
+  assert.match(send, /refusedSend\(null, requestId, wrap, \{ keepWrap: true \}\)/);
   assert.match(chat, /textContent = name; \/\/ no status claim/);
   assert.doesNotMatch(read('renderer/index.html'), /NEXUS/, 'the old brand never shows, even before the chat starts');
 });

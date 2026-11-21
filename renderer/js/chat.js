@@ -8,8 +8,9 @@ import { practiceLanguage, quoteFilter } from './practice.js';
 import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
 import * as chatcore from './chatcore.js';
-import { initAttach, takeAttachments, restoreAttachments, attachmentCount, attachmentsReading, attachmentsReady, attachmentsSummary, setSendBusy } from './attach.js';
+import { initAttach, tray, attachmentsSummary } from './attach.js';
 import * as attachcore from './attachcore.mjs';
+import { createOutbox } from './outbox.js';
 import { showNote } from './notes.js';
 import { showVaultNote, searchVault } from './knowledge.js';
 import { speaker } from './voice.js';
@@ -24,8 +25,27 @@ export { refreshList }; // the list read again (settings.js after Clear all, set
 // another device in it (chat.others), and what may be done to the latest exchange: turnstate.js, shared
 // with the phone. This module draws it.
 const chat = createChat({ redo });
-let queued = null; // message waiting for the interrupted turn to finish
-let editing = null; // { messageId, draft }: ✎ Edit put the latest message in the box (draft: what was there)
+// What leaves the composer, from any source (outbox.js): the wait for files, the message queued behind the
+// reply being stopped, edit mode's draft, and the words and files given back on a refusal. This module
+// draws what it decides.
+const outbox = createOutbox({
+  tray,
+  box: {
+    read: () => $('#input').value,
+    write: (text) => (($('#input').value = text), autosize()),
+  },
+  turn: chat,
+  deliver,
+  again: runAgain,
+  stop,
+  notify: (text) => toast(text),
+  setup: () => Boolean(state.setupMode),
+  waitChanged: () => syncActions(),
+  editEnded: () => {
+    $('.composer')?.classList.remove('editing');
+    $('#editBar')?.classList.add('hidden');
+  },
+});
 let openSeq = 0; // the latest openConversation (newer ones and New chat win)
 
 const messagesEl = () => $('#messages');
@@ -47,18 +67,18 @@ export function initChat() {
         return;
       }
     }
-    if (e.key === 'Escape' && editing) {
+    if (e.key === 'Escape' && outbox.editing) {
       e.preventDefault();
       e.stopPropagation(); // only the edit: the window's Esc (stop speaking, a reply) waits for the next press
-      cancelEdit();
+      outbox.cancelEdit();
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
-      sendFromInput();
+      outbox.typed();
     }
   });
-  $('#sendBtn').onclick = sendFromInput;
+  $('#sendBtn').onclick = () => outbox.typed();
   $('#stopBtn').onclick = stop;
   $('#newChatBtn').onclick = () => newChat();
   $('#newChatTop').onclick = () => newChat(); // ＋ in the header: History (and its ＋) slides over the chat where there is no room
@@ -67,7 +87,7 @@ export function initChat() {
   // [[Note]] links in replies open the note (click, or Enter on a focused one).
   for (const box of [messagesEl(), $('#replyCard')]) for (const type of ['click', 'keydown']) box.addEventListener(type, onNoteLink);
   initReplyCard();
-  $('#editCancel').onclick = () => cancelEdit();
+  $('#editCancel').onclick = () => outbox.cancelEdit();
   document.querySelectorAll('.suggestion').forEach((b) => (b.onclick = () => send(b.textContent)));
 
   $('#speakToggle').onclick = async () => {
@@ -117,50 +137,10 @@ function autosize() {
   t.style.height = `${Math.min(220, t.scrollHeight)}px`;
 }
 
-let waitingFiles = null; // a send waiting for its attachments to be read (attachcore.sendPlan)
 // A reply being written in this conversation (here or on another device), or a message waiting for its
-// files: either way the latest exchange isn't settled, so Try again, Regenerate and Edit wait (one started
-// meanwhile was stopped by it, or sent in its place). The rule is turnstate.js busy(), told about the files.
+// files (the outbox tells turnstate): either way the latest exchange isn't settled, so Try again, Regenerate
+// and Edit wait (one started meanwhile was stopped by it, or sent in its place). The rule is turnstate.js busy().
 const busy = () => chat.busy();
-
-function sendFromInput() {
-  const input = $('#input');
-  const text = input.value.trim();
-  if (editing) {
-    // ✎ Edit: the latest message again, in its new words (main/redo.js).
-    const { messageId, draft } = editing;
-    endEdit();
-    input.value = '';
-    autosize();
-    runAgain('edit', messageId, text).then((started) => {
-      // What was typed meanwhile stays. Refused: the edited text stays as a draft (an empty edit gives the old draft back).
-      if (!input.value) input.value = started || !text ? draft : text;
-      autosize();
-    });
-    return;
-  }
-  // A message already queued behind the reply being stopped counts as waiting: this one stays in the box,
-  // so the two can't go out in reverse order (the later one interrupting the earlier one's reply).
-  const plan = attachcore.sendPlan({ text, files: attachmentCount(), reading: attachmentsReading(), active: Boolean(chat.own), waiting: Boolean(waitingFiles || queued) });
-  if (plan === 'none' || plan === 'hold') return;
-  if (plan === 'wait') return waitForFiles(sendFromInput); // the text stays in the box meanwhile
-  input.value = '';
-  autosize();
-  send(text, { attach: true });
-}
-
-function waitForFiles(then) {
-  setSendBusy(true, attachmentCount());
-  chat.setWaiting(true);
-  waitingFiles = attachmentsReady().finally(() => {
-    waitingFiles = null;
-    chat.setWaiting(false);
-    setSendBusy(false);
-    syncActions();
-    then();
-  });
-  syncActions(); // ✎ / ↻ step aside meanwhile
-}
 
 // ------------------------------------------------------------- conversations
 // The list of them is History's (history.js); chat tells it when the list may have changed.
@@ -179,7 +159,7 @@ export function newChat({ focus = true } = {}) {
   if (chat.own) stop();
   closeCard(); // closed, not just hidden: the stopped reply's last text and its 'aborted' must not bring it back
   if (focus) closeHistory({ focus: false });
-  cancelEdit();
+  outbox.cancelEdit();
   chat.open({}); // a new conversation: no id, no messages
   earlier = [];
   $('#chatTitle').textContent = 'New conversation';
@@ -214,7 +194,7 @@ export async function openConversation(id, { at = null, card = false, quiet = fa
     return toast('This conversation couldn’t be opened: it was deleted, or it can’t be read on this computer.', 'error');
   }
   hideCard();
-  cancelEdit();
+  outbox.cancelEdit();
   chat.open({ id: conv.id, messages: conv.messages, setup: conv.setup }); // replies followed in the old list go with it
   $('#chatTitle').textContent = conv.title;
   const box = messagesEl();
@@ -507,49 +487,25 @@ async function openNoteLink(ref) {
 }
 
 // --------------------------------------------------------------------- send
-// Spoken input: interrupts a reply in progress (the old turn is stopped and drained), then sends.
+// Spoken input: interrupts a reply in progress (the old turn is stopped and drained), then sends; while a
+// message waits (for its files, or behind the reply being stopped) the words go into the box (outbox.js).
 export function sendVoice(text) {
-  const input = $('#input');
-  if (!state.settings.stt.autoSend) {
-    input.value = (input.value ? `${input.value} ` : '') + text;
-    autosize();
-    closeHistory({ focus: false }); // otherwise the composer is inert
-    input.focus();
-    return;
-  }
-  if (waitingFiles || queued) {
-    // A message is waiting for its files to be read, or queued behind the reply being stopped: these words
-    // wait in the box (attachcore.sendPlan 'hold'), never in its place.
-    input.value = (input.value ? `${input.value} ` : '') + text;
-    autosize();
-    toast(waitingFiles ? 'Still reading your file; your words are in the box.' : 'Your last message goes first; these words are in the box.');
-    return;
-  }
-  if (chat.own) {
-    queued = { text, voice: true, attach: true };
-    stop();
-    return;
-  }
-  send(text, { voice: true, attach: true });
+  if (outbox.spoken(text, { autoSend: state.settings.stt.autoSend }) !== 'box') return;
+  closeHistory({ focus: false }); // otherwise the composer is inert
+  $('#input').focus();
 }
 
 // redo: Try again / Regenerate / Edit (runAgain), sent as chat:redo; main takes the old exchange out; kept:
 // the files it keeps (shown on it until the stored copy comes). attach: the composer's attachments go with
 // this message (the user's own words, typed or spoken); a suggestion, a skill run, a redo or the setup flow
-// never takes them.
-export async function send(text, { voice = false, hidden = false, attach = false, redo: again = null, kept = [] } = {}) {
-  text = String(text || '').trim();
-  const withFiles = attach && !hidden && !again && !state.setupMode && attachmentCount() > 0;
-  if (!text && !withFiles && !again) return; // a redo may have no words of its own (a message of files only)
-  if (editing) cancelEdit({ keepText: true }); // another message went first: the box keeps the edit as a draft
-  if (chat.own) {
-    if (again) return; // runAgain checked first; a reply that started since wins
-    queued = { text, voice, attach };
-    toast('Interrupting the current reply…');
-    stop();
-    return;
-  }
-  if (withFiles && attachmentsReading()) return waitForFiles(() => send(text, { voice, attach }));
+// never takes them. The outbox decides when it goes (outbox.js submit); deliver draws it and sends it.
+export async function send(text, opts = {}) {
+  await outbox.submit(text, opts);
+}
+
+// The message on screen and to main. Returns { refused } or { error } (drawn here; the outbox gives the
+// words and files back), else {}.
+async function deliver({ text, voice, hidden, redo: again, kept, files }) {
   speaker.stop();
   hideCard();
   closeHistory({ focus: false });
@@ -560,7 +516,6 @@ export async function send(text, { voice = false, hidden = false, attach = false
   const requestId = `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
   const sharing = !$('#screenThumb').classList.contains('hidden') && state.settings.screen?.attachToMessages !== false;
   const slash = text.match(/^\/([\w-]+)/);
-  const files = withFiles ? takeAttachments() : { tokens: [], meta: [] };
   const showing = files.meta.length ? files.meta : again ? kept : [];
   if (!hidden) messagesEl().append(messageNode({ id: 'pending-user', pending: requestId, role: 'user', content: text, display: text, ...(showing.length ? { attachments: showing } : {}), createdAt: Date.now(), screen: sharing, skill: slash && skillList.some((x) => x.slug === slash[1].toLowerCase()) ? slash[1].toLowerCase() : null }));
   const view = replyView();
@@ -585,39 +540,42 @@ export async function send(text, { voice = false, hidden = false, attach = false
 
   try {
     const res = again ? await api.chat.redo({ ...again, requestId }) : await api.chat.send({ conversationId: chat.convId, text, requestId, voice, hidden, attachments: files.tokens });
-    if (res?.refused) return refusedSend(res.refused, text, requestId, wrap);
+    if (res?.refused) {
+      refusedSend(res.refused, requestId, wrap);
+      return { refused: res.refused };
+    }
     chat.setConv(res.conversationId);
+    return {};
   } catch (err) {
-    restoreAttachments(files);
     if (again) {
       finish(chat.own === turn ? turn : null);
       wrap.remove();
       toast(plainError(err), 'error');
       openConversation(chat.convId); // nothing was dropped on the computer
-      return;
+      return { error: err };
     }
-    // The message never reached the computer: as for a refusal, the pending copy goes and the words come back,
-    // and the reason shows in plain words where the reply would have been (Details: the raw text).
+    // The message never reached the computer: as for a refusal, the pending copy goes and the words come back
+    // (the outbox puts them and the files back), and the reason shows in plain words where the reply would
+    // have been (Details: the raw text).
     const help = chatcore.errorHelp(plainError(err), { usage: currentUsage(), settings: state.settings });
     wrap.classList.add('send-failed'); // no reply of a stored message: syncActions passes it, the next send removes it
-    refusedSend(null, text, requestId, wrap, { keepWrap: true });
+    refusedSend(null, requestId, wrap, { keepWrap: true });
     bubble.classList.remove('streaming');
     bubble.classList.add('error-bubble');
     bubble.replaceChildren(errorNode({ ...help, text: `${help.text} Your message wasn't sent: it is back in the box.` }));
     toast(`⚠ ${help.title}`, 'error', 6000); // the Face layout hides the bubble
     announce(`Error: ${help.title}. ${help.text}`);
+    return { error: err };
   }
 }
 
 // An attachment expired before the message was stored (main/attachments.js claim): nothing was sent.
-// The message shown while sending goes; the words come back to an empty box. keepWrap: the reply's
+// The message shown while sending goes (the outbox gives the words back to an empty box). keepWrap: the reply's
 // place stays, to show why (a send that failed).
-function refusedSend(message, text, requestId, wrap, { keepWrap = false } = {}) {
+function refusedSend(message, requestId, wrap, { keepWrap = false } = {}) {
   finish(chat.own?.requestId === requestId ? chat.own : null);
   messagesEl().querySelector(`.msg[data-pending="${CSS.escape(requestId)}"]`)?.remove();
   if (!keepWrap) wrap.remove();
-  const input = $('#input');
-  if (!input.value) ((input.value = text), autosize());
   if (message) toast(message, 'error');
   syncActions();
 }
@@ -909,7 +867,7 @@ function drawOther(step) {
 // here): the conversation is read again, so its reply shows. Not under a reply of this window's own, nor
 // over an edit in the box.
 function missedTurn(ev) {
-  if (!['done', 'error', 'aborted'].includes(ev.type) || chat.own || editing || !chat.convId) return;
+  if (!['done', 'error', 'aborted'].includes(ev.type) || chat.own || outbox.editing || !chat.convId) return;
   openConversation(chat.convId);
 }
 
@@ -1008,12 +966,9 @@ function runHelpAction(a) {
 /** ✎ Edit: the latest message in the box; Enter sends it in place of the old exchange, Esc puts the draft back. */
 function startEdit(id) {
   const m = chat.messages.find((x) => x.id === id);
-  if (waitingFiles) return toast('Still reading your file…'); // its message is sent once read: no edit in between
-  if (!m || busy()) return;
+  // Refused while a message waits for its files (it is sent once read: no edit in between) or a reply runs.
+  if (!outbox.startEdit(id, m ? redo.sentText(m) : null)) return;
   const input = $('#input');
-  if (!editing) editing = { messageId: id, draft: input.value };
-  else editing.messageId = id;
-  input.value = redo.sentText(m);
   $('.composer').classList.add('editing');
   const files = (m.attachments || []).some((x) => x.kind !== 'image');
   $('#editText').textContent = `✎ Editing your last message: Enter sends it in place of the old one.${files ? ' Its files stay attached.' : ''}`;
@@ -1022,24 +977,6 @@ function startEdit(id) {
   input.setSelectionRange(input.value.length, input.value.length);
   autosize();
   scrollToBottom(true); // the composer grew: the message being edited stays in view
-}
-
-/** Leaves edit mode; the box gets back what was in it before, unless keepText. */
-function cancelEdit({ keepText = false } = {}) {
-  if (!editing) return;
-  const { draft } = editing;
-  endEdit();
-  if (!keepText) {
-    $('#input').value = draft;
-    autosize();
-  }
-}
-
-// Leaves edit mode, the box as it is (the edit is being sent).
-function endEdit() {
-  editing = null;
-  $('.composer')?.classList.remove('editing');
-  $('#editBar')?.classList.add('hidden');
 }
 
 /** Takes the latest exchange off the screen and out of the open conversation (main takes it out of the stored one). */
@@ -1063,7 +1000,7 @@ function dropFrom(id, { keep = null } = {}) {
  * something, or when an attempt was cut off), then the old one goes and the new one is sent. True if sent.
  */
 async function runAgain(kind, messageId, text = '') {
-  if (busy()) return (toast(waitingFiles ? 'Still reading your file…' : 'Wait for the current reply to finish (or press stop).'), false);
+  if (busy()) return (toast(outbox.waitingFiles ? 'Still reading your file…' : 'Wait for the current reply to finish (or press stop).'), false);
   if (!chat.convId || !messageId) return false;
   const req = { conversationId: chat.convId, messageId, kind, text, expectLast: chat.messages[chat.messages.length - 1]?.id };
   const chk = await api.chat.redoCheck(req).catch((err) => ({ ok: false, error: err.message }));
@@ -1153,11 +1090,7 @@ function finish(turn) {
   if (turn && chat.own === turn) chat.end(turn, 'unsent');
   // The filler lines' audio, made in the quiet after a reply (speaker.filler plays only what is ready).
   if (ttsActive() && state.settings.voice.filler) speaker.warmFillers(chatcore.allFillers(), () => !chat.own && !state.recording);
-  if (queued) {
-    const q = queued;
-    queued = null;
-    setTimeout(() => send(q.text, { voice: q.voice, attach: q.attach }), 0);
-  }
+  outbox.replyEnded(); // a message queued behind it goes now
   syncFlags(); // not generating, no tools, nothing streaming
   if (!speaker.busy) setCaption('');
   $('#sendBtn').classList.remove('hidden');
