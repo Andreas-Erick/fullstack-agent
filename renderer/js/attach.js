@@ -261,18 +261,16 @@ function chipNode(c) {
 }
 
 // ------------------------------------------------------------------ for chat.js
-export const attachmentCount = () => chips.length;
-export const attachmentsReading = () => chips.some((c) => c.status === 'reading');
 export const attachmentsSummary = (meta) => core.summary(meta);
 
 /** Resolves once nothing is being read any more: true when at least one attachment is ready to send. */
-export async function attachmentsReady() {
+async function attachmentsReady() {
   while (chips.some((c) => c.status === 'reading')) await Promise.all(chips.filter((c) => c.status === 'reading').map((c) => c.done));
   return chips.some((c) => c.status === 'ready');
 }
 
 /** The ready attachments for the message being sent ({ tokens, meta }); the tray lets them go. */
-export function takeAttachments() {
+function takeAttachments() {
   const ready = chips.filter((c) => c.status === 'ready');
   chips = chips.filter((c) => c.status !== 'ready');
   for (const c of ready) if (c.url) URL.revokeObjectURL(c.url);
@@ -281,7 +279,7 @@ export function takeAttachments() {
 }
 
 /** The message couldn't be sent: its attachments come back to the tray (main kept their tokens). */
-export function restoreAttachments(taken) {
+function restoreAttachments(taken) {
   const tokens = taken?.tokens || [];
   if (!tokens.length) return;
   const back = tokens.map((token, i) => {
@@ -293,7 +291,7 @@ export function restoreAttachments(taken) {
 }
 
 /** The send button while a message waits for its files: "Reading 2 files…". */
-export function setSendBusy(busy, n = 0) {
+function setSendBusy(busy, n = 0) {
   const b = $('#sendBtn');
   const count = chips.filter((c) => c.status === 'reading').length || n;
   const label = busy ? `Reading ${count} file${count === 1 ? '' : 's'}…` : 'Send';
@@ -303,3 +301,13 @@ export function setSendBusy(busy, n = 0) {
   if (busy) b.setAttribute('aria-label', label);
   else b.removeAttribute('aria-label');
 }
+
+/** The tray as the outbox (outbox.js) sees it: what it holds, the wait for files being read, the hand-off. */
+export const tray = {
+  count: () => chips.length,
+  reading: () => chips.some((c) => c.status === 'reading'),
+  ready: attachmentsReady,
+  take: takeAttachments,
+  restore: restoreAttachments,
+  setBusy: setSendBusy,
+};

@@ -216,10 +216,8 @@ test('Try again on a message of files only: through the gates, sent as files wit
   assert.strictEqual(cleared.text, '');
   assert.ok(rerun(cleared).msg.content.endsWith(`\n\n${attachcore.NO_MESSAGE}`));
 
-  // The window lets a redo with no words through (chat.js send), and never puts new files on one.
-  const send = slice('renderer/js/chat.js', 'export async function send(', '\nfunction refusedSend(');
-  assert.match(send, /const withFiles = attach && !hidden && !again && /, 'a redo carries no new files');
-  assert.match(send, /if \(!text && !withFiles && !again\) return;/, 'a redo may have no words of its own');
+  // The window lets a redo with no words through, and never puts new files on one: the outbox's submit,
+  // driven in test/outbox.test.js ('only the user’s own words take the tray…').
   // Nor does main: chat:redo passes no attachments to startTurn.
   const handler = slice('main/main.js', "handle('chat:redo'", '\n  });');
   assert.ok(!handler.includes('attachments'), handler);
@@ -339,8 +337,7 @@ test('chat.js: the stored message (its files, its id) replaces the pending one; 
   assert.match(start, /if \(pending && t\.userMessage\) pending\.replaceWith\(messageNode\(t\.userMessage\)\);/);
   // The stored message joins the open conversation at start (its id for Edit): test/turnstate.test.js.
   assert.ok(!/files-row|filesNode/.test(start), 'attach’s own files-row patch is dropped (the whole node is replaced)');
-  const finish = slice('renderer/js/chat.js', 'function finish(turn) {', '\n}\n');
-  assert.match(finish, /send\(q\.text, \{ voice: q\.voice, attach: q\.attach \}\)/);
+  // A queued send keeps its files: outbox.replyEnded, in test/outbox.test.js ('the files finish while the reply still runs…').
 });
 
 // ------------------------------------------------------------------ §4.9 voice × actions
@@ -371,22 +368,17 @@ test('chat.js: a message waiting for its files keeps Try again, Regenerate and E
   for (const from of ['function syncActions(', 'export async function retryLatest(', 'export function canRetryLatest(', 'function runHelpAction(', 'function fillCardActions(']) {
     assert.match(slice(file, from, '\n}\n'), /chat\.actions\(\)/, from);
   }
-  const waiting = slice(file, 'function waitForFiles(', '\n}\n');
-  assert.ok(at(waiting, 'chat.setWaiting(true);') < at(waiting, 'chat.setWaiting(false);'), 'the module hears about the files');
+  // The outbox tells turnstate about the wait (setWaiting) and its buttons step aside when the wait starts and
+  // come back before the message goes; Edit is refused meanwhile; spoken words never take the place of a
+  // queued message: driven through outbox.js in test/outbox.test.js. chat.js passes turnstate and syncActions.
+  assert.match(src, /turn: chat,/);
+  assert.match(src, /waitChanged: \(\) => syncActions\(\),/);
   assert.match(src, /if \(e\.key === 'ArrowUp' && [^\n]*&& !busy\(\)\) \{/, '↑ in an empty box');
   const again = slice(file, 'async function runAgain(', '\n}\n');
   assert.match(again, /^async function runAgain\([^)]*\) \{\n {2}if \(busy\(\)\) return /, 'refused before anything is asked');
   assert.match(again, /if \(busy\(\) \|\| req\.conversationId !== chat\.convId\) return false;/, 'and again after the confirm');
   assert.ok(at(again, 'if (busy() || req.conversationId') < at(again, 'dropFrom(messageId);'));
-  const edit = slice(file, 'function startEdit(', '\n}\n');
-  assert.ok(at(edit, 'if (waitingFiles) return') < at(edit, 'editing = {'), 'no edit in the waiting message’s place');
-  // The buttons step aside while it waits and come back before the message goes (its own 'start' then sets them).
-  const wait = slice(file, 'function waitForFiles(', '\n}\n');
-  assert.ok(at(wait, 'waitingFiles = null;') < at(wait, 'syncActions();') && at(wait, 'syncActions();') < at(wait, 'then();'));
-  assert.strictEqual(wait.split('syncActions();').length, 3, 'when it starts waiting, and when it is done');
-  // Spoken words never take the place of a message already queued behind the reply being stopped.
-  const voice = slice(file, 'export function sendVoice(', '\n}\n');
-  assert.ok(at(voice, 'if (waitingFiles || queued) {') < at(voice, 'queued = { text, voice: true, attach: true };'));
+  assert.match(again, /toast\(outbox\.waitingFiles \? 'Still reading your file…'/);
 });
 
 // Found by the e2e check: a redo of a message of files showed an empty bubble until 'start'; Copy on files
@@ -397,7 +389,7 @@ test('chat.js: a redo shows the files it keeps; Copy only with something to copy
   assert.match(again, /const kept = \(chat\.messages\.find\(\(m\) => m\.id === messageId\)\?\.attachments \|\| \[\]\)\.filter\(\(a\) => a\?\.kind !== 'image'\);/);
   assert.ok(at(again, 'const kept = ') < at(again, 'dropFrom(messageId);'), 'read before the message leaves the open conversation');
   assert.match(again, /await send\(chk\.text, \{ voice: chk\.voice, redo: \{ \.\.\.req, confirmed: true \}, kept \}\);/);
-  const send = slice(file, 'export async function send(', '\nfunction refusedSend(');
+  const send = slice(file, 'async function deliver(', '\nfunction refusedSend(');
   assert.match(send, /const showing = files\.meta\.length \? files\.meta : again \? kept : \[\];/);
   assert.match(send, /\.\.\.\(showing\.length \? \{ attachments: showing \} : \{\}\)/, 'the pending node');
   const meta = slice(file, 'function metaNode(m) {', '\n}\n');
