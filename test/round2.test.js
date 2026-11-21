@@ -429,8 +429,8 @@ test('chat.js: a redo shows the files it keeps; Copy only with something to copy
   assert.strictEqual(chatcore.copyText(stored(attachcore.compose({ prompt: '', typed: '', items: [PDF], notice: NOTICE }))), '', 'files only: nothing to copy');
   const card = slice(file, 'function cardFor(conv, at) {', '\n}\n');
   assert.match(card, /\.\.\.\(m\.role === 'assistant' \? \{ reply: m \} : \{\}\)/);
-  // History's local count no longer shadows the open conversation's `shown`.
-  assert.ok(!/let shown = 0;/.test(slice(file, 'function renderConvList() {', '\n}\n')));
+  // History's list lives in history.js (drawList), so no local count can shadow the open conversation's `shown`.
+  assert.ok(!/let shown = 0;/.test(slice('renderer/js/history.js', 'export function drawList() {', '\n}\n')));
 });
 
 // ------------------------------------------------------------------ history × actions × attach: deleting while it runs
