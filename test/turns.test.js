@@ -51,12 +51,16 @@ function harness({ convs = [], settings = {} } = {}) {
     removeFor: async (id) => (trace.push(['removeFor', id]), dirs.delete(id)),
     removeAll: async () => dirs.clear(),
   };
-  const llm = {
-    runTurn: async (o) => (trace.push(['runTurn', o]), { text: 'Sure.', model: 'm' }),
-    sessionConfigKey: () => 'k',
-    prewarm: async () => {},
+  const llm = { runTurn: async (o) => (trace.push(['runTurn', o]), { text: 'Sure.', model: 'm' }) };
+  // The conversation's Claude session (claudesession.js, tested in claudeforget.test.js): what turns.js and
+  // redo.js tell it is traced; every way it ends a session counts as a forget.
+  const claudesession = {
+    forget: (id) => trace.push(['forget', id]),
+    deleted: (id) => trace.push(['forget', id]),
+    withdraw: (c) => (trace.push(['forget', c.id]), { claudeSessionId: null, claudeTokens: 0 }),
+    hasSession: (c) => Boolean(c?.claudeSessionId),
+    afterTurn: async (before, after, conv) => trace.push(['afterTurn', conv.id]),
   };
-  const claudecode = { forget: (id) => trace.push(['forget', id]), endSession: () => trace.push(['endSession']) };
   const skills = { fromSlash: async () => null, instructions: () => '' };
   const screenshare = { state: () => ({ active: false }), capture: async () => ({ url: 'data:image/jpeg;base64,x' }) };
   const selfchange = { touchedBy: () => null, fingerprint: async () => null, root: async () => null, dirtyFiles: async () => [] };
@@ -65,7 +69,7 @@ function harness({ convs = [], settings = {} } = {}) {
     './store': store,
     './logger': log,
     './llm': llm,
-    './claudecode': claudecode,
+    './claudesession': claudesession,
     './skills': skills,
     './screenshare': screenshare,
     './selfchange': selfchange,
@@ -82,7 +86,7 @@ function harness({ convs = [], settings = {} } = {}) {
   });
   const stored = (id) => (files.has(id) ? JSON.parse(files.get(id)) : null);
   const index = (pred) => trace.findIndex(pred);
-  return { turns, trace, files, dirs, logs, log, store, attachments, llm, claudecode, skills, screenshare, sent, windowOnly, stored, index };
+  return { turns, trace, files, dirs, logs, log, store, attachments, llm, claudesession, skills, screenshare, sent, windowOnly, stored, index };
 }
 
 const userMsg = (id, content, extra = {}) => ({ id, role: 'user', content, createdAt: 1, ...extra });
@@ -268,7 +272,7 @@ test('a delete mid-reply ends it in the window, never comes back, records no att
   const hold = gate();
   h.llm.runTurn = async () => (await hold.p, { text: 'Late reply', model: 'm' });
   let prewarmed = 0;
-  h.llm.prewarm = async () => prewarmed++;
+  h.claudesession.afterTurn = async () => prewarmed++;
   const finished = [];
   const r = await h.turns.start({ text: 'Hi', requestId: 'r1', onFinish: (x) => finished.push(x) });
   await h.turns.deleteConversation(r.conversationId);
@@ -355,18 +359,18 @@ test('every log line of the turn runs under its tag, the one routines are told (
   assert.ok(main.includes('onTurn?.(tagFor(requestId));'), 'startRoutines reports the same tag');
 });
 
-test('the reply stores the Claude session fields, and only the user’s own message gets an attempt', async () => {
+// Which fields a Claude session keeps (and that a rolled-over one keeps none to resume) is claudesession.js's
+// rule (test/claudeforget.test.js); turns.js stores what the brain hands back and then lets it warm.
+test('the reply stores the brain’s convPatch, then the session hears the turn ended; only the user’s own message gets an attempt', async () => {
   const h = harness();
-  h.llm.runTurn = async () => ({ text: 'Hi', model: 'm', sessionId: 's9', freshTokens: 40000, contextTokens: 52000 });
+  h.llm.runTurn = async () => ({ text: 'Hi', model: 'm', convPatch: { claudeSessionId: 's9', claudeFreshTokens: 40000, claudeTokens: 52000 } });
   const r = await h.turns.start({ text: 'Hi', requestId: 'r1' });
   await flush();
   const c = h.stored(r.conversationId);
   assert.deepStrictEqual([c.claudeSessionId, c.claudeFreshTokens, c.claudeTokens], ['s9', 40000, 52000]);
-  h.llm.runTurn = async () => ({ text: 'Hi', model: 'm', rollover: true, contextTokens: 130000 });
-  await h.turns.start({ conversationId: r.conversationId, text: 'Again', requestId: 'r2' });
-  await flush();
-  const after = h.stored(r.conversationId);
-  assert.deepStrictEqual([after.claudeSessionId, after.claudeTokens], [null, 0], 'a session that rolled over is not resumed');
+  const saved = h.index((e) => e[0] === 'save' && e[1] === r.conversationId && e[2].messages.length === 2);
+  const after = h.index((e) => e[0] === 'afterTurn' && e[1] === r.conversationId);
+  assert.ok(saved >= 0 && after > saved, 'afterTurn gets the stored conversation, once it is saved');
   for (const opts of [{ routine: 'rt1' }, { auto: 'tasks' }, { hidden: true }]) {
     const t = await h.turns.start({ text: 'x', requestId: 'r3', ...opts });
     const first = h.trace.filter((e) => e[0] === 'save' && e[1] === t.conversationId && e[2].messages.length)[0][2];

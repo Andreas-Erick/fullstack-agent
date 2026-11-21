@@ -175,10 +175,7 @@ async function main() {
           handedOver ||= r.handedOver || '';
           for (const t of r.toolCalls || []) if (!tools.some((x) => x.name === t.name && x.ok !== null)) tools.push({ name: t.name, input: t.input, ok: t.ok });
           conv.messages.push({ id: store.newId('m'), role: 'assistant', content: text, provider: r.provider || settings.llm.provider, persona: settings.agent.name, model: r.model, createdAt: Date.now() });
-          if (r.rollover) conv.claudeSessionId = null;
-          else if (r.sessionId) conv.claudeSessionId = r.sessionId;
-          if (r.freshTokens) conv.claudeFreshTokens = r.freshTokens;
-          if (r.convPatch) Object.assign(conv, r.convPatch);
+          if (r.convPatch) Object.assign(conv, r.convPatch); // the Claude session's fields, loaded tool groups
         } catch (err) {
           error = ac.signal.aborted ? `no reply within ${TURN_MS / 1000} s` : err.message;
         } finally {
