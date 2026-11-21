@@ -114,7 +114,9 @@ function insideString(text, index) {
 }
 
 function resolveRelative(root, fromRel, spec) {
-  const base = path.posix.join(path.posix.dirname(fromRel), spec);
+  // The phone client loads the desktop's shared modules by URL: /js/… is served from renderer/js/ (companion.js STATIC).
+  const served = fromRel.startsWith('renderer/remote/') && spec.startsWith('./js/');
+  const base = served ? path.posix.join('renderer', spec) : path.posix.join(path.posix.dirname(fromRel), spec);
   for (const cand of [base, `${base}.js`, `${base}/index.js`]) if (fs.existsSync(path.join(root, cand)) && fs.statSync(path.join(root, cand)).isFile()) return cand;
   return null;
 }
@@ -152,11 +154,11 @@ function ipc(root) {
 }
 
 /** Agent tools (main/tools.js and the groups in main/tools/) and which have a label in the chat
- *  (renderer/js/chat.js). */
+ *  (TOOL_LABELS in renderer/js/chatcore.js, shared by the desktop and the phone). */
 function toolsInfo(root) {
   const text = jsFiles(root).filter(isToolFile).map((f) => read(root, f)).join('\n');
   const tools = [...text.matchAll(/^\s{4}name: '(\w+)',\s*\n\s{4}group: '(\w+)'/gm)].map((m) => ({ name: m[1], group: m[2] }));
-  const chat = read(root, 'renderer/js/chat.js');
+  const chat = read(root, 'renderer/js/chatcore.js');
   const block = /const TOOL_LABELS = \{([\s\S]*?)\n\};/.exec(chat);
   const labels = new Set(block ? [...block[1].matchAll(/^\s*'?(\w+)'?\s*:/gm)].map((m) => m[1]) : []);
   return { tools, unlabeled: tools.filter((t) => t.group !== 'setup' && !labels.has(t.name)).map((t) => t.name) };

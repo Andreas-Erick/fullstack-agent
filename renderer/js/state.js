@@ -1,6 +1,7 @@
 // Shared app state: settings + the agent's visual state: idle / listening / thinking / working (running
 // tools) / speaking, plus happy (a moment after a reply finished) and sleeping (no activity for a while).
 import { api, emit } from './util.js';
+import { faceState } from './turnstate.js';
 
 export const state = {
   settings: null,
@@ -58,16 +59,20 @@ export function ttsActive() {
   return Boolean(v?.ttsEnabled && v?.autoSpeak);
 }
 
-// Derive the face state from what's going on right now.
+// Derive the face state from what's going on right now (turnstate.faceState, the phone's rule too).
 export function refreshAgentState() {
-  let s = 'idle';
-  if (state.demo) s = state.demo.state;
-  else if (state.recording) s = 'listening';
-  else if (state.playing) s = 'speaking';
-  else if (state.transcribing) s = 'thinking';
-  else if (state.generating) s = state.toolsRunning > 0 ? 'working' : state.streamingText && !ttsActive() ? 'speaking' : 'thinking';
-  else if (state.happyUntil > Date.now()) s = 'happy';
-  else if (state.sleeping) s = 'sleeping';
+  const s = faceState({
+    demo: state.demo?.state || null,
+    recording: state.recording,
+    playing: state.playing,
+    transcribing: state.transcribing,
+    generating: state.generating,
+    toolsRunning: state.toolsRunning,
+    streamingText: state.streamingText,
+    spoken: ttsActive(),
+    happy: state.happyUntil > Date.now(),
+    sleeping: state.sleeping,
+  });
   if (state.agentState === s) return;
   state.agentState = s;
   emit('agent-state', s);

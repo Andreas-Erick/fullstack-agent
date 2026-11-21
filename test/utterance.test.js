@@ -1,5 +1,5 @@
 // Spoken messages that are long, get cut off, or interrupt the agent (renderer/js/utterance.js with
-// renderer/js/bargein.js):
+// renderer/js/turnstate.js bargeIn / bargeInOver):
 //  - a long monologue isn't chopped into separate messages at a length limit (it used to be, at 30 s,
 //    and the second half then interrupted the reply to the first);
 //  - a pause mid-sentence ("I want to go to the… station") waits for the rest instead of sending half;
@@ -14,7 +14,7 @@ const { ROOT, tmpDir } = require('./helpers');
 
 const ESM = tmpDir('nexus-utter-');
 fs.writeFileSync(path.join(ESM, 'package.json'), '{"type":"module"}');
-for (const f of ['utterance.js', 'bargein.js']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(ESM, f));
+for (const f of ['utterance.js', 'turnstate.js', 'chatcore.js']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(ESM, f));
 test.after(() => fs.rmSync(ESM, { recursive: true, force: true }));
 const load = (f) => import(pathToFileURL(path.join(ESM, f)).href);
 
@@ -84,21 +84,22 @@ test('the user gets cut off and says nothing more: what was heard still goes, af
 
 test('interrupting the agent while it speaks: real speech stops the reply, a cough does not', async () => {
   const { onset } = await load('utterance.js');
-  const { bargeIn, bargeInOver } = await load('bargein.js');
+  const { createChat } = await load('turnstate.js'); // muting the reply is the turn's state
   assert.strictEqual(onset({ agentTalking: false, loudMs: 140 }), true, 'starting to talk to a quiet agent');
   assert.strictEqual(onset({ agentTalking: false, loudMs: 100 }), false, 'a click');
   assert.strictEqual(onset({ agentTalking: true, loudMs: 400, voicedMs: 120 }), false, 'a cough over the agent');
   assert.strictEqual(onset({ agentTalking: true, loudMs: 400, voicedMs: 260 }), true, 'a word over the agent');
 
-  const reply = { muted: false };
-  bargeIn(reply);
+  const chat = createChat();
+  chat.bargeIn();
+  chat.bargeInOver(); // no reply streaming: nothing to do, no error
+  const reply = chat.begin({ requestId: 'r1' });
+  chat.bargeIn();
   assert.strictEqual(reply.muted, true, 'the rest of the reply is not spoken');
-  bargeInOver(reply);
+  chat.bargeInOver();
   assert.strictEqual(reply.muted, false, 'nothing was said after all: it speaks again');
-  bargeIn(reply, { approvalPending: true });
+  chat.bargeIn({ approvalPending: true });
   assert.strictEqual(reply.muted, false, 'answering an approval does not silence the reply');
-  bargeIn(null);
-  bargeInOver(null); // no reply streaming: nothing to do, no error
 });
 
 test('the phone records as long as the computer accepts, and as long as the desktop listens', async () => {

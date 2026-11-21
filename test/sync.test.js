@@ -181,7 +181,13 @@ test('what a change redraws: the screen on show, unless busy or a live canvas', 
 });
 
 test('after a reconnect: the own reply ends if it finished meanwhile, stays if running or unsent; others are followed', async () => {
-  const { reconcile } = await client();
+  // The rule lives with the conversation's state (renderer/js/turnstate.js), shared with the desktop;
+  // test/turnstate.test.js drives it through createChat().reconcile.
+  const dir = tmpDir('nexus-sync-turns-');
+  fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}');
+  for (const f of ['turnstate.js', 'chatcore.js']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(dir, f));
+  const { reconcile } = await import(pathToFileURL(path.join(dir, 'turnstate.js')).href);
+  assert.ok(!('reconcile' in (await client())), 'one copy of the rule');
   // The bug this fixes: the reply finished while the link was down, so "done" never came and the
   // composer stayed busy forever.
   assert.deepStrictEqual(reconcile({ requestId: 'r1' }, []), { keepActive: false, endActive: true, follow: [] });
