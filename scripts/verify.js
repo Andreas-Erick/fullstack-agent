@@ -65,7 +65,7 @@ function verify(root) {
     if (seen.has(t.name)) errors.push(`main/tools.js defines the tool "${t.name}" twice.`);
     seen.add(t.name);
   }
-  if (unlabeled.length) warnings.push(`Tools without a label in TOOL_LABELS (renderer/js/chat.js): ${unlabeled.join(', ')}.`);
+  if (unlabeled.length) warnings.push(`Tools without a label in TOOL_LABELS (renderer/js/chatcore.js): ${unlabeled.join(', ')}.`);
 
   return { errors, warnings };
 }

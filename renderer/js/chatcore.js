@@ -10,8 +10,157 @@ export function connectorLabel(n) {
   return `🔌 ${service} · ${m[2].replace(/[-_]+/g, ' ')}`;
 }
 
+// What each tool did, in words: the chips, notices and confirms on the desktop and the phone (one table,
+// served to the phone with this module; scripts/verify.js warns about a tool without one).
+export const TOOL_LABELS = {
+  create_pdf: '📄 Created a PDF',
+  vault_links: '🔗 Looked at a note’s links',
+  quick_note: '📝 Jotted a note',
+  skill_list: '⚡ Listed skills',
+  skill_run: '⚡ Ran a skill',
+  skill_file: '⚡ Read a skill file',
+  diagram_save: '📐 Drew a diagram',
+  chart_create: '📈 Drew a chart',
+  globe_open: '🌍 Opened the globe',
+  browser_open: '🌐 Opened a page in the agent window',
+  browser_read: '🌐 Read the page',
+  browser_look: '🌐 Looked at the agent window',
+  browser_act: '🌐 Acted on the page',
+  browser_close: '🌐 Closed the agent window',
+  skill_import: '⚡ Imported skills',
+  skill_save: '⚡ Saved a skill',
+  skill_delete: '⚡ Deleted a skill',
+  look_at_screen: '🖥 Looked at your screen',
+  learning_update: '🎓 Updated your learning tracker',
+  learning_overview: '🎓 Checked your learning',
+  vocab_add: '🗂 Added to your deck',
+  vocab_review: '🗂 Picked cards to review',
+  vocab_grade: '🗂 Graded a card',
+  language_practice: '🗣 Language practice',
+  stream_observe: '🧠 Noted an observation',
+  stream_recall: '🧠 Searched the memory stream',
+  stream_reflect: '✨ Reflected on recent observations',
+  world_status: '🏡 Looked in on the Inner World',
+  world_resident: '🏡 Visited a resident',
+  world_simulate: '🏡 Wrote today in the Inner World',
+  rehearsal_run: '🎭 Ran a rehearsal',
+  routine_list: '⏰ Listed routines',
+  routine_save: '⏰ Saved a routine',
+  routine_delete: '⏰ Deleted a routine',
+  routine_run: '⏰ Ran a routine',
+  app_guide: '🧭 Looked up what I can do',
+  capabilities_for: '🧩 Checked which skills and connectors fit',
+  setup_add_persona: '🎭 Added a persona',
+  persona_list: '🎭 Listed personas',
+  persona_switch: '🎭 Switched persona',
+  theme_get: '🎨 Checked my look',
+  theme_update: '🎨 Changed my look',
+  setup_scan_hardware: '🖥 Checked the hardware',
+  memory_save: '🧠 Saved memory',
+  memory_update: '🧠 Updated memory',
+  memory_delete: '🧠 Deleted memory',
+  memory_search: '🧠 Searched memory',
+  calendar_get_events: '📅 Checked schedule',
+  calendar_list_entries: '📅 Looked up schedule',
+  calendar_add_event: '📅 Added to schedule',
+  calendar_update_event: '📅 Changed schedule',
+  calendar_delete_event: '📅 Removed from schedule',
+  voice_list: '🎙 Listed voices',
+  voice_design: '🎙 Designed a voice',
+  voice_clone: '🎙 Cloned a voice',
+  voice_calibrate: '🎙 Calibrated your voice',
+  github_list_repos: '🐙 Listed repositories',
+  github_repo: '🐙 Looked at a repository',
+  github_issues: '🐙 Read issues',
+  github_pull_requests: '🐙 Read pull requests',
+  github_read_file: '🐙 Read a file',
+  github_search: '🐙 Searched code',
+  github_clone: '🐙 Cloned a repository',
+  github_start_branch: '🐙 Started a branch',
+  github_status: '🐙 Checked repo status',
+  github_change_file: '🐙 Changed a file',
+  github_commit: '🐙 Committed',
+  github_push: '🐙 Pushed to GitHub',
+  github_create_pull_request: '🐙 Opened a pull request',
+  voice_delete: '🎙 Deleted a voice',
+  vault_search: '🔎 Searched vault',
+  vault_read_note: '📓 Read note',
+  vault_list_notes: '📓 Listed notes',
+  vault_write_note: '✍ Wrote note',
+  vault_delete_note: '🗑 Deleted note',
+  web_search: '🌐 Searched the web',
+  web_fetch: '🌐 Read web page',
+  WebSearch: '🌐 Searched the web',
+  WebFetch: '🌐 Read web page',
+  ToolSearch: '🔌 Looked up a connector',
+  connectors_list: '🔌 Checked your connectors',
+  connector_permission: '🔌 Changed a connector’s permission',
+  tasks_save: '🗓 Updated the calendar’s tasks',
+  Skill: '⚡ Loaded a plugin skill',
+  code_list_files: '💾 Listed source files',
+  code_read_file: '💾 Read source',
+  code_search: '💾 Searched source',
+  code_grep: '💾 Searched source (exact)',
+  code_outline: '💾 Outlined a file',
+  code_map: '🗺 Mapped its architecture',
+  code_diff: '🛠 Reviewed its changes',
+  run_tests: '🧪 Ran its tests',
+  code_edit_file: '🛠 Edited own code',
+  code_write_file: '🛠 Wrote own code',
+  code_check: '🛠 Checked code',
+  self_change_commit: '✦ Recorded self-change',
+  self_change_plan: '✦ Proposed a self-change',
+  setup_get_state: '⚙ Checked its setup',
+  setup_configure: '⚙ Configured itself',
+  setup_profile: '👤 Noted about you',
+  setup_generate_look: '✨ Redesigned its look',
+  setup_pick_image: '🖼 Asked for an image',
+  setup_register_vault: '◆ Added vault to Obsidian',
+  setup_check_service: '🔌 Checked a connection',
+  setup_request_secret: '🔒 Asked for a key (secure field)',
+  setup_complete: '✓ Finished setup',
+  memory_get: '🧠 Recalled memories',
+  daily_note_log: '📔 Logged to daily note',
+  priorities_update: '📌 Updated priorities',
+  profile_update: '👤 Updated your profile',
+  job_save: '🧭 Saved a job procedure',
+  job_add_lesson: '🧭 Added a lesson',
+  vault_note_history: '⟲ Checked note history',
+  vault_restore_note: '⟲ Restored a note',
+  history_search: '🔎 Searched past chats',
+  diagnose: '🩺 Ran diagnostics',
+  read_app_log: '🩺 Read its log',
+  analyze_errors: '🩺 Analyzed its errors',
+  helper_app_start: '🔌 Started a helper app',
+  settings_read: '⚙ Read its settings',
+  settings_update: '⚙ Changed a setting',
+  brain_options: '🧠 Checked its brains',
+  brain_switch: '🧠 Switched brain',
+  tools_more: '🧰 Got more tools',
+  hand_over: '🧠 Handed to Claude',
+  Read: '💾 Read file',
+  Edit: '🛠 Edited file',
+  Write: '🛠 Wrote file',
+  Glob: '💾 Listed files',
+  Grep: '💾 Searched files',
+  Bash: '⌨ Ran command',
+  open_document: '📄 Opened document',
+  close_document: '📄 Closed document',
+  find_document: '🔎 Looked for a file',
+  list_monitors: '🖥 Checked monitors',
+  identify_monitors: '🖥 Showed monitor numbers',
+  move_window: '🖥 Moved a window',
+  set_window_state: '🖥 Changed a window',
+  create_bug_report: '🐞 Wrote a bug report',
+  read_document: '📄 Read document',
+  list_recent_documents: '📄 Recent documents',
+};
+
 /** The chip's label: the app's own label, a connector's, or the raw name. */
-export const toolLabel = (n, labels = {}) => labels[n] || connectorLabel(n) || `🔧 ${n}`;
+export function toolLabel(n, labels = TOOL_LABELS) {
+  const name = String(n || 'tool').replace(/^mcp__nexus(_more)?__/, ''); // the app's own tools, by their own name
+  return (Object.hasOwn(labels, name) && labels[name]) || connectorLabel(name) || `🔧 ${name}`;
+}
 
 /** "· notes/today.md": the one input worth showing next to the label (long paths shortened). */
 export function briefInput(input) {
@@ -24,7 +173,7 @@ export function briefInput(input) {
 }
 
 /** A tool call as the chip shows it. t: { name, input, ok, preview }. */
-export function toolChip(t, labels = {}) {
+export function toolChip(t, labels = TOOL_LABELS) {
   return {
     state: t.ok === undefined ? 'running' : t.ok ? 'ok' : 'fail',
     label: toolLabel(t.name, labels),
@@ -44,8 +193,12 @@ export function stampText(m, agentName, timeText) {
   return [agentName, timeText, modelName(m.model)].filter(Boolean).join(' · ');
 }
 
+/** The stamp of a stored reply at its own time (desktop and phone); a reply still streaming says "live". */
+export const replyStamp = (m, agentName) => stampText(m || {}, agentName, new Date(m?.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+export const liveStamp = (agentName) => `${agentName} · live`;
+
 /** What a message is, for the node chat.js builds: tools, tags, and whether its text is Markdown. */
-export function describeMessage(m, labels = {}) {
+export function describeMessage(m, labels = TOOL_LABELS) {
   return {
     role: m.role,
     tools: (m.toolCalls || []).map((t) => toolChip(t, labels)),

@@ -74,21 +74,21 @@ test('chat: a streamed frame renders once, and in the Face layout only what the 
   const render = slice(file, 'function renderActive() {', '\n}\n');
   assert.ok(at(render, 'if (face && !toCard) return;') < at(render, 'renderMarkdown('), 'nothing rendered when nothing shows it');
   assert.strictEqual(render.split('renderMarkdown(').length, 2, 'one render a frame');
-  assert.match(render, /if \(toCard\) showCard\(active\.text, \{ follow: true, html \}\);/);
+  assert.match(render, /if \(toCard\) showCard\(t\.text, \{ follow: true, html \}\);/);
   assert.match(slice(file, 'function showCard(', '\n}\n'), /body\.innerHTML = html \?\? \(md \? renderMarkdown\(md, \{ wikilinks: 'open' \}\) : ''\);/);
   // Leaving the Face layout mid-reply fills the bubble it left behind, at once (Open in chat scrolls next).
   const init = slice(file, 'function initReplyCard() {', '\n}\n');
-  assert.match(init, /if \(active\?\.behind\) \{\n\s+active\.behind = false;\n\s+active\.bubble\.innerHTML = renderMarkdown\(active\.text, \{ wikilinks: 'open' \}\);/);
+  assert.match(init, /if \(t\?\.view\.behind\) \{\n\s+t\.view\.behind = false;\n\s+t\.view\.bubble\.innerHTML = renderMarkdown\(t\.text, \{ wikilinks: 'open' \}\);/);
   // …and scrolled once the new layout applies (app.js hears 'settings' after chat.js), not measured in the old one.
-  assert.match(init, /requestAnimationFrame\(\(\) => active && scrollToBottom\(true\)\);/);
-  assert.ok(!/active\.bubble\.innerHTML = renderMarkdown\(active\.text, \{ wikilinks: 'open' \}\);\n\s+scrollToBottom\(true\);/.test(init), 'not in the same task');
+  assert.match(init, /requestAnimationFrame\(\(\) => chat\.own && scrollToBottom\(true\)\);/);
+  assert.ok(!/t\.view\.bubble\.innerHTML = renderMarkdown\(t\.text, \{ wikilinks: 'open' \}\);\n\s+scrollToBottom\(true\);/.test(init), 'not in the same task');
   const app = read('renderer/js/app.js');
   // boot() starts each part through start(name, fn), which calls fn at once (settings' boot boundary).
   assert.ok(at(app, "start('chat', initChat, 'chat');") < at(app, "on('settings', applySettings)"), 'the order the next frame waits out');
   assert.match(slice('renderer/js/app.js', 'function start(name, fn, view = null) {', '\n}\n'), /try \{\n\s+const r = fn\(\);/);
-  assert.match(render, /active\.behind = face;/);
+  assert.match(render, /v\.behind = face;/);
   // The end of a reply still renders its bubble in every layout.
-  assert.match(slice(file, "case 'done': {", "case 'error':"), /active\.bubble\.innerHTML = renderMarkdown\(m\.content \|\| '', \{ wikilinks: 'open' \}\);/);
+  assert.match(slice(file, "case 'done': {", "case 'failed':"), /v\.bubble\.innerHTML = renderMarkdown\(m\.content \|\| '', \{ wikilinks: 'open' \}\);/);
 });
 
 // Regression (io-8, states-desktop-3): an older load could replace the newer one; a chat that couldn't be
@@ -97,11 +97,11 @@ test('chat: the last chat asked for wins; one that can’t be opened says so and
   const file = 'renderer/js/chat.js';
   const open = slice(file, 'export async function openConversation(', '\n}\n');
   assert.ok(at(open, 'const seq = ++openSeq;') < at(open, 'await api.conv.get(id)'));
-  assert.ok(at(open, 'if (seq !== openSeq || active) return;') < at(open, 'if (!conv) {'), 'checked before the result is used');
+  assert.ok(at(open, 'if (seq !== openSeq || chat.own) return;') < at(open, 'if (!conv) {'), 'checked before the result is used');
   assert.ok(at(open, 'if (!conv) {') < at(open, 'hideCard();'));
   assert.match(open, /if \(quiet\) return newChat\(\);/);
   assert.match(open, /couldn’t be opened/);
-  assert.ok(at(slice(file, 'export function newChat(', '\n}\n'), 'openSeq++;') < at(slice(file, 'export function newChat(', '\n}\n'), 'if (active) stop();'));
+  assert.ok(at(slice(file, 'export function newChat(', '\n}\n'), 'openSeq++;') < at(slice(file, 'export function newChat(', '\n}\n'), 'if (chat.own) stop();'));
   assert.match(read(file), /if \(c\) openConversation\(c\.id, \{ quiet: true \}\);/, 'only the launch is quiet');
   assert.strictEqual(read(file).split('quiet: true').length, 2);
 });
@@ -109,9 +109,10 @@ test('chat: the last chat asked for wins; one that can’t be opened says so and
 // Regression (gap-stop-cancellation-4): Try again after a stop called a cut-off call "done".
 test('the window and main word a cut-off call as cut off, never as done', () => {
   const file = 'renderer/js/chat.js';
-  const notice = slice(file, "case 'notice': {", 'break;');
-  assert.match(notice, /ev\.cut\?\.length \? `Cut off before it reported back \(check before repeating\): \$\{label\(ev\.cut\)\}\.` : ''/);
-  assert.match(notice, /const text = `⚠ \$\{said \|\| ev\.message\}`;/);
+  // The notice's words (desktop and phone alike) are turnstate.noticeText: test/turnstate.test.js 'notices…'.
+  const notice = slice(file, "case 'notice':", 'break;');
+  assert.match(notice, /el\('div', \{ class: 'notice' \}, step\.text\)/);
+  assert.match(read('renderer/remote/app.js'), /el\('div', \{ class: 'notice' \}, step\.text\)/, 'the phone shows the same words');
   const again = slice(file, 'async function runAgain(', '\n}\n');
   assert.match(again, /ask\.filter\(\(t\) => !redo\.cutOff\(t\)\)/);
   assert.match(again, /ask\.filter\(redo\.cutOff\)/);

@@ -49,6 +49,7 @@ const STATIC = {
   '/vendor/katex.js': 'node_modules/katex/dist/katex.min.js',
   '/js/mathtext.js': 'renderer/js/mathtext.js',
   '/js/chatcore.js': 'renderer/js/chatcore.js', // a failed reply in plain words (errorHelp); pure, no imports
+  '/js/turnstate.js': 'renderer/js/turnstate.js', // the conversation's turns from the events, shared with the desktop; pure
   // The desktop's built-in faces (app code, no data), so the phone shows the same one.
   '/js/themecore.js': 'renderer/js/themecore.js',
   '/js/visualizer.js': 'renderer/js/visualizer.js',

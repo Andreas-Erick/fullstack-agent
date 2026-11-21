@@ -1,7 +1,7 @@
 // Chat view: the open conversation (History's list is history.js), streaming messages, tool-call chips, voice integration.
 import { $, api, el, renderMarkdown, toast, toastActions, toastError, confirmDialog, promptDialog, on, emit, plainError } from './util.js';
-import { bargeIn, bargeInOver } from './bargein.js';
 import * as redo from './redocore.mjs';
+import { createChat } from './turnstate.js';
 import { switchView, currentView } from './nav.js';
 import { currentUsage } from './usage.js';
 import { practiceLanguage, quoteFilter } from './practice.js';
@@ -18,11 +18,12 @@ import { initHistory, closeHistory, refreshList, drawList } from './history.js';
 
 export { refreshList }; // the list read again (settings.js after Clear all, setup.js)
 
-let currentId = null;
-let active = null;
-let queued = null; // message waiting for the interrupted turn to finish // { requestId, bubble, text, tools: Map, wrap, renderQueued }
-let shown = []; // the open conversation's messages as stored (hidden ones too), kept in step
-let openSetup = false;
+// The open conversation (its id, its messages as stored, the setup flag), this window's reply being written
+// (chat.own: its text, tools, muted; turn.view: its nodes and the card's flags) and replies started on
+// another device in it (chat.others), and what may be done to the latest exchange: turnstate.js, shared
+// with the phone. This module draws it.
+const chat = createChat({ redo });
+let queued = null; // message waiting for the interrupted turn to finish
 let editing = null; // { messageId, draft }: ✎ Edit put the latest message in the box (draft: what was there)
 let openSeq = 0; // the latest openConversation (newer ones and New chat win)
 
@@ -38,7 +39,7 @@ export function initChat() {
     if (slashPick(e)) return;
     // ↑ in an empty box: the latest message back in it, to change and send again (as in a terminal).
     if (e.key === 'ArrowUp' && !input.value && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !busy()) {
-      const id = redo.actions(shown, { setup: openSetup }).edit;
+      const id = chat.actions().edit;
       if (id) {
         e.preventDefault();
         startEdit(id);
@@ -61,7 +62,7 @@ export function initChat() {
   $('#newChatBtn').onclick = () => newChat();
   $('#newChatTop').onclick = () => newChat(); // ＋ in the header: History (and its ＋) slides over the chat where there is no room
   $('#chatTitle').ondblclick = renameCurrent;
-  initHistory({ current: () => currentId, open: openFromHistory, newChat: () => newChat({ focus: false }) });
+  initHistory({ current: () => chat.convId, open: openFromHistory, newChat: () => newChat({ focus: false }) });
   // [[Note]] links in replies open the note (click, or Enter on a focused one).
   for (const box of [messagesEl(), $('#replyCard')]) for (const type of ['click', 'keydown']) box.addEventListener(type, onNoteLink);
   initReplyCard();
@@ -91,9 +92,9 @@ export function initChat() {
     latest.classList.add('hidden');
   };
   // Talking over the agent silences the rest of this reply, unless it answers an approval or turns out
-  // to be nothing (bargein.js).
-  on('barge-in', () => bargeIn(active, { approvalPending: Boolean(state.approvalPending) }));
-  on('barge-in-over', () => bargeInOver(active));
+  // to be nothing (turnstate.js bargeIn / bargeInOver).
+  on('barge-in', () => chat.bargeIn({ approvalPending: Boolean(state.approvalPending) }));
+  on('barge-in-over', () => chat.bargeInOver());
 
   // Open (and so warm) the user's own latest chat, not a routine's run that came after it.
   refreshList().then((list) => {
@@ -116,9 +117,10 @@ function autosize() {
 }
 
 let waitingFiles = null; // a send waiting for its attachments to be read (attachcore.sendPlan)
-// A reply being written, or a message waiting for its files: either way the latest exchange isn't settled,
-// so Try again, Regenerate and Edit wait (one started meanwhile was stopped by it, or sent in its place).
-const busy = () => Boolean(active || waitingFiles);
+// A reply being written in this conversation (here or on another device), or a message waiting for its
+// files: either way the latest exchange isn't settled, so Try again, Regenerate and Edit wait (one started
+// meanwhile was stopped by it, or sent in its place). The rule is turnstate.js busy(), told about the files.
+const busy = () => chat.busy();
 
 function sendFromInput() {
   const input = $('#input');
@@ -138,7 +140,7 @@ function sendFromInput() {
   }
   // A message already queued behind the reply being stopped counts as waiting: this one stays in the box,
   // so the two can't go out in reverse order (the later one interrupting the earlier one's reply).
-  const plan = attachcore.sendPlan({ text, files: attachmentCount(), reading: attachmentsReading(), active: Boolean(active), waiting: Boolean(waitingFiles || queued) });
+  const plan = attachcore.sendPlan({ text, files: attachmentCount(), reading: attachmentsReading(), active: Boolean(chat.own), waiting: Boolean(waitingFiles || queued) });
   if (plan === 'none' || plan === 'hold') return;
   if (plan === 'wait') return waitForFiles(sendFromInput); // the text stays in the box meanwhile
   input.value = '';
@@ -148,8 +150,10 @@ function sendFromInput() {
 
 function waitForFiles(then) {
   setSendBusy(true, attachmentCount());
+  chat.setWaiting(true);
   waitingFiles = attachmentsReady().finally(() => {
     waitingFiles = null;
+    chat.setWaiting(false);
     setSendBusy(false);
     syncActions();
     then();
@@ -160,24 +164,23 @@ function waitForFiles(then) {
 // ------------------------------------------------------------- conversations
 // The list of them is History's (history.js); chat tells it when the list may have changed.
 async function renameCurrent() {
-  if (!currentId) return;
+  const id = chat.convId;
+  if (!id) return;
   const title = await promptDialog('Rename conversation', $('#chatTitle').textContent);
   if (!title) return;
-  await api.conv.rename(currentId, title);
+  await api.conv.rename(id, title);
   $('#chatTitle').textContent = title;
   refreshList();
 }
 
 export function newChat({ focus = true } = {}) {
   openSeq++; // an open still loading must not land after this
-  if (active) stop();
+  if (chat.own) stop();
   closeCard(); // closed, not just hidden: the stopped reply's last text and its 'aborted' must not bring it back
   if (focus) closeHistory({ focus: false });
   cancelEdit();
-  currentId = null;
+  chat.open({}); // a new conversation: no id, no messages
   earlier = [];
-  shown = [];
-  openSetup = false;
   $('#chatTitle').textContent = 'New conversation';
   messagesEl().innerHTML = '';
   messagesEl().append(emptyStateNode());
@@ -200,10 +203,10 @@ function emptyStateNode() {
 // at: a message to show (History's search found it there); card: in the Face layout, it (or the latest
 // reply) on the card; quiet: the launch's open (a chat that is gone just starts a new one).
 export async function openConversation(id, { at = null, card = false, quiet = false } = {}) {
-  if (active) return toast('Wait for the current reply to finish (or press stop).');
+  if (chat.own) return toast('Wait for the current reply to finish (or press stop).');
   const seq = ++openSeq;
   const conv = await api.conv.get(id).catch(() => null);
-  if (seq !== openSeq || active) return; // a newer open, New chat, or a message sent meanwhile wins
+  if (seq !== openSeq || chat.own) return; // a newer open, New chat, or a message sent meanwhile wins
   if (!conv) {
     if (quiet) return newChat(); // launch: the latest chat is gone, start fresh as before
     refreshList();
@@ -211,9 +214,7 @@ export async function openConversation(id, { at = null, card = false, quiet = fa
   }
   hideCard();
   cancelEdit();
-  currentId = conv.id;
-  shown = conv.messages.slice();
-  openSetup = Boolean(conv.setup);
+  chat.open({ id: conv.id, messages: conv.messages, setup: conv.setup }); // replies followed in the old list go with it
   $('#chatTitle').textContent = conv.title;
   const box = messagesEl();
   box.innerHTML = '';
@@ -289,7 +290,7 @@ function cardFor(conv, at) {
   const list = conv.messages.filter((m) => !m.hidden);
   const m = at ? list.find((x) => x.id === at) : list.findLast((x) => x.role === 'assistant' && (x.content || '').trim());
   if (!m) return;
-  const d = chatcore.describeMessage(m, TOOL_LABELS);
+  const d = chatcore.describeMessage(m);
   if (!d.text.trim()) return;
   const who = m.role === 'user' ? 'You' : m.persona || agentName();
   const when = new Date(Number(m.createdAt) || NaN);
@@ -302,7 +303,7 @@ function cardFor(conv, at) {
 // A row in History: the chat opens (at the message the search found), and the drawer makes way. While a
 // reply is being written nothing opens, and the drawer stays.
 async function openFromHistory(id, at) {
-  if (active) return toast('Wait for the current reply to finish (or press stop).');
+  if (chat.own) return toast('Wait for the current reply to finish (or press stop).');
   closeHistory({ focus: false });
   await openConversation(id, { at, card: true });
   $('#input').focus({ preventScroll: true });
@@ -319,7 +320,7 @@ function avatarNode(role) {
 }
 
 function toolChip(t) {
-  const c = chatcore.toolChip(t, TOOL_LABELS);
+  const c = chatcore.toolChip(t);
   return el(
     'details',
     { class: `tool-chip ${c.state === 'running' ? '' : c.state}` },
@@ -328,152 +329,9 @@ function toolChip(t) {
   );
 }
 
-const TOOL_LABELS = {
-  create_pdf: '📄 Created a PDF',
-  vault_links: '🔗 Looked at a note’s links',
-  quick_note: '📝 Jotted a note',
-  skill_list: '⚡ Listed skills',
-  skill_run: '⚡ Ran a skill',
-  skill_file: '⚡ Read a skill file',
-  diagram_save: '📐 Drew a diagram',
-  chart_create: '📈 Drew a chart',
-  globe_open: '🌍 Opened the globe',
-  browser_open: '🌐 Opened a page in the agent window',
-  browser_read: '🌐 Read the page',
-  browser_look: '🌐 Looked at the agent window',
-  browser_act: '🌐 Acted on the page',
-  browser_close: '🌐 Closed the agent window',
-  skill_import: '⚡ Imported skills',
-  skill_save: '⚡ Saved a skill',
-  skill_delete: '⚡ Deleted a skill',
-  look_at_screen: '🖥 Looked at your screen',
-  learning_update: '🎓 Updated your learning tracker',
-  learning_overview: '🎓 Checked your learning',
-  vocab_add: '🗂 Added to your deck',
-  vocab_review: '🗂 Picked cards to review',
-  vocab_grade: '🗂 Graded a card',
-  language_practice: '🗣 Language practice',
-  stream_observe: '🧠 Noted an observation',
-  stream_recall: '🧠 Searched the memory stream',
-  stream_reflect: '✨ Reflected on recent observations',
-  world_status: '🏡 Looked in on the Inner World',
-  world_resident: '🏡 Visited a resident',
-  world_simulate: '🏡 Wrote today in the Inner World',
-  rehearsal_run: '🎭 Ran a rehearsal',
-  routine_list: '⏰ Listed routines',
-  routine_save: '⏰ Saved a routine',
-  routine_delete: '⏰ Deleted a routine',
-  routine_run: '⏰ Ran a routine',
-  app_guide: '🧭 Looked up what I can do',
-  capabilities_for: '🧩 Checked which skills and connectors fit',
-  setup_add_persona: '🎭 Added a persona',
-  persona_list: '🎭 Listed personas',
-  persona_switch: '🎭 Switched persona',
-  theme_get: '🎨 Checked my look',
-  theme_update: '🎨 Changed my look',
-  setup_scan_hardware: '🖥 Checked the hardware',
-  memory_save: '🧠 Saved memory',
-  memory_update: '🧠 Updated memory',
-  memory_delete: '🧠 Deleted memory',
-  memory_search: '🧠 Searched memory',
-  calendar_get_events: '📅 Checked schedule',
-  calendar_list_entries: '📅 Looked up schedule',
-  calendar_add_event: '📅 Added to schedule',
-  calendar_update_event: '📅 Changed schedule',
-  calendar_delete_event: '📅 Removed from schedule',
-  voice_list: '🎙 Listed voices',
-  voice_design: '🎙 Designed a voice',
-  voice_clone: '🎙 Cloned a voice',
-  voice_calibrate: '🎙 Calibrated your voice',
-  github_list_repos: '🐙 Listed repositories',
-  github_repo: '🐙 Looked at a repository',
-  github_issues: '🐙 Read issues',
-  github_pull_requests: '🐙 Read pull requests',
-  github_read_file: '🐙 Read a file',
-  github_search: '🐙 Searched code',
-  github_clone: '🐙 Cloned a repository',
-  github_start_branch: '🐙 Started a branch',
-  github_status: '🐙 Checked repo status',
-  github_change_file: '🐙 Changed a file',
-  github_commit: '🐙 Committed',
-  github_push: '🐙 Pushed to GitHub',
-  github_create_pull_request: '🐙 Opened a pull request',
-  voice_delete: '🎙 Deleted a voice',
-  vault_search: '🔎 Searched vault',
-  vault_read_note: '📓 Read note',
-  vault_list_notes: '📓 Listed notes',
-  vault_write_note: '✍ Wrote note',
-  vault_delete_note: '🗑 Deleted note',
-  web_search: '🌐 Searched the web',
-  web_fetch: '🌐 Read web page',
-  WebSearch: '🌐 Searched the web',
-  WebFetch: '🌐 Read web page',
-  ToolSearch: '🔌 Looked up a connector',
-  connectors_list: '🔌 Checked your connectors',
-  connector_permission: '🔌 Changed a connector’s permission',
-  tasks_save: '🗓 Updated the calendar’s tasks',
-  Skill: '⚡ Loaded a plugin skill',
-  code_list_files: '💾 Listed source files',
-  code_read_file: '💾 Read source',
-  code_search: '💾 Searched source',
-  code_grep: '💾 Searched source (exact)',
-  code_outline: '💾 Outlined a file',
-  code_map: '🗺 Mapped its architecture',
-  code_diff: '🛠 Reviewed its changes',
-  run_tests: '🧪 Ran its tests',
-  code_edit_file: '🛠 Edited own code',
-  code_write_file: '🛠 Wrote own code',
-  code_check: '🛠 Checked code',
-  self_change_commit: '✦ Recorded self-change',
-  self_change_plan: '✦ Proposed a self-change',
-  setup_get_state: '⚙ Checked its setup',
-  setup_configure: '⚙ Configured itself',
-  setup_profile: '👤 Noted about you',
-  setup_generate_look: '✨ Redesigned its look',
-  setup_pick_image: '🖼 Asked for an image',
-  setup_register_vault: '◆ Added vault to Obsidian',
-  setup_check_service: '🔌 Checked a connection',
-  setup_request_secret: '🔒 Asked for a key (secure field)',
-  setup_complete: '✓ Finished setup',
-  memory_get: '🧠 Recalled memories',
-  daily_note_log: '📔 Logged to daily note',
-  priorities_update: '📌 Updated priorities',
-  profile_update: '👤 Updated your profile',
-  job_save: '🧭 Saved a job procedure',
-  job_add_lesson: '🧭 Added a lesson',
-  vault_note_history: '⟲ Checked note history',
-  vault_restore_note: '⟲ Restored a note',
-  history_search: '🔎 Searched past chats',
-  diagnose: '🩺 Ran diagnostics',
-  read_app_log: '🩺 Read its log',
-  analyze_errors: '🩺 Analyzed its errors',
-  helper_app_start: '🔌 Started a helper app',
-  settings_read: '⚙ Read its settings',
-  settings_update: '⚙ Changed a setting',
-  brain_options: '🧠 Checked its brains',
-  brain_switch: '🧠 Switched brain',
-  tools_more: '🧰 Got more tools',
-  hand_over: '🧠 Handed to Claude',
-  Read: '💾 Read file',
-  Edit: '🛠 Edited file',
-  Write: '🛠 Wrote file',
-  Glob: '💾 Listed files',
-  Grep: '💾 Searched files',
-  Bash: '⌨ Ran command',
-  open_document: '📄 Opened document',
-  close_document: '📄 Closed document',
-  find_document: '🔎 Looked for a file',
-  list_monitors: '🖥 Checked monitors',
-  identify_monitors: '🖥 Showed monitor numbers',
-  move_window: '🖥 Moved a window',
-  set_window_state: '🖥 Changed a window',
-  create_bug_report: '🐞 Wrote a bug report',
-  read_document: '📄 Read document',
-  list_recent_documents: '📄 Recent documents',
-};
 // What a message shows is worked out in chatcore.js (pure, tested); here it becomes nodes.
 function messageNode(m) {
-  const d = chatcore.describeMessage(m, TOOL_LABELS);
+  const d = chatcore.describeMessage(m);
   const wrap = el('div', { class: `msg ${m.role}`, 'data-id': m.id, ...(m.pending ? { 'data-pending': m.pending } : {}) });
   const body = el('div', { class: 'msg-body' });
   if (m.toolCalls?.length) body.append(el('div', { class: 'tools' }, m.toolCalls.map(toolChip)));
@@ -508,7 +366,7 @@ function filesNode(list) {
 
 // The telemetry line the HUD shows on a reply (hud.css): "NEXUS · 14:32:05 · OPUS 5.5".
 const agentName = () => state.settings?.agent?.name || 'Siren';
-const stamp = (m) => chatcore.stampText(m, agentName(), new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+const stamp = (m) => chatcore.replyStamp(m, agentName());
 
 function metaNode(m) {
   const meta = el('div', { class: 'msg-meta' }, el('span', {}, new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
@@ -559,10 +417,11 @@ function initReplyCard() {
     // The bubble the Face layout left behind while the reply streams, filled at once and followed to its end as
     // the hidden list was before. Scrolled in the next frame: app.js applies the new layout after this listener,
     // and the narrower list makes the text taller (Open in chat scrolls there too, after saveSettings).
-    if (active?.behind) {
-      active.behind = false;
-      active.bubble.innerHTML = renderMarkdown(active.text, { wikilinks: 'open' });
-      requestAnimationFrame(() => active && scrollToBottom(true));
+    const t = chat.own;
+    if (t?.view.behind) {
+      t.view.behind = false;
+      t.view.bubble.innerHTML = renderMarkdown(t.text, { wikilinks: 'open' });
+      requestAnimationFrame(() => chat.own && scrollToBottom(true));
     }
   });
   // The card sits between the header (two rows in a narrow window) and the composer, however tall a draft
@@ -618,7 +477,7 @@ function hideCard() {
 
 // Put away by the user: it stays away for the rest of this reply.
 function closeCard() {
-  if (active) active.cardClosed = true;
+  if (chat.own) chat.own.view.cardClosed = true;
   hideCard();
 }
 
@@ -674,7 +533,7 @@ export function sendVoice(text) {
     toast(waitingFiles ? 'Still reading your file; your words are in the box.' : 'Your last message goes first; these words are in the box.');
     return;
   }
-  if (active) {
+  if (chat.own) {
     queued = { text, voice: true, attach: true };
     stop();
     return;
@@ -691,7 +550,7 @@ export async function send(text, { voice = false, hidden = false, attach = false
   const withFiles = attach && !hidden && !again && !state.setupMode && attachmentCount() > 0;
   if (!text && !withFiles && !again) return; // a redo may have no words of its own (a message of files only)
   if (editing) cancelEdit({ keepText: true }); // another message went first: the box keeps the edit as a draft
-  if (active) {
+  if (chat.own) {
     if (again) return; // runAgain checked first; a reply that started since wins
     queued = { text, voice, attach };
     toast('Interrupting the current reply…');
@@ -712,25 +571,19 @@ export async function send(text, { voice = false, hidden = false, attach = false
   const files = withFiles ? takeAttachments() : { tokens: [], meta: [] };
   const showing = files.meta.length ? files.meta : again ? kept : [];
   if (!hidden) messagesEl().append(messageNode({ id: 'pending-user', pending: requestId, role: 'user', content: text, display: text, ...(showing.length ? { attachments: showing } : {}), createdAt: Date.now(), screen: sharing, skill: slash && skillList.some((x) => x.slug === slash[1].toLowerCase()) ? slash[1].toLowerCase() : null }));
-  const wrap = el('div', { class: 'msg assistant' });
-  const body = el('div', { class: 'msg-body' });
-  const tools = el('div', { class: 'tools' });
-  const bubble = el('div', { class: 'bubble streaming', 'data-stamp': `${agentName()} · live` });
-  body.append(tools, bubble);
-  wrap.append(avatarNode('assistant'), body);
-  messagesEl().append(wrap);
+  const view = replyView();
+  const { wrap, bubble } = view;
   scrollToBottom(true);
 
   // During language practice, notes in a blockquote are shown but not spoken (practice.js).
-  active = { requestId, wrap, body, bubble, toolsEl: tools, text: '', tools: new Map(), muted: false, speech: practiceLanguage(state.settings) ? quoteFilter() : (d) => d };
-  setFlag('generating', true);
-  setFlag('streamingText', false);
+  view.speech = practiceLanguage(state.settings) ? quoteFilter() : (d) => d;
+  const turn = chat.begin({ requestId, view });
+  syncFlags(); // generating, nothing streamed yet
   setCaption(text || (showing.length ? attachmentsSummary(showing) : ''), 'user');
   // A spoken message hears something within a moment, even when the reply starts with tools or thinking.
   if (voice && ttsActive() && state.settings.voice.filler) {
-    const turn = active;
-    turn.fillerTimer = setTimeout(() => {
-      if (active !== turn || turn.muted || turn.text.trim() || state.toolsRunning) return;
+    view.fillerTimer = setTimeout(() => {
+      if (chat.own !== turn || turn.muted || turn.text.trim() || state.toolsRunning) return;
       const line = chatcore.earlyFiller(text);
       if (line) speaker.filler(line);
     }, chatcore.EARLY_FILLER_MS);
@@ -739,16 +592,16 @@ export async function send(text, { voice = false, hidden = false, attach = false
   $('#stopBtn').classList.remove('hidden');
 
   try {
-    const res = again ? await api.chat.redo({ ...again, requestId }) : await api.chat.send({ conversationId: currentId, text, requestId, voice, hidden, attachments: files.tokens });
+    const res = again ? await api.chat.redo({ ...again, requestId }) : await api.chat.send({ conversationId: chat.convId, text, requestId, voice, hidden, attachments: files.tokens });
     if (res?.refused) return refusedSend(res.refused, text, requestId, wrap);
-    currentId = res.conversationId;
+    chat.setConv(res.conversationId);
   } catch (err) {
     restoreAttachments(files);
     if (again) {
-      finish();
+      finish(chat.own === turn ? turn : null);
       wrap.remove();
       toast(plainError(err), 'error');
-      openConversation(currentId); // nothing was dropped on the computer
+      openConversation(chat.convId); // nothing was dropped on the computer
       return;
     }
     // The message never reached the computer: as for a refusal, the pending copy goes and the words come back,
@@ -768,7 +621,7 @@ export async function send(text, { voice = false, hidden = false, attach = false
 // The message shown while sending goes; the words come back to an empty box. keepWrap: the reply's
 // place stays, to show why (a send that failed).
 function refusedSend(message, text, requestId, wrap, { keepWrap = false } = {}) {
-  finish();
+  finish(chat.own?.requestId === requestId ? chat.own : null);
   messagesEl().querySelector(`.msg[data-pending="${CSS.escape(requestId)}"]`)?.remove();
   if (!keepWrap) wrap.remove();
   const input = $('#input');
@@ -778,93 +631,194 @@ function refusedSend(message, text, requestId, wrap, { keepWrap = false } = {}) 
 }
 
 function stop() {
-  if (active) api.chat.abort(active.requestId).catch(() => {});
+  if (chat.own) api.chat.abort(chat.own.requestId).catch(() => {});
   speaker.stop();
 }
 
+// The face's flags from this window's own reply (a reply on another device doesn't make this face think,
+// and Esc or "cancel" stop only this window's).
+function syncFlags() {
+  const a = chat.activity({ ownOnly: true });
+  state.toolsRunning = a.toolsRunning;
+  state.streamingText = a.streamingText;
+  setFlag('generating', a.generating);
+}
+
+// The nodes of a reply being written: its tool chips and its streaming bubble.
+function replyView() {
+  const wrap = el('div', { class: 'msg assistant' });
+  const body = el('div', { class: 'msg-body' });
+  const toolsEl = el('div', { class: 'tools' });
+  const bubble = el('div', { class: 'bubble streaming', 'data-stamp': chatcore.liveStamp(agentName()) });
+  body.append(toolsEl, bubble);
+  wrap.append(avatarNode('assistant'), body);
+  messagesEl().append(wrap);
+  return { wrap, body, bubble, toolsEl, chips: new Map() };
+}
+
 function renderActive() {
-  if (!active || active.renderQueued) return;
-  active.renderQueued = true;
+  const t = chat.own;
+  if (!t || t.view.renderQueued) return;
+  t.view.renderQueued = true;
   requestAnimationFrame(() => {
-    if (!active) return;
-    active.renderQueued = false;
+    if (chat.own !== t) return;
+    const v = t.view;
+    v.renderQueued = false;
     // The Face layout hides the message list: its bubble gets the text when the reply ends ('done', 'error',
     // 'aborted' render it) or when the layout changes (initReplyCard); only the card, when it shows the text, renders now.
     const face = faceLayout();
     const onCard = !replyCard().classList.contains('hidden');
     // Read on the card as it is written when it isn't spoken (cardLive) or no longer is (speakLimit reached);
     // once up it follows the text, also after a retract (whose speaker.stop() clears capped).
-    const toCard = face && !active.cardClosed && (active.cardLive || speaker.capped || onCard);
-    active.behind = face;
+    const toCard = face && !v.cardClosed && (v.cardLive || speaker.capped || onCard);
+    v.behind = face;
     if (face && !toCard) return;
-    const html = renderMarkdown(active.text, { wikilinks: 'open' });
-    if (toCard) showCard(active.text, { follow: true, html });
+    const html = renderMarkdown(t.text, { wikilinks: 'open' });
+    if (toCard) showCard(t.text, { follow: true, html });
     else {
-      active.bubble.innerHTML = html;
+      v.bubble.innerHTML = html;
       scrollToBottom();
     }
   });
 }
 
+// An event from main (chat:event): turnstate.js decides whose turn it is and keeps the data; here it is drawn.
 function handleEvent(ev) {
-  if (!active || ev.requestId !== active.requestId) return;
-  switch (ev.type) {
+  const step = chat.apply(ev);
+  if (!step || step.type === 'held') return;
+  if (step.type === 'unknown') return missedTurn(step.ev);
+  if (!step.mine) return drawOther(step);
+  const t = step.turn;
+  const v = t.view;
+  switch (step.type) {
     case 'start': {
-      currentId = ev.conversationId;
-      $('#chatTitle').textContent = ev.title || 'Conversation';
-      if (ev.replaces) dropFrom(ev.replaces, { keep: active.wrap }); // the unanswered copy this message replaces
+      $('#chatTitle').textContent = step.title || 'Conversation';
+      if (step.drop) dropFrom(step.drop, { keep: v.wrap }); // the unanswered copy this message replaces
       // The stored message (its id for ✎ Edit, its files' saved paths) in place of the one shown while sending.
-      const pending = messagesEl().querySelector(`.msg[data-pending="${CSS.escape(active.requestId)}"]`);
-      if (pending && ev.userMessage) pending.replaceWith(messageNode(ev.userMessage));
-      if (ev.userMessage) shown.push(ev.userMessage);
+      const pending = messagesEl().querySelector(`.msg[data-pending="${CSS.escape(t.requestId)}"]`);
+      if (pending && t.userMessage) pending.replaceWith(messageNode(t.userMessage));
       syncActions();
       refreshList();
       break;
     }
     case 'text':
-      active.text += ev.delta;
-      if (!state.streamingText) setFlag('streamingText', true);
-      if (ttsActive() && !active.muted) speaker.feed(active.speech(ev.delta));
+      if (ttsActive() && !t.muted) speaker.feed(v.speech(step.delta));
       else {
-        active.cardLive = true; // not spoken: in the Face layout it is read on the card as it comes
-        setCaption(active.text.slice(-280), 'assistant');
+        v.cardLive = true; // not spoken: in the Face layout it is read on the card as it comes
+        setCaption(t.text.slice(-280), 'assistant');
       }
+      syncFlags();
       renderActive();
       break;
     case 'retract':
-      active.text = active.text.slice(0, Math.max(0, active.text.length - ev.chars));
       speaker.stop();
+      syncFlags();
       renderActive();
       break;
-    case 'thinking':
-      break;
     case 'tool_start': {
-      setFlag('toolsRunning', state.toolsRunning + 1);
-      const chip = toolChip({ name: ev.name, input: ev.input });
-      active.tools.set(ev.id, { chip, input: ev.input });
-      if (ttsActive() && state.settings.voice.filler && !active.muted && !active.text.trim()) speaker.filler(chatcore.fillerFor(ev.name));
-      active.toolsEl.append(chip);
+      syncFlags();
+      const chip = toolChip(step.tool);
+      v.chips.set(step.tool.id, chip);
+      if (ttsActive() && state.settings.voice.filler && !t.muted && !t.text.trim()) speaker.filler(chatcore.fillerFor(step.tool.name));
+      v.toolsEl.append(chip);
       scrollToBottom();
       break;
     }
-    case 'tool_end': {
-      setFlag('toolsRunning', Math.max(0, state.toolsRunning - 1));
-      const prev = active.tools.get(ev.id);
-      const chip = toolChip({ name: ev.name, input: prev?.input, ok: ev.ok, preview: ev.preview });
-      prev ? prev.chip.replaceWith(chip) : active.toolsEl.append(chip);
-      active.tools.set(ev.id, { chip, input: prev?.input });
+    case 'tool_end':
+      syncFlags();
+      drawToolEnd(v, step.tool);
+      break;
+    case 'notice':
+      // Tools an earlier attempt or reply ran (a message sent again), named as the chips name them: turnstate.noticeText.
+      v.body.insertBefore(el('div', { class: 'notice' }, step.text), v.bubble);
+      if (step.toast) toast(step.text); // the Face layout hides the list
+      break;
+    case 'other':
+      sideEvent(step.ev);
+      break;
+    case 'done': {
+      const m = step.message || { role: 'assistant', content: t.text };
+      v.bubble.classList.remove('streaming');
+      v.bubble.innerHTML = renderMarkdown(m.content || '', { wikilinks: 'open' });
+      v.wrap.dataset.id = m.id;
+      // The finished reply on the card (the voice, if on, goes on reading; the mini caption steps aside).
+      // A turn that only used tools has nothing to read: no empty card.
+      if (faceLayout() && !v.cardClosed) {
+        if ((m.content || '').trim()) showCard(m.content, { reply: m });
+        else hideCard();
+      }
+      announce(`${agentName()}: ${v.bubble.textContent}`);
+      decorateCode(v.bubble); // after announce: its text must not read "Copy"
+      v.bubble.dataset.stamp = stamp(m);
+      v.body.append(metaNode(m));
+      if (ttsActive() && !t.muted) speaker.flush();
+      // A switch by voice: the new persona greets the user in its own voice, after the reply.
+      if (t.greeting) {
+        const greeting = t.greeting;
+        loadSettings().then(() => ttsActive() && speaker.follow(greeting, { remember: true, firstAlone: true })).catch(() => {});
+      }
+      finish(t);
+      if (!ttsActive()) celebrate();
+      refreshList();
+      syncActions();
       break;
     }
-    case 'notice': {
-      // Tools an earlier attempt or reply ran (main.js, a message sent again): named as the chips name them;
-      // cut: calls that never reported back, so maybe never done.
-      const label = (names) => names.map((n) => chatcore.toolLabel(n, TOOL_LABELS)).join(', ');
-      const said = [ev.tools?.length ? `Already done by the earlier attempt or reply (not undone): ${label(ev.tools)}.` : '', ev.cut?.length ? `Cut off before it reported back (check before repeating): ${label(ev.cut)}.` : ''].filter(Boolean).join(' ');
-      const text = `⚠ ${said || ev.message}`;
-      active.body.insertBefore(el('div', { class: 'notice' }, text), active.bubble);
-      if (ev.toast) toast(text); // the Face layout hides the list
+    case 'failed':
+    case 'stopped': {
+      v.bubble.classList.remove('streaming');
+      const failed = step.type === 'failed';
+      const retryId = chat.actions().again; // the message Try again sends, if any (turnstate recorded the attempt)
+      const help = failed ? chatcore.errorHelp(step.error, { usage: currentUsage(), settings: state.settings }) : null;
+      const onCard = !replyCard().classList.contains('hidden');
+      drawEnded(t, help, retryId);
+      // On the card: an error always (the Face layout shows nothing else); a stop only where it was being read.
+      if (faceLayout() && !v.cardClosed && (failed || onCard)) {
+        if (failed) showCard(t.text, { help, error: true });
+        else showCard(t.text || '*(stopped)*', { stopped: true });
+      }
+      if (failed) {
+        // Where the failure is in view, a short notice; elsewhere (another view, the card closed) one with the buttons.
+        const seen = currentView === 'chat' && (!faceLayout() || !v.cardClosed);
+        const convId = chat.convId;
+        if (seen || !retryId) toast(`⚠ ${help.title}`, 'error', 6000);
+        else toastActions(`⚠ ${help.title}. ${help.text}`, [['Try again', () => retryIn(convId, retryId)], ...(help.action ? [[help.action.label, () => runHelpAction(help.action)]] : [])]);
+        announce(`Error: ${help.title}. ${help.text}`);
+        raiseAlert(help.title);
+        // 'info': main.js already logs the failed turn as an error, with its stack (one problem report, not two).
+        logEvent('info', 'reply failed', { turn: String(t.requestId || '').slice(-6), error: String(step.error || '').slice(0, 300) });
+      }
+      finish(t);
+      refreshList();
+      syncActions();
       break;
     }
+  }
+}
+
+// A tool call's chip once it reported back (in place of the running one).
+function drawToolEnd(v, tool) {
+  const chip = toolChip(tool);
+  const prev = v.chips.get(tool.id);
+  prev ? prev.replaceWith(chip) : v.toolsEl.append(chip);
+  v.chips.set(tool.id, chip);
+}
+
+// A failed or stopped reply's bubble: what was written, then the reason in plain words with the way out
+// (Details: the raw text), or "(stopped)".
+function drawEnded(t, help, retryId) {
+  const b = t.view.bubble;
+  if (help) {
+    b.innerHTML = t.text ? renderMarkdown(t.text, { wikilinks: 'open' }) : '';
+    if (t.text) decorateCode(b);
+    b.append(errorNode(help, { retry: Boolean(retryId), messageId: retryId }));
+    b.classList.add('error-bubble');
+  } else b.innerHTML = renderMarkdown(t.text || '*(stopped)*', { wikilinks: 'open' });
+}
+
+// What a reply tells the rest of the window (only this window's own: a reply on another device doesn't
+// open documents here or speak a voice preview).
+function sideEvent(ev) {
+  switch (ev.type) {
     case 'memory_changed':
       emit('memory-changed');
       break;
@@ -886,9 +840,6 @@ function handleEvent(ev) {
     case 'settings_changed':
       loadSettings();
       break;
-    case 'persona_switched':
-      active.greeting = ev.greeting; // spoken in the new voice after this reply (done)
-      break;
     case 'calendar_changed':
       emit('calendar-changed');
       break;
@@ -901,71 +852,83 @@ function handleEvent(ev) {
     case 'voice_preview':
       if (state.settings.voice.ttsEnabled) speaker.say(ev.text, { voice: ev.voice });
       break;
-    case 'done': {
-      const m = ev.message;
-      active.bubble.classList.remove('streaming');
-      active.bubble.innerHTML = renderMarkdown(m.content || '', { wikilinks: 'open' });
-      active.wrap.dataset.id = m.id;
-      shown.push(m);
-      // The finished reply on the card (the voice, if on, goes on reading; the mini caption steps aside).
-      // A turn that only used tools has nothing to read: no empty card.
-      if (faceLayout() && !active.cardClosed) {
-        if ((m.content || '').trim()) showCard(m.content, { reply: m });
-        else hideCard();
-      }
-      announce(`${agentName()}: ${active.bubble.textContent}`);
-      decorateCode(active.bubble); // after announce: its text must not read "Copy"
-      active.bubble.dataset.stamp = stamp(m);
-      active.body.append(metaNode(m));
-      if (ttsActive() && !active.muted) speaker.flush();
-      // A switch by voice: the new persona greets the user in its own voice, after the reply.
-      if (active.greeting) {
-        const greeting = active.greeting;
-        loadSettings().then(() => ttsActive() && speaker.follow(greeting, { remember: true, firstAlone: true })).catch(() => {});
-      }
-      finish();
-      if (!ttsActive()) celebrate();
-      refreshList();
-      syncActions();
-      break;
-    }
-    case 'error':
-    case 'aborted': {
-      active.bubble.classList.remove('streaming');
-      const failed = ev.type === 'error';
-      markAttempt(failed ? 'failed' : 'stopped', ev.message); // main stored the full record
-      const retryId = redo.actions(shown, { setup: openSetup }).again; // the message Try again sends, if any
-      const help = failed ? chatcore.errorHelp(ev.message, { usage: currentUsage(), settings: state.settings }) : null;
-      const onCard = !replyCard().classList.contains('hidden');
-      if (failed) {
-        // What was written before it failed, then the reason in plain words with the way out (Details: the raw text).
-        active.bubble.innerHTML = active.text ? renderMarkdown(active.text, { wikilinks: 'open' }) : '';
-        if (active.text) decorateCode(active.bubble);
-        active.bubble.append(errorNode(help, { retry: Boolean(retryId), messageId: retryId }));
-        active.bubble.classList.add('error-bubble');
-      } else active.bubble.innerHTML = renderMarkdown(active.text || '*(stopped)*', { wikilinks: 'open' });
-      // On the card: an error always (the Face layout shows nothing else); a stop only where it was being read.
-      if (faceLayout() && !active.cardClosed && (failed || onCard)) {
-        if (failed) showCard(active.text, { help, error: true });
-        else showCard(active.text || '*(stopped)*', { stopped: true });
-      }
-      if (failed) {
-        // Where the failure is in view, a short notice; elsewhere (another view, the card closed) one with the buttons.
-        const seen = currentView === 'chat' && (!faceLayout() || !active.cardClosed);
-        const convId = currentId;
-        if (seen || !retryId) toast(`⚠ ${help.title}`, 'error', 6000);
-        else toastActions(`⚠ ${help.title}. ${help.text}`, [['Try again', () => retryIn(convId, retryId)], ...(help.action ? [[help.action.label, () => runHelpAction(help.action)]] : [])]);
-        announce(`Error: ${help.title}. ${help.text}`);
-        raiseAlert(help.title);
-        // 'info': main.js already logs the failed turn as an error, with its stack (one problem report, not two).
-        logEvent('info', 'reply failed', { turn: String(active?.requestId || '').slice(-6), error: String(ev.message || '').slice(0, 300) });
-      }
-      finish();
-      refreshList();
-      syncActions();
-      break;
-    }
   }
+}
+
+// A reply started on another device (the phone, the watch) or by the app in the open conversation: shown
+// as it is written, so the latest exchange reads as running (Try again, Edit and Regenerate wait for it)
+// instead of "This message got no reply." Never spoken, never on the card, no notices.
+function drawOther(step) {
+  const t = step.turn;
+  if (step.joined) {
+    // Its start went by (the chat was opened here after it began): followed from now on, as running.
+    t.view = replyView();
+    syncActions();
+  }
+  switch (step.type) {
+    case 'start':
+      if (step.drop) dropFrom(step.drop, { keep: chat.own?.view.wrap }); // sent again there: the old exchange went
+      $('#emptyState')?.remove();
+      messagesEl().querySelector('.empty-state')?.remove();
+      if (t.userMessage && !t.userMessage.hidden) messagesEl().append(messageNode(t.userMessage));
+      t.view = replyView();
+      scrollToBottom();
+      syncActions();
+      refreshList();
+      break;
+    case 'text':
+    case 'retract':
+      if (t.view.renderQueued) break;
+      t.view.renderQueued = true;
+      requestAnimationFrame(() => {
+        t.view.renderQueued = false;
+        if (t.outcome !== 'running') return;
+        t.view.bubble.innerHTML = renderMarkdown(t.text, { wikilinks: 'open' });
+        scrollToBottom();
+      });
+      break;
+    case 'tool_start': {
+      const chip = toolChip(step.tool);
+      t.view.chips.set(step.tool.id, chip);
+      t.view.toolsEl.append(chip);
+      scrollToBottom();
+      break;
+    }
+    case 'tool_end':
+      drawToolEnd(t.view, step.tool);
+      break;
+    case 'notice':
+      t.view.body.insertBefore(el('div', { class: 'notice' }, step.text), t.view.bubble);
+      break;
+    case 'done': {
+      const m = step.message || { role: 'assistant', content: t.text };
+      const b = t.view.bubble;
+      b.classList.remove('streaming');
+      b.innerHTML = renderMarkdown(m.content || '', { wikilinks: 'open' });
+      decorateCode(b);
+      b.dataset.stamp = stamp(m);
+      t.view.wrap.dataset.id = m.id;
+      t.view.body.append(metaNode(m));
+      refreshList();
+      syncActions();
+      break;
+    }
+    case 'failed':
+    case 'stopped':
+      t.view.bubble.classList.remove('streaming');
+      drawEnded(t, step.type === 'failed' ? chatcore.errorHelp(step.error, { usage: currentUsage(), settings: state.settings }) : null, chat.actions().again);
+      refreshList();
+      syncActions();
+      break;
+  }
+}
+
+// The end of a reply in the open conversation that wasn't followed (it started before the chat was opened
+// here): the conversation is read again, so its reply shows. Not under a reply of this window's own, nor
+// over an edit in the box.
+function missedTurn(ev) {
+  if (!['done', 'error', 'aborted'].includes(ev.type) || chat.own || editing || !chat.convId) return;
+  openConversation(chat.convId);
 }
 
 // The finished reply for screen readers (#chatLive is aria-live; the message list itself is not, or
@@ -987,7 +950,7 @@ function announce(text) {
 function syncActions() {
   const box = messagesEl();
   box.querySelectorAll('.redo-btn, .msg-failed').forEach((n) => n.remove());
-  const a = redo.actions(shown, { busy: busy(), setup: openSetup });
+  const a = chat.actions();
   // A failed reply's own Try again works only while it is the latest exchange.
   box.querySelectorAll('.reply-error .retry-btn').forEach((b) => (b.hidden = b.dataset.for !== a.again));
   if (!a.again) return;
@@ -996,7 +959,7 @@ function syncActions() {
   userNode.querySelector('.msg-meta')?.append(redoButton('✎ Edit', 'Put this message back in the box to change it and send it again (↑). The old exchange is replaced; there is no undo.', () => startEdit(a.edit)));
   if (a.state === 'answered') {
     const replyNode = a.reply && box.querySelector(`.msg[data-id="${CSS.escape(a.reply)}"]`);
-    const m = shown.find((x) => x.id === a.reply);
+    const m = chat.messages.find((x) => x.id === a.reply);
     const fresh = m?.provider === 'claude-code' ? ' (Claude starts a fresh session for it: a few seconds longer)' : '';
     replyNode?.querySelector('.msg-meta')?.append(redoButton('↻ Regenerate', `Write a new reply to your message; the old one is replaced, with no undo${fresh}`, () => runAgain('again', a.again)));
     return;
@@ -1011,12 +974,12 @@ function syncActions() {
     return;
   }
   // A conversation opened later: the failure (or the stop) under the message itself.
-  const l = redo.latest(shown);
-  const attempt = l.user.attempt || {};
-  const node = !l.certain
+  const f = chat.failure();
+  if (!f) return;
+  const node = f.kind === 'noreply'
     ? stopNode('This message got no reply.', a.again)
-    : attempt.outcome === 'failed'
-      ? errorNode(chatcore.errorHelp(attempt.error || '', { usage: currentUsage(), settings: state.settings }), { retry: true, messageId: a.again })
+    : f.kind === 'failed'
+      ? errorNode(chatcore.errorHelp(f.error, { usage: currentUsage(), settings: state.settings }), { retry: true, messageId: a.again })
       : stopNode('Stopped.', a.again);
   userNode.querySelector('.msg-body').append(el('div', { class: 'msg-failed' }, node));
   scrollToBottom(true); // the conversation just opened at its end: the card is part of it
@@ -1031,7 +994,7 @@ function stopNode(text, messageId) {
 
 /** The failure in plain words with its way out (built with el(): no HTML from the message). */
 function errorNode(help, { retry = false, messageId = null } = {}) {
-  const id = messageId || redo.actions(shown, { setup: openSetup }).again;
+  const id = messageId || chat.actions().again;
   const buttons = el(
     'div',
     { class: 'reply-error-actions' },
@@ -1055,16 +1018,16 @@ function runHelpAction(a) {
   if (currentView !== 'chat') switchView('chat');
   if (a.go === 'newchat') return newChat();
   if (a.go === 'edit') {
-    const id = redo.actions(shown, { busy: busy(), setup: openSetup }).edit;
+    const id = chat.actions().edit;
     if (id) startEdit(id);
   }
 }
 
 /** ✎ Edit: the latest message in the box; Enter sends it in place of the old exchange, Esc puts the draft back. */
 function startEdit(id) {
-  const m = shown.find((x) => x.id === id);
+  const m = chat.messages.find((x) => x.id === id);
   if (waitingFiles) return toast('Still reading your file…'); // its message is sent once read: no edit in between
-  if (!m || active) return;
+  if (!m || busy()) return;
   const input = $('#input');
   if (!editing) editing = { messageId: id, draft: input.value };
   else editing.messageId = id;
@@ -1097,14 +1060,7 @@ function endEdit() {
   $('#editBar')?.classList.add('hidden');
 }
 
-// The failed or stopped message as the window last saw it (main stored the full record).
-function markAttempt(outcome, error) {
-  const l = redo.latest(shown);
-  if (!l?.own || l.state === 'answered') return;
-  shown[l.index] = { ...l.user, attempt: { outcome, at: Date.now(), ...(outcome === 'failed' ? { error: String(error || '') } : {}) } };
-}
-
-/** Takes the latest exchange off the screen (main takes it out of the conversation). */
+/** Takes the latest exchange off the screen and out of the open conversation (main takes it out of the stored one). */
 function dropFrom(id, { keep = null } = {}) {
   const node = messagesEl().querySelector(`.msg[data-id="${CSS.escape(id)}"]`);
   if (node) {
@@ -1116,8 +1072,7 @@ function dropFrom(id, { keep = null } = {}) {
       n = next;
     }
   }
-  const i = shown.findIndex((m) => m.id === id);
-  if (i >= 0) shown.splice(i);
+  chat.dropFrom(id);
   hideCard();
 }
 
@@ -1127,16 +1082,16 @@ function dropFrom(id, { keep = null } = {}) {
  */
 async function runAgain(kind, messageId, text = '') {
   if (busy()) return (toast(waitingFiles ? 'Still reading your file…' : 'Wait for the current reply to finish (or press stop).'), false);
-  if (!currentId || !messageId) return false;
-  const req = { conversationId: currentId, messageId, kind, text, expectLast: shown[shown.length - 1]?.id };
+  if (!chat.convId || !messageId) return false;
+  const req = { conversationId: chat.convId, messageId, kind, text, expectLast: chat.messages[chat.messages.length - 1]?.id };
   const chk = await api.chat.redoCheck(req).catch((err) => ({ ok: false, error: err.message }));
   if (!chk.ok) {
     toast(chk.error, 'error');
-    if (chk.changed) openConversation(currentId);
+    if (chk.changed) openConversation(chat.convId);
     return false;
   }
   if (chk.ask?.length || chk.more) {
-    const label = (t) => `${chatcore.toolLabel(t.name, TOOL_LABELS)} ${typeof t.input === 'string' ? (t.input ? `· ${t.input.slice(0, 60)}` : '') : chatcore.briefInput(t.input)}`.trim();
+    const label = (t) => `${chatcore.toolLabel(t.name)} ${typeof t.input === 'string' ? (t.input ? `· ${t.input.slice(0, 60)}` : '') : chatcore.briefInput(t.input)}`.trim();
     const ask = chk.ask || [];
     // A call cut off before it reported back (redocore.cutOff) may not have happened: never called done.
     const done = [...ask.filter((t) => !redo.cutOff(t)).map(label), ...(chk.more ? [`${chk.more} more action${chk.more === 1 ? '' : 's'}`] : [])].join(' · ');
@@ -1148,9 +1103,9 @@ async function runAgain(kind, messageId, text = '') {
   } else if (chk.uncertain) {
     if (!(await confirmDialog('Try again?', `The earlier attempt was cut off (the app closed or restarted), so ${agentName()} can’t be sure what it already did. She’ll be told to check before repeating anything.`, 'Try again', false))) return false;
   }
-  if (busy() || req.conversationId !== currentId) return false; // a reply started (or a message waits for its files), or another chat opened, meanwhile
+  if (busy() || req.conversationId !== chat.convId) return false; // a reply started (or a message waits for its files), or another chat opened, meanwhile
   // The files it keeps show on it while it is sent (its pictures aren't kept); 'start' brings the stored copy.
-  const kept = (shown.find((m) => m.id === messageId)?.attachments || []).filter((a) => a?.kind !== 'image');
+  const kept = (chat.messages.find((m) => m.id === messageId)?.attachments || []).filter((a) => a?.kind !== 'image');
   dropFrom(messageId);
   await send(chk.text, { voice: chk.voice, redo: { ...req, confirmed: true }, kept });
   return true;
@@ -1158,33 +1113,30 @@ async function runAgain(kind, messageId, text = '') {
 
 /** Try again on the latest message (the voice command, a failed reply's button). True when something started. */
 export async function retryLatest() {
-  const a = redo.actions(shown, { busy: busy(), setup: openSetup });
+  const a = chat.actions();
   return a.again ? runAgain('again', a.again) : false;
 }
 
 /** Whether the latest reply failed or was stopped, so "try again" means it (commands.js). */
 export function canRetryLatest() {
-  const a = redo.actions(shown, { busy: busy(), setup: openSetup });
+  const a = chat.actions();
   return Boolean(a.again) && (a.state === 'unanswered' || a.state === 'stopped');
 }
 
 // From a notice while another view was open: back to that conversation, then Try again.
 async function retryIn(convId, messageId) {
   if (currentView !== 'chat') switchView('chat');
-  if (convId && convId !== currentId) await openConversation(convId);
-  if (currentId === convId) runAgain('again', messageId);
+  if (convId && convId !== chat.convId) await openConversation(convId);
+  if (chat.convId === convId) runAgain('again', messageId);
 }
 
 /** In the Face layout, a recent failure (24 h) shows on the card when its conversation opens. True if shown. */
 function showFailedCard() {
   if (!faceLayout()) return false;
-  const a = redo.actions(shown, { setup: openSetup });
-  const l = redo.latest(shown);
-  if (!a.again || !l || l.state === 'answered') return false;
-  const at = l.user.attempt?.at || l.replies[l.replies.length - 1]?.createdAt || l.user.createdAt || 0;
-  if (Date.now() - at > 86400000) return false;
-  if (l.certain && l.user.attempt?.outcome === 'failed') showCard('', { help: chatcore.errorHelp(l.user.attempt.error || '', { usage: currentUsage(), settings: state.settings }), error: true });
-  else showCard(l.state === 'stopped' ? l.replies[l.replies.length - 1]?.content || '*(stopped)*' : l.certain ? '*(stopped)*' : 'This message got no reply.', { stopped: true });
+  const c = chat.failedCard();
+  if (!c) return false;
+  if (c.failed) showCard('', { help: chatcore.errorHelp(c.error, { usage: currentUsage(), settings: state.settings }), error: true });
+  else showCard(c.text, { stopped: true });
   return true;
 }
 
@@ -1194,7 +1146,7 @@ function fillCardActions({ follow = false, help = null, reply = null, stopped = 
   const box = $('#replyCardActions');
   box.replaceChildren();
   if (follow || help) return;
-  const a = redo.actions(shown, { busy: Boolean(waitingFiles), setup: openSetup }); // a finished or stopped reply: no reply runs now
+  const a = chat.actions(); // drawn after turnstate ended the reply, so a finished one offers its buttons
   const button = (label, title, onclick) => el('button', { class: 'chip-btn', type: 'button', title, onclick }, label);
   const edit = () => a.edit && box.append(button('✎ Edit', 'Change your message and send it again (↑)', () => startEdit(a.edit)));
   if (reply) {
@@ -1223,31 +1175,30 @@ function decorateCode(root) {
   }
 }
 
-function finish() {
-  clearTimeout(active?.fillerTimer);
-  active = null;
+// This window's reply is over (turnstate ended it on its event; a send that failed or was refused ends here).
+function finish(turn) {
+  clearTimeout(turn?.view?.fillerTimer);
+  if (turn && chat.own === turn) chat.end(turn, 'unsent');
   // The filler lines' audio, made in the quiet after a reply (speaker.filler plays only what is ready).
-  if (ttsActive() && state.settings.voice.filler) speaker.warmFillers(chatcore.allFillers(), () => !active && !state.recording);
-  state.toolsRunning = 0;
+  if (ttsActive() && state.settings.voice.filler) speaker.warmFillers(chatcore.allFillers(), () => !chat.own && !state.recording);
   if (queued) {
     const q = queued;
     queued = null;
     setTimeout(() => send(q.text, { voice: q.voice, attach: q.attach }), 0);
   }
-  setFlag('generating', false);
-  setFlag('streamingText', false);
+  syncFlags(); // not generating, no tools, nothing streaming
   if (!speaker.busy) setCaption('');
   $('#sendBtn').classList.remove('hidden');
   $('#stopBtn').classList.add('hidden');
 }
 
 export function currentConversationId() {
-  return currentId;
+  return chat.convId;
 }
 
 // Esc, or saying "cancel": stops the reply that is still being written (and its tools). True if there was one.
 export function cancelReply() {
-  const was = Boolean(active);
+  const was = Boolean(chat.own);
   stop();
   if (was) announce('Stopped.');
   return was;
@@ -1256,8 +1207,7 @@ export function cancelReply() {
 // Continue in an existing conversation without re-rendering the message list (used by the setup
 // flow, so the scripted first exchange stays on screen as the agent takes over).
 export function continueIn(id, title) {
-  currentId = id;
-  openSetup = true;
+  chat.continueIn(id);
   if (title) $('#chatTitle').textContent = title;
   refreshList();
 }
