@@ -72,13 +72,17 @@ test('livedoc: a playing chart draws through playDue (shown, 30 fps), one tick c
 test('chat: a streamed frame renders once, and in the Face layout only what the card shows', () => {
   const file = 'renderer/js/chat.js';
   const render = slice(file, 'function renderActive() {', '\n}\n');
-  assert.ok(at(render, 'if (face && !toCard) return;') < at(render, 'renderMarkdown('), 'nothing rendered when nothing shows it');
+  // Whether the card, the bubble or nothing shows the frame is replycard.js frame() (test/replycard.test.js).
+  assert.match(render, /const \{ render, decision \} = cardState\.frame\(t, \{ text: t\.text, capped: speaker\.capped \}\);/);
+  assert.ok(at(render, 'if (!render) return;') < at(render, 'renderMarkdown('), 'nothing rendered when nothing shows it');
   assert.strictEqual(render.split('renderMarkdown(').length, 2, 'one render a frame');
-  assert.match(render, /if \(toCard\) showCard\(t\.text, \{ follow: true, html \}\);/);
-  assert.match(slice(file, 'function showCard(', '\n}\n'), /body\.innerHTML = html \?\? \(md \? renderMarkdown\(md, \{ wikilinks: 'open' \}\) : ''\);/);
-  // Leaving the Face layout mid-reply fills the bubble it left behind, at once (Open in chat scrolls next).
+  assert.match(render, /if \(render === 'card'\) showCard\(decision\.card, \{ html \}\);/);
+  assert.match(slice(file, 'function showCard(', '\n}\n'), /body\.innerHTML = html \?\? \(card\.text \? renderMarkdown\(card\.text, \{ wikilinks: 'open' \}\) : ''\);/);
+  // Leaving the Face layout mid-reply fills the bubble it left behind, at once (Open in chat scrolls next);
+  // whether it was left behind is replycard.js layout()'s `fill`.
   const init = slice(file, 'function initReplyCard() {', '\n}\n');
-  assert.match(init, /if \(t\?\.view\.behind\) \{\n\s+t\.view\.behind = false;\n\s+t\.view\.bubble\.innerHTML = renderMarkdown\(t\.text, \{ wikilinks: 'open' \}\);/);
+  assert.match(init, /const d = cardState\.layout\(s\?\.ui\?\.chatLayout === 'face', chat\.own\);/);
+  assert.match(init, /if \(d\.fill\) \{\n\s+const t = chat\.own;\n\s+t\.view\.bubble\.innerHTML = renderMarkdown\(t\.text, \{ wikilinks: 'open' \}\);/);
   // …and scrolled once the new layout applies (app.js hears 'settings' after chat.js), not measured in the old one.
   assert.match(init, /requestAnimationFrame\(\(\) => chat\.own && scrollToBottom\(true\)\);/);
   assert.ok(!/t\.view\.bubble\.innerHTML = renderMarkdown\(t\.text, \{ wikilinks: 'open' \}\);\n\s+scrollToBottom\(true\);/.test(init), 'not in the same task');
@@ -86,7 +90,6 @@ test('chat: a streamed frame renders once, and in the Face layout only what the 
   // boot() starts each part through start(name, fn), which calls fn at once (settings' boot boundary).
   assert.ok(at(app, "start('chat', initChat, 'chat');") < at(app, "on('settings', applySettings)"), 'the order the next frame waits out');
   assert.match(slice('renderer/js/app.js', 'function start(name, fn, view = null) {', '\n}\n'), /try \{\n\s+const r = fn\(\);/);
-  assert.match(render, /v\.behind = face;/);
   // The end of a reply still renders its bubble in every layout.
   assert.match(slice(file, "case 'done': {", "case 'failed':"), /v\.bubble\.innerHTML = renderMarkdown\(m\.content \|\| '', \{ wikilinks: 'open' \}\);/);
 });
