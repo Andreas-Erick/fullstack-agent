@@ -837,57 +837,19 @@ test('fields that are not text: a deep array, a prototype key, extra fields, odd
 
 // The timeout turns a stream that never brings the event into a failure instead of a hang.
 test('error messages reach devices without paths from this computer', { timeout: 20000 }, async () => {
+  // The cutting itself (every path shape, the 2,000-character limit, URLs kept) is in test/projections.test.js.
   const winPath = "EPERM: operation not permitted, rename 'C:\\Users\\Anna Berg\\AppData\\Roaming\\Siren Assistant\\conversations\\c1.json.tmp' -> 'C:\\Users\\Anna Berg\\x.json'";
-  const ev = companion.chatForDevice({ type: 'error', requestId: 'r', conversationId: 'c1', message: winPath });
-  assert.deepStrictEqual(Object.keys(ev).sort(), ['conversationId', 'message', 'requestId', 'type']);
-  assert.doesNotMatch(ev.message, /Users|Anna|Berg/);
-  assert.match(ev.message, /^EPERM: operation not permitted, rename … -> …$/);
-  assert.strictEqual(companion.chatForDevice({ type: 'error', requestId: 'r', message: 'C:\\x' }).message, 'The reply failed on the computer');
-  assert.strictEqual(companion.chatForDevice({ type: 'error', requestId: 'r' }).message, 'The reply failed on the computer');
-
-  const f = (message) => companion.forDevice({ message }, 'FALLBACK');
-  assert.strictEqual(f('spawn C:\\Users\\anna\\AppData\\Roaming\\npm\\claude.cmd ENOENT'), 'spawn … ENOENT');
-  assert.strictEqual(f('spawn C:\\Users\\Anna Berg\\npm\\claude.cmd ENOENT'), 'spawn … ENOENT');
-  // A folder name of three words, or with two spaces in a row (a Windows profile): all of it goes.
-  assert.strictEqual(f('spawn C:\\Users\\Anna Maria Berg\\AppData\\Roaming\\npm\\claude.cmd ENOENT'), 'spawn … ENOENT');
-  assert.strictEqual(f('Cannot find module C:\\Users\\Jo Ann Lee\\x.js'), 'Cannot find module …');
-  assert.strictEqual(f('spawn C:\\Users\\Anna  Berg\\npm\\claude.cmd ENOENT'), 'spawn … ENOENT');
-  assert.strictEqual(f('open /Users/Anna Maria Berg/Library/x.md failed'), 'open … failed');
-  assert.strictEqual(f('spawn C:\\Users\\Anna (Work)\\npm\\claude.cmd ENOENT'), 'spawn … ENOENT');
-  assert.strictEqual(f('spawn C:\\Program Files (x86)\\Claude\\claude.exe ENOENT'), 'spawn … ENOENT');
-  assert.strictEqual(f('Error (at C:\\x\\y.js:1:2) in the tool'), 'Error (at …) in the tool', 'a ")" right after a path ends it');
-  assert.strictEqual(f('open C:\\x.md failed: try again later'), 'open … failed: try again later', 'words after a path stay when no slash follows them');
-  assert.strictEqual(f('open \\\\server\\share\\x.md failed'), 'open … failed');
-  assert.strictEqual(f('cannot read /home/anna/x'), 'cannot read …');
-  assert.strictEqual(f('ENOENT: /Users/anna/Library/x.md'), 'ENOENT: …');
-  assert.strictEqual(f("open 'C:\\Users\\O'Brien\\n.md'"), 'open …');
-  // Bare paths keep their apostrophes too (Node's spawn ENOENT and "Cannot find module" name them unquoted).
-  assert.strictEqual(f("spawn C:\\Users\\O'Brien\\AppData\\Roaming\\npm\\claude.cmd ENOENT"), 'spawn … ENOENT');
-  assert.strictEqual(f("spawn C:\\Users\\Anna O'Brien\\npm\\claude.cmd ENOENT"), 'spawn … ENOENT');
-  assert.strictEqual(f("spawn /Users/o'brien/bin/claude ENOENT"), 'spawn … ENOENT');
-  assert.strictEqual(f("open C:\\x.md failed: it's busy"), "open … failed: it's busy", 'an apostrophe after the path’s end stays');
-  assert.strictEqual(f('open "D:/Siren Vault/Notes/a b.md": EBUSY'), 'open …: EBUSY');
-  for (const keep of ['You’ve hit your usage limit · resets 8pm', "You've hit your usage limit · resets 8pm", 'nothing answers at localhost:11434', 'https://api.example.com/x failed', 'LLM error 429: rate limited', 'مرحبا بالعالم']) assert.strictEqual(f(keep), keep);
-  for (const empty of ['', '   ', 'C:\\x', '"C:\\Users\\x"', '\\\\server\\share']) assert.strictEqual(f(empty), 'FALLBACK', JSON.stringify(empty));
-  assert.strictEqual(companion.forDevice(null, 'FALLBACK'), 'FALLBACK');
-  // Pathological input returns at once and short (the patterns don't backtrack; only 2,000 characters are read).
-  const worst = f("'C:\\".repeat(50000));
-  assert.ok(worst.length <= 300);
-  assert.ok(f('C:\\a '.repeat(20000)).length <= 300);
-  assert.strictEqual(f(`C:\\x ${'word '.repeat(20000)}`), `… ${'word '.repeat(20000)}`.slice(0, 300).trim(), 'slash-less words after a path stay');
-  const rtl = 'مرحبا'.repeat(2000);
-  assert.strictEqual(f(rtl), rtl.slice(0, 300));
-  assert.ok(f('👨‍👩‍👧‍👦 C:\\Users\\x\\y '.repeat(500)).length <= 300);
-
-  // Streamed to a paired device: the same. Read until the event's whole line is in, no clock.
+  // Streamed to a paired device: an error and a notice, both without the path. Read until the last event's
+  // whole line is in, no clock.
   const auth = { Authorization: `Bearer ${await pairDevice('Error phone')}` };
   const ctl = new AbortController();
   const res = await fetch(`${base}/api/events`, { headers: auth, signal: ctl.signal });
   const reader = res.body.getReader();
+  companion.publish('chat:event', { requestId: 'rErr', conversationId: 'c1', type: 'notice', message: `Model "${'C:\\Users\\Anna Berg\\models\\x.gguf'}" can't see images` });
   companion.publish('chat:event', { requestId: 'rErr', conversationId: 'c1', type: 'error', message: winPath });
   let streamed = '';
   try {
-    while (!/data: [^\n]*"rErr"[^\n]*\n/.test(streamed)) {
+    while (!/data: [^\n]*"rErr"[^\n]*"type":"error"[^\n]*\n/.test(streamed)) {
       const { value, done } = await reader.read();
       if (done) break;
       streamed += Buffer.from(value).toString();
@@ -897,41 +859,8 @@ test('error messages reach devices without paths from this computer', { timeout:
     ctl.abort();
   }
   assert.match(streamed, /"type":"error"/);
+  assert.match(streamed, /"type":"notice","message":"Model … can't see images"/);
   assert.doesNotMatch(streamed, /Users|Anna|Berg/);
-});
-
-test('seeded: a path in an error message never reaches a device, quoted or bare, whatever its folder names', () => {
-  function rng(seed) {
-    let x = seed >>> 0 || 1;
-    return () => ((x ^= x << 13), (x ^= x >>> 17), (x ^= x << 5), (x >>> 0) / 2 ** 32);
-  }
-  const seed = 20261118;
-  const rand = rng(seed);
-  const pick = (list) => list[Math.floor(rand() * list.length)];
-  const words = ['EBUSY:', 'open', 'failed', 'resource busy', 'spawn', 'ENOENT', 'at', 'reading', '·', 'مرحبا', '👨‍👩‍👧‍👦', 'x=1', 'https://api.example.com/v1', 'localhost:3001'];
-  const roots = ['C:\\', 'D:/', 'c:\\', '\\\\nas\\', '/Users/', '/home/', '/tmp/', '/var/'];
-  for (let i = 0; i < 300; i++) {
-    const secret = `Zq${i}x`;
-    const quoted = rand() < 0.5;
-    // Bare paths: a folder name may have spaces (several words, two in a row) when a slash follows, and
-    // apostrophes (O'Brien); quoted ones also spaces anywhere and apostrophes inside a word, never the closing
-    // quote followed by a gap. A spaced folder after the name is cut too; a spaced file name at the end may
-    // leave its last word.
-    const bare = [secret, `${secret} Berg`, `Anna ${secret}`, `${secret} Maria Berg`, `Jo ${secret} Lee`, `Anna  ${secret}`, `${secret} van der Berg`, `Anna (${secret})`, `(${secret}) Berg`, `O'${secret}`, `${secret}'s files`, `D'${secret} Berg`];
-    const name = quoted ? pick([secret, `${secret} Berg`, `O'${secret}`, `${secret}'s files`, `${secret} Maria Berg`]) : pick(bare);
-    const sep = rand() < 0.5 ? '\\' : '/';
-    const tail = Array.from({ length: 1 + Math.floor(rand() * 3) }, () => pick(['AppData', 'Siren Vault', 'npm', 'Notes', 'a.md', 'x y', 'Program Files (x86)']));
-    let p = `${pick(roots)}${name}${sep}${tail.join(sep) || 'f.md'}`;
-    if (quoted) {
-      const q = pick(["'", '"', '`']);
-      p = `${q}${p}${q}`;
-    }
-    const message = [pick(words), pick(words), p, pick(['', ',', ':', ';', '.'])].join(' ').replace(/ ([,:;.])$/, '$1') + (rand() < 0.5 ? ` ${pick(words)}` : '');
-    const out = companion.forDevice({ message }, 'FALLBACK');
-    const where = `seed ${seed} case ${i}: ${JSON.stringify(message)} → ${JSON.stringify(out)}`;
-    assert.ok(!out.includes(secret), where);
-    assert.ok(out.length <= 300, where);
-  }
 });
 
 test('a data screen’s file error is a plain 500 without the path; a codeless “vault” error is a 404', async () => {

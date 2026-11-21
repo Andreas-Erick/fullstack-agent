@@ -151,7 +151,6 @@ module.exports = {
   prepare,
   attemptFrom,
   forWindow,
-  publicMessage: core.withoutAttempt,
   withAttempt: core.withAttempt,
   stripAttempt: core.stripAttempt,
 };

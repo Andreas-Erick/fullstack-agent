@@ -318,9 +318,9 @@ test('a message with files reads the same everywhere: bubble, Copy, the Edit box
     assert.strictEqual(historycore.messageText(m), want[name], `History: ${name}`);
     assert.strictEqual(attachcore.plainText(m).startsWith(want[name]), true, `journal, handoff, PDF: ${name}`);
   }
-  // The phone shows `display ?? content` of what companion.messageForDevice sends: content = display || ''.
-  const companion = fs.readFileSync(path.join(ROOT, 'main/companion.js'), 'utf8');
-  assert.match(companion, /content: attachments\?\.length \? display \|\| '' : display \?\? content,/);
+  // The phone shows `display ?? content` of what a device gets (main/projections.js): only the typed words.
+  const projections = require(path.join(ROOT, 'main/projections.js'));
+  for (const [name, m] of Object.entries(shapes)) assert.strictEqual(projections.messageFor('device', m).content, want[name], `phone: ${name}`);
 });
 
 // ------------------------------------------------------------------ the turn's merged order

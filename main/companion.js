@@ -31,7 +31,7 @@ const faces = require('./faces');
 const facelinks = require('./facelinks');
 const facecapture = require('./facecapture');
 const synccore = require('./synccore');
-const attachcore = require('./attachcore');
+const projections = require('./projections');
 
 const ROOT = path.join(__dirname, '..');
 // URL path -> file (relative to the app root). Nothing else is served.
@@ -107,7 +107,6 @@ const DEVICE_IDLE_MS = 90 * 24 * 60 * 60 * 1000; // a device unused this long is
 const STREAMED = new Set(['chat:event', 'approval:request', 'approval:cancel', 'info:changed', 'data:changed']);
 // Settings sections that change what /api/info says (the persona's name, colors, face, effects, voice…).
 const INFO_SECTIONS = ['agent', 'appearance', 'ui', 'voice', 'calendar', 'remote', 'innerWorld', 'personas'];
-const CHAT_TYPES = new Set(['start', 'text', 'retract', 'tool_start', 'tool_end', 'notice', 'done', 'error', 'aborted']);
 
 let hooks = null; // { startTurn, abortTurn, notify } from main.js
 let server = null;
@@ -389,7 +388,7 @@ function publish(channel, payload) {
   if (channel === 'approval:cancel') openApprovals.delete(payload.id);
   // Open approvals are kept (until answered or timed out) so a device that connects later sees them.
   if (channel === 'approval:request') openApprovals.set(payload.id, { ...payload, at: Date.now() });
-  const out = channel === 'chat:event' ? chatForDevice(payload) : channel === 'approval:request' ? approvalForDevice(openApprovals.get(payload.id)) : payload;
+  const out = channel === 'chat:event' ? projections.eventFor('device', payload) : channel === 'approval:request' ? approvalForDevice(openApprovals.get(payload.id)) : payload;
   if (!out) return;
   const data = sse(channel, out);
   for (const st of streams) if (!(st.readOnly && channel.startsWith('approval:'))) st.res.write(data);
@@ -419,49 +418,8 @@ function infoChanged() {
   infoTimer.unref?.();
 }
 
-// Devices get what the phone shows, nothing more: no tool arguments or results (file contents, commands,
-// notes), no internal events (settings, vault, self-change). The window keeps the full events.
-function chatForDevice(ev) {
-  if (!CHAT_TYPES.has(ev.type)) return null;
-  const base = { requestId: ev.requestId, conversationId: ev.conversationId, type: ev.type };
-  switch (ev.type) {
-    case 'start':
-      // replaces: the unanswered message this one takes the place of (Try again; the phone reloads for it).
-      return { ...base, title: ev.title, userMessage: messageForDevice(ev.userMessage), ...(ev.replaces ? { replaces: String(ev.replaces) } : {}) };
-    case 'text':
-      return { ...base, delta: ev.delta };
-    case 'retract':
-      return { ...base, chars: ev.chars };
-    case 'tool_start': {
-      // Where the village shows the work (from the tool's name alone), for the phone's world screen.
-      const { place, label } = require('./worldcore').workFor(ev.name);
-      return { ...base, id: ev.id, name: ev.name, work: { place, label } };
-    }
-    case 'tool_end':
-      return { ...base, id: ev.id, name: ev.name, ok: ev.ok };
-    case 'done':
-      return { ...base, message: messageForDevice(ev.message) };
-    case 'error':
-      return { ...base, message: forDevice({ message: ev.message }, 'The reply failed on the computer') };
-    default:
-      return { ...base, message: ev.message };
-  }
-}
-
-// A stored or streamed message without the raw provider data and tool inputs/results; a /skill shows
-// what was typed rather than the expanded steps. A failed attempt shows only how it ended.
-function messageForDevice(m) {
-  if (!m) return m;
-  const { raw, toolCalls, display, content, attempt, attachments, ...rest } = m;
-  return {
-    ...rest,
-    // A message with attachments carries the files' text in its content: devices get only what was typed.
-    content: attachments?.length ? display || '' : display ?? content,
-    ...(toolCalls?.length ? { toolCalls: toolCalls.map((t) => ({ name: t.name, ok: t.ok })) } : {}),
-    ...(attempt?.outcome ? { attempt: { outcome: attempt.outcome } } : {}),
-    ...(attachments?.length ? { attachments: attachcore.forDevice(attachments) } : {}),
-  };
-}
+// Chat events and messages reach devices only as main/projections.js trims them (tool names, never inputs
+// or results; no internal events; no paths in error and notice text). The window keeps the full events.
 
 // expiresIn: seconds left, so a device that connects later shows the right countdown.
 // Approvals only the computer may answer: the assistant changing its own code, and a connected service
@@ -493,20 +451,8 @@ function json(res, code, body) {
   res.end(JSON.stringify(body));
 }
 
-// An error's message for a device, without paths on this computer (a file error names the full path,
-// e.g. C:\Users\…\vault\note.md: EBUSY). The log keeps the whole error. A quoted path is cut up to its
-// closing quote (folder names have spaces, even apostrophes), a bare one on through spaced words as long
-// as a slash follows them (C:\Users\Anna Maria Berg\npm\claude.cmd, Program Files (x86)\…); a ")" right
-// after a path ends it, and the s:/ of https:// is not a drive. A bare path keeps its apostrophes
-// (C:\Users\O'Brien\…): the quoted ones are cut first, so one left after a path's start belongs to it.
-// Each spaced word starts with its one space and holds no other, so the match never backtracks far. Only
-// the first 2,000 characters are looked at.
-const QUOTED_PATH = /(['"`])(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|var|tmp)\/).*?\1(?=$|[\s,;:.)\]])/g;
-const BARE_PATH = /(?:(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|private|var|tmp)\/)[^\s"`)]*(?:(?: [^\s"`\\/]*)+[\\/][^\s"`)]*)*/g;
-function forDevice(err, fallback) {
-  const msg = String(err?.message || '').slice(0, 2000).replace(QUOTED_PATH, '…').replace(BARE_PATH, '…').slice(0, 300).trim();
-  return msg && msg !== '…' ? msg : fallback;
-}
+// An error's message for a device, without paths on this computer (projections.deviceText).
+const forDevice = (err, fallback) => projections.deviceText(err, fallback);
 
 // Which route failed, without its query or ids (conversation ids, face keys, tokens): /api/conversations/:id.
 const routeOf = (url) =>
@@ -865,7 +811,7 @@ async function route(req, res) {
     const conv = await store.getConversation(m[1]).catch(() => null); // 'index' throws (store.js safeConvId)
     if (!conv || conv.setup) return fail(res, 404, 'Conversation not found');
     // running: replies still being written here (the device follows them; one missing from it has ended).
-    return json(res, 200, { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, messages: conv.messages.filter((x) => !x.hidden).map(messageForDevice), running: running.in(conv.id) });
+    return json(res, 200, { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, messages: projections.messagesFor('device', conv.messages), running: running.in(conv.id) });
   }
   if (req.method === 'POST' && p === '/api/chat') return chat(req, res, device);
   m = /^\/api\/chat\/([\w-]+)\/abort$/.exec(p);
@@ -1058,4 +1004,4 @@ async function chat(req, res, device) {
   return json(res, 200, { requestId, conversationId: r.conversationId });
 }
 
-module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged, infoChanged, dataChanged, presenceTracker, forDevice, chatForDevice };
+module.exports = { init, apply, stop, status, startPairing, cancelPairing, revoke, revokeAll, setReadOnly, publish, settingsChanged, infoChanged, dataChanged, presenceTracker };
