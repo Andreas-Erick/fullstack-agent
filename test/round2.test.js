@@ -351,7 +351,8 @@ test('chat.js done: the new persona’s greeting follows the reply, next to acti
   // actions: the reply is known (and the turn ended) before the buttons are set: turnstate.apply stores it
   // before the window draws (test/turnstate.test.js 'own reply…').
   assert.ok(at(done, 'finish(t);') < at(done, 'syncActions();'));
-  assert.match(done, /if \(\(m\.content \|\| ''\)\.trim\(\)\) showCard\(m\.content, \{ reply: m \}\);/);
+  // The card's part (a reply with words on it, none for tools only): test/replycard.test.js.
+  assert.match(done, /paintCard\(cardState\.ended\(t, \{ outcome: 'done', text: t\.text, message: m \}\)\.decision\);/);
   assert.strictEqual(done.split('speaker.follow(').length, 2, 'one greeting');
 });
 
@@ -402,8 +403,8 @@ test('chat.js: a redo shows the files it keeps; Copy only with something to copy
   const meta = slice(file, 'function metaNode(m) {', '\n}\n');
   assert.match(meta, /const copy = chatcore\.copyText\(m\);\n {2}if \(copy\) meta\.append\(/);
   assert.strictEqual(chatcore.copyText(stored(attachcore.compose({ prompt: '', typed: '', items: [PDF], notice: NOTICE }))), '', 'files only: nothing to copy');
-  const card = slice(file, 'function cardFor(conv, at) {', '\n}\n');
-  assert.match(card, /\.\.\.\(m\.role === 'assistant' \? \{ reply: m \} : \{\}\)/);
+  // A found reply's card carries the reply (its buttons): replycard.js opened(), test/replycard.test.js.
+  assert.match(slice(file, 'export async function openConversation(', '\n}\n'), /cardState\.opened\(/);
   // History's list lives in history.js (drawList), so no local count can shadow the open conversation's `shown`.
   assert.ok(!/let shown = 0;/.test(slice('renderer/js/history.js', 'export function drawList() {', '\n}\n')));
 });
