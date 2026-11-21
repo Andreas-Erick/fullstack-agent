@@ -247,47 +247,16 @@ async function runSingle(opts) {
 
 /**
  * One turn. `images` (data URLs, e.g. the shared screen) go with the newest user message only; they
- * are never stored in the conversation. In multi-provider mode the turn goes to the providers in
- * router order until one answers.
+ * are never stored in the conversation. In multi-provider mode router.runTurn runs it on the best
+ * available provider (order, fallback, cooldowns, notices); runOn is its per-provider runner.
  */
 async function runTurn(opts) {
   const { settings, conv, history, emit, signal, voice = false } = opts;
   if (settings.llm.provider !== 'auto') return runSingle(opts);
   // The user's words decide the kind of task; attached text makes it a long input, a picture needs a brain that sees.
   const content = String(history[history.length - 1]?.content || '');
-  const text = attachcore.withoutBlocks(content);
-  const plan = await router.plan(settings, { text, voice, needsTools: Boolean(conv.setup), needsVision: (opts.images || []).length > 0, attachedChars: attachcore.attachedChars(content) });
-  if (!plan.length) throw new Error('No AI provider is ready. Connect your Claude account or add an API key in Settings → AI brain.');
-  log.info('route', { order: plan.map((p) => p.id).join(' > '), reason: plan[0].reason });
-  const failures = [];
-  for (let i = 0; i < plan.length; i++) {
-    const { id } = plan[i];
-    // What this attempt already did: streamed text can be taken back, tool actions can't.
-    const seen = { chars: 0, tools: 0 };
-    const watch = (ev) => {
-      if (ev.type === 'text') seen.chars += ev.delta.length;
-      if (ev.type === 'retract') seen.chars -= ev.chars;
-      if (ev.type === 'tool_start') seen.tools++;
-      emit(ev);
-    };
-    try {
-      const result = await runOn(router.concrete(settings, id), { ...opts, emit: watch });
-      router.succeeded(id);
-      return { ...result, provider: id };
-    } catch (err) {
-      if (signal.aborted || err?.name === 'AbortError') throw err;
-      const why = router.failed(settings, id, err);
-      failures.push(`${router.label(id)} ${why.label}`);
-      const next = plan[i + 1];
-      if (!next) break;
-      if (seen.tools) {
-        throw new Error(`${router.label(id)} ${why.label} after it had already used tools, so this reply was not repeated on another provider (no action should run twice). Your next message goes to ${router.label(next.id)}.`);
-      }
-      if (seen.chars > 0) emit({ type: 'retract', chars: seen.chars });
-      emit({ type: 'notice', message: `${router.label(id)} ${why.label}${why.minutes ? ` (skipped for ${why.minutes} min)` : ''} — switching to ${router.label(next.id)}.` });
-    }
-  }
-  throw new Error(`No provider could answer: ${failures.join('; ')}.`);
+  const task = { text: attachcore.withoutBlocks(content), voice, needsTools: Boolean(conv.setup), needsVision: (opts.images || []).length > 0, attachedChars: attachcore.attachedChars(content) };
+  return router.runTurn(settings, { ...task, emit, signal }, (concrete, watch) => runOn(concrete, { ...opts, emit: watch }));
 }
 
 // handOverTo: the Claude brain a local model may hand this message to (runTurn), or null.
@@ -441,19 +410,7 @@ async function warmUp(settings, conv, opts, { history = [], last = history, star
 // generation). `image` is an optional data URL the model may look at.
 async function complete(settings, text, opts = {}) {
   if (settings.llm.provider !== 'auto') return completeOn(narrow(settings), text, opts);
-  const plan = await router.plan(settings, { text });
-  let lastErr = new Error('No AI provider is ready. Connect your Claude account or add an API key in Settings → AI brain.');
-  for (const { id } of plan) {
-    try {
-      const out = await completeOn(router.concrete(settings, id), text, opts);
-      router.succeeded(id);
-      return out;
-    } catch (err) {
-      router.failed(settings, id, err);
-      lastErr = err;
-    }
-  }
-  throw lastErr;
+  return router.complete(settings, text, (concrete) => completeOn(concrete, text, opts));
 }
 
 // maxTokens: room for a long reply (a drawing) on the OpenAI-style path; the others already have it.
