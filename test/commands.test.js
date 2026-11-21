@@ -197,16 +197,11 @@ test('the dialog answers through approvalAnswer, marks when it appeared, and ack
   const shown = src.indexOf('current.shownAt = performance.now();');
   assert.ok(shown > 0 && shown < src.indexOf('speaker.say(approvalPrompt(req))'), 'shownAt is set before the prompt is spoken');
   assert.match(src, /toast\(`🎙 \$\{allow \? 'Approved' : 'Declined'\}/);
+  // Where and when the words began comes from the voice-input arbiter; its rules (the talk key's source
+  // set before its words are written down, a hands-free piece keeping its own start through a talk-key
+  // tap, a release never taking over a piece still being written down) are tested in voiceinput.test.js.
   const voice = fs.readFileSync(path.join(ROOT, 'renderer/js/voice.js'), 'utf8');
-  assert.match(voice, /export const utteranceInfo = \(\) => utteranceStart;/);
-  assert.ok(voice.indexOf("utteranceStart = { source: 'ptt'") < voice.indexOf('await finishUtterance(() => recorder.stop());'));
-  assert.match(voice, /utteranceStart = \{ source: 'open', startedAt: performance\.now\(\) - \(this\.loud \|\| 0\) \}/);
-  // Regression (review): a talk-key tap during a hands-free piece, or a release while one was still being
-  // written down, made the open microphone's words count as the talk key's.
-  assert.match(voice, /this\.seg = \{[^}]*start: utteranceStart \};/, 'the hands-free piece keeps its own start');
-  const handsFreeEnd = voice.indexOf('finishUtterance(() => toMono16k(concat(seg.chunks), this.rate)');
-  assert.ok(handsFreeEnd > 0 && voice.lastIndexOf('utteranceStart = seg.start;', handsFreeEnd) > voice.lastIndexOf('const seg = this.seg;', handsFreeEnd), 'and gets it back right before its words are written down');
-  assert.match(voice, /if \(!busy\) utteranceStart = \{ source: 'ptt'/, 'a release never takes over a piece still being written down');
+  assert.match(voice, /export const utteranceInfo = \(\) => input\.info\(\);/);
 });
 
 test('"stop asking" says what still asks', () => {

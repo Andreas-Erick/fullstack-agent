@@ -13,7 +13,8 @@ import { allFillers } from './chatcore.js';
 import { practiceLanguage, pickVoice, languageName } from './practice.js';
 import { BALANCED, profile, speechPlan, voiceOnGpu, preloadSpeech, effectsLevel } from './perfcore.js';
 import { perfReady } from './perf.js';
-import { onset, segmentEnd, endSilence, createJoiner, HOLD_MS, PTT_MAX_MS } from './utterance.js';
+import { segmentEnd, endSilence, PTT_MAX_MS } from './utterance.js';
+import { createVoiceInput } from './voiceinput.js';
 
 let audioCtx = null;
 export function ctx() {
@@ -289,6 +290,7 @@ class Speaker {
     this.batch = [];
     this.started = false;
     this.running = false;
+    this.playing = false; // a sentence is playing (or the next one is on its way): the open mic ignores the room
     this.onFallback = false; // set after VoiceStudio fails; retried periodically
     this.lastSpokeAt = 0;
     this.fillers = new Map(); // fillerKey → AudioBuffer
@@ -580,7 +582,7 @@ class Speaker {
       const buf = await item.audio;
       if (!buf || item.gen !== this.gen) continue;
       if (item.skipIf?.()) continue;
-      setFlag('playing', true);
+      this.setPlaying(true);
       setCaption(item.text, 'assistant');
       if (item.first) logFirstAudio(item, buf);
       if (buf === 'system') await this.playSystem(item.text);
@@ -600,7 +602,7 @@ class Speaker {
       this.lastSpokeAt = Date.now();
     }
     this.running = false;
-    setFlag('playing', false);
+    this.setPlaying(false);
     emit('speech-idle');
     // A filler warm-up that waited for the speaker goes on now that it is quiet.
     if (this.warmWant && !this.warming) this.warmSoon(1500);
@@ -655,7 +657,12 @@ class Speaker {
     }
     if ('speechSynthesis' in window) speechSynthesis.cancel();
     this.source = null;
-    setFlag('playing', false);
+    this.setPlaying(false);
+  }
+
+  setPlaying(on) {
+    this.playing = on;
+    setFlag('playing', on);
   }
 
   get busy() {
@@ -819,15 +826,13 @@ class Recorder {
 // A voice sample for cloning, kept at the mic's own rate (cloning wants more than the 16 kHz used
 // for speech-to-text). Hands-free listening ignores the mic meanwhile, so reading the script aloud
 // doesn't start a turn. Returns { seconds(), stop() → { samples, rate, wav() }, cancel() }.
-let clipActive = false;
-
 export async function recordClip() {
   speaker.stop();
   const rec = new Recorder();
   await rec.start();
-  clipActive = true;
+  input.clip(true);
   const end = () => {
-    clipActive = false;
+    input.clip(false);
     rec.cancel();
   };
   return {
@@ -955,7 +960,8 @@ class HandsFree {
     this.node?.disconnect();
     this.sink?.disconnect();
     this.stream?.getTracks().forEach((t) => t.stop());
-    if (state.recording) setFlag('recording', false);
+    this.seg = null;
+    input.openStopped(); // only the open microphone's segment: a talk-key recording goes on
     state.micLevel = 0;
     emit('handsfree', false);
   }
@@ -968,12 +974,14 @@ class HandsFree {
   onFrame(samples, rms, voiced) {
     const s = state.settings.stt;
     const sens = Math.min(1, Math.max(0, Number(s.vadSensitivity ?? 0.5)));
-    const agentTalking = state.playing;
     if (!this.seg) this.noise = this.noise * 0.995 + Math.min(rms, 0.05) * 0.005; // learn the room
     state.micLevel = this.seg ? Math.min(1, rms * 5) : 0;
 
-    if (busy || clipActive || state.transcribing || (agentTalking && !s.headphones)) {
-      if (agentTalking) this.seg = null;
+    // Paused while words are written down, a clip records, the talk key holds the mic, or the agent
+    // speaks without headphones (it would hear itself); the agent speaking drops a segment in progress.
+    const gate = input.openGate({ headphones: s.headphones });
+    if (!gate.listen) {
+      if (gate.drop) this.seg = null;
       if (!this.paused) neural.reset();
       this.paused = true;
       return;
@@ -1001,16 +1009,10 @@ class HandsFree {
         this.loud = (this.loud || 0) + frameMs;
         if (voiced) this.onsetVoiced = (this.onsetVoiced || 0) + frameMs;
         this.gap = 0;
-        // Interrupting the agent needs clearly voiced speech, so breathing or a cough doesn't cut it off.
-        if (onset({ agentTalking, loudMs: this.loud, voicedMs: this.onsetVoiced || 0 })) {
-          heldPiece.wait(); // a piece waiting for its continuation: this is it
-          if (agentTalking) {
-            speaker.stop();
-            emit('barge-in');
-          }
-          if (!heldPiece.pending) utteranceStart = { source: 'open', startedAt: performance.now() - (this.loud || 0) }; // a held piece keeps the earlier start
-          this.seg = { chunks: [...this.pre], silence: 0, length: 0, voiced: this.onsetVoiced || 0, start: utteranceStart };
-          setFlag('recording', true);
+        // Interrupting the agent needs clearly voiced speech (voiceinput.js, with utterance.js onset).
+        const start = input.openOnset({ loudMs: this.loud, voicedMs: this.onsetVoiced || 0 });
+        if (start) {
+          this.seg = { chunks: [...this.pre], silence: 0, length: 0, voiced: this.onsetVoiced || 0, start };
           setCaption('Listening…', 'user');
         }
       } else if ((this.gap = (this.gap || 0) + frameMs) > 80) {
@@ -1024,18 +1026,21 @@ class HandsFree {
     this.seg.silence = held ? 0 : this.seg.silence + frameMs;
     if (speaking && voiced) this.seg.voiced += frameMs;
     const ended = segmentEnd({ silenceMs: this.seg.silence, lengthMs: this.seg.length }, { endMs: endSilence(s.endSilenceMs) });
-    if (ended) {
-      const seg = this.seg;
-      this.seg = null;
-      this.loud = 0;
-      this.onsetVoiced = 0;
-      setFlag('recording', false);
-      // A short "yes" has ~150 ms of vowel; segments with none are breath or noise.
-      if (seg.voiced < 80) return (setCaption(heldPiece.pending), heldPiece.pending && heldPiece.later());
-      if (ended === 'limit') logEvent('info', 'long utterance split at the limit', { sec: Math.round(seg.length / 1000) });
-      utteranceStart = seg.start; // the open microphone's, even if the talk key was tapped meanwhile
-      finishUtterance(() => toMono16k(concat(seg.chunks), this.rate), { join: true, limit: ended === 'limit', pauseMs: ended === 'limit' ? 0 : seg.silence });
-    }
+    if (ended) this.endSegment(ended);
+  }
+
+  // A pause or the length limit ended the segment, or the talk key cut it ('cut'): written down as a
+  // piece (voiceinput.js decides whether it waits for its continuation); breath and noise go.
+  endSegment(ended) {
+    const seg = this.seg;
+    this.seg = null;
+    this.loud = 0;
+    this.onsetVoiced = 0;
+    if (!seg) return input.openStopped();
+    const u = input.openEnd({ start: seg.start, voicedMs: seg.voiced, ended });
+    if (!u) return setCaption(input.heldText);
+    if (ended === 'limit') logEvent('info', 'long utterance split at the limit', { sec: Math.round(seg.length / 1000) });
+    finishUtterance(() => toMono16k(concat(seg.chunks), this.rate), u, { pauseMs: ended === 'pause' ? seg.silence : 0 });
   }
 }
 
@@ -1244,12 +1249,40 @@ export async function analyzeClip(samples, rate) {
 }
 
 // ----------------------------------------------------- utterance handling
-let busy = false;
+// The arbiter (voiceinput.js): who holds the microphone, one outcome per utterance, and when an
+// interrupted reply speaks again. These are what its outcomes do here.
+function onVoiceOutcome(o) {
+  if (o.type === 'barge-in') {
+    speaker.stop();
+    emit('barge-in');
+  } else if (o.type === 'resume') emit('barge-in-over'); // nothing was said: an interrupted reply speaks again
+  else if (o.type === 'held') setCaption(`${o.text} …`, 'user');
+  else if (o.type === 'words') {
+    // A piece that trailed off waited this long for more: part of the wait before a reply.
+    if (o.heldMs) logEvent('info', 'voice piece sent after a hold', { heldMs: o.heldMs });
+    emit('voice-input', o.text);
+  } else if (o.type === 'failed') {
+    logEvent('error', 'speech-to-text failed', o.error?.message);
+    setCaption('');
+    // The words aren't lost: the recording waits for Try again (only the latest one is kept).
+    if (o.kept) offerRetry(`Couldn’t write down what you said: ${plainMessage(o.error)}`);
+    else toastError(new Error(`Speech-to-text: ${o.error?.message}`));
+  }
+}
+
+const input = createVoiceInput({
+  now: () => performance.now(),
+  setTimer: (fn, ms) => setTimeout(fn, ms),
+  clearTimer: (t) => clearTimeout(t),
+  setFlag,
+  agentTalking: () => speaker.playing,
+  approvalPending: () => Boolean(state.approvalPending),
+  on: onVoiceOutcome,
+});
 
 // Where and when the words being written down began (approval.js: speech that started before an
 // approval appeared isn't its answer; an always-ask approval takes a spoken yes only from the talk key).
-let utteranceStart = { source: '', startedAt: 0 };
-export const utteranceInfo = () => utteranceStart;
+export const utteranceInfo = () => input.info();
 
 // End-to-end latency: from the end of the user's speech (before the pause that closed the utterance,
 // which the log didn't count) to the reply's first audio.
@@ -1265,74 +1298,30 @@ function logFirstAudio(item, buf) {
   logEvent('info', 'first audio', { synthMs: Math.round(now - item.queuedAt), loadWaitMs: t.loadWaitMs, queueMs: t.queueMs, modelMs: t.modelMs, cached: t.cached || undefined, sinceSpeechEndMs, chars: item.text.length });
 }
 
-// Hands-free pieces of one message (utterance.js): a recording that hit the length limit, or a
-// transcript that trails off, waits a moment for its continuation and goes out joined with it.
-const joiner = createJoiner();
-const heldPiece = {
-  timer: 0,
-  get pending() {
-    return joiner.pending;
-  },
-  // Speech started again: wait for it instead of sending the held piece.
-  wait() {
-    clearTimeout(this.timer);
-    joiner.hold(performance.now());
-  },
-  later() {
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      const text = joiner.due(performance.now());
-      // A piece that trailed off waited this long for more: part of the wait before a reply.
-      if (text) logEvent('info', 'voice piece sent after a hold', { heldMs: HOLD_MS + 50 });
-      if (text) emit('voice-input', text);
-    }, HOLD_MS + 50);
-  },
-};
-
-async function finishUtterance(getSamples, { join = false, limit = false, pauseMs = 0 } = {}) {
+// Writes one utterance down and settles its handle (`u`, from the arbiter) exactly once.
+async function finishUtterance(getSamples, u, { pauseMs = 0 } = {}) {
   utteranceEndedAt = performance.now() - pauseMs;
-  busy = true;
   let samples = null;
   try {
     samples = await getSamples();
     if (!samples?.length) {
-      setCaption(heldPiece.pending);
-      if (join && heldPiece.pending) return heldPiece.later();
-      emit('barge-in-over'); // nothing was said: an interrupted reply speaks again
-      return;
+      setCaption(input.heldText);
+      return void u.empty();
     }
-    setFlag('transcribing', true);
+    u.transcribing();
     setCaption('Transcribing…', 'user');
     const started = performance.now();
     const text = await transcribe(samples);
     setCaption(text || '(didn’t catch that)', 'user');
     if (text) logEvent('info', 'heard', { chars: text.length, sttMs: Math.round(performance.now() - started), audioSec: +(samples.length / 16000).toFixed(1), pauseMs: pauseMs || undefined });
     if (text && state.settings?.logging?.debug) logEvent('debug', 'heard text', { text: text.slice(0, 200) });
-    if (join) {
-      const whole = joiner.add(text, { limit, now: performance.now() });
-      if (whole) emit('voice-input', whole);
-      else if (joiner.pending) (setCaption(`${joiner.pending} …`, 'user'), heldPiece.later());
-      else emit('barge-in-over');
-    } else if (text) emit('voice-input', text);
-    else emit('barge-in-over');
+    u.heard(text);
   } catch (err) {
-    emit('barge-in-over');
-    logEvent('error', 'speech-to-text failed', err.message);
-    setCaption('');
-    if (samples?.length) {
-      // The words aren't lost: the recording waits for Try again (only the latest one is kept).
-      lastFailed = samples;
-      offerRetry(`Couldn’t write down what you said: ${plainMessage(err)}`);
-    } else toastError(new Error(`Speech-to-text: ${err.message}`));
-    if (join && joiner.pending) heldPiece.later(); // what was heard before still goes out
-  } finally {
-    setFlag('transcribing', false);
-    busy = false;
+    u.failed(samples, err); // a no-op if the handle already settled
   }
 }
 
-let lastFailed = null; // the latest recording speech-to-text couldn't write down
-let retryOffer = null; // its notice: one on screen, since only the latest recording is kept
+let retryOffer = null; // the kept recording's notice: one on screen, since only the latest recording is kept
 const plainMessage = (err) => String(err?.message || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 function offerRetry(why) {
   retryOffer?.remove();
@@ -1343,29 +1332,27 @@ function offerRetry(why) {
   };
   const later = () => {
     close();
-    lastFailed = null; // let go: nothing else offers it again
+    input.forget(); // let go: nothing else offers it again
   };
   t.append(el('div', { class: 'toast-actions' }, el('button', { class: 'btn small', onclick: () => (close(), retryLastRecording()) }, 'Try again'), el('button', { class: 'btn small', onclick: later }, 'Later')));
   retryOffer = t;
   pushToast(t, 120000);
 }
 function retryLastRecording() {
-  if (!lastFailed) return;
+  const r = input.retry();
+  if (!r) return;
   // Words said before an approval appeared are never its answer: they wait until it is answered.
-  if (state.approvalPending) return offerRetry('Answer the open approval first.');
+  if (r.refused === 'approval') return offerRetry('Answer the open approval first.');
   // Another recording is being made or written down: the kept one waits (its button comes back).
-  if (busy || recorder.active) return offerRetry('Still busy with another recording.');
-  const samples = lastFailed;
-  lastFailed = null; // kept again if this attempt fails too
-  finishUtterance(() => samples); // one piece: never joined to a hands-free piece that has moved on
+  if (r.refused) return offerRetry('Still busy with another recording.');
+  finishUtterance(() => r.samples, input.begin()); // one piece: never joined to a hands-free piece that has moved on
 }
 
 // A press while the last utterance is still being transcribed waits for it (a moment) instead of
-// being dropped; a release meanwhile cancels the wait. `press` tells a start which press it belongs to.
-let press = 0;
+// being dropped; a release meanwhile cancels the wait (the arbiter's ready(id) says so).
 const untilIdle = (ms) => new Promise((resolve) => {
   const t0 = performance.now();
-  const poll = () => (!busy || performance.now() - t0 > ms ? resolve() : setTimeout(poll, 40));
+  const poll = () => (!input.busy || performance.now() - t0 > ms ? resolve() : setTimeout(poll, 40));
   poll();
 });
 
@@ -1381,26 +1368,26 @@ export async function startListening() {
     return;
   }
   if (recorder.active || recorder.starting) return;
-  const mine = ++press;
-  speaker.stop(); // barge-in: pressing the talk key interrupts the agent
-  emit('barge-in');
-  if (busy) {
+  // Barge-in: pressing the talk key interrupts the agent (the arbiter's 'barge-in' stops the speaker).
+  const p = input.press();
+  if (p.cutOpen) handsFree.endSegment('cut'); // the open mic's words so far: a piece that waits for these
+  if (p.wait) {
     setCaption('One moment…', 'user');
     await untilIdle(4000);
-    if (mine !== press) return; // released meanwhile
+    if (!input.ready(p.id)) return; // released meanwhile
   }
   // Not preloaded at launch (perfcore.js preloadSpeech): it loads while you speak, not after.
   preloadLocalModel();
   try {
     await recorder.start();
-    setFlag('recording', true);
+    input.micStarted(p.id, recorder.startedAt);
     setCaption('Listening…', 'user');
     emit('listening', true);
     // A stuck talk key must not record forever: what was said so far is sent.
     clearTimeout(pttLimit);
-    pttLimit = setTimeout(() => mine === press && recorder.active && (logEvent('warn', 'push-to-talk held at the limit; stopped', { min: PTT_MAX_MS / 60000 }), stopListening()), PTT_MAX_MS);
+    pttLimit = setTimeout(() => input.holds(p.id) && recorder.active && (logEvent('warn', 'push-to-talk held at the limit; stopped', { min: PTT_MAX_MS / 60000 }), stopListening()), PTT_MAX_MS);
   } catch (err) {
-    emit('barge-in-over'); // the press already silenced the reply; nothing was recorded
+    input.micFailed(p.id); // nothing was recorded: the reply the press silenced speaks again
     logEvent('error', 'microphone failed', err.message);
     toastError(new Error(`Microphone: ${err.message}`));
   }
@@ -1409,15 +1396,13 @@ export async function startListening() {
 let pttLimit = 0;
 export async function stopListening() {
   clearTimeout(pttLimit);
-  press++; // a press still waiting to start is over
+  input.release(); // a press still waiting to start is over
   if (recorder.starting) await recorder.starting.catch(() => {});
   if (!recorder.active) return;
-  setFlag('recording', false);
   emit('listening', false);
-  // Not while another piece is still being written down (busy): its words keep their own start and
-  // source. These then count with that earlier start and source, which at worst asks for the yes again.
-  if (!busy) utteranceStart = { source: 'ptt', startedAt: recorder.startedAt || performance.now() };
-  await finishUtterance(() => recorder.stop());
+  // The talk key's source and start, unless another piece is still being written down: its words keep
+  // their own, and these then count with that earlier start and source (at worst the yes is asked again).
+  await finishUtterance(() => recorder.stop(), input.begin({ fromKey: true }));
 }
 
 export function toggleListening() {
