@@ -1,6 +1,6 @@
 // History's search, the pure part: folding text so case and accents don't matter, the words of a query,
 // what a message shows as plain text, which conversation matches, the snippet around the match, the
-// status lines and the renderer's search state. Shared by the chat (renderer/js/chat.js, history.js) and
+// status lines, the renderer's search state and what History's list shows. Shared by History (history.js) and
 // the main process (main/historysearch.js, through main/historycore.js), so a query and a text are always
 // folded the same way. No DOM, no app state.
 
@@ -322,4 +322,73 @@ export function messageHits(hits, query, listed = null) {
   if (!searchable(query) || !hits || hits.state === 'idle') return null;
   const items = listed ? hits.items.filter((x) => listed.has(x.id)) : hits.items;
   return { ...hits, items, stale: hits.itemsQuery !== String(query ?? '') };
+}
+
+// ------------------------------------------------------------------ the list
+export const LIST_PAGE = 100; // rows of titles at a time: years of chats shouldn't all become rows
+const DAY = 86400000;
+const GROUPS = [
+  ['Today', (t, d0) => t >= d0],
+  ['Yesterday', (t, d0) => t >= d0 - DAY && t < d0],
+  ['This week', (t, d0) => t >= d0 - 7 * DAY && t < d0 - DAY],
+  ['Earlier', (t, d0) => t < d0 - 7 * DAY],
+];
+
+/** What History's list shows for the conversation index and the search box: the chats whose titles hold
+ *  every word, a page of them (`limit`) in date groups (`startToday`: local midnight), how many older
+ *  ones "Show more" adds; then the message hits not already found by title (each with its index entry,
+ *  only chats still listed), their status line, whether "Search older chats" continues, whether the rows
+ *  are stale, the empty line, and the counts for the live region. */
+export function listModel(conversations, { query = '', limit = LIST_PAGE, startToday = 0, hits = HITS } = {}) {
+  const q = String(query ?? '');
+  const words = terms(q);
+  const all = Array.isArray(conversations) ? conversations : [];
+  const titled = all.filter((c) => matchesAll(c.title || '', words));
+  const page = titled.slice(0, limit);
+  const groups = [];
+  for (const [label, test] of GROUPS) {
+    const items = page.filter((c) => test(c.updatedAt, startToday));
+    if (items.length) groups.push({ label, items });
+  }
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const h = messageHits(hits, q, byId);
+  const titledIds = new Set(titled.map((c) => c.id));
+  const found = h ? h.items.filter((x) => !titledIds.has(x.id)).map((hit) => ({ conv: byId.get(hit.id), hit })) : [];
+  const status = h ? hitStatus({ state: h.state, shown: h.items.length, done: h.done, capped: h.capped, scanned: h.scanned, total: h.total, unreadable: h.unreadable }) : '';
+  const older = Boolean(h && h.state === 'done' && !h.done && h.cursor);
+  const pending = Boolean(h && (h.state !== 'done' || h.cursor));
+  const empty = titled.length || found.length || pending ? '' : q.trim() ? 'No matches.' : 'No conversations yet.';
+  return {
+    words,
+    groups,
+    more: titled.length - page.length,
+    searched: Boolean(h),
+    found,
+    status,
+    older,
+    stale: Boolean(h?.stale || h?.state === 'searching'),
+    empty,
+    counts: { titles: titled.length, shown: found.length, found: h?.items.length || 0 },
+  };
+}
+
+/** Deleting row `id` from History (rows: [{ id, kind }] in list order): where the focus goes once it is
+ *  gone (`next`: the row after it, else the one before, else null for the search) and, when the delete is
+ *  cancelled, back to the row itself (`self`). */
+export function afterDelete(rows, id) {
+  const list = Array.isArray(rows) ? rows : [];
+  const i = list.findIndex((r) => r.id === id);
+  const near = list[i + 1] || list[i - 1] || null;
+  return {
+    next: near ? { id: near.id, kind: near.kind, part: 'open' } : null,
+    self: { id, kind: list[i]?.kind, part: 'open' },
+  };
+}
+
+/** A key on row `i` of `n`: the row to focus (↓ ↑ Home End; past the last stays on it), -1 for the search
+ *  box (↑ from the first), undefined for any other key. */
+export function rowTarget(key, i, n) {
+  const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: n - 1 }[key];
+  if (to === undefined) return undefined;
+  return to < 0 ? -1 : Math.min(to, n - 1);
 }
