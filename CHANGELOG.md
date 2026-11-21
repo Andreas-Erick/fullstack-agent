@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **A persona keeps its own look and voice**: when Siren changed her theme or voice while you switched persona on the phone, the watch or by a routine, the new persona could end up with the old one's look or voice. Every change to a persona's look, voice or prompt is now saved only for the persona it was made for; otherwise Siren says it wasn't saved. Two quick colour changes in the theme editor no longer lose the first.
+- **Replies from another device show on the computer**: a reply being written for your phone in the chat you have open now shows live on the computer, instead of "This message got no reply." until it ended. The phone and the computer now use the same tool names, notice wording and time stamps.
+- **Voice input that doesn't trip over itself**: pressing the talk key while hands-free is mid-sentence no longer sends the same words twice, a noise no longer un-mutes a reply you muted with Esc, and stopping hands-free no longer cuts off a talk-key recording.
+- **Multi-provider chats start faster**: in Auto mode, a chat you open is now warmed for Claude when Claude is first in line, as it already was in Claude mode. After a turn that changed the effort, tools, folders or connectors, the next message is warmed too.
+- Notices sent to paired devices (a model's name, a hand-over reason) no longer carry file paths, like error messages.
+- Under the hood: a chat turn, the Claude session, provider fallback, the local-brain rules, what each device sees, History, the composer's outgoing messages, the Face layout's reply card and voice input each live in one module with behaviour tests (about 150 new tests), instead of being spread over several files and checked by reading their source text.
+
 ## 2.7.28 — 2026-11-20
 
 - The first installers since 2.7.24: 2.7.25, 2.7.26 and 2.7.27 stopped at tests that behaved differently on the release build's Node 22 and on macOS (a test's time limit, a file name in an error message), so this version carries all three versions' changes (see below). On a Mac, a file error now names just the file, as on Windows.
