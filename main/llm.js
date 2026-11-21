@@ -13,9 +13,8 @@ const Anthropic = () => (sdk ||= require('@anthropic-ai/sdk'));
 const tools = require('./tools');
 const prompt = require('./prompt');
 const claudecode = require('./claudecode');
-const codebase = require('./codebase');
-const obsidian = require('./obsidian');
-const github = require('./github');
+// A conversation's Claude Code session: turn, warm-up, rollover, the fields it keeps (claudesession.js).
+const claudesession = require('./claudesession');
 const approvals = require('./approvals');
 const router = require('./router');
 const log = require('./logger');
@@ -163,48 +162,6 @@ function effectiveModel(settings, { voice = false, mode: forced } = {}) {
   return pick(settings.llm, settings.llm.model);
 }
 
-// Fields that define a Claude Code session; changing any of them restarts it (and costs the prompt
-// cache), so each is named: the restart's log line says which one changed (claudecode.changedParts).
-function sessionConfigKey(settings) {
-  const { agent, appearance, voice, safety, code, web } = settings;
-  return JSON.stringify({
-    name: agent.name,
-    personality: agent.personality,
-    aesthetic: agent.aesthetic,
-    personaNotes: appearance.personaNotes,
-    speaks: voice.ttsEnabled && voice.autoSpeak,
-    permissionMode: safety.permissionMode,
-    code: code.enabled,
-    selfModify: code.allowSelfModify,
-    web: web.enabled,
-    prompt: PROMPT_VERSION,
-  });
-}
-const PROMPT_VERSION = 19;
-
-async function claudeCodeOptions(settings, active, model) {
-  const names = active.map((t) => t.name);
-  const [cwd, vault] = await Promise.all([codebase.root(), obsidian.vaultPath()]);
-  // With GitHub connected, Claude Code may also read and (on work branches) edit the cloned repos.
-  let repos = null;
-  if (names.includes('github_clone')) {
-    repos = await github.workspace();
-    await fsp.mkdir(repos, { recursive: true }).catch(() => {});
-  }
-  return {
-    settings,
-    configKey: sessionConfigKey(settings),
-    buildPrompt: () => prompt.build(settings, names, { forSession: true }),
-    activeTools: active,
-    cwd,
-    vault,
-    repos,
-    // The user's folders (workspace + the ones they added): the only other places Claude Code may read.
-    folders: require('./documents').userFolders(settings),
-    model,
-  };
-}
-
 // ------------------------------------------------------------------ hand-over
 // A local brain hands a message it can't do well to the Claude brain: when, and to whom, is
 // localturn.handOverPlan; here the text it already streamed is taken back and Claude answers.
@@ -294,25 +251,10 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', pace: paced.pace, effort: paced.effort, voice, setup, engineering: engineering || undefined, images: images.length || undefined, attachments: history[history.length - 1]?.attachments?.length || undefined, conversation: conv.id, chars: lastText.length });
   log.debug('turn text', { text: lastText.slice(0, 200) });
   if (settings.llm.provider === 'claude-code') {
-    // routine: background work keeps the session's warm model (claudecode.chooseModel, pace.warmModel).
-    const opts = { ...(await claudeCodeOptions(settings, active, model)), effort: paced.effort, routine };
-    if (setup) {
-      // The setup interview keeps one stable session even though the answers change the persona.
-      opts.configKey = 'first-run-setup';
-      opts.buildPrompt = async () => prompt.buildSetup(settings);
-    }
+    // The conversation's session (claudesession.js): resume or fresh, the warm model (a routine never moves
+    // it), rollover, and the fields the conversation keeps (its convPatch).
     const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText, previousPersona, spoken: voice, again: again?.note || '' });
-    const result = await claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
-    // A session grown too big (claudecode.ROLLOVER_TOKENS) is closed now and a fresh one started in the
-    // background, so the next message is quick (not after a routine run: nobody writes there next);
-    // main.js then keeps no session id to resume.
-    if (!setup && claudecode.needsRollover(result.contextTokens, result.freshTokens || conv.claudeFreshTokens)) {
-      claudecode.rollover(conv.id, result.contextTokens);
-      const next = [...history, { role: 'assistant', content: result.text }];
-      if (!routine) warmUp(settings, { id: conv.id, claudeSessionId: null }, opts, { history: next, last: conv.messages }).catch((error) => log.warn('prewarm failed', { error }));
-      return { ...result, rollover: true };
-    }
-    return result;
+    return claudesession.runTurn(settings, { conv, history, active, model, effort: paced.effort, routine, buildContext, emit, signal, ctx, images });
   }
   // A local model gets the compact prompt, the everyday tools and more on request (localturn.js).
   if (!setup && localturn.wantsCompact(settings)) {
@@ -330,80 +272,6 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
 
 function withModel(settings, section, model) {
   return model ? { ...settings, [section]: { ...settings[section], model } } : settings;
-}
-
-// Pre-start the Claude Code session for a conversation (so the first turn after launch is warm).
-// epoch: claudecode.epochOf from before `conv` was read (main.js llm:prewarm), else taken now: a message
-// run again from then on (claudecode.forget) makes this warm-up stale.
-async function prewarm(settings, conv, { epoch = claudecode.epochOf(conv?.id) } = {}) {
-  // Multi-provider mode: warm the Claude session when Claude is the first choice.
-  if (settings.llm.provider === 'auto') {
-    const [first] = await router.plan(settings);
-    if (first?.id !== 'claude-code') return;
-    settings = router.concrete(settings, 'claude-code');
-  }
-  if (settings.llm.provider !== 'claude-code' || !conv) return;
-  // A routine's conversation (or one the app started, `auto`) is only read: its next run comes long after
-  // a warm session would have closed, so warming it would spend a hidden message on the plan for nothing.
-  const last = [...(conv.messages || [])].reverse().find((m) => m.role === 'user' && !m.hidden);
-  if (last?.routine || last?.auto) return;
-  const active = settings.llm.useTools ? await tools.activeTools(settings) : [];
-  const opts = await claudeCodeOptions(settings, active, effectiveModel(settings));
-  // Opening chats one after another warms only the one that stays open.
-  const mine = (warmingFor = conv.id);
-  await claudecode.prewarm(conv, { ...opts, epoch });
-  await new Promise((r) => setTimeout(r, WARM_DELAY_MS));
-  if (warmingFor === mine) await warmUp(settings, conv, opts, { history: conv.messages || [], started: true, epoch });
-}
-
-let warmingFor = null;
-const WARM_DELAY_MS = 1500;
-
-// Runs `fn` after `delayMs` unless a newer request comes first (that one replaces it; the replaced one
-// resolves false); `now` runs at once, still replacing a waiting one. main.js llm:prewarm: a chat merely
-// opened is warmed only once the user stays on it, so browsing History starts one Claude process, not
-// one per chat (each ~250–400 MB with its tool servers, and a cold warm-up on the plan).
-function settler(delayMs) {
-  let waiting = null; // { timer, resolve }
-  return function request(fn, { now = false } = {}) {
-    if (waiting) {
-      clearTimeout(waiting.timer);
-      waiting.resolve(false);
-      waiting = null;
-    }
-    if (now) return Promise.resolve().then(fn);
-    return new Promise((resolve) => {
-      const mine = {
-        resolve,
-        timer: setTimeout(() => {
-          if (waiting === mine) waiting = null;
-          Promise.resolve().then(fn).then(resolve, () => resolve(false));
-        }, delayMs),
-      };
-      mine.timer.unref?.();
-      waiting = mine;
-    });
-  };
-}
-const PREWARM_SETTLE_MS = 4000;
-const settlePrewarm = settler(PREWARM_SETTLE_MS);
-
-// The model and effort the conversation's next message will most likely use: after a spoken message
-// the voice model, as for a short spoken greeting (pace.plan); after a typed one the everyday model.
-function warmTarget(settings, messages = []) {
-  const last = [...messages].reverse().find((m) => m.role === 'user' && !m.routine && !m.hidden);
-  const voice = Boolean(last?.spoken);
-  const plan = voice ? pace.plan(settings, { text: 'How are you?', voice }) : pace.plan(settings, { text: 'Could you look at this for me and add it?', voice });
-  return { model: effectiveModel(settings, { voice, mode: plan.mode }), effort: plan.effort };
-}
-
-// Starts the session (unless `started`) and fills its prompt cache (claudecode.warmCache).
-// `last`: the messages to guess the next model from, when `history` already has the reply in it.
-// epoch: when `history` was read (claudecode.epochOf); the rollover's is taken right after its turn.
-async function warmUp(settings, conv, opts, { history = [], last = history, started = false, epoch = claudecode.epochOf(conv.id) } = {}) {
-  if (!started) await claudecode.prewarm(conv, { ...opts, epoch });
-  if (settings.claudeCode?.warmCache === false) return;
-  await claudecode.warmCache(conv, opts, { ...warmTarget(settings, last), history, epoch });
 }
 
 // Single non-streaming completion with whichever provider is configured (used for persona/theme
@@ -959,4 +827,4 @@ async function runAnthropic({ settings, conv, history, emit, signal, active, sys
 }
 
 module.exports = {
-  anthropicHistory, openaiHistory, withPictures, withCacheMark, runTurn, listModels, testConnection, complete, prewarm, settler, settlePrewarm, PREWARM_SETTLE_MS, warmTarget, effectiveModel, sessionConfigKey };
+  anthropicHistory, openaiHistory, withPictures, withCacheMark, runTurn, listModels, testConnection, complete, effectiveModel };

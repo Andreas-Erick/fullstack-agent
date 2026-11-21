@@ -74,6 +74,7 @@ stub({
   },
 });
 const llm = load('main/llm.js');
+const claudesession = require('../main/claudesession'); // the instance llm.js loaded, over the stand-ins above
 
 const settings = (handOver = true) => ({
   agent: { name: 'Siren', personality: 'p', aesthetic: '' },
@@ -219,8 +220,8 @@ test('a routine’s conversation is never warmed ahead; an ordinary one is', asy
   reset();
   const s = brain('claude-code', false);
   const ran = (marker) => ({ id: 'r1', messages: [{ role: 'user', content: '⏰ Routine "Sync TickTick": go', ...marker }, { role: 'assistant', content: 'Synced.' }, { role: 'user', content: 'nudge', hidden: true }] });
-  await llm.prewarm(s, ran({ routine: 'r1' }));
-  await llm.prewarm(s, ran({ auto: true }));
+  await claudesession.prewarm(s, ran({ routine: 'r1' }));
+  await claudesession.prewarm(s, ran({ auto: true }));
   assert.deepStrictEqual(calls.prewarmed, [], 'no process started');
   assert.deepStrictEqual(calls.warmed, [], 'no hidden message spent on the plan');
 
@@ -232,7 +233,7 @@ test('a routine’s conversation is never warmed ahead; an ordinary one is', asy
 
   // The user's own conversation (also a routine's, once they wrote in it) is.
   const own = { id: 'c2', messages: [...ran({ routine: 'r1' }).messages, { role: 'user', content: 'thanks, and what about tomorrow?' }, { role: 'assistant', content: 'Free.' }] };
-  await llm.prewarm(s, own);
+  await claudesession.prewarm(s, own);
   assert.deepStrictEqual(calls.prewarmed.map((c) => c.id), ['c2']);
   assert.deepStrictEqual(calls.warmed.map((w) => w.id), ['c2']);
 });
@@ -250,7 +251,8 @@ test('a Claude session grown past 100k tokens is closed after the reply and a fr
   calls.contextTokens = 370000;
   const { r } = await turn('what is on my ticktick today?');
   assert.strictEqual(r.text, 'From Claude');
-  assert.strictEqual(r.rollover, true, 'main.js keeps no session id to resume');
+  assert.deepStrictEqual(r.convPatch, { claudeSessionId: null, claudeTokens: 0 }, 'the conversation keeps no session id to resume');
+  assert.ok(!('contextTokens' in r) && !('sessionId' in r), 'the session’s numbers stay inside the session module');
   assert.deepStrictEqual(calls.rolled, [['c1', 370000]]);
   assert.deepStrictEqual(calls.prewarmed, [{ id: 'c1', claudeSessionId: null }], 'the next one starts fresh, warm');
   await new Promise((r) => setImmediate(r));
@@ -260,13 +262,13 @@ test('a Claude session grown past 100k tokens is closed after the reply and a fr
   assert.strictEqual(calls.warmed[0].effort, 'default', 'a typed chat: the everyday pace, not a quick one');
   reset();
   calls.contextTokens = 40000;
-  assert.strictEqual((await turn('what is on my ticktick today?')).r.rollover, undefined, 'a small session stays');
+  assert.deepStrictEqual((await turn('what is on my ticktick today?')).r.convPatch, { claudeTokens: 40000 }, 'a small session stays');
   assert.strictEqual(calls.rolled.length, 0);
   reset();
   calls.contextTokens = 150000;
   const conv = { id: 'c3', claudeFreshTokens: 118694, messages: [{ role: 'user', content: 'what is on my ticktick today?' }] };
   const big = await llm.runTurn({ settings: settings(), conv, history: conv.messages, emit: () => {}, signal: new AbortController().signal, images: [] });
-  assert.strictEqual(big.rollover, undefined, 'measured from the fresh size this setup starts at (119k), not a flat 100k');
+  assert.deepStrictEqual(big.convPatch, { claudeTokens: 150000 }, 'measured from the fresh size this setup starts at (119k), not a flat 100k');
 });
 
 test('a local reply that claims an action no tool did is taken back once; the model then does it', async () => {
@@ -305,13 +307,13 @@ test('a question about the user’s own plans changes nothing on a local brain; 
 // Efficiency pass: every chat opened in History started a Claude process at once (main.js llm:prewarm).
 // A chat merely opened waits; a newer request replaces a waiting one; `now` (launch, persona switch) doesn't wait.
 test('settler: only the latest request runs, after the settle time; now runs at once', async (t) => {
-  assert.strictEqual(llm.PREWARM_SETTLE_MS, 4000);
+  assert.strictEqual(claudesession.PREWARM_SETTLE_MS, 4000);
   // The settler's timer is unref'd (it must never keep the app alive); here nothing else holds the event loop,
   // and Node 22 cancels a test whose awaits hold none ("Promise resolution is still pending…").
   const hold = setInterval(() => {}, 1000);
   t.after(() => clearInterval(hold));
   const ran = [];
-  const settle = llm.settler(30);
+  const settle = claudesession.settler(30);
   const a = settle(() => (ran.push('a'), true));
   const b = settle(() => (ran.push('b'), true));
   const c = settle(() => (ran.push('c'), 'c'));
@@ -329,13 +331,12 @@ test('settler: only the latest request runs, after the settle time; now runs at 
   assert.deepStrictEqual(ran, ['c', 'e'], 'the replaced one never runs');
   // A failing run resolves false rather than rejecting into the IPC caller.
   assert.strictEqual(await settle(() => Promise.reject(new Error('x'))), false);
-  // The handler waits for opened chats and passes `now` from launch and the persona switch.
+  // The handler goes through claudesession.warm (which settles opened chats) and passes `now` from launch and the persona switch.
   const fs = require('fs');
   const path = require('path');
   const main = fs.readFileSync(path.join(__dirname, '..', 'main', 'main.js'), 'utf8');
   const handler = main.slice(main.indexOf("handle('llm:prewarm'"), main.indexOf("handle('chat:endSession'"));
-  assert.match(handler, /llm\.settlePrewarm\(/);
-  assert.match(handler, /now: opts\?\.now === true/);
+  assert.match(handler, /\.warm\(convId, \{ now: opts\?\.now === true \}\)/);
   for (const f of ['renderer/js/app.js', 'renderer/js/personas.js']) {
     assert.match(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), /api\.llm\.prewarm\(.*, \{ now: true \}\)/, f);
   }
