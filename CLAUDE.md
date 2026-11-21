@@ -127,3 +127,17 @@ Read `TROUBLESHOOTING.md` (→ Reading the log), run `analyze_errors` (distinct 
 
 ## Releases
 `package.json` `build` (electron-builder): NSIS setup, MSI and portable for Windows, `asar: false` so an installed copy can still change itself. `build.electronFuses` hardens installed copies (`test/buildhardening.test.js`; `runAsNode` must stay on while `claudecode.js`/`selfchange.js` run the binary with `ELECTRON_RUN_AS_NODE`). Signing secrets and pinned actions: see the header of `release.yml`; `security.yml` audits dependencies, `.github/dependabot.yml` proposes updates. `.github/workflows/release.yml` builds and publishes on a `v*` tag. Add a `CHANGELOG.md` entry for every version.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in the repo's GitHub Issues (Andreas-Erick/fullstack-agent), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root (created when needed). See `docs/agents/domain.md`.
