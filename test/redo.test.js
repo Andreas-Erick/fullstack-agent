@@ -129,8 +129,8 @@ test('the window sees the plan’s summary, nothing else', () => {
   const p = redo.check(conv([user('u1', 'x', { attempt: failedAttempt() })]), { kind: 'again', messageId: 'u1' });
   assert.deepStrictEqual(Object.keys(redo.forWindow(p)).sort(), ['acted', 'ask', 'fresh', 'kind', 'more', 'ok', 'replyDropped', 'text', 'uncertain', 'voice']);
   assert.deepStrictEqual(redo.forWindow({ ok: false, error: 'no', changed: true }), { ok: false, error: 'no', changed: true });
-  assert.deepStrictEqual(redo.publicMessage({ id: 'u1', attempt: { outcome: 'running' } }), { id: 'u1' });
 });
+// The start event's message without its running attempt: main/projections.js, test/projections.test.js.
 
 // The order of a turn (the gates first, busy before the first await, a second forget once the cut is saved,
 // the failure heard before it is recorded) is shown through main/turns.js in test/turns.test.js.

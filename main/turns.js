@@ -14,15 +14,11 @@ const screenshare = require('./screenshare');
 const attachments = require('./attachments');
 const attachcore = require('./attachcore');
 const redo = require('./redo');
+const projections = require('./projections');
 const { UNTRUSTED_NOTICE } = require('./tools/common');
 
 // The log tag a turn runs under (routines.js tells its own turn apart by it: stopRun).
 const tagFor = (requestId) => String(requestId).slice(-6);
-
-function stripRaw(m) {
-  const { raw, ...rest } = m;
-  return rest;
-}
 
 function create({ send = () => {}, toWindow = send } = {}) {
   const active = new Map(); // requestId -> AbortController (with .conversationId)
@@ -196,8 +192,9 @@ function create({ send = () => {}, toWindow = send } = {}) {
     // The tools this turn ran (Try again tells the next attempt what already happened).
     const ran = new Map();
     let attemptSaved = false;
-    // The setup conversation never reaches paired devices.
-    const sink = conv.setup ? toWindow : send;
+    // Events go out as the window sees them (projections.js); devices trim that copy (companion.js), and the
+    // setup conversation never reaches them.
+    const sink = projections.reachesDevices(conv) ? send : toWindow;
     const emit = (ev) => {
       if (firstTextMs === null && ev.type === 'text') firstTextMs = Date.now() - startedAt;
       // The Inner World sends the active persona to where the work happens (counts only).
@@ -217,9 +214,9 @@ function create({ send = () => {}, toWindow = send } = {}) {
         }
       }
       if (ev.type === 'tool_end' && ran.has(ev.id)) ran.get(ev.id).ok = ev.ok;
-      sink('chat:event', { requestId, conversationId: conv.id, ...ev });
+      sink('chat:event', projections.eventFor('window', { requestId, conversationId: conv.id, ...ev }));
     };
-    emit({ type: 'start', userMessage: redo.publicMessage(userMsg), title: conv.title, ...(again ? { replaces: again.replaces } : {}) });
+    emit({ type: 'start', userMessage: userMsg, title: conv.title, ...(again ? { replaces: again.replaces } : {}) });
     if (again?.acted.length || again?.uncertain) {
       const names = (list) => [...new Set(list.map((a) => a.name.replace(/^mcp__(claude_ai_)?/, '').replace(/_+/g, ' ')))].join(', ');
       const cut = again.unsure || [];
@@ -269,7 +266,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
         if (result.contextTokens) fresh.claudeTokens = result.rollover ? 0 : result.contextTokens;
         if (result.convPatch) Object.assign(fresh, result.convPatch);
         await store.saveConversation(fresh);
-        emit({ type: 'done', message: stripRaw(assistantMsg) });
+        emit({ type: 'done', message: assistantMsg });
         onFinish?.({ ok: true, text: assistantMsg.content, conversationId: conv.id });
         log.info('reply', { model: result.model, voice: viaVoice, remote: Boolean(remote), firstTextMs, totalMs: Date.now() - startedAt, chars: assistantMsg.content.length, tools: (result.toolCalls || []).map((t) => t.name).join(',') });
         log.debug('reply text', { text: assistantMsg.content.slice(0, 160) });
@@ -332,4 +329,4 @@ function create({ send = () => {}, toWindow = send } = {}) {
   };
 }
 
-module.exports = { create, tagFor, stripRaw };
+module.exports = { create, tagFor };
