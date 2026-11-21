@@ -40,7 +40,7 @@ const count = (n) => Math.max(0, Math.floor(Number(n) || 0));
 export const norm = (t) => String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 /**
- * The title startTurn gives a conversation from its first message (main/main.js); a /skill's is its name.
+ * The title turns.start gives a conversation from its first message (main/turns.js); a /skill's is its name.
  * A message with files is titled by its typed words, else by the files (attachcore.compose: summary, '📎 a.pdf, b.png').
  */
 export function autoTitle(m) {
@@ -249,7 +249,7 @@ export function noteFor({ kind = 'again', replyDropped = false, failed = false, 
 }
 
 /**
- * How an attempt at a message went, as stored on it (main.js startTurn): normalized and bounded. Only the
+ * How an attempt at a message went, as stored on it (turns.start, main/turns.js): normalized and bounded. Only the
  * calls that may have changed something are listed (reads, and calls that failed, did nothing to repeat),
  * so a long run of reads never pushes an action out. Those that never reported back are kept first (in
  * their order with the rest): `more` counts the reported actions past the limit, `moreCut` the cut-off ones,

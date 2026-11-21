@@ -1,5 +1,5 @@
 // Attachments in the chat: the pure rules shared by the window (js/attach.js, js/chat.js) and the main
-// process (main/attachments.js, main.js startTurn, llm.js), which requires this file through
+// process (main/attachments.js, main/turns.js, llm.js), which requires this file through
 // main/attachcore.js (the chartcore pattern). What may be attached and how big, safe file names, the
 // <attachment> blocks a message carries before the user's words, and reading them back. No DOM and no
 // Node here: Uint8Array, TextDecoder and atob only (test/attachments.test.js, test/attachflow.test.js).

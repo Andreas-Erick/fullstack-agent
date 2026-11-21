@@ -152,7 +152,7 @@ async function main() {
           continue;
         }
         n++;
-        // What the app does around a turn (main.js startTurn): the message in, the reply stored with
+        // What the app does around a turn (turns.start, main/turns.js): the message in, the reply stored with
         // its persona, the Claude session kept or dropped, loaded tool groups kept.
         const settings = await store.getSettings();
         conv.messages.push({ id: store.newId('m'), role: 'user', content: step.ask, createdAt: Date.now() });
