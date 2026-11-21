@@ -1,6 +1,8 @@
 // Multi-provider brain (llm.provider = 'auto'): the user's ranked list of providers, an optional
 // per-task preference ("smart routing"), and automatic fallback. A provider that hits a rate limit,
 // a usage cap or runs out of credits is skipped for a while (its cooldown) and the next one answers.
+// runTurn / complete run a turn on the best available provider: llm.js passes a per-provider runner
+// and this module owns the order, the cooldowns, the fallback rule and the notices.
 // Every provider except Claude speaks the OpenAI chat API, so they all run through llm.js's OpenAI
 // path with their own URL, key and model.
 const log = require('./logger');
@@ -184,4 +186,70 @@ function reset(id) {
   claudeStatus.at = 0;
 }
 
-module.exports = { PROVIDERS, label, order, plan, concrete, failed, succeeded, status, reset, classifyTask, classifyError };
+const NONE_READY = 'No AI provider is ready. Connect your Claude account or add an API key in Settings → AI brain.';
+
+/**
+ * One turn on the best available provider: the providers in plan order until one answers.
+ * `run(providerSettings, emit)` runs the turn on one provider (settings narrowed by concrete()) and
+ * streams through the `emit` it is given. A failed provider is cooled down (failed()) and the next one
+ * answers, but only before any tool ran (no action runs twice): text it already streamed is retracted
+ * and a notice names the switch. A stop (signal aborted, AbortError) never falls back.
+ * task: { text, voice, needsTools, needsVision, attachedChars } as plan() reads them, plus emit, signal.
+ * Returns the provider's result with `provider` (stored on the assistant message).
+ */
+async function runTurn(settings, { emit, signal, ...task }, run) {
+  const providers = await plan(settings, task);
+  if (!providers.length) throw new Error(NONE_READY);
+  log.info('route', { order: providers.map((p) => p.id).join(' > '), reason: providers[0].reason });
+  const failures = [];
+  for (let i = 0; i < providers.length; i++) {
+    const { id } = providers[i];
+    // What this attempt already did: streamed text can be taken back, tool actions can't.
+    const seen = { chars: 0, tools: 0 };
+    const watch = (ev) => {
+      if (ev.type === 'text') seen.chars += ev.delta.length;
+      if (ev.type === 'retract') seen.chars -= ev.chars;
+      if (ev.type === 'tool_start') seen.tools++;
+      emit(ev);
+    };
+    try {
+      const result = await run(concrete(settings, id), watch);
+      succeeded(id);
+      return { ...result, provider: id };
+    } catch (err) {
+      if (signal?.aborted || err?.name === 'AbortError') throw err;
+      const why = failed(settings, id, err);
+      failures.push(`${label(id)} ${why.label}`);
+      const next = providers[i + 1];
+      if (!next) break;
+      if (seen.tools) {
+        throw new Error(`${label(id)} ${why.label} after it had already used tools, so this reply was not repeated on another provider (no action should run twice). Your next message goes to ${label(next.id)}.`);
+      }
+      if (seen.chars > 0) emit({ type: 'retract', chars: seen.chars });
+      emit({ type: 'notice', message: `${label(id)} ${why.label}${why.minutes ? ` (skipped for ${why.minutes} min)` : ''} — switching to ${label(next.id)}.` });
+    }
+  }
+  throw new Error(`No provider could answer: ${failures.join('; ')}.`);
+}
+
+/**
+ * A single completion (no tools, no streaming) on the best available provider: `run(providerSettings)`
+ * on each in plan order until one answers; every failure cools its provider down. Throws the last
+ * provider's error (or "No AI provider is ready").
+ */
+async function complete(settings, text, run) {
+  let lastErr = new Error(NONE_READY);
+  for (const { id } of await plan(settings, { text })) {
+    try {
+      const out = await run(concrete(settings, id));
+      succeeded(id);
+      return out;
+    } catch (err) {
+      failed(settings, id, err);
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
+module.exports = { PROVIDERS, label, order, plan, concrete, runTurn, complete, failed, succeeded, status, reset, classifyTask, classifyError };
