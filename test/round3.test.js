@@ -519,7 +519,9 @@ test('§4.13 a Stop on the phone closes its approval card: approval.cancel with 
   assert.match(app, /el\('div', \{ class: 'approval', 'data-id': a\.id,/);
   assert.match(app, /document\.querySelector\(`\.approval\[data-id="\$\{CSS\.escape\(String\(id\)\)\}"\]`\)\?\.remove\(\);/);
   // The phone's Stop reaches the turn's approvals: main.js aborts the request's controller, whose signal the turn's approvals hold.
-  assert.match(read('main/main.js'), /abortTurn: \(requestId\) => activeRequests\.get\(requestId\)\?\.abort\(\),/);
+  assert.match(read('main/main.js'), /abortTurn: \(requestId\) => turns\.abort\(requestId\),/);
+  assert.match(read('main/turns.js'), /abort: \(requestId\) => active\.get\(requestId\)\?\.abort\(\),/);
+  assert.match(read('main/turns.js'), /llm\.runTurn\(\{[^}]*signal: controller\.signal,/);
   assert.match(read('main/llm.js'), /turn: approvals\.newTurn\(\{ signal, userText: lastText \}\), signal,/);
   assert.match(read('android/app/src/main/java/com/nexusagent/android/ConnectionService.java'), /else if \(event\.equals\("approval\.cancel"\)\) cancel\(/);
 });

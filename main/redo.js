@@ -1,5 +1,5 @@
 // Running the user's latest message again: Try again, Regenerate, Edit and resend (chat:redoCheck /
-// chat:redo), and the same message sent again after a failure from any device (main.js startTurn).
+// chat:redo), and the same message sent again after a failure from any device (turns.js start).
 // The rules are the pure renderer/js/redocore.mjs, shared with the chat; this side knows which tools
 // change something, remembers an attempt until it is stored, and holds every gate (prepare).
 const core = require('../renderer/js/redocore.mjs');
@@ -71,7 +71,7 @@ function supersedes(conv, text, { busy = false } = {}) {
   return core.supersedes(overlay(conv), text, options(conv));
 }
 
-/** Takes the old exchange out of `conv` (in memory; startTurn saves it) and ends a session that holds it. */
+/** Takes the old exchange out of `conv` (in memory; turns.js saves it) and ends a session that holds it. */
 function apply(conv, p, { forget = null } = {}) {
   Object.assign(conv, core.clampMarks(conv, p.cut));
   conv.messages = (conv.messages || []).slice(0, p.cut);
@@ -97,7 +97,7 @@ function apply(conv, p, { forget = null } = {}) {
 }
 
 /**
- * The gates of a turn (startTurn): an explicit redo (desktop only, confirmed when it must be) or the
+ * The gates of a turn (turns.js start): an explicit redo (desktop only, confirmed when it must be) or the
  * same message sent again after a failure. Returns { again, text, voice }; throws for a refusal.
  */
 function prepare({ conv, redo = null, text, voice = false, remote = null, routine = '', auto = '', hidden = false, busy = false, forget = null }) {

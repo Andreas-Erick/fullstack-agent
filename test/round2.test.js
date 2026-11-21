@@ -2,7 +2,7 @@
 // worktree could test it. Running a message again (actions: renderer/js/redocore.mjs, main/redo.js) with
 // files (attach: renderer/js/attachcore.mjs), what History finds in such a message (history:
 // renderer/js/historycore.mjs, main/historysearch.js), what the bubble, Copy and the Edit box show
-// (chatcore.js), and the merged glue in main.js startTurn and chat.js, pinned by source checks.
+// (chatcore.js), and the merged glue in chat.js, pinned by source checks (main's turn: test/turns.test.js).
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -323,39 +323,9 @@ test('a message with files reads the same everywhere: bubble, Copy, the Edit box
   assert.match(companion, /content: attachments\?\.length \? display \|\| '' : display \?\? content,/);
 });
 
-// ------------------------------------------------------------------ main.js startTurn: the merged order
-// startTurn needs Electron, so its glue is pinned by source (as test/redo.test.js does): attach's claim,
-// actions' gates and busy registration, and the integration (recompose for a redo without new files).
-test('startTurn: claim first, one fail() that frees the turn and the files, the gates inside it, recompose for a redo', () => {
-  const body = slice('main/main.js', 'async function startTurn(', 'async function recordSelfChanges(');
-  // Claimed before anything is read or stored; an expired token stores nothing.
-  assert.ok(at(body, 'const claim = tokens.length ? attachments.claim(tokens)') < at(body, 'store.getConversation(conversationId)'));
-  assert.ok(at(body, 'if (claim.error) return { refused: claim.error };') < at(body, 'store.getConversation(conversationId)'));
-  // One fail(): no longer busy, the chips come back, the error goes on.
-  assert.match(body, /const fail = \(err\) => \{\s*activeRequests\.delete\(requestId\);\s*attachments\.unclaim\(tokens\);\s*throw err;\s*\};/);
-  assert.strictEqual(body.split('const fail = ').length, 2, 'defined once');
-  assert.ok(at(body, 'const fail = ') < at(body, 'store.getConversation(conversationId)'));
-  assert.match(body, /await store\.getConversation\(conversationId\)\.catch\(fail\)/);
-  assert.match(body, /await store\.createConversation\(\)\.catch\(fail\)/);
-  // The gates (redo.prepare) inside a try whose catch is fail(): a refused redo gives the files back too.
-  assert.match(body, /let prep;\s*try \{\s*prep = redo\.prepare\(\{[^}]*\}\);\s*\} catch \(err\) \{\s*fail\(err\);\s*\}/);
-  assert.ok(at(body, "fail(new Error('Attachments can only go with your own messages in the chat.'))") < at(body, 'prep = redo.prepare('), 'files refused for others’ turns before the gates');
-  assert.ok(at(body, 'prep = redo.prepare(') < at(body, 'activeRequests.set(requestId, controller);'));
-  // Saved files, then the message; the tokens are released only once it is stored.
-  assert.match(body, /await attachments\.save\(conv\.id, claim\.items\)\.catch\(fail\)/);
-  assert.ok(at(body, 'await store.saveConversation(conv).catch(fail);') < at(body, 'attachments.release(tokens);'));
-  // New files are composed; a redo without them recomposes the dropped message (it keeps its files).
-  assert.match(body, /const composed = saved\.length\s*\?\s*attachcore\.compose\(\{ prompt, typed: String\(text\), items: saved, notice: UNTRUSTED_NOTICE \}\)\s*:\s*again\?\.user\?\.attachments\?\.length\s*\?\s*attachcore\.recompose\(again\.user, \{ prompt, typed: String\(text\)[^}]*\}\)\s*:\s*null;/);
-  assert.ok(at(body, 'const again = prep.again;') < at(body, 'attachcore.recompose(again.user'));
-  assert.ok(at(body, 'const prompt = slash ?') < at(body, 'attachcore.recompose(again.user'), 'a /skill run again gets its steps after the blocks');
-  // What rerun() above mirrors.
-  assert.match(body, /content: composed \? composed\.content : prompt,/);
-  assert.match(body, /\.\.\.\(composed \? \{ display: composed\.display, attachments: composed\.meta \} : \{\}\),/);
-  assert.match(body, /composed && !String\(text\)\.trim\(\) \? composed\.title : String\(text\)/, 'the title of a message of files only');
-  // The files taint the turn again; a lost picture is said once the start is out.
-  assert.match(body, /taint: \[\.\.\.\(screenShot \? \['the shared screen'\] : \[\]\), \.\.\.\(composed\?\.taint \|\| \[\]\)\]/);
-  assert.ok(at(body, "emit({ type: 'start', userMessage: redo.publicMessage(userMsg)") < at(body, 'if (again?.hadImages && !images.length)'));
-});
+// ------------------------------------------------------------------ the turn's merged order
+// Claim first, one fail() that frees the turn and the files, the gates inside it, recompose for a redo, the
+// title of files only, the taint and the lost-picture notice: through main/turns.js in test/turns.test.js.
 
 // ------------------------------------------------------------------ chat.js: the merged hunks
 test('chat.js: the stored message (its files, its id) replaces the pending one; queued sends keep their files', () => {
@@ -434,19 +404,14 @@ test('chat.js: a redo shows the files it keeps; Copy only with something to copy
 });
 
 // ------------------------------------------------------------------ history × actions × attach: deleting while it runs
-test('main.js: a conversation deleted while its turn runs ends it in the window, never comes back, and warms nothing', () => {
-  const body = slice('main/main.js', 'async function startTurn(', 'async function recordSelfChanges(');
-  // Regression: the API paths return from an abort, so the deleted branch ended without 'done' or 'aborted'
-  // and the window stayed "generating" (every later send queued behind it) until a reload.
-  assert.match(body, /if \(deletedConversations\.has\(conv\.id\)\) \{[^}]*emit\(\{ type: 'aborted', message: 'Stopped' \}\);\s*return onFinish\?\.\(\{ ok: false, error: 'The conversation was deleted'/);
-  // Deleted during the awaits before the first save (a skill, a screenshot, copying files): nothing is stored.
-  const gone = at(body, "fail(new Error('The conversation was deleted'));");
-  assert.ok(at(body, 'await attachments.save(conv.id, claim.items)') < gone && gone < at(body, 'await store.saveConversation(conv).catch(fail);'));
-  assert.match(body, /if \(deletedConversations\.has\(conv\.id\)\) \{\s*if \(saved\.length\) attachments\.removeFor\(conv\.id\)/, 'the copies just saved go too');
-  // Deleting ends the session and makes a warm-up queued by opening the chat stale (claudecode.forget).
+// The behaviour (the window leaves 'generating', nothing stored, the copies removed, the session forgotten,
+// never ended) is in test/turns.test.js; main.js's handlers only have to go through the module.
+test('main.js: deleting a conversation goes through turns.js, which forgets the session (never endSession)', () => {
   const del = slice('main/main.js', "handle('conv:delete'", '\n  });');
   const clear = slice('main/main.js', "handle('conv:clear'", '\n  });');
-  assert.match(del, /claudecode\.forget\(id\);/);
-  assert.match(clear, /claudecode\.forget\(c\.id\);/);
+  assert.match(del, /turns\s*\.deleteConversation\(id\)/);
+  assert.match(clear, /turns\.clearConversations\(\)/);
   for (const h of [del, clear]) assert.ok(!h.includes('endSession'), h);
+  const turns = fs.readFileSync(path.join(ROOT, 'main/turns.js'), 'utf8');
+  assert.ok(!turns.includes('endSession'), 'turns.js forgets, never ends, a session');
 });
