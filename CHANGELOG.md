@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.7.29 — 2026-11-22
 
 - **A persona keeps its own look and voice**: when Siren changed her theme or voice while you switched persona on the phone, the watch or by a routine, the new persona could end up with the old one's look or voice. Every change to a persona's look, voice or prompt is now saved only for the persona it was made for; otherwise Siren says it wasn't saved. Two quick colour changes in the theme editor no longer lose the first.
 - **Replies from another device show on the computer**: a reply being written for your phone in the chat you have open now shows live on the computer, instead of "This message got no reply." until it ended. The phone and the computer now use the same tool names, notice wording and time stamps.
