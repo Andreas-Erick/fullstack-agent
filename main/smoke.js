@@ -344,7 +344,7 @@ const settingsTabs = (wc) => wc.executeJavaScript(`[...document.querySelectorAll
 const namesJs = (label) => `import('./js/a11ytest.js').then((m) => { const r = document.querySelector('.view.active') || document.body; return m.findUnnamed(r).map((c) => ${JSON.stringify(label)} + ': a control without a name for screen readers: ' + c.where + ' ' + c.html).concat(m.findHiddenInLabels(r).map((c) => ${JSON.stringify(label)} + ': a control hidden from the keyboard: ' + c.where)); })`;
 const scanJs = (label) => `import('./js/cliptest.js').then((m) => m.findClippedText().map((c) => ${JSON.stringify(label)} + ': text cut off (' + c.how + ') at ' + c.where + ': "' + c.text + '"'))`;
 // The Face layout opening a conversation whose reply just failed: the card shows the reason with Try again
-// and Details (chat.js showFailedCard), nothing cut off, every control named. Back to Split afterwards.
+// and Details (replycard.js opened with turnstate's failedCard()), nothing cut off, every control named. Back to Split afterwards.
 const FAILED_CARD_JS = (label) => `(async () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const { setLayout } = await import('./js/layout.js');
