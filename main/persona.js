@@ -215,15 +215,7 @@ async function saveFor(id, patch) {
 
 /** The local brain that writes the summary (its strongest model), or null when no local brain is set. */
 function summaryWriter(settings) {
-  const router = require('./router');
-  const localcore = require('./localcore');
-  const id = settings.llm.provider;
-  let s = null;
-  if (id === 'auto') s = settings.local?.model ? router.concrete(settings, 'local') : null;
-  else {
-    const narrowed = router.PROVIDERS[id]?.openai ? router.concrete(settings, id) : settings;
-    s = narrowed.llm.provider === 'openai' && localcore.isLocal(narrowed) ? narrowed : null;
-  }
+  const s = require('./localturn').localBrainOf(settings);
   if (!s?.llm?.model) return null;
   return { ...s, llm: { ...s.llm, provider: 'openai', model: s.llm.deepModel || s.llm.model, modelMode: 'default' } };
 }

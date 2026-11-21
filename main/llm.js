@@ -22,10 +22,9 @@ const log = require('./logger');
 const { isEngineeringTask, toolBudget, upgradeBudget, turnEffort } = require('./engineering');
 const pace = require('./pace');
 const attachcore = require('./attachcore');
+// A local brain's turn: the compact toolset, the nudges, the hand-over, the request quirks (localturn.js).
+const localturn = require('./localturn');
 
-const noToolSupport = new Set(); // `${baseUrl}|${model}` combos that rejected the tools parameter
-const noExtras = new Set(); // combos that rejected localcore.requestExtras (keep_alive, reasoning_effort)
-const noSystemNote = new Set(); // combos whose template refused a system message after the first (localcore.placeNote)
 // The answer a tool call of the round gets when Stop came before it ran.
 const STOPPED_BEFORE = 'Stopped by the user before this ran.';
 
@@ -207,23 +206,8 @@ async function claudeCodeOptions(settings, active, model) {
 }
 
 // ------------------------------------------------------------------ hand-over
-// A local brain hands a message it can't do well to the Claude brain (setting llm.handOver, off by
-// default and user-only: the message then leaves this computer). Obvious cases go straight there
-// (localcore.handOverHint), others when the local model calls hand_over; never after it changed
-// something, and the text it already streamed is taken back.
-
-/**
- * The Claude brain to hand over to, or null: the setting is on (or this is a routine: see runSingle),
- * this brain is local, Claude is ready.
- */
-async function handOverTarget(settings, narrowed, { routine = false } = {}) {
-  // Only a brain on the OpenAI path can be local: a Claude brain whose old llm.baseUrl still points at
-  // localhost is not (it checked the Claude sign-in on every message and showed a false "Handed to Claude").
-  if (narrowed.llm.provider !== 'openai') return null;
-  if (!(settings.llm.handOver || routine) || !require('./localcore').isLocal(narrowed)) return null;
-  const ready = await router.status(settings).catch(() => []);
-  return ['claude-code', 'anthropic'].find((id) => ready.some((p) => p.id === id && p.configured && !p.resting)) || null;
-}
+// A local brain hands a message it can't do well to the Claude brain: when, and to whom, is
+// localturn.handOverPlan; here the text it already streamed is taken back and Claude answers.
 
 // The names of the user's connectors ("TickTick"…), when the Claude brain may use them.
 async function connectorNames(settings) {
@@ -235,23 +219,17 @@ async function connectorNames(settings) {
 async function runSingle(opts) {
   const { settings, conv, history, emit } = opts;
   const narrowed = narrow(settings);
-  // A routine the user made for a connected service ("sync Google Calendar") can only work on Claude
-  // (a local brain has no connectors): it goes there even with the hand-over off, and only then.
-  const userOn = Boolean(settings.llm.handOver);
-  const target = conv.setup ? null : await handOverTarget(settings, narrowed, { routine: opts.routine });
+  // The whole message (attached text included): a long attachment is "a long text"; a picture needs Claude's eyes.
   const text = String(history[history.length - 1]?.content || '');
+  const plan = await localturn.handOverPlan(settings, narrowed, { setup: Boolean(conv.setup), routine: opts.routine, text, images: (opts.images || []).length, services: () => connectorNames(settings) });
+  const target = plan.to;
   const handOver = async (why) => {
     log.info('handed over', { to: target, why });
     emit({ type: 'notice', message: `Handed to ${router.label(target)}: ${why}.` });
     return { ...(await runOn(router.concrete(settings, target), opts)), provider: target, handedOver: why };
   };
-  if (target) {
-    const services = await connectorNames(settings);
-    // The whole message (attached text included): a long attachment is "a long text"; a picture needs Claude's eyes.
-    const why = userOn ? require('./localcore').handOverHint(text, { services, engineering: !opts.routine && isEngineeringTask(text), images: (opts.images || []).length }) : require('./localcore').neededService(text, services);
-    if (why) return handOver(userOn ? why : `the routine needs ${why}`);
-    if (!userOn) return { ...(await runOn(narrowed, opts)), provider: settings.llm.provider };
-  }
+  if (plan.now) return handOver(plan.now);
+  if (!plan.offer) return { ...(await runOn(narrowed, opts)), provider: settings.llm.provider };
   // What the local model already showed, to take back if it hands over.
   let shown = 0;
   const watch = (ev) => {
@@ -259,8 +237,8 @@ async function runSingle(opts) {
     if (ev.type === 'retract') shown -= ev.chars;
     emit(ev);
   };
-  const result = await runOn(narrowed, { ...opts, emit: target ? watch : emit, handOverTo: target });
-  if (target && result.handOver) {
+  const result = await runOn(narrowed, { ...opts, emit: watch, handOverTo: target });
+  if (result.handOver) {
     if (shown > 0) emit({ type: 'retract', chars: shown });
     return handOver(result.handOver);
   }
@@ -367,45 +345,14 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
     }
     return result;
   }
-  // A small local model gets the compact prompt and the everyday tools only (localcore.js).
-  const localcore = require('./localcore');
-  if (!setup && settings.llm.provider === 'openai' && localcore.compactWanted(settings)) {
-    // The everyday tools, the groups this conversation loaded before or this message obviously needs,
-    // and tools_more for the rest (localcore.js TOOLBOX).
-    const loaded = [...new Set([...(Array.isArray(conv.toolGroups) ? conv.toolGroups : []), ...localcore.hintGroups(lastText, { personas: (settings.personas?.list || []).map((p) => p.name) })])].filter((g) => localcore.TOOLBOX[g]);
-    // tools_more, and hand_over when the user lets this brain hand messages to Claude (runTurn).
-    const extra = [tools.TOOLS.find((t) => t.name === 'tools_more'), ...(handOverTo ? [tools.TOOLS.find((t) => t.name === 'hand_over')] : [])];
-    const toolset = {
-      loaded,
-      changed: loaded.length !== (conv.toolGroups || []).length,
-      list: [...localcore.compactTools(active, loaded), ...extra],
-      add(group) {
-        if (!localcore.TOOLBOX[group] || this.loaded.includes(group)) return [];
-        const before = new Set(this.list.map((t) => t.name));
-        this.loaded.push(group);
-        this.changed = true;
-        this.list = [...localcore.compactTools(active, this.loaded), ...extra];
-        const added = this.list.filter((t) => !before.has(t.name)).map((t) => t.name);
-        log.info('tools loaded', { group, added: added.length });
-        return added;
-      },
-    };
-    ctx.toolset = toolset;
-    ctx.handOver = handOverTo ? { to: handOverTo, requested: '' } : null;
-    // The prompt names only the everyday tools, so it stays the same when a group is added.
-    const everyday = localcore.compactTools(active).map((t) => t.name);
-    const { system, stable, context, reminder } = await prompt.buildCompact(settings, [...everyday, ...extra.map((t) => t.name)], { query: lastText, previousPersona, spoken: voice, again: again?.note || '' });
-    log.info('compact prompt', { model: model || settings.llm.model, tools: toolset.list.length, groups: loaded.join(',') || undefined, chars: system.length });
-    // A local server reuses what it already read when the start of the request is unchanged: the
-    // rules, the tools (which its template puts after the system text) and the history. So the
-    // per-message part (time, calendar, recalled memories) goes just before the newest message
-    // (localcore.placeNote), and only that and the message are read again: first word in ~0.2 s
-    // instead of ~2.5 s.
-    const local = localcore.isLocal(settings);
-    const result = await runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active: toolset.list, system: local ? `${stable}\n\n${reminder}` : system, turnNote: local ? context : '', ctx, images });
-    if (toolset.changed) result.convPatch = { ...(result.convPatch || {}), toolGroups: toolset.loaded };
-    if (ctx.handOver?.requested) result.handOver = ctx.handOver.requested;
-    return result;
+  // A local model gets the compact prompt, the everyday tools and more on request (localturn.js).
+  if (!setup && localturn.wantsCompact(settings)) {
+    const local = localturn.begin({ settings, conv, active, lastText, catalog: tools.TOOLS, handOverTo });
+    ctx.localTurn = local; // tools_more and hand_over (tools/toolbox.js), and runOpenAI's hooks
+    const built = await prompt.buildCompact(settings, local.promptTools, { query: lastText, previousPersona, spoken: voice, again: again?.note || '' });
+    log.info('compact prompt', { model: model || settings.llm.model, tools: local.tools.length, groups: local.groups.join(',') || undefined, chars: built.system.length });
+    const { system, turnNote } = local.prompt(built);
+    return local.finish(await runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active: local.tools, system, turnNote, ctx, images }));
   }
   const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText, previousPersona, spoken: voice, again: again?.note || '' });
   if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), conv, history, emit, signal, active, system, stable, context, ctx, images });
@@ -717,36 +664,34 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
     model = models[0]?.id;
     if (!model) throw new Error('No model selected. Choose a model in Settings → AI Brain.');
   }
-  const comboKey = `${base}|${model}`;
-  let useTools = active.length > 0 && !noToolSupport.has(comboKey);
-  // Built per round: tools_more (a local model's toolset, see runOn) can add tools mid-turn.
-  const fnTools = () => (plain ? [] : ctx.toolset?.list || active).map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+  // What this server refused before, and which retry a refusal now gets (localturn.requestQuirks).
+  const quirks = localturn.requestQuirks({ settings, base, model, tools: active.length > 0, note: turnNote });
+  // The compact prompt's turn (runOn): its tools, nudges, refusals and hand-over; null on any other turn.
+  const local = ctx.localTurn || null;
+  // Built per round: tools_more (a local model's toolset) can add tools mid-turn.
+  const fnTools = () => (plain ? [] : local?.tools || active).map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
 
   const compacted = await compactHistory(settings, conv, history);
-  const plainMessages = [{ role: 'system', content: compacted.summary ? `${system}\n\n## Earlier in this conversation (summary)\n${compacted.summary}` : system }, ...openaiHistory(history, settings.llm.historyLimit, { plain, newestChars: require('./localcore').isLocal(settings) ? attachcore.LIMITS.localChars : Infinity })];
+  const plainMessages = [{ role: 'system', content: compacted.summary ? `${system}\n\n## Earlier in this conversation (summary)\n${compacted.summary}` : system }, ...openaiHistory(history, settings.llm.historyLimit, { plain, newestChars: localturn.isLocalBrain(settings) ? attachcore.LIMITS.localChars : Infinity })];
   const { placeNote } = require('./localcore');
-  let noteAsSystem = !noSystemNote.has(comboKey);
-  let textOnly = placeNote(plainMessages, turnNote, { asSystem: noteAsSystem });
+  let textOnly = placeNote(plainMessages, turnNote, { asSystem: quirks.noteAsSystem });
   let messages = withImages(textOnly, images);
   const turnMessages = []; // what we append during this turn (for faithful replay later)
   const toolRecords = [];
   let fullText = '';
   let servedModel = model;
-  let lookNudged = false;
-  let claimNudged = false;
-  const unstored = new WeakSet(); // the claim check (below): in the turn, not in the stored conversation
-  const nudges = []; // the taken-back reply and the ask to look: sent, never stored
+  const unstored = new WeakSet(); // a local turn's nudges (below): in the turn, not in the stored conversation
 
   for (let round = 0; round < ctx.budget.rounds + 1; round++) {
     const payload = {
       model,
-      messages: [...messages, ...nudges, ...turnMessages],
+      messages: [...messages, ...turnMessages],
       stream: true,
       temperature: Number(settings.llm.temperature),
       max_tokens: Number(settings.llm.maxTokens) || undefined,
     };
-    if (useTools && round < ctx.budget.rounds) payload.tools = fnTools();
-    if (!noExtras.has(comboKey)) Object.assign(payload, require('./localcore').requestExtras(settings, ctx.pace));
+    if (quirks.useTools && round < ctx.budget.rounds) payload.tools = fnTools();
+    Object.assign(payload, quirks.extras(ctx.pace));
 
     if (fullText && !fullText.endsWith('\n')) {
       fullText += '\n\n';
@@ -756,60 +701,34 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
     try {
       result = await openaiStream({ base, key: settings.llm.apiKey, payload, signal, emit });
     } catch (err) {
-      // The model can't take images: retry once without the screenshot.
-      if (messages !== textOnly && [400, 404, 415, 422].includes(err.status) && round === 0) {
+      const retry = quirks.retry(err, { round, payload, imaged: messages !== textOnly });
+      if (!retry) throw err;
+      // The model can't take images: once more without the screenshot.
+      if (retry === 'images') {
         messages = textOnly;
         emit({ type: 'notice', message: `Model "${model}" can't see images — continuing without ${ctx.imageNoun || 'the shared screen'}.`, toast: true });
-        round--;
-        continue;
       }
       // A template that refuses a system message after the first: the notes go into the user's message.
-      if (turnNote && noteAsSystem && [400, 422, 500].includes(err.status) && round === 0) {
-        noSystemNote.add(comboKey);
-        noteAsSystem = false;
+      if (retry === 'note') {
         const imaged = messages !== textOnly;
         textOnly = placeNote(plainMessages, turnNote, { asSystem: false });
         messages = imaged ? withImages(textOnly, images) : textOnly;
-        round--;
-        continue;
       }
-      // A server that refuses the local extras (keep_alive, reasoning_effort): retry without them.
-      if ((payload.keep_alive || payload.reasoning_effort) && [400, 422].includes(err.status) && !noExtras.has(comboKey)) {
-        noExtras.add(comboKey);
-        round--;
-        continue;
-      }
-      // Model/provider doesn't support function calling: retry once without tools.
-      if (payload.tools && [400, 404, 415, 422, 500].includes(err.status) && round === 0) {
-        noToolSupport.add(comboKey);
-        useTools = false;
-        emit({ type: 'notice', message: `Model "${model}" rejected tool calls — continuing without tools (memory, calendar and notes are still in context).` });
-        round--;
-        continue;
-      }
-      throw err;
+      // 'extras': the next payload leaves keep_alive and reasoning_effort out (quirks.extras).
+      // Model/provider doesn't support function calling: once more without tools (quirks.useTools).
+      if (retry === 'tools') emit({ type: 'notice', message: `Model "${model}" rejected tool calls — continuing without tools (memory, calendar and notes are still in context).` });
+      round--;
+      continue;
     }
     servedModel = result.model || servedModel;
 
-    // A local model that gave up without looking anything up: take the reply back and ask once to look.
-    const lc = require('./localcore');
-    if (!result.calls.length && round === 0 && !lookNudged && ctx.toolset && useTools && (ctx.toolset.list || []).some((t) => t.name === 'memory_search') && lc.gaveUpUnlooked(result.text)) {
-      lookNudged = true;
+    // A local model's reply that gave up unlooked or claimed an action no tool did: taken back, and the
+    // model asked once (localturn afterReply). Sent, never stored.
+    const nudge = local?.afterReply(result, { round, rounds: ctx.budget.rounds, useTools: quirks.useTools, noteRole: quirks.noteRole, model });
+    if (nudge) {
       if (result.text) emit({ type: 'retract', chars: result.text.length });
-      log.info('local model gave up without looking; asked to look first', { model });
-      nudges.push({ role: 'assistant', content: result.text }, { role: noteAsSystem ? 'system' : 'user', content: lc.LOOK_FIRST });
-      continue;
-    }
-    // A local model that says it did something no tool did ("Icelandic practice done." with no
-    // logged): take it back and ask once to do it or say it isn't done. Sent, never stored.
-    const changedSomething = toolRecords.some((r) => r.ok && !lc.isReadTool(r.name));
-    if (!result.calls.length && !claimNudged && ctx.toolset && useTools && round < ctx.budget.rounds && !changedSomething && lc.claimsAction(result.text)) {
-      claimNudged = true;
-      if (result.text) emit({ type: 'retract', chars: result.text.length });
-      log.info('local model claimed an action no tool did; asked to do it', { model, failed: toolRecords.filter((r) => !r.ok).map((r) => r.name).join(',') || undefined });
-      const check = [{ role: 'assistant', content: result.text }, { role: noteAsSystem ? 'system' : 'user', content: lc.CLAIM_CHECK }];
-      for (const m of check) unstored.add(m);
-      turnMessages.push(...check);
+      for (const m of nudge) unstored.add(m);
+      turnMessages.push(...nudge);
       continue;
     }
     fullText += result.text;
@@ -842,23 +761,22 @@ async function runOpenAI({ settings, conv, history, emit, signal, active, system
         continue;
       }
       // A local model asked a question ("Can I fit a gym session in?") changes nothing: it answers.
-      const lc = require('./localcore');
-      if (ctx.toolset && lc.questionOnly(attachcore.withoutBlocks(String(history[history.length - 1]?.content || ''))) && !lc.isReadTool(tc.function.name) && tc.function.name !== 'hand_over') {
-        log.info('local model tried to change something for a question; refused', { name: tc.function.name });
-        turnMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: lc.NOT_FOR_A_QUESTION }) });
+      const refusal = local?.beforeTool(tc.function.name);
+      if (refusal) {
+        turnMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ error: refusal }) });
         continue;
       }
       const r = await runTool({ id: tc.id, name: tc.function.name, input }, ctx, emit);
       toolRecords.push(r.record);
       turnMessages.push({ role: 'tool', tool_call_id: tc.id, content: r.content });
       if (r.image && !settings.llm.noVision) seen.push(r.image);
-      // A tool that changed something: this turn is never handed over (it would run again there).
-      if (r.ok && !require('./localcore').isReadTool(tc.function.name) && tc.function.name !== 'hand_over') ctx.wrote = true;
+      // A tool that changed something: no claim check, and this turn is never handed over.
+      local?.afterTool(r.record);
     }
     if (seen.length) turnMessages.push({ role: 'user', content: [{ type: 'text', text: '(The screenshot you asked for.)' }, ...seen.map((url) => ({ type: 'image_url', image_url: { url } }))] });
     if (signal.aborted) break;
     // Handed over (tool hand_over): the other brain answers; nothing more from this one.
-    if (ctx.handOver?.requested) break;
+    if (local?.handedOver) break;
   }
 
   return { text: fullText.trim(), toolCalls: toolRecords, raw: { provider: 'openai', messages: stripImages(turnMessages.filter((m) => !unstored.has(m))) }, model: servedModel, convPatch: compacted.patch };
