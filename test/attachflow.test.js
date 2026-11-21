@@ -18,15 +18,6 @@ function fn(src, name) {
   return src.slice(start, end < 0 ? undefined : start + 1 + end);
 }
 
-// send() takes the tray only for the user's own words; the merged send() (ORDER.md §3.1) adds actions' `!again`.
-const WITH_FILES = /const withFiles = attach && !hidden && (?:!again && )?!state\.setupMode && attachmentCount\(\) > 0;/;
-
-test('the source check of send() also passes on the merged line', () => {
-  assert.match('  const withFiles = attach && !hidden && !again && !state.setupMode && attachmentCount() > 0;', WITH_FILES);
-  assert.match('  const withFiles = attach && !hidden && !state.setupMode && attachmentCount() > 0;', WITH_FILES);
-  assert.doesNotMatch('  const withFiles = attach && !state.setupMode && attachmentCount() > 0;', WITH_FILES, 'a hidden message never takes the tray');
-});
-
 test('sendPlan: what Enter does with the composer', () => {
   const plan = (o) => core.sendPlan({ text: '', files: 0, reading: false, active: false, waiting: false, ...o });
   // A send already waits for its files: a second Enter (or anything else) does nothing.
@@ -60,24 +51,23 @@ test('only chat:send hands a turn tokens: routines and the app’s own turns nev
   for (const c of callers) assert.ok(!/attachments/.test(c), c);
 });
 
-test('chat.js: Enter follows sendPlan; only the user’s own words take the tray; speech waits in the box', () => {
+// What Enter, spoken words, a redo and a suggestion do (the wait for files, the queue behind a reply being
+// stopped, the tray only for the user's own words, words and files given back) is shown through the outbox's
+// interface in test/outbox.test.js. chat.js only has to route every source through it.
+test('chat.js: every message goes through the outbox, which alone decides with sendPlan', () => {
   const src = read('renderer/js/chat.js');
-  const sendFromInput = fn(src, 'sendFromInput');
-  assert.match(sendFromInput, /attachcore\.sendPlan\(/);
-  assert.match(sendFromInput, /if \(plan === 'wait'\) return waitForFiles\(sendFromInput\)/);
-  assert.match(sendFromInput, /send\(text, \{ attach: true \}\)/);
-  // Regression: a message queued behind the reply being stopped, then a second one waiting for a dropped
-  // file, went out in reverse order and the earlier one interrupted the later one's reply.
-  assert.match(sendFromInput, /waiting: Boolean\(waitingFiles \|\| queued\)/);
-  const send = fn(src, 'send');
-  assert.match(send, WITH_FILES);
-  assert.match(send, /const files = withFiles \? takeAttachments\(\) : \{ tokens: \[\], meta: \[\] \}/);
-  assert.match(send, /attachments: files\.tokens/);
-  assert.match(send, /restoreAttachments\(files\)/, 'a failed send gives the chips back');
-  const voice = fn(src, 'sendVoice');
-  // …and so do they while a message is queued behind the reply being stopped (they never take its place).
-  assert.match(voice, /if \(waitingFiles \|\| queued\) \{[\s\S]*input\.value = \(input\.value \? `\$\{input\.value\} ` : ''\) \+ text;[\s\S]*return;/);
-  assert.match(voice, /send\(text, \{ voice: true, attach: true \}\)/);
+  assert.ok(!/sendPlan|waitingFiles\s*=|queued\s*=|editing\s*=/.test(src), 'no send state or plan of its own');
+  assert.ok(!/takeAttachments|restoreAttachments|attachmentsReading|attachmentCount/.test(src), 'the tray reaches chat.js only through the outbox');
+  assert.match(src, /e\.key === 'Enter'[\s\S]{0,120}outbox\.typed\(\);/, 'Enter');
+  assert.match(src, /\$\('#sendBtn'\)\.onclick = \(\) => outbox\.typed\(\);/, 'the send button');
+  assert.match(fn(src, 'sendVoice'), /outbox\.spoken\(text, \{ autoSend: state\.settings\.stt\.autoSend \}\)/, 'spoken words');
+  assert.match(fn(src, 'send'), /await outbox\.submit\(text, opts\);/, 'suggestions, skill runs, setup, redo');
+  assert.match(fn(src, 'finish'), /outbox\.replyEnded\(\);/, 'the queued message goes after the reply');
+  // deliver sends what the outbox handed it: the tokens it took, never the tray itself.
+  assert.match(fn(src, 'deliver'), /attachments: files\.tokens/);
+  assert.match(fn(src, 'startEdit'), /if \(!outbox\.startEdit\(id, m \? redo\.sentText\(m\) : null\)\) return;/);
+  const outbox = read('renderer/js/outbox.js');
+  assert.strictEqual(outbox.split('sendPlan(').length, 2, 'one sendPlan call, for every source');
   // Suggestions, skill runs, the Arch and Inner World views and setup call send() without attach.
   for (const rel of ['renderer/js/skills.js', 'renderer/js/archmap.js', 'renderer/js/innerworld.js', 'renderer/js/setup.js']) assert.ok(!/attach:\s*true/.test(read(rel)), rel);
 });
