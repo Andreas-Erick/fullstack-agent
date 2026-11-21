@@ -402,7 +402,7 @@ test('settings.js renders every card at once and swaps them in only for the late
 test('every persona check is awaited (a pending promise is truthy: nothing would ever save)', () => {
   const src = read('renderer/js/settings.js');
   const calls = [...src.matchAll(/(\S+\s)?dropped\(/g)].map((x) => x[1] || '');
-  assert.ok(calls.length >= 9, `found ${calls.length}`);
+  assert.ok(calls.length >= 8, `found ${calls.length}`);
   for (const before of calls) assert.ok(/^(\(?await |function )$/.test(before), `dropped( after “${before}”`);
   assert.match(src, /async function dropped\(path, persona = renderedPersona\) \{\s*const active = state\.settings\.personas\?\.active;\s*if \(!\(await staleNow\(path, persona, active, liveActive\)\)\) return false;/);
   assert.match(src, /const liveActive = async \(\) => \(await api\.settings\.get\(\)\)\?\.personas\?\.active;/);
@@ -422,7 +422,13 @@ test('the Persona studio saves what was typed before its own switch, New, Duplic
   assert.match(src, /on\('settings', \(s\) => currentView === 'settings' && s\?\.personas\?\.active !== drawingFor && render\(\)\);/);
   // Every direct persona save is guarded: checked here first, then again by main inside its save queue
   // (saveForPersona → settings:set { persona } → persona.saveFor), where a switch queued meanwhile is seen.
-  assert.match(part('themeEditor'), /const update = async \(mutate\) => \{\s*const persona = renderedPersona;\s*if \(await dropped\('appearance\.theme', persona\)\) return;[\s\S]*?await saveForPersona\(\{ appearance: \{ theme: t \} \}, persona\);/);
+  // The theme editor: the persona taken at the edit, edits one after another (two quick ones both read the
+  // same theme and the second saved over the first), a failure shown instead of an unhandled rejection.
+  assert.match(part('themeEditor'), /const update = \(mutate\) => \{\s*const persona = renderedPersona;\s*themeEdits = themeEdits\.then\(async \(\) => \{\s*try \{\s*if \(await dropped\('appearance\.theme', persona\)\) return;\s*const t = normalizeTheme\(state\.settings\.appearance\?\.theme\);\s*mutate\(t\);\s*await saveForPersona\(\{ appearance: \{ theme: t \} \}, persona\);\s*\} catch \(err\) \{\s*toastError\(err\);/);
+  // Reset the theme and Remove the scene: the persona on screen at the click, not after the check's await.
+  assert.match(part('saveFromClick'), /function saveFromClick\(patch, path, persona = renderedPersona\) \{\s*try \{\s*if \(await dropped\(path, persona\)\) return;\s*if \(await saveForPersona\(patch, persona\)\) render\(\);\s*\} catch \(err\) \{\s*toastError\(err\);/);
+  assert.match(part('themeEditor'), /onclick: \(\) => saveFromClick\(\{ appearance: \{ theme: null \} \}, 'appearance\.theme', renderedPersona\)/);
+  assert.match(part('sceneRow'), /onclick: \(\) => saveFromClick\(\{ appearance: \{ scene: null \} \}, 'appearance\.scene', renderedPersona\)/);
   assert.match(part('drawScene'), /if \(await dropped\('appearance\.scene', persona\)\) return null;\s*return \(await saveForPersona\(\{ appearance: \{ scene \} \}, persona\)\) \? scene : null;/);
   const agent = part('agentCard');
   assert.match(agent, /if \(await dropped\('appearance\.theme', persona\)\) return showResult/);
