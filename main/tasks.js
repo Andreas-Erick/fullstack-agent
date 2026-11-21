@@ -1,7 +1,7 @@
 // Tasks from Todoist / TickTick in the Calendar view (pure part: taskscore.js). Kept in
 // <userData>/connector-tasks.json: what the assistant last saved per service with tasks_save, and the
 // conversation the "Sync tasks" runs use. A sync is an ordinary assistant turn (main.js runs it with
-// startTurn, one at a time), so the connector's own approvals and permission levels apply.
+// turns.start, one at a time), so the connector's own approvals and permission levels apply.
 const path = require('path');
 const store = require('./store');
 const log = require('./logger');

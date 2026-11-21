@@ -97,7 +97,7 @@ ${transcript}`;
 
 /** Writes the note for the user's latest conversation. Never throws; each write ends within TIME_LIMIT_MS.
  *  A call while one runs waits for it (then usually finds nothing new: one model call, not two).
- *  replying: the ids of the conversations with a reply still being written (main.js activeRequests); the
+ *  replying: the ids of the conversations with a reply still being written (turns.replying(), main/turns.js); the
  *  note is "interrupted" only when its own conversation is one. interrupted: true/false decides outright. */
 function write(opts = {}) {
   const skipsBefore = skipCount;

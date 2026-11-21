@@ -15,7 +15,7 @@ let timer = null;
 let busy = false;
 let running = null; // { id, controller, turn }: the run going on now (one at a time); turn: its turn's log tag
 // { run({ routine, text, limitMs, signal, onTurn }) → Promise<{ ok, text, conversationId, error, stopped }>, notify(event) };
-// run calls onTurn(tag) with the log tag its turn runs under (main.js startTurn: { turn }).
+// run calls onTurn(tag) with the log tag its turn runs under (turns.tagFor, main/turns.js: { turn }).
 let deps = null;
 
 // One change of routines.json at a time (save, remove, update): a run's status written while the
