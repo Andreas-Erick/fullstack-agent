@@ -3,7 +3,7 @@
 // bytes, size), a PDF's or Word file's text is read in a worker thread (a heap cap, the process's memory
 // watched, a time limit; a zip that says it unpacks to too much isn't opened), and the result is held
 // under a one-time token (for at most 30 minutes) until the message that carries it is sent (chat:send →
-// main.js startTurn: claim, save, attachcore.compose, release). Non-image files are copied to
+// turns.js start: claim, save, attachcore.compose, release). Non-image files are copied to
 // <userData>/attachments/<conversation>/ so the brain can read more of them later; the folder goes with
 // its conversation (removeFor, removeAll) and leftovers are swept at start. The rules (limits, names, the
 // blocks a message carries) are the pure renderer/js/attachcore.mjs.

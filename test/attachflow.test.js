@@ -50,17 +50,12 @@ test('devices never send attachments: the companion server starts turns without 
   for (const c of calls) assert.ok(!/attachments/.test(c), c);
 });
 
-test('startTurn takes tokens only for the user’s own message in the window, and claims before storing', () => {
-  const src = fn(read('main/main.js'), 'startTurn');
-  assert.match(src, /if \(claim\.items\.length && \(remote \|\| conv\.setup \|\| hidden \|\| routine \|\| auto\)\) fail\(/);
-  assert.match(src, /if \(claim\.error\) return \{ refused: claim\.error \}/);
-  const order = ['attachments.claim(', 'attachments.save(', 'attachcore.compose(', 'store.saveConversation(conv).catch(fail)', 'attachments.release(tokens)', 'llm.runTurn('].map((s) => src.indexOf(s));
-  assert.ok(order.every((i) => i >= 0), String(order));
-  assert.deepStrictEqual([...order].sort((a, b) => a - b), order, 'claim, save, compose, store, release, then the turn');
-  assert.match(src, /taint: \[\.\.\.\(screenShot \? \['the shared screen'\] : \[\]\), \.\.\.\(composed\?\.taint \|\| \[\]\)\]/);
-  // Routines and the app's own turns (main.js) never pass tokens.
+// The turn's own rules (claimed before anything is stored, refused for turns that aren't the user's own, the
+// order claim → save → compose → store → release → run, the taint) are shown in test/turns.test.js.
+test('only chat:send hands a turn tokens: routines and the app’s own turns never pass them', () => {
   const main = read('main/main.js');
-  const callers = [...main.matchAll(/(?<!function )startTurn\(\{([^}]*)\}\)/g)].map((m) => m[1]).filter((c) => !/attachments: Array\.isArray\(tokens\)/.test(c));
+  assert.ok(!/(?<!\.)startTurn\(\{/.test(main), 'turns start through turns.start');
+  const callers = [...main.matchAll(/turns\.start\(\{([^}]*)\}\)/g)].map((m) => m[1]).filter((c) => !/attachments: Array\.isArray\(tokens\)/.test(c));
   assert.ok(callers.length >= 1, 'the other callers are checked');
   for (const c of callers) assert.ok(!/attachments/.test(c), c);
 });

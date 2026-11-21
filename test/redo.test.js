@@ -132,31 +132,8 @@ test('the window sees the plan’s summary, nothing else', () => {
   assert.deepStrictEqual(redo.publicMessage({ id: 'u1', attempt: { outcome: 'running' } }), { id: 'u1' });
 });
 
-// main.js startTurn is glue (it needs Electron): its order is what keeps a withdrawn exchange out of the
-// Claude session and lets the window hear a failure before anything is written.
-test('startTurn: the gates first, a second forget once the cut is saved, the failure heard before it is recorded', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'main', 'main.js'), 'utf8');
-  const body = src.slice(src.indexOf('async function startTurn('), src.indexOf('async function recordSelfChanges('));
-  const at = (s) => {
-    const i = body.indexOf(s);
-    assert.ok(i > 0, `startTurn has: ${s}`);
-    return i;
-  };
-  assert.ok(at('redo.prepare({ conv, redo: redoReq') < at('const slash = '), 'the gates come before anything is built');
-  assert.match(body, /redo\.prepare\(\{[^}]*forget: claudecode\.forget \}\)/);
-  // Regression: the turn counted as busy only after the awaits below the gates (skills, the screenshot,
-  // the save), so a second Try again or re-send of the same message (another device) passed them too.
-  assert.ok(at('redo.prepare({ conv, redo: redoReq') < at('activeRequests.set(requestId, controller);'));
-  assert.ok(at('activeRequests.set(requestId, controller);') < at('await skills.fromSlash('), 'busy before the first await after the gates');
-  assert.strictEqual(body.split('activeRequests.set(').length, 2, 'registered once');
-  assert.match(body, /const fail = \(err\) => \{\s*activeRequests\.delete\(requestId\);/, 'a failure before the turn runs is no longer busy');
-  assert.ok(at('await store.saveConversation(conv).catch(fail)') > at('activeRequests.set(requestId, controller);'));
-  assert.ok(at('await store.saveConversation(conv)') < at('if (again?.fresh) claudecode.forget(conv.id);'), 'a second forget once the cut is saved');
-  assert.ok(at("...(own ? { attempt: { outcome: 'running', at: Date.now() } } : {})") < at('await store.saveConversation(conv)'), 'the running attempt rides on the first save');
-  assert.match(body, /emit\(\{ type: 'start', userMessage: redo\.publicMessage\(userMsg\)/, 'no attempt in the start event');
-  assert.ok(at("emit({ type: aborted ? 'aborted' : 'error'") < at('store.updateConversation(conv.id, (c) => redo.withAttempt(c, userMsg.id, attempt))'), 'the window hears it first');
-  assert.ok(at('fresh.messages.push(assistantMsg);') < at('redo.stripAttempt(fresh, userMsg.id);'));
-});
+// The order of a turn (the gates first, busy before the first await, a second forget once the cut is saved,
+// the failure heard before it is recorded) is shown through main/turns.js in test/turns.test.js.
 
 // Regression: the warm-up's epoch was taken after the conversation was read, so a read that began before a
 // Regenerate's save and ended after its forget passed both checks with the withdrawn messages.
