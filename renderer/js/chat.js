@@ -15,11 +15,12 @@ import { showVaultNote, searchVault } from './knowledge.js';
 import { speaker } from './voice.js';
 import { handoffSlot } from './handoff.js';
 import { initHistory, closeHistory, refreshList, drawList } from './history.js';
+import { createReplyCard, scrollFor } from './replycard.js';
 
 export { refreshList }; // the list read again (settings.js after Clear all, setup.js)
 
 // The open conversation (its id, its messages as stored, the setup flag), this window's reply being written
-// (chat.own: its text, tools, muted; turn.view: its nodes and the card's flags) and replies started on
+// (chat.own: its text, tools, muted; turn.view: its nodes) and replies started on
 // another device in it (chat.others), and what may be done to the latest exchange: turnstate.js, shared
 // with the phone. This module draws it.
 const chat = createChat({ redo });
@@ -230,11 +231,8 @@ export async function openConversation(id, { at = null, card = false, quiet = fa
   syncActions();
   const revealed = at && revealMessage(at);
   // The Face layout's card shows one thing: the message asked for (History), else a recent failure,
-  // else (opened from History) the latest reply.
-  if (faceLayout()) {
-    if (card && revealed) cardFor(conv, at);
-    else if (!showFailedCard() && card) cardFor(conv, null);
-  }
+  // else (opened from History) the latest reply (replycard.js).
+  paintCard(cardState.opened({ messages: conv.messages, fromHistory: card, found: revealed ? at : null, failed: chat.failedCard(), agent: agentName() }));
 }
 
 const MESSAGE_PAGE = 40;
@@ -282,22 +280,6 @@ function revealMessage(id) {
   node.classList.add('found');
   setTimeout(() => node.classList.remove('found'), FOUND_MS);
   return true;
-}
-
-// The Face layout hides the list: the message found (or, without one, the latest reply) on the card,
-// with who said it and when.
-function cardFor(conv, at) {
-  const list = conv.messages.filter((m) => !m.hidden);
-  const m = at ? list.find((x) => x.id === at) : list.findLast((x) => x.role === 'assistant' && (x.content || '').trim());
-  if (!m) return;
-  const d = chatcore.describeMessage(m);
-  if (!d.text.trim()) return;
-  const who = m.role === 'user' ? 'You' : m.persona || agentName();
-  const when = new Date(Number(m.createdAt) || NaN);
-  const date = Number.isFinite(when.getTime()) ? when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
-  const kicker = at ? `${who}${date ? ` · ${date}` : ''}` : `Latest reply${date ? ` · ${date}` : ''}`;
-  // A reply gets the card's buttons (Copy; Regenerate and Edit when it is the latest), as after 'done'.
-  showCard(d.text, { plain: !d.markdown, kicker, at: m.id || null, ...(m.role === 'assistant' ? { reply: m } : {}) });
 }
 
 // A row in History: the chat opens (at the message the search found), and the drawer makes way. While a
@@ -396,11 +378,11 @@ function scrollToBottom(force = false) {
 }
 
 // ---------------------------------------------------------------- reply card
-// The Face layout hides the conversation, so the latest reply shows on a card over the face: as it is
-// written when it isn't spoken (voice off or muted, or past voice.speakLimit: "the rest is on the screen"),
-// else when it is done. It goes away with the next message, ✕, Esc, "Open in chat" or another layout.
+// The Face layout hides the conversation, so the latest reply shows on a card over the face. What it shows
+// (and when it goes) is replycard.js's decision; here it is painted.
 const faceLayout = () => $('#view-chat').classList.contains('layout-face');
 const replyCard = () => $('#replyCard');
+const cardState = createReplyCard({ isFace: () => faceLayout() });
 
 function initReplyCard() {
   $('#replyCardClose').onclick = closeCard;
@@ -412,14 +394,14 @@ function initReplyCard() {
   });
   // Leaving the Face layout puts it away; it comes back with the next reply, not with the layout.
   on('settings', (s) => {
-    if (s?.ui?.chatLayout === 'face') return;
-    hideCard();
+    const d = cardState.layout(s?.ui?.chatLayout === 'face', chat.own);
+    if (!d) return;
+    paintCard(d);
     // The bubble the Face layout left behind while the reply streams, filled at once and followed to its end as
     // the hidden list was before. Scrolled in the next frame: app.js applies the new layout after this listener,
     // and the narrower list makes the text taller (Open in chat scrolls there too, after saveSettings).
-    const t = chat.own;
-    if (t?.view.behind) {
-      t.view.behind = false;
+    if (d.fill) {
+      const t = chat.own;
       t.view.bubble.innerHTML = renderMarkdown(t.text, { wikilinks: 'open' });
       requestAnimationFrame(() => chat.own && scrollToBottom(true));
     }
@@ -442,43 +424,52 @@ function initReplyCard() {
   for (const node of [header, composer, $('#voiceStatus')]) watch.observe(node);
 }
 
-// follow: a live card keeps the newest text in view (as the caption it replaces did), unless the user
-// scrolled up to read; a card that just appeared starts at the top. error: in the error colour, like the bubble.
-// help: a failed reply (chatcore.errorHelp) with its buttons; reply: the finished one (Copy…); stopped: Try again.
-// plain: text as it is (a message of the user's); kicker: who and when (History); at: the message shown.
-let cardAt = null; // the message the card shows, for "Open in chat"
-function showCard(md, { follow = false, error = false, help = null, reply = null, stopped = false, plain = false, kicker = 'Latest reply', at = null, html = null } = {}) {
-  const body = $('#replyCardBody');
-  const visible = !replyCard().classList.contains('hidden');
-  const atEnd = visible && body.scrollHeight - body.scrollTop - body.clientHeight < 24;
-  const k = replyCard().querySelector('.reply-card-kicker');
-  if (k.textContent !== kicker) {
-    k.textContent = kicker; // runs every frame while a reply streams: only when it changes
-    replyCard().setAttribute('aria-label', kicker);
-  }
-  if (plain) body.textContent = md;
-  else body.innerHTML = html ?? (md ? renderMarkdown(md, { wikilinks: 'open' }) : '');
-  if (help) body.append(errorNode(help, { retry: true }));
-  else if (!follow) decorateCode(body);
-  body.classList.toggle('error-bubble', error);
-  cardAt = at || reply?.id || null;
-  fillCardActions({ follow, help, reply, stopped });
-  replyCard().classList.remove('hidden');
-  if (!visible) body.scrollTop = 0;
-  else if (follow && atEnd) body.scrollTop = body.scrollHeight;
+// A decision of replycard.js on the screen: { type: 'show', card } | { type: 'hide' } | null (as it is).
+function paintCard(d) {
+  if (d?.type === 'show') showCard(d.card);
+  else if (d?.type === 'hide') hideCardNode();
 }
 
+// A live card keeps the newest text in view (as the caption it replaces did), unless the user scrolled up to
+// read; a card that just appeared starts at the top (replycard.scrollFor). An error: in the error colour, like
+// the bubble, with chatcore.errorHelp's words and its buttons. html: the live text already rendered.
+function showCard(card, { html = null } = {}) {
+  const body = $('#replyCardBody');
+  const wasShown = !replyCard().classList.contains('hidden');
+  const atEnd = wasShown && body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+  const k = replyCard().querySelector('.reply-card-kicker');
+  if (k.textContent !== card.kicker) {
+    k.textContent = card.kicker; // runs every frame while a reply streams: only when it changes
+    replyCard().setAttribute('aria-label', card.kicker);
+  }
+  const error = card.kind === 'error';
+  if (card.plain) body.textContent = card.text;
+  else body.innerHTML = html ?? (card.text ? renderMarkdown(card.text, { wikilinks: 'open' }) : '');
+  if (error) body.append(errorNode(chatcore.errorHelp(card.error, { usage: currentUsage(), settings: state.settings }), { retry: true }));
+  else if (!card.follow) decorateCode(body);
+  body.classList.toggle('error-bubble', error);
+  fillCardActions();
+  replyCard().classList.remove('hidden');
+  const scroll = scrollFor({ wasShown, follow: card.follow, atEnd });
+  if (scroll === 'top') body.scrollTop = 0;
+  else if (scroll === 'end') body.scrollTop = body.scrollHeight;
+}
+
+// Hidden: a message sent, the latest exchange dropped, a conversation being opened.
 function hideCard() {
+  paintCard(cardState.hide());
+}
+
+function hideCardNode() {
   const card = replyCard();
   const focused = card.contains(document.activeElement);
   card.classList.add('hidden');
   if (focused) $('#input').focus({ preventScroll: true });
 }
 
-// Put away by the user: it stays away for the rest of this reply.
+// Put away by the user (✕, Esc) or a new conversation: it stays away for the rest of this reply.
 function closeCard() {
-  if (chat.own) chat.own.view.cardClosed = true;
-  hideCard();
+  paintCard(cardState.close(chat.own));
 }
 
 // The whole conversation instead (Split; the setting as the voice command saves it, so no layout.js import),
@@ -486,8 +477,9 @@ function closeCard() {
 // scrolls smoothly; a layout switch must not). The 'settings' event has applied the layout by the time
 // saveSettings resolves.
 async function openCardInChat() {
-  const at = cardAt;
-  hideCard();
+  const d = cardState.openInChat();
+  const at = d.at;
+  paintCard(d);
   await saveSettings({ ui: { chatLayout: 'split', showVisualizerInChat: true } });
   if (at && revealMessage(at)) return;
   const box = messagesEl();
@@ -665,16 +657,12 @@ function renderActive() {
     const v = t.view;
     v.renderQueued = false;
     // The Face layout hides the message list: its bubble gets the text when the reply ends ('done', 'error',
-    // 'aborted' render it) or when the layout changes (initReplyCard); only the card, when it shows the text, renders now.
-    const face = faceLayout();
-    const onCard = !replyCard().classList.contains('hidden');
-    // Read on the card as it is written when it isn't spoken (cardLive) or no longer is (speakLimit reached);
-    // once up it follows the text, also after a retract (whose speaker.stop() clears capped).
-    const toCard = face && !v.cardClosed && (v.cardLive || speaker.capped || onCard);
-    v.behind = face;
-    if (face && !toCard) return;
+    // 'aborted' render it) or when the layout changes (initReplyCard); only the card, when it shows the text,
+    // renders now (replycard.js frame: read on the card when it isn't spoken or past speakLimit).
+    const { render, decision } = cardState.frame(t, { text: t.text, capped: speaker.capped });
+    if (!render) return;
     const html = renderMarkdown(t.text, { wikilinks: 'open' });
-    if (toCard) showCard(t.text, { follow: true, html });
+    if (render === 'card') showCard(decision.card, { html });
     else {
       v.bubble.innerHTML = html;
       scrollToBottom();
@@ -704,7 +692,7 @@ function handleEvent(ev) {
     case 'text':
       if (ttsActive() && !t.muted) speaker.feed(v.speech(step.delta));
       else {
-        v.cardLive = true; // not spoken: in the Face layout it is read on the card as it comes
+        cardState.text(t); // not spoken: in the Face layout it is read on the card as it comes
         setCaption(t.text.slice(-280), 'assistant');
       }
       syncFlags();
@@ -741,12 +729,9 @@ function handleEvent(ev) {
       v.bubble.classList.remove('streaming');
       v.bubble.innerHTML = renderMarkdown(m.content || '', { wikilinks: 'open' });
       v.wrap.dataset.id = m.id;
-      // The finished reply on the card (the voice, if on, goes on reading; the mini caption steps aside).
-      // A turn that only used tools has nothing to read: no empty card.
-      if (faceLayout() && !v.cardClosed) {
-        if ((m.content || '').trim()) showCard(m.content, { reply: m });
-        else hideCard();
-      }
+      // The finished reply on the card (the voice, if on, goes on reading; the mini caption steps aside);
+      // none for a turn that only used tools.
+      paintCard(cardState.ended(t, { outcome: 'done', text: t.text, message: m }).decision);
       announce(`${agentName()}: ${v.bubble.textContent}`);
       decorateCode(v.bubble); // after announce: its text must not read "Copy"
       v.bubble.dataset.stamp = stamp(m);
@@ -769,16 +754,13 @@ function handleEvent(ev) {
       const failed = step.type === 'failed';
       const retryId = chat.actions().again; // the message Try again sends, if any (turnstate recorded the attempt)
       const help = failed ? chatcore.errorHelp(step.error, { usage: currentUsage(), settings: state.settings }) : null;
-      const onCard = !replyCard().classList.contains('hidden');
       drawEnded(t, help, retryId);
       // On the card: an error always (the Face layout shows nothing else); a stop only where it was being read.
-      if (faceLayout() && !v.cardClosed && (failed || onCard)) {
-        if (failed) showCard(t.text, { help, error: true });
-        else showCard(t.text || '*(stopped)*', { stopped: true });
-      }
+      const ended = cardState.ended(t, { outcome: step.type, text: t.text, error: step.error });
+      paintCard(ended.decision);
       if (failed) {
         // Where the failure is in view, a short notice; elsewhere (another view, the card closed) one with the buttons.
-        const seen = currentView === 'chat' && (!faceLayout() || !v.cardClosed);
+        const seen = currentView === 'chat' && ended.onScreen;
         const convId = chat.convId;
         if (seen || !retryId) toast(`⚠ ${help.title}`, 'error', 6000);
         else toastActions(`⚠ ${help.title}. ${help.text}`, [['Try again', () => retryIn(convId, retryId)], ...(help.action ? [[help.action.label, () => runHelpAction(help.action)]] : [])]);
@@ -1130,33 +1112,23 @@ async function retryIn(convId, messageId) {
   if (chat.convId === convId) runAgain('again', messageId);
 }
 
-/** In the Face layout, a recent failure (24 h) shows on the card when its conversation opens. True if shown. */
-function showFailedCard() {
-  if (!faceLayout()) return false;
-  const c = chat.failedCard();
-  if (!c) return false;
-  if (c.failed) showCard('', { help: chatcore.errorHelp(c.error, { usage: currentUsage(), settings: state.settings }), error: true });
-  else showCard(c.text, { stopped: true });
-  return true;
-}
-
-// The card's buttons: Copy, Regenerate and Edit on a finished reply; Try again and Edit after a stop
-// (a failure's are in its own box).
-function fillCardActions({ follow = false, help = null, reply = null, stopped = false } = {}) {
+// The card's buttons (replycard.js buttons, from turnstate's actions): Copy, Regenerate and Edit on a
+// finished reply; Try again and Edit after a stop (a failure's are in its own box).
+const CARD_BUTTONS = {
+  copy: ['Copy', 'Copy this reply'],
+  regenerate: ['↻ Regenerate', 'Write a new reply; this one is replaced'],
+  try: ['↻ Try again', 'Send your message again'],
+  edit: ['✎ Edit', 'Change your message and send it again (↑)'],
+};
+function fillCardActions() {
   const box = $('#replyCardActions');
-  box.replaceChildren();
-  if (follow || help) return;
-  const a = chat.actions(); // drawn after turnstate ended the reply, so a finished one offers its buttons
-  const button = (label, title, onclick) => el('button', { class: 'chip-btn', type: 'button', title, onclick }, label);
-  const edit = () => a.edit && box.append(button('✎ Edit', 'Change your message and send it again (↑)', () => startEdit(a.edit)));
-  if (reply) {
-    box.append(button('Copy', 'Copy this reply', () => (navigator.clipboard.writeText(chatcore.copyText(reply)), toast('Copied'))));
-    if (a.reply === reply.id) box.append(button('↻ Regenerate', 'Write a new reply; this one is replaced', () => runAgain('again', a.again)));
-    if (a.reply === reply.id) edit();
-  } else if (stopped && a.again) {
-    box.append(button('↻ Try again', 'Send your message again', () => runAgain('again', a.again)));
-    edit();
-  }
+  const reply = cardState.card?.reply;
+  const buttons = cardState.buttons(chat.actions()); // drawn after turnstate ended the reply, so a finished one offers its buttons
+  box.replaceChildren(...buttons.map((b) => {
+    const [label, title] = CARD_BUTTONS[b.label || b.action];
+    const onclick = b.action === 'copy' ? () => (navigator.clipboard.writeText(chatcore.copyText(reply)), toast('Copied')) : b.action === 'edit' ? () => startEdit(b.id) : () => runAgain('again', b.id);
+    return el('button', { class: 'chip-btn', type: 'button', title, onclick }, label);
+  }));
 }
 
 /** Code blocks in a finished reply get their own Copy button (never while it streams, never in the error details). */
