@@ -549,23 +549,45 @@ let saving = Promise.resolve();
 // for a change computed from them (a persona switch): computed before, two switches at once ended in
 // any order, and a switch could put back an edit saved in between. It returns the patch, or null for
 // nothing to save (the settings are returned unchanged).
-// opts.replace: [section, key] pairs the patch sets whole (a persona switch, personacore.FIELDS): the
-// patch's value over the defaults, nothing kept of what was there (merged, a key the new persona lacks
-// kept the last one's: its background colour, face shape, or a summary marked as the user's own).
+//
+// The persona rule lives here, so callers need no persona logic beyond naming the persona:
+// - opts.persona: the persona id the change was computed for (captured before any await: an approval, a
+//   model call). A change that sets a persona field (personacore.FIELDS) is saved only while that persona
+//   is still active, decided inside the queue; otherwise nothing is saved, INFO `settings change dropped`
+//   is logged and the save rejects with code PERSONA_CHANGED (`err.settings`: the settings as they are).
+//   A change to no persona field is saved whoever is active.
+// - A switch (a patch that makes another persona active) sets each persona field it carries whole: the
+//   value over the defaults, nothing kept of what was there (merged, a key the new persona lacks kept the
+//   last one's: its background colour, face shape, or a summary marked as the user's own).
+// - Whatever changed in the live persona is copied into its saved entry (personacore.sync).
+const PERSONA_CHANGED = 'PERSONA_CHANGED';
+
 function setSettings(patch, opts) {
   const run = saving.then(() => applySettings(patch, opts));
   saving = run.catch(() => {});
   return run;
 }
 
-async function applySettings(patchOrFn, { replace = [] } = {}) {
+function personaChanged(current, patch) {
+  const fields = personas.FIELDS.filter(([section, key]) => isPlainObject(patch[section]) && Object.hasOwn(patch[section], key)).map(([section, key]) => `${section}.${key}`);
+  log.info('settings change dropped', { reason: 'the persona changed meanwhile', fields });
+  const now = current.agent?.name ? ` (${String(current.agent.name).slice(0, 40)} is active now)` : '';
+  const err = new Error(`Not saved: the persona changed meanwhile${now}, so nothing was changed.`);
+  err.code = PERSONA_CHANGED;
+  err.settings = current;
+  return err;
+}
+
+async function applySettings(patchOrFn, { persona } = {}) {
   const current = await getSettings();
   const patch = typeof patchOrFn === 'function' ? patchOrFn(current) : patchOrFn;
   if (patch == null) return current;
   if (!isPlainObject(patch)) throw new Error('A settings change must be an object.');
   const bad = Object.keys(patch).filter((k) => isSection(k) && patch[k] !== undefined && !isPlainObject(patch[k]));
   if (bad.length) throw new Error(`Settings section${bad.length > 1 ? 's' : ''} ${bad.join(', ')} must be an object.`);
+  if (persona && current.personas?.active !== persona && personas.touches(patch)) throw personaChanged(current, patch);
   const next = deepMerge(current, patch);
+  const replace = personas.isSwitch(current, patch) ? personas.REPLACE : [];
   for (const [section, key] of replace) {
     if (!isPlainObject(patch?.[section]) || !Object.hasOwn(patch[section], key)) continue;
     const v = patch[section][key];
@@ -871,6 +893,7 @@ module.exports = {
   dataDir,
   getSettings,
   setSettings,
+  PERSONA_CHANGED,
   onChange,
   resetSettings,
   getSecretBlob,

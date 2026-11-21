@@ -12,17 +12,28 @@ const { arr, obj, str, bool, requireApproval } = require('./common');
 const CLONE_SCRIPT =
   'The quick brown fox jumps over the lazy dog, and that is just the start. On a bright Tuesday morning I check my calendar, make a cup of coffee, and plan the week ahead. Some days are busy, others are quiet, but every one of them is mine.';
 
+// The persona active when a voice tool starts: use_now gives the new voice to it, never to one switched to
+// while the voice was made or the approval waited.
+const activePersona = async () => (await store.getSettings()).personas?.active;
+
 // After a voice is created: let the user hear it, and switch to it when asked (with approval).
-async function finishNewVoice(v, a, ctx, extra = {}) {
+async function finishNewVoice(v, a, ctx, extra = {}, forPersona) {
   let using = false;
+  let notUsed = '';
   if (a.use_now) {
     await requireApproval(ctx, 'settings', `Speak with the new voice "${v.name}"`, `voice.voice → ${v.id}`);
-    await store.setSettings({ voice: { voice: v.id } });
-    ctx.emit({ type: 'settings_changed' });
-    using = true;
+    try {
+      await store.setSettings({ voice: { voice: v.id } }, { persona: forPersona });
+      ctx.emit({ type: 'settings_changed' });
+      using = true;
+    } catch (err) {
+      // The voice exists either way; only the switch to it is dropped.
+      if (err?.code !== store.PERSONA_CHANGED) throw err;
+      notUsed = ` Not switched to it: ${err.message.replace(/^Not saved: /, '')} The voice is in VoiceStudio; set it on the active persona only if the user asks.`;
+    }
   }
   ctx.emit({ type: 'voice_preview', voice: v.id, text: a.sample_text || `Hi, this is ${v.name}. How do I sound?` });
-  return { created: true, voice_id: v.id, name: v.name, using, ...extra, note: 'A sample is playing for the user. The first sample can take a while if VoiceStudio still has to load its model.' };
+  return { created: true, voice_id: v.id, name: v.name, using, ...extra, note: `A sample is playing for the user. The first sample can take a while if VoiceStudio still has to load its model.${notUsed}` };
 }
 
 // After calibration: is the speech model good enough for this voice?
@@ -61,9 +72,10 @@ module.exports = [
       ['name', 'description'],
     ),
     run: async (a, ctx) => {
+      const forPersona = await activePersona();
       await requireApproval(ctx, 'voice', `Create the voice "${a.name}" in VoiceStudio`, `Description: ${a.description}`);
       const v = await voicestudio.design({ name: a.name, description: a.description, sampleText: a.sample_text });
-      return finishNewVoice(v, a, ctx, { understood: v.understood, ignored: v.ignored });
+      return finishNewVoice(v, a, ctx, { understood: v.understood, ignored: v.ignored }, forPersona);
     },
   },
   {
@@ -83,6 +95,7 @@ module.exports = [
       ['name', 'source'],
     ),
     run: async (a, ctx) => {
+      const forPersona = await activePersona();
       let audio, filename, transcript;
       if (a.source === 'record') {
         const script = CLONE_SCRIPT;
@@ -105,7 +118,7 @@ module.exports = [
       }
       const v = await voicestudio.clone({ name: a.name, audio, filename, transcript });
       log.info('voice cloned', { id: v.id, source: a.source, consent: a.consent || 'recorded by the user' });
-      return finishNewVoice(v, a, ctx);
+      return finishNewVoice(v, a, ctx, {}, forPersona);
     },
   },
   {

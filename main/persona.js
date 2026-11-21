@@ -167,7 +167,7 @@ async function activate(query) {
     if (!target) throw new Error(`No persona called "${query}". Personas: ${s.personas.list.map((x) => x.name).join(', ')}`);
     if (target.id === s.personas.active) return null;
     return { ...core.patchFor(target, store.DEFAULTS), personas: { active: target.id } };
-  }, { replace: core.REPLACE });
+  });
 }
 
 /**
@@ -185,27 +185,32 @@ async function create(opts = {}) {
     const { personas, persona } = core.create(s, { ...opts, template }, { newId: store.newId, defaults: store.DEFAULTS });
     if (opts.activate === false) return { personas };
     return { ...core.patchFor(persona, store.DEFAULTS), personas: { ...personas, active: persona.id } };
-  }, { replace: opts.activate === false ? [] : core.REPLACE });
+  });
 }
 
 async function remove(id) {
   return store.setSettings((s) => {
     const { personas, next } = core.remove(s.personas, id);
     return next ? { ...core.patchFor(next, store.DEFAULTS), personas } : { personas };
-  }, { replace: core.REPLACE }); // only fields the patch has are replaced: none when the live one stays
+  });
 }
+
+/** Whether a save was refused because the persona it was made for is no longer active (store.setSettings opts.persona). */
+const dropped = (err) => err?.code === store.PERSONA_CHANGED;
 
 /**
  * A change made for persona `id` (typed into Settings cards drawn for it): a persona field is saved only
- * while that persona is still the active one, decided inside the save queue, so a switch queued just
- * before it (on the phone, the watch, by a routine) never takes the value. { settings, saved }.
+ * while that persona is still the active one, decided inside the save queue (store.setSettings opts.persona),
+ * so a switch queued just before it (on the phone, the watch, by a routine) never takes the value.
+ * { settings, saved }.
  */
 async function saveFor(id, patch) {
-  if (!core.touches(patch)) return { settings: await store.setSettings(patch), saved: true };
-  let saved = false;
-  const settings = await store.setSettings((s) => (s.personas?.active === id ? ((saved = true), patch) : null));
-  if (!saved) log.info('settings change dropped', { reason: 'the persona changed meanwhile' });
-  return { settings, saved };
+  try {
+    return { settings: await store.setSettings(patch, { persona: id }), saved: true };
+  } catch (err) {
+    if (!dropped(err)) throw err;
+    return { settings: err.settings, saved: false };
+  }
 }
 
 // ------------------------------------------------------------ the summary for small models
@@ -277,9 +282,12 @@ async function writeSummary({ force = false }) {
   // Checked inside the save queue: a switch or an edit queued while the model wrote lands first and is seen here.
   let written = false;
   await store.setSettings((now) => {
-    if (now.personas?.active !== id || core.fingerprint(now.agent.personality) !== fp || (!force && now.agent.personaSummary?.by === 'user')) return null;
+    if (core.fingerprint(now.agent.personality) !== fp || (!force && now.agent.personaSummary?.by === 'user')) return null;
     written = true;
     return { agent: { personaSummary: { text, for: fp, by: 'model', model: writer.llm.model, at: Date.now() } } };
+  }, { persona: id }).catch((err) => {
+    if (!dropped(err)) throw err;
+    written = false;
   });
   if (!written) {
     log.info('persona summary dropped', { reason: 'the persona changed meanwhile' });
@@ -295,14 +303,14 @@ async function writeSummary({ force = false }) {
  */
 async function setSummary(text, forPersona = '') {
   const t = String(text || '').trim().slice(0, core.SUMMARY_MAX * 2);
-  let dropped = false;
-  await store.setSettings((s) => {
-    if (forPersona && s.personas?.active !== forPersona) return (dropped = true), null;
-    return { agent: { personaSummary: t ? { text: t, for: core.fingerprint(s.agent.personality), by: 'user', at: Date.now() } : null } };
-  });
-  if (dropped) return { ...(await summaryStatus()), dropped: true };
+  try {
+    await store.setSettings((s) => ({ agent: { personaSummary: t ? { text: t, for: core.fingerprint(s.agent.personality), by: 'user', at: Date.now() } : null } }), { persona: forPersona });
+  } catch (err) {
+    if (!dropped(err)) throw err;
+    return { ...(await summaryStatus()), dropped: true };
+  }
   if (!t) ensureSummary().catch((error) => log.warn('persona summary failed', { error }));
   return summaryStatus();
 }
 
-module.exports = { generate, generateScene, extractJson, jsonWithRetry, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, saveFor, templates: templates.list, summaryWriter, summaryStatus, ensureSummary, setSummary };
+module.exports = { generate, generateScene, extractJson, jsonWithRetry, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, saveFor, dropped, templates: templates.list, summaryWriter, summaryStatus, ensureSummary, setSummary };

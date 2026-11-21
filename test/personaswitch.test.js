@@ -10,9 +10,10 @@ const { ROOT, stub, load, tmpDir } = require('./helpers');
 
 const dir = tmpDir('nexus-personaswitch-');
 const approvals = [];
+const llmStub = { complete: async () => '{}' }; // the race tests at the end replace complete
 stub({
   electron: { app: { getPath: () => dir, getVersion: () => '0.0.0' }, safeStorage: { isEncryptionAvailable: () => false } },
-  './llm': { complete: async () => '{}' },
+  './llm': llmStub,
 });
 const core = load('main/personacore.js');
 const store = load('main/store.js');
@@ -277,4 +278,160 @@ test('a persona with scene: null (new, template or removed scene) never inherits
   const back = await persona.activate('Ringmaster');
   assert.strictEqual(back.appearance.scene, null, 'switching back to Ringmaster keeps scene null');
   await persona.remove(fresh.personas.active);
+});
+
+// ------------------------------------------------ writes bound to their persona (store.setSettings opts.persona)
+// The rule lives in the store: a change computed for one persona (before an approval, a model call, the
+// voice being made) is saved only while that persona is active. Before, theme_update, the new-voice switch
+// and setup_generate_look read the settings, awaited, then wrote a plain patch: a switch from the phone,
+// the watch or a routine meanwhile put the old persona's look or voice into the new one.
+
+test('isSwitch: only a patch that makes another persona active', () => {
+  const s = { personas: { active: 'p-1' } };
+  assert.strictEqual(core.isSwitch(s, { personas: { active: 'p-2' } }), true);
+  assert.strictEqual(core.isSwitch(s, { personas: { active: 'p-1' } }), false, 'the same one');
+  assert.strictEqual(core.isSwitch(s, { personas: { list: [] } }), false, 'the list only');
+  assert.strictEqual(core.isSwitch(s, { agent: { name: 'x' } }), false);
+  assert.strictEqual(core.isSwitch(s, null), false);
+});
+
+test('a write bound to a persona that is no longer active is refused, says so, and lands nowhere', async () => {
+  const [from, to] = [ids[0], ids[3]];
+  await persona.activate(from);
+  const switching = persona.activate(to); // queued first: lands first
+  const write = store.setSettings({ voice: { localVoice: 'bound-voice' } }, { persona: from });
+  await switching;
+  await assert.rejects(write, (err) => err.code === store.PERSONA_CHANGED && err.settings.personas.active === to && /persona changed meanwhile/.test(err.message) && err.message.includes(SPECS[3].name));
+  const s = await store.getSettings();
+  assert.deepStrictEqual(s.personas.list.filter((x) => x.localVoice === 'bound-voice'), []);
+  for (const id of ids) assert.deepStrictEqual(canon(entry(s, id)), expected[id]);
+  // A change to no persona field is saved whoever is active; a function patch is checked the same way.
+  await store.setSettings({ ui: { zoom: 1.2 } }, { persona: from });
+  assert.strictEqual((await store.getSettings()).ui.zoom, 1.2);
+  await assert.rejects(store.setSettings(() => ({ appearance: { greeting: 'late' } }), { persona: from }), { code: store.PERSONA_CHANGED });
+  await store.setSettings({ ui: { zoom: store.DEFAULTS.ui.zoom } });
+  // For the live persona it is saved.
+  await store.setSettings({ voice: { localVoice: 'bound-voice' } }, { persona: to });
+  assert.strictEqual(entry(await store.getSettings(), to).localVoice, 'bound-voice');
+  await store.setSettings({ voice: { localVoice: expected[to].localVoice } });
+});
+
+// The agent's tools, with a switch made while each one waits (an approval, the model, the voice being made).
+let during = null; // run once at the next await point a test arms
+const waitPoint = async () => {
+  const f = during;
+  during = null;
+  if (f) await f();
+};
+let toolsMod = null;
+function agentTools() {
+  if (toolsMod) return toolsMod;
+  const common = { ...require(path.join(ROOT, 'main/tools/common.js')), requireApproval: waitPoint };
+  stub({
+    './common': common,
+    './tools/common': common,
+    '../voicestudio': { design: async ({ name }) => ({ id: name, name, understood: [], ignored: [] }), list: async () => [], AUDIO_TYPES: {} },
+    './voice': { voices: async () => [] },
+  });
+  load('main/tools/appearance.js');
+  load('main/tools/voice.js');
+  toolsMod = load('main/tools.js');
+  return toolsMod;
+}
+const ctx = () => ({ turn: { tainted: true }, emit: () => {}, logTags: {} }); // tainted: theme_update asks first
+const lookFor = (marker) => JSON.stringify({ name: marker, colors: { accent: '#123456', bg: '#010203' }, personaNotes: 'notes', greeting: marker, voice: null });
+
+// Each path writes `marker` into persona fields, waits at waitPoint on the way, and finds the marker in an entry.
+const PATHS = [
+  { name: 'theme_update', run: (m) => agentTools().execute('theme_update', { name: m, colors: { accent: '#123456' } }, ctx()), has: (x, m) => x.theme?.name === m },
+  { name: 'voice_design (use_now)', run: (m) => agentTools().execute('voice_design', { name: m, description: 'warm', use_now: true }, ctx()), has: (x, m) => x.voice === m, keepsGoing: true },
+  { name: 'settings_update voice.voice', run: (m) => agentTools().execute('settings_update', { section: 'voice', key: 'voice', value: m }, ctx()), has: (x, m) => x.voice === m },
+  {
+    name: 'setup_generate_look',
+    run: (m) => {
+      llmStub.complete = async () => (await waitPoint(), lookFor(m));
+      return agentTools().execute('setup_generate_look', {}, ctx());
+    },
+    has: (x, m) => x.theme?.name === m || x.greeting === m,
+  },
+  { name: 'Settings (persona.saveFor)', queued: true, run: async (m) => ({ ok: (await persona.saveFor(currentFrom, { agent: { personality: m } })).saved }), has: (x, m) => x.personality === m },
+  { name: 'Persona studio summary (setSummary)', queued: true, run: async (m) => ({ ok: !(await persona.setSummary(`${m} summary`, currentFrom)).dropped }), has: (x, m) => x.personaSummary?.text === `${m} summary` },
+];
+let currentFrom = null;
+
+async function raceOnce(p, from, to, marker, race) {
+  await persona.activate(from);
+  currentFrom = from;
+  let switching = null;
+  if (race && p.queued) switching = persona.activate(to); // no await inside: the switch is queued first
+  else if (race) during = () => persona.activate(to);
+  const r = await p.run(marker);
+  await switching;
+  during = null;
+  return r;
+}
+
+for (const p of PATHS.filter((x) => !x.queued)) {
+  test(`regression: ${p.name} made for one persona, a switch while it waits: nothing lands in either`, async () => {
+    const [from, to] = [ids[1], ids[2]];
+    const marker = `race-${p.name}`;
+    const r = await raceOnce(p, from, to, marker, true);
+    if (p.keepsGoing) {
+      assert.strictEqual(r.ok, true, 'the voice was made');
+      assert.strictEqual(r.result.using, false);
+      assert.match(r.result.note, /Not switched to it: the persona changed meanwhile/);
+    } else {
+      assert.strictEqual(r.ok, false);
+      assert.match(r.result.error, /^Not saved: the persona changed meanwhile/, 'the model reads why nothing was saved');
+    }
+    const s = await store.getSettings();
+    assert.strictEqual(s.personas.active, to);
+    assert.deepStrictEqual(s.personas.list.filter((x) => p.has(x, marker)).map((x) => x.id), []);
+    for (const id of ids) assert.deepStrictEqual(canon(entry(s, id)), expected[id], id);
+    // Without the switch it is saved, in that persona only.
+    const ok = await raceOnce(p, from, to, `${marker}-ok`, false);
+    assert.strictEqual(ok.ok, true, JSON.stringify(ok.result));
+    const after = await store.getSettings();
+    assert.deepStrictEqual(after.personas.list.filter((x) => p.has(x, `${marker}-ok`)).map((x) => x.id), [from]);
+    expected[from] = canon(entry(after, from));
+  });
+}
+
+test('theme_update computes the theme in the save queue: an edit saved while it waited stays', async () => {
+  await persona.activate(ids[0]);
+  during = () => store.setSettings({ appearance: { theme: { ...expected[ids[0]].theme, radius: 3 } } });
+  const r = await agentTools().execute('theme_update', { colors: { accent: '#abcdef' } }, ctx());
+  assert.strictEqual(r.ok, true);
+  const t = (await store.getSettings()).appearance.theme;
+  assert.strictEqual(t.radius, 3, 'the edit from meanwhile');
+  assert.strictEqual(t.colors.accent, '#abcdef', 'and the tool’s change');
+  expected[ids[0]] = canon(entry(await store.getSettings(), ids[0]));
+  // A bad value is said before anything is asked or saved.
+  let asked = false;
+  during = () => (asked = true);
+  const bad = await agentTools().execute('theme_update', { colors: { accent: 'blue' } }, ctx());
+  assert.strictEqual(bad.ok, false);
+  assert.match(bad.result.error, /hex color/);
+  assert.strictEqual(asked, true, 'the approval comes first, as before'); // unchanged order: approval, then the check
+  during = null;
+});
+
+test('a long random walk of persona writes from every path, switches landing mid-write: each lands only in its own persona', async () => {
+  const rand = rng(20261121);
+  for (let step = 0; step < 48; step++) {
+    const p = PATHS[Math.floor(rand() * PATHS.length)];
+    const i = Math.floor(rand() * ids.length);
+    const from = ids[i];
+    const to = ids[(i + 1 + Math.floor(rand() * (ids.length - 1))) % ids.length];
+    const race = rand() < 0.5;
+    const marker = `walk-${step}`;
+    await raceOnce(p, from, to, marker, race);
+    const s = await store.getSettings();
+    const holders = s.personas.list.filter((x) => p.has(x, marker)).map((x) => x.id);
+    assert.deepStrictEqual(holders, race ? [] : [from], `step ${step} (${p.name}, ${race ? 'switched meanwhile' : 'no switch'})`);
+    assert.strictEqual(s.personas.active, race ? to : from);
+    if (!race) expected[from] = canon(entry(s, from));
+    for (const id of ids) assert.deepStrictEqual(canon(entry(s, id)), expected[id], `step ${step}: ${id}`);
+    assert.deepStrictEqual(pick(live(s)), canon(entry(s, s.personas.active)), `step ${step}: live = the active persona`);
+  }
 });
