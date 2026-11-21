@@ -109,7 +109,7 @@ const STREAMED = new Set(['chat:event', 'approval:request', 'approval:cancel', '
 // Settings sections that change what /api/info says (the persona's name, colors, face, effects, voice…).
 const INFO_SECTIONS = ['agent', 'appearance', 'ui', 'voice', 'calendar', 'remote', 'innerWorld', 'personas'];
 
-let hooks = null; // { startTurn, abortTurn, notify } from main.js
+let hooks = null; // { startTurn (turns.start, main/turns.js), abortTurn, notify } from main.js
 let server = null;
 let current = { enabled: false, lan: false, port: 0 };
 let lastError = '';
