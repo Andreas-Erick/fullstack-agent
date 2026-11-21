@@ -153,7 +153,7 @@ test('the turn, reply and heard lines carry lengths, not words', () => {
   const lineOf = (rel, start) => fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n').find((l) => l.includes(start));
   for (const [rel, start] of [
     ['main/llm.js', "log.info('turn', {"],
-    ['main/main.js', "log.info('reply', {"],
+    ['main/turns.js', "log.info('reply', {"],
     ['renderer/js/voice.js', "logEvent('info', 'heard', {"],
   ]) {
     const line = lineOf(rel, start);

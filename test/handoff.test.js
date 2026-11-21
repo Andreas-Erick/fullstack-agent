@@ -236,7 +236,7 @@ test('closing hides the window before the note, and asking for it meanwhile brin
   const close = from('async function closeWithHandoff');
   assert.ok(close.indexOf('hideForClose()') > 0 && close.indexOf('hideForClose()') < close.indexOf('handoff.write('), 'hidden first');
   assert.ok(close.indexOf('if (reopenRequested) return;') > 0 && close.indexOf('if (reopenRequested) return;') < close.indexOf('hideForClose()'), 'asked for again during the settings read: never hidden');
-  assert.match(close, /handoff\.write\(\{ replying: new Set\(\[\.\.\.activeRequests\.values\(\)\]\.map\(\(c\) => c\.conversationId\)\) \}\)/, 'the running conversations, not a count');
+  assert.match(close, /handoff\.write\(\{ replying: turns\.replying\(\) \}\)/, 'the running conversations (a Set, test/turns.test.js), not a count');
   assert.match(close, /if \(reopenRequested\) reopenAfterClose\(\)/);
   assert.match(from('function hideForClose'), /setAudioMuted\(true\)[\s\S]*\.hide\(\)/);
   const show = from('function showMain');
