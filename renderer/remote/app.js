@@ -1,13 +1,14 @@
 // Phone client for the companion server (main/companion.js, docs/ROADMAP-mobile.md step 2).
 // Talks only to the server it was loaded from. The device token lives in this browser's storage.
 import { initScreens, render as renderScreen, busy as screenBusy, TITLES, screenBack, hasScreenBack } from './screens.js';
-import { streamStale, refreshPlan, reconcile, convCheck, batcher, backPlan, unsentPlan, priorUsersFor, DEADLINES, transcribeDeadline, retryAction, plainStatus, networkFailure, micError, toastMs, keyboardState, releasePlan } from './sync.js';
+import { streamStale, refreshPlan, convCheck, batcher, backPlan, unsentPlan, priorUsersFor, DEADLINES, transcribeDeadline, retryAction, plainStatus, networkFailure, micError, toastMs, keyboardState, releasePlan } from './sync.js';
 // Served by the desktop from renderer/js/ (companion.js STATIC), so loaded by URL, not by file.
+// The conversation's turns from the events, the face's state (turnstate.js), and what a message shows (the
+// tool labels, the stamp, a failed reply in plain words: chatcore.js): the desktop's own modules.
+import { createChat, faceState } from './js/turnstate.js';
+import * as chatcore from './js/chatcore.js';
 let mathtext = null;
 import('./js/mathtext.js').then((m) => (mathtext = m)).catch(() => {});
-// A failed reply in plain words, as on the desktop (chatcore.errorHelp); without it the raw message shows.
-let chatcore = null;
-import('./js/chatcore.js').then((m) => (chatcore = m)).catch(() => {});
 
 const $ = (s) => document.querySelector(s);
 const TOKEN_KEY = 'nexus.token';
@@ -43,15 +44,25 @@ const store = {
   },
 };
 
+// The open conversation and its replies: this phone's own (chat.own, requestId null while its send is in
+// flight, events held meanwhile) and those started elsewhere in it (chat.others). A turn's nodes are its view.
+const chat = createChat();
+chat.setConv(store.get(CONV_KEY));
+const replying = () => Boolean(chat.own || chat.others.length);
+
 const state = {
   token: store.get(TOKEN_KEY),
-  convId: store.get(CONV_KEY),
+  get convId() {
+    return chat.convId;
+  },
+  set convId(id) {
+    chat.setConv(id);
+  },
   shownConv: undefined, // the conversation whose messages are drawn (null: a new one; undefined: none yet)
-  active: null, // { requestId, bubble, tools, text }
-  mine: new Set(), // requestIds sent from this device
-  turns: new Map(), // requestId -> turn view, for turns started elsewhere in this conversation
-  held: [], // events that arrived while our own send was in flight
-  face: 'idle',
+  face: 'idle', // what the face shows now (refreshFace): faceState, 'speaking-text' for a reply written without a voice
+  recording: false,
+  transcribing: false,
+  playing: false,
   name: 'Siren',
   view: 'chat', // chat | sched | a screen from screens.js (today, learn, memory, notes, world, arch, skills, more)
   info: null, // the computer's /api/info
@@ -574,103 +585,96 @@ function renderBanner() {
 }
 
 // ------------------------------------------------------------------ chat
+// An event of the device stream: turnstate.js decides whose turn it is (this phone's, one started on the
+// computer or another device in the conversation shown, or none) and keeps its text, tools and outcome.
 function onChat(ev) {
-  // While a send is in flight its requestId isn't known yet; hold events until it is (see send()).
-  if (state.active && !state.active.requestId && !state.turns.has(ev.requestId)) return state.held.push(ev);
-  const mine = state.mine.has(ev.requestId);
-  if (!mine && ev.conversationId !== state.convId) return;
-  if (ev.type === 'start') {
-    if (ev.replaces && !mine) {
-      // Sent again on the computer (Try again, Regenerate, Edit): the old exchange went; show the conversation as it is now.
-      if (!state.active && !state.loadingConv) loadConversation(state.convId);
+  const before = chat.convId;
+  const step = chat.apply(ev);
+  if (!step || step.type === 'held') return; // held: this phone's send is in flight (see send())
+  const turn = step.turn;
+  if (step.joined) turn.view = turnView(); // a reply here whose start went by: followed from now on
+  switch (step.type) {
+    case 'unknown':
+      // A reply here that the phone wasn't following (its start went by while the conversation loaded):
+      // load it again rather than miss the reply. Never under a reply of its own (that view would go).
+      if (step.ev.type === 'done' && !state.loadingConv && !chat.own) loadConversation(state.convId);
+      return;
+    case 'start':
+      if (!step.mine) {
+        if (step.drop) {
+          // Sent again on the computer (Try again, Regenerate, Edit): the old exchange went; show the conversation as it is now.
+          chat.end(turn);
+          if (!chat.own && !state.loadingConv) loadConversation(state.convId);
+          return;
+        }
+        // A turn from the desktop or another device in the conversation shown here.
+        addMessage(turn.userMessage);
+        turn.view = turnView();
+        refreshFace();
+        return;
+      }
+      if (state.shownConv === null && !before) state.shownConv = chat.convId; // a new conversation got its id
+      store.set(CONV_KEY, chat.convId);
+      setConvTitle(step.title || 'Conversation');
+      if (turn.view.userNode && turn.userMessage?.id) turn.view.userNode.dataset.id = turn.userMessage.id;
+      // The same message again after a failure: the computer replaced the unanswered copy.
+      if (step.drop) dropReplaced(step.drop, turn);
+      return;
+    case 'text':
+    case 'retract':
+      refreshFace();
+      renderTurn(turn);
+      return;
+    case 'tool_start':
+      if (step.work?.place) state.worldWork = { place: String(step.work.place), label: String(step.work.label || ''), done: 0 }; // the world screen sends the active persona there
+      turn.view.tools.append(el('span', { class: 'chip', 'data-id': step.tool.id }, chatcore.toolLabel(step.tool.name)));
+      refreshFace();
+      scrollDown();
+      return;
+    case 'tool_end': {
+      const chip = turn.view.tools.querySelector(`[data-id="${CSS.escape(String(step.tool.id))}"]`);
+      if (chip) chip.className = `chip ${step.tool.ok === false ? 'bad' : 'good'}`;
+      refreshFace();
       return;
     }
-    if (mine) {
-      if (state.shownConv === null && !state.convId) state.shownConv = ev.conversationId; // a new conversation got its id
-      state.convId = ev.conversationId;
-      store.set(CONV_KEY, ev.conversationId);
-      setConvTitle(ev.title || 'Conversation');
-      const turn = state.active?.requestId === ev.requestId ? state.active : null;
-      if (turn?.userNode && ev.userMessage?.id) turn.userNode.dataset.id = ev.userMessage.id;
-      // The same message again after a failure: the computer replaced the unanswered copy.
-      if (ev.replaces) dropReplaced(String(ev.replaces), turn);
-    } else {
-      // A turn from the desktop or another device in the conversation shown here.
-      addMessage(ev.userMessage);
-      state.turns.set(ev.requestId, newTurnView(ev.requestId));
-      if (state.face === 'idle') setFace('thinking');
-    }
-    return;
-  }
-  const turn = state.active?.requestId === ev.requestId ? state.active : state.turns.get(ev.requestId);
-  if (!turn) {
-    // A reply here that the phone wasn't following (its start went by while the conversation loaded):
-    // load it again rather than miss the reply. Never under a reply of its own (that view would go).
-    if (ev.type === 'done' && !mine && !state.loadingConv && !state.active) loadConversation(state.convId);
-    return;
-  }
-  switch (ev.type) {
-    case 'text':
-      turn.text += ev.delta;
-      if (state.face !== 'speaking') setFace('speaking-text');
-      renderTurn(turn);
-      break;
-    case 'retract':
-      turn.text = turn.text.slice(0, Math.max(0, turn.text.length - ev.chars));
-      renderTurn(turn);
-      break;
-    case 'tool_start':
-      if (ev.work?.place) state.worldWork = { place: String(ev.work.place), label: String(ev.work.label || ''), done: 0 }; // the world screen sends the active persona there
-      turn.tools.append(el('span', { class: 'chip', 'data-id': ev.id }, '⚙ ', label(ev.name)));
-      turn.running++;
-      setFace('working');
-      scrollDown();
-      break;
-    case 'tool_end': {
-      const chip = turn.tools.querySelector(`[data-id="${CSS.escape(String(ev.id))}"]`);
-      if (chip) chip.className = `chip ${ev.ok === false ? 'bad' : 'good'}`;
-      turn.running = Math.max(0, turn.running - 1);
-      if (!turn.running) setFace(turn.text ? 'speaking-text' : 'thinking');
-      break;
-    }
     case 'notice':
-      turn.wrap.insertBefore(el('div', { class: 'notice' }, `⚠ ${ev.message}`), turn.bubble);
-      break;
-    case 'done':
-      turn.bubble.classList.remove('streaming');
-      turn.bubble.innerHTML = markdown(ev.message?.content || '');
-      turn.bubble.dataset.stamp = stamp(ev.message);
-      turn.wrap.append(actions(ev.message?.content || ''));
+      turn.view.wrap.insertBefore(el('div', { class: 'notice' }, step.text), turn.view.bubble);
+      return;
+    case 'done': {
+      const m = step.message || {};
+      const v = turn.view;
+      v.bubble.classList.remove('streaming');
+      v.bubble.innerHTML = markdown(m.content || '');
+      v.bubble.dataset.stamp = chatcore.replyStamp(m, state.name);
+      v.wrap.append(actions(m.content || ''));
       state.happyUntil = Date.now() + 1800; // the face's short "done" glow, as on the desktop
       sched.cache.clear(); // the reply may have changed the schedule
       endTurn(turn);
-      if (turn.mine && state.speak) say(ev.message?.content || '');
-      break;
-    case 'error':
-    case 'aborted':
-      turn.bubble.classList.remove('streaming');
-      if (ev.type === 'error') {
-        turn.bubble.classList.add('error');
-        showFailure(turn, ev.message);
-      } else turn.bubble.innerHTML = markdown(turn.text || '*(stopped)*');
+      if (turn.mine && state.speak) say(m.content || '');
+      return;
+    }
+    case 'failed':
+    case 'stopped':
+      turn.view.bubble.classList.remove('streaming');
+      if (step.type === 'failed') {
+        turn.view.bubble.classList.add('error');
+        showFailure(turn, step.error);
+      } else turn.view.bubble.innerHTML = markdown(turn.text || '*(stopped)*');
       if (turn.mine) {
-        turn.wrap.append(retryRow(turn));
+        turn.view.wrap.append(retryRow(turn));
         state.lastFailed = turn;
       }
       endTurn(turn);
-      break;
+      return;
   }
 }
 
 // A failed reply: what was written, then the reason in plain words (the raw text under Details).
 function showFailure(turn, message) {
-  if (!chatcore) {
-    turn.bubble.innerHTML = markdown(`${turn.text ? `${turn.text}\n\n---\n` : ''}**Error:** ${message}`);
-    return;
-  }
   const help = chatcore.errorHelp(message);
-  turn.bubble.innerHTML = turn.text ? markdown(turn.text) : '';
-  turn.bubble.append(
+  const b = turn.view.bubble;
+  b.innerHTML = turn.text ? markdown(turn.text) : '';
+  b.append(
     el(
       'div',
       { class: 'reply-help' },
@@ -686,20 +690,20 @@ const retryRow = (turn) => el('div', { class: 'actions' }, el('button', { class:
 
 // The same text again: the computer replaces the unanswered message with it (main/redo.js supersedes).
 function phoneRetry(turn) {
-  if (state.active) return toast('Wait for the reply to finish first.');
-  turn.userNode?.remove();
-  turn.wrap?.remove();
+  if (chat.own) return toast('Wait for the reply to finish first.');
+  turn.view.userNode?.remove();
+  turn.view.wrap?.remove();
   if (state.lastFailed === turn) state.lastFailed = null;
-  send(turn.sentText || '');
+  send(turn.view.sentText || '');
 }
 
 // The unanswered message (and a stopped reply after it) that the new one replaced, and this phone's own failed try.
 function dropReplaced(id, keep) {
   const node = $('#messages').querySelector(`.msg[data-id="${CSS.escape(id)}"]`);
-  if (node && node !== keep?.userNode) {
+  if (node && node !== keep?.view.userNode) {
     let next = node.nextElementSibling;
     node.remove();
-    while (next && next.matches('.msg.assistant') && next !== keep?.wrap) {
+    while (next && next.matches('.msg.assistant') && next !== keep?.view.wrap) {
       const after = next.nextElementSibling;
       next.remove();
       next = after;
@@ -707,39 +711,22 @@ function dropReplaced(id, keep) {
   }
   const old = state.lastFailed;
   if (old && old !== keep) {
-    old.userNode?.remove();
-    old.wrap?.remove();
+    old.view.userNode?.remove();
+    old.view.wrap?.remove();
     state.lastFailed = null;
   }
   updateEmpty();
 }
 
-// What a tool did, in words (the desktop's labels, shortened); anything else by its name.
-const TOOL_WORDS = {
-  calendar_get_events: 'Checked schedule', calendar_list_entries: 'Looked up schedule', calendar_add_event: 'Added to schedule', calendar_update_event: 'Changed schedule', calendar_delete_event: 'Removed from schedule',
-  memory_save: 'Saved a memory', memory_update: 'Updated a memory', memory_search: 'Searched memory', web_search: 'Searched the web', web_fetch: 'Read a web page',
-  vault_search: 'Searched notes', vault_read_note: 'Read a note', vault_write_note: 'Wrote a note', daily_note_log: 'Logged the day', priorities_update: 'Updated priorities', history_search: 'Searched history',
-};
-const label = (name) => {
-  const n = String(name || 'tool').replace(/^mcp__\w+__/, '');
-  return TOOL_WORDS[n] || n.replace(/_/g, ' ');
-};
-
-// The telemetry line the HUD shows on a reply: "NEXUS · 14:32:05 · OPUS 5.5".
-function stamp(m) {
-  const time = new Date(m?.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const model = String(m?.model || '').replace(/^claude-/, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-/g, ' ');
-  return [state.name, time, model].filter(Boolean).join(' · ');
-}
-
-function newTurnView(requestId, mine = false) {
-  const bubble = el('div', { class: 'bubble streaming', 'data-stamp': `${state.name} · live` });
+// A reply being written: its tool chips and its streaming bubble, at the end of the list.
+function turnView(mine = false) {
+  const bubble = el('div', { class: 'bubble streaming', 'data-stamp': chatcore.liveStamp(state.name) });
   const tools = el('div', { class: 'tools' });
   const wrap = el('div', { class: 'msg assistant' }, tools, bubble);
   $('#messages').append(wrap);
   updateEmpty();
   scrollDown(mine);
-  return { requestId, wrap, bubble, tools, text: '', running: 0, mine };
+  return { wrap, bubble, tools };
 }
 
 // Under a finished reply: copy it (as written, Markdown included).
@@ -765,25 +752,25 @@ async function copyText(text) {
 }
 
 function renderTurn(turn) {
-  if (turn.raf) return;
-  turn.raf = requestAnimationFrame(() => {
-    turn.raf = 0;
-    turn.bubble.innerHTML = markdown(turn.text);
+  const v = turn.view;
+  if (v.raf) return;
+  v.raf = requestAnimationFrame(() => {
+    v.raf = 0;
+    v.bubble.innerHTML = markdown(turn.text);
     scrollDown();
   });
 }
 
+// A turn is over (turnstate ended it on its event; a send that failed or a reconnect end it here).
 function endTurn(turn) {
-  state.mine.delete(turn.requestId);
-  state.turns.delete(turn.requestId);
-  if (turn === state.active) {
-    state.active = null;
+  chat.end(turn);
+  if (turn.mine && !chat.own) {
     document.body.classList.remove('busy');
     $('#sendBtn').classList.remove('hidden');
     $('#stopBtn').classList.add('hidden');
   }
   // The face follows the assistant, whoever started the reply: idle once nothing is running.
-  if (!state.active && !state.turns.size && state.face !== 'speaking') setFace('idle');
+  refreshFace();
   scrollDown();
 }
 
@@ -792,8 +779,8 @@ function addMessage(m) {
   const text = m.display ?? m.content;
   const wrap = el('div', { class: `msg ${m.role}`, 'data-id': m.id || '' });
   if (m.role === 'assistant') {
-    if (m.toolCalls?.length) wrap.append(el('div', { class: 'tools' }, m.toolCalls.map((t) => el('span', { class: 'chip good' }, '⚙ ', label(t.name)))));
-    const b = el('div', { class: 'bubble', 'data-stamp': stamp(m) });
+    if (m.toolCalls?.length) wrap.append(el('div', { class: 'tools' }, m.toolCalls.map((t) => el('span', { class: 'chip good' }, chatcore.toolLabel(t.name)))));
+    const b = el('div', { class: 'bubble', 'data-stamp': chatcore.replyStamp(m, state.name) });
     b.innerHTML = markdown(text);
     wrap.append(b, actions(text));
   } else {
@@ -833,29 +820,24 @@ $('#jumpBtn').addEventListener('click', () => {
 const updateEmpty = () => $('#empty').classList.toggle('hidden', $('#messages').childElementCount > 0);
 
 async function send(text) {
-  if (!text.trim() || state.active) return;
+  if (!text.trim() || chat.own) return;
   // The user's messages shown so far, without those that never reached the computer: after a reload only
   // a newer message with these words is this one (keepUnsent, sync.js unsentPlan). Not counted when the
   // conversation's messages aren't drawn (opened while out of reach): then it is always shown again.
   const priorUsers = priorUsersFor({ shownConv: state.shownConv, convId: state.convId, count: $('#messages').querySelectorAll('.msg.user:not([data-unsent])').length });
   const userNode = addMessage({ role: 'user', content: text });
-  const turn = newTurnView(null, true);
-  turn.userNode = userNode; // Try again takes both away and sends the same words
-  turn.sentText = text;
-  // Only the latest message is kept across a reload (keepUnsent): an older failure would land below newer messages.
-  turn.convId = state.convId || null;
-  turn.priorUsers = priorUsers;
+  // userNode: Try again takes both away and sends the same words. convId: only the latest message is kept
+  // across a reload (keepUnsent): an older failure would land below newer messages.
+  const turn = chat.begin({ view: { ...turnView(true), userNode, sentText: text, convId: state.convId || null, priorUsers } });
   state.lastTurn = turn;
-  state.active = turn;
   document.body.classList.add('busy');
-  state.held = [];
-  setFace('thinking');
+  refreshFace();
   $('#sendBtn').classList.add('hidden');
   $('#stopBtn').classList.remove('hidden');
+  let requestId = null;
   try {
     const r = await api('/api/chat', { method: 'POST', body: { text, conversationId: state.convId || undefined }, timeoutMs: DEADLINES.chat });
-    turn.requestId = r.requestId;
-    state.mine.add(r.requestId);
+    requestId = r.requestId;
     // Known now even if the stream's "start" never arrives (the link dropped): a reconnect loads this one.
     if (r.conversationId && !state.convId) {
       state.convId = r.conversationId;
@@ -863,21 +845,20 @@ async function send(text) {
       if (state.shownConv === null) state.shownConv = r.conversationId; // the new conversation on screen is this one
     }
   } catch (err) {
-    turn.requestId = 'failed';
     userNode.dataset.unsent = ''; // not counted by a later send's priorUsers
-    turn.bubble.classList.remove('streaming');
-    turn.bubble.classList.add('error');
-    turn.bubble.textContent = err instanceof AuthError ? 'Not sent: this device is no longer paired.' : err.message;
+    turn.view.bubble.classList.remove('streaming');
+    turn.view.bubble.classList.add('error');
+    turn.view.bubble.textContent = err instanceof AuthError ? 'Not sent: this device is no longer paired.' : err.message;
     // Out of reach, refused…: the same words again, once it answers (not for an unpaired device).
     if (!(err instanceof AuthError) && !document.body.classList.contains('view-only')) {
-      turn.wrap.append(retryRow(turn));
+      turn.view.wrap.append(retryRow(turn));
       state.lastFailed = turn;
     }
+    chat.end(turn, 'unsent');
     endTurn(turn);
   }
-  const held = state.held;
-  state.held = [];
-  for (const ev of held) onChat(ev);
+  // The events that came while the send was in flight, now that its requestId is known.
+  for (const ev of chat.sent(requestId)) onChat(ev);
 }
 
 $('#composer').addEventListener('submit', (e) => {
@@ -903,7 +884,7 @@ const autosize = () => {
 };
 $('#input').addEventListener('input', autosize);
 $('#stopBtn').addEventListener('click', () => {
-  const id = state.active?.requestId;
+  const id = chat.own?.requestId;
   if (id) api(`/api/chat/${encodeURIComponent(id)}/abort`, { method: 'POST', body: {} }).catch((err) => toast(err.message));
 });
 
@@ -913,13 +894,13 @@ async function loadConversation(id) {
   const seq = ++convSeq;
   $('#messages').innerHTML = '';
   state.shownConv = undefined; // drawn again below, once its messages are in
-  state.turns.clear();
+  chat.open({ id }); // the replies followed in the old list go with it; own stays
   scrollDown(true);
   $('#empty').classList.add('hidden'); // not while the conversation loads
   if (!id) {
     state.shownConv = null;
     setConvTitle('New conversation');
-    if (state.active) $('#messages').append(state.active.wrap); // being sent: its reply view stays
+    if (chat.own) $('#messages').append(chat.own.view.wrap); // being sent: its reply view stays
     keepUnsent(null, []);
     return updateEmpty();
   }
@@ -927,6 +908,8 @@ async function loadConversation(id) {
   try {
     const conv = await api(`/api/conversations/${encodeURIComponent(id)}`);
     if (seq !== convSeq) return;
+    $('#messages').innerHTML = ''; // a reply started meanwhile is followed again below (running)
+    chat.open({ id, messages: conv.messages });
     setConvTitle(conv.title || 'Conversation');
     for (const m of conv.messages) addMessage(m);
     state.shownConv = id;
@@ -941,7 +924,7 @@ async function loadConversation(id) {
     state.shownConv = null; // an empty new conversation
     store.set(CONV_KEY, null);
     setConvTitle('New conversation');
-    if (state.active) endTurn(state.active);
+    if (chat.own) endTurn(chat.own);
   } finally {
     if (seq === convSeq) state.loadingConv = false;
   }
@@ -951,20 +934,21 @@ async function loadConversation(id) {
 // The message that never reached the computer stays, with its Try again, in its own conversation.
 function keepUnsent(id, messages) {
   const t = state.lastFailed;
-  if (!t || t.requestId !== 'failed' || t !== state.lastTurn) return;
-  const plan = unsentPlan(t, id, messages);
+  if (!t || t.outcome !== 'unsent' || t !== state.lastTurn) return;
+  const plan = unsentPlan(t.view, id, messages);
   if (plan === 'drop') state.lastFailed = null;
-  else if (plan === 'show') $('#messages').append(t.userNode, t.wrap);
+  else if (plan === 'show') $('#messages').append(t.view.userNode, t.view.wrap);
 }
 
-// Replies still being written in the loaded conversation (the server's `running`): the phone's own
-// stays on screen if it is still running, and ends if it finished while the link was down (its reply is
-// among the loaded messages); others get a live view, so their text and end show up here.
+// Replies still being written in the loaded conversation (the server's `running`, turnstate reconcile): the
+// phone's own stays on screen if it is still running, and ends if it finished while the link was down (its
+// reply is among the loaded messages); others get a live view, so their text and end show up here.
 function followRunning(running) {
-  const r = reconcile(state.active, running);
-  if (r.keepActive) $('#messages').append(state.active.wrap);
-  else if (r.endActive) endTurn(state.active);
-  for (const id of r.follow) state.turns.set(id, newTurnView(id));
+  const r = chat.reconcile(running);
+  if (r.keepOwn) $('#messages').append(chat.own.view.wrap);
+  else if (r.ended) endTurn(r.ended);
+  for (const t of r.follow) t.view = turnView();
+  refreshFace();
 }
 
 // The conversation list changed on the computer (a new one, renamed, deleted): the drawer and the title
@@ -981,10 +965,10 @@ async function refreshConvs() {
   const id = state.convId;
   const c = convCheck(list, id);
   if (c.title && c.title !== state.convTitle) setConvTitle(c.title);
-  if (c.listed || state.active || state.loadingConv) return;
+  if (c.listed || chat.own || state.loadingConv) return;
   // Not listed: make sure before letting it go (only "not found" means it really is gone).
   const gone = await api(`/api/conversations/${encodeURIComponent(id)}`).then(() => false, (err) => !(err instanceof AuthError) && !(err instanceof NetError) && /not found/i.test(err.message));
-  if (!gone || state.convId !== id || state.active) return;
+  if (!gone || state.convId !== id || chat.own) return;
   state.convId = null;
   store.set(CONV_KEY, null);
   loadConversation(null);
@@ -992,7 +976,7 @@ async function refreshConvs() {
 }
 
 function openConversation(id) {
-  if (state.active) return toast('Wait for the reply to finish first.');
+  if (chat.own) return toast('Wait for the reply to finish first.');
   state.convId = id;
   store.set(CONV_KEY, id);
   closeDrawer();
@@ -1113,8 +1097,8 @@ async function answer(id, allow) {
 const audio = new Audio();
 const plainAudio = new Audio();
 for (const a of [audio, plainAudio]) {
-  a.addEventListener('ended', () => setFace(state.active || state.turns.size ? 'thinking' : 'idle'));
-  a.addEventListener('playing', () => setFace('speaking'));
+  a.addEventListener('ended', () => ((state.playing = false), refreshFace()));
+  a.addEventListener('playing', () => ((state.playing = true), refreshFace()));
 }
 
 async function player() {
@@ -1176,7 +1160,7 @@ let rec = null;
 
 // toggle: a tap (or the Talk tile, a shortcut, Enter): it stops on the next tap of the mic, not on release.
 async function startRecording({ toggle = false } = {}) {
-  if (rec || state.active) return;
+  if (rec || chat.own) return;
   const mine = { chunks: [], starting: true, toggle, asked: Date.now() };
   rec = mine;
   $('#micBtn').setAttribute('aria-pressed', 'true'); // live from the press on, also while the microphone starts
@@ -1204,7 +1188,8 @@ async function startRecording({ toggle = false } = {}) {
     Object.assign(rec, { stream, ctx, node, rate: ctx.sampleRate, started: Date.now(), starting: false, limit: setTimeout(() => (toast('That’s the two-minute limit: sending what you said.'), stopRecording()), MAX_REC_MS) });
     $('#micBtn').classList.add('live');
     showRecBar(rec);
-    setFace('listening');
+    state.recording = true;
+    refreshFace();
     navigator.vibrate?.(30);
   } catch (err) {
     if (rec === mine) (rec = null), $('#micBtn').setAttribute('aria-pressed', 'false');
@@ -1237,10 +1222,12 @@ async function stopRecording() {
   state.micLevel = 0;
   $('#micBtn').classList.remove('live');
   hideRecBar();
-  if (Date.now() - r.started < 400) return setFace('idle'), toast('Too short to hear anything: tap the mic, speak, then tap it again.');
+  state.recording = false;
+  if (Date.now() - r.started < 400) return refreshFace(), toast('Too short to hear anything: tap the mic, speak, then tap it again.');
   const mic = $('#micBtn');
   mic.classList.add('busy');
-  setFace('thinking');
+  state.transcribing = true;
+  refreshFace();
   $('#faceState').textContent = 'TRANSCRIBING';
   try {
     const wav = encodeWav(await to16k(r.chunks, r.rate));
@@ -1250,14 +1237,17 @@ async function stopRecording() {
     if (tunnelDown(res)) throw new NetError('Your computer isn’t answering right now.');
     if (!res.ok) throw await answerError(res, { recording: true });
     const data = await res.json().catch(() => ({}));
-    setFace('idle');
+    state.transcribing = false;
+    refreshFace();
     if (data.text?.trim()) send(data.text.trim());
     else toast('I didn’t catch that.');
   } catch (err) {
-    setFace('idle');
+    state.transcribing = false;
+    refreshFace();
     toast(err.message);
   } finally {
     mic.classList.remove('busy');
+    if (state.transcribing) (state.transcribing = false), refreshFace(); // unpaired meanwhile
   }
 }
 
@@ -1387,6 +1377,16 @@ state.sleepAfterMin = 0;
 state.asleepAtStart = true; // asleep since the app opened, from the first frame (the desktop's ui.sleepOnLaunch may say otherwise), until something happens
 state.micLevel = 0;
 
+// What goes on now, for turnstate.faceState (the desktop's rule): the mic, the voice, a transcription, and every
+// reply being written in the conversation shown, whoever started it. Replies are spoken only once done here.
+const faceNow = () => ({ recording: state.recording, playing: state.playing, transcribing: state.transcribing, ...chat.activity(), spoken: false });
+
+// The face follows what goes on (call after any of it changes).
+function refreshFace() {
+  const s = faceState(faceNow());
+  setFace(s === 'speaking' && !state.playing ? 'speaking-text' : s);
+}
+
 function setFace(s) {
   state.face = s;
   if ((s === 'idle' || s === 'happy') && state.worldWork && !state.worldWork.done) state.worldWork.done = Date.now(); // the turn is over: the persona lingers, then is free
@@ -1404,12 +1404,9 @@ function wake() {
 // The state as the desktop names it: replying without a voice is "speaking"; after a reply, a moment of
 // "happy"; asleep since the app opened, or after quiet minutes (the desktop's ui.sleepAfterMin), "sleeping".
 function agentState() {
-  const f = state.face === 'speaking-text' ? 'speaking' : state.face;
-  if (f !== 'idle') return f;
-  if (state.happyUntil > Date.now()) return 'happy';
-  if (state.asleepAtStart) return 'sleeping';
-  if (state.sleepAfterMin && Date.now() - state.lastActivity > state.sleepAfterMin * 60000) return 'sleeping';
-  return 'idle';
+  const now = Date.now();
+  const sleeping = state.asleepAtStart || Boolean(state.sleepAfterMin && now - state.lastActivity > state.sleepAfterMin * 60000);
+  return faceState({ ...faceNow(), happy: state.happyUntil > now, sleeping });
 }
 
 function updateFaceLabel() {
@@ -1890,7 +1887,7 @@ function reloadWhenFree() {
   const typing = $('#input').value.trim() || ($('#composer').contains(document.activeElement) && document.activeElement.matches('textarea'));
   const recording = !$('#recBar').classList.contains('hidden');
   const reading = state.view !== 'chat' && state.view !== 'sched' && screenBusy(state.view);
-  if (state.active || state.turns.size || state.face === 'speaking' || typing || recording || reading) reloadTimer = setTimeout(reloadWhenFree, 5000);
+  if (replying() || state.face === 'speaking' || typing || recording || reading) reloadTimer = setTimeout(reloadWhenFree, 5000);
   else location.reload();
 }
 

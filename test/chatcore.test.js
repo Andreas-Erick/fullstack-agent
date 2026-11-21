@@ -18,7 +18,8 @@ test('tool chips: the app’s label, a connector’s, or the raw name; state and
   assert.strictEqual(c.toolLabel('create_pdf', labels), '📄 Created a PDF');
   assert.strictEqual(c.toolLabel('mcp__claude_ai_Todoist__find-tasks', labels), '🔌 Todoist · find tasks');
   assert.strictEqual(c.toolLabel('mcp__plugin_productivity_slack__send_message'), '🔌 slack · send message');
-  assert.strictEqual(c.toolLabel('mcp__nexus__memory_save'), '🔧 mcp__nexus__memory_save', 'the app’s own MCP server is not a connector');
+  assert.strictEqual(c.toolLabel('mcp__nexus__memory_save'), '🧠 Saved memory', 'the app’s own MCP server is not a connector: its tools by their own label');
+  assert.strictEqual(c.toolLabel('mcp__nexus__no_such_tool'), '🔧 no_such_tool');
   const running = c.toolChip({ name: 'web_search', input: { query: 'weather' } });
   assert.strictEqual(running.state, 'running');
   assert.strictEqual(running.brief, '· weather');

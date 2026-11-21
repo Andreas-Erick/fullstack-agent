@@ -334,21 +334,23 @@ test('chat.js: the stored message (its files, its id) replaces the pending one; 
   assert.match(node, /if \(m\.attachments\?\.length\) body\.append\(filesNode\(m\.attachments\)\);/, 'the file chips (attach)');
   assert.match(node, /if \(d\.text \|\| !m\.attachments\?\.length\) body\.append\(bubble\);/, 'files alone: no empty bubble');
   const start = slice('renderer/js/chat.js', "case 'start': {", 'break;');
-  assert.match(start, /if \(ev\.replaces\) dropFrom\(ev\.replaces, \{ keep: active\.wrap \}\);/);
-  assert.match(start, /\.msg\[data-pending="\$\{CSS\.escape\(active\.requestId\)\}"\]/);
-  assert.match(start, /if \(pending && ev\.userMessage\) pending\.replaceWith\(messageNode\(ev\.userMessage\)\);/);
-  assert.match(start, /if \(ev\.userMessage\) shown\.push\(ev\.userMessage\);/);
+  assert.match(start, /if \(step\.drop\) dropFrom\(step\.drop, \{ keep: v\.wrap \}\);/);
+  assert.match(start, /\.msg\[data-pending="\$\{CSS\.escape\(t\.requestId\)\}"\]/);
+  assert.match(start, /if \(pending && t\.userMessage\) pending\.replaceWith\(messageNode\(t\.userMessage\)\);/);
+  // The stored message joins the open conversation at start (its id for Edit): test/turnstate.test.js.
   assert.ok(!/files-row|filesNode/.test(start), 'attach’s own files-row patch is dropped (the whole node is replaced)');
-  const finish = slice('renderer/js/chat.js', 'function finish() {', '\n}\n');
+  const finish = slice('renderer/js/chat.js', 'function finish(turn) {', '\n}\n');
   assert.match(finish, /send\(q\.text, \{ voice: q\.voice, attach: q\.attach \}\)/);
 });
 
 // ------------------------------------------------------------------ §4.9 voice × actions
 test('chat.js done: the new persona’s greeting follows the reply, next to actions’ bookkeeping', () => {
-  const done = slice('renderer/js/chat.js', "case 'done': {", "case 'error':");
+  const done = slice('renderer/js/chat.js', "case 'done': {", "case 'failed':");
   assert.match(done, /loadSettings\(\)\.then\(\(\) => ttsActive\(\) && speaker\.follow\(greeting, \{ remember: true, firstAlone: true \}\)\)/);
   assert.ok(at(done, 'speaker.flush()') < at(done, 'speaker.follow(greeting'), 'after the reply has gone to the voice');
-  assert.ok(at(done, 'shown.push(m);') < at(done, 'syncActions();'), 'actions: the reply is known before the buttons are set');
+  // actions: the reply is known (and the turn ended) before the buttons are set: turnstate.apply stores it
+  // before the window draws (test/turnstate.test.js 'own reply…').
+  assert.ok(at(done, 'finish(t);') < at(done, 'syncActions();'));
   assert.match(done, /if \(\(m\.content \|\| ''\)\.trim\(\)\) showCard\(m\.content, \{ reply: m \}\);/);
   assert.strictEqual(done.split('speaker.follow(').length, 2, 'one greeting');
 });
@@ -361,16 +363,19 @@ test('chat.js done: the new persona’s greeting follows the reply, next to acti
 test('chat.js: a message waiting for its files keeps Try again, Regenerate and Edit away until it is sent', () => {
   const file = 'renderer/js/chat.js';
   const src = fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n');
-  assert.match(src, /const busy = \(\) => Boolean\(active \|\| waitingFiles\);/);
-  assert.ok(!/busy: Boolean\(active\)/.test(src), 'no redo path looks at the reply alone');
-  for (const from of ['function syncActions(', 'export async function retryLatest(', 'export function canRetryLatest(', 'function runHelpAction(']) {
-    assert.match(slice(file, from, '\n}\n'), /redo\.actions\(shown, \{ busy: busy\(\), setup: openSetup \}\)/, from);
+  // One busy rule, in turnstate.js (a reply here or elsewhere in the conversation, or files being read):
+  // every action path asks the module, which test/turnstate.test.js drives.
+  assert.match(src, /const busy = \(\) => chat\.busy\(\);/);
+  assert.ok(!/redo\.actions\(/.test(src), 'no path decides the actions with its own busy argument');
+  for (const from of ['function syncActions(', 'export async function retryLatest(', 'export function canRetryLatest(', 'function runHelpAction(', 'function fillCardActions(']) {
+    assert.match(slice(file, from, '\n}\n'), /chat\.actions\(\)/, from);
   }
-  assert.match(slice(file, 'function fillCardActions(', '\n}\n'), /redo\.actions\(shown, \{ busy: Boolean\(waitingFiles\), setup: openSetup \}\)/, 'the card: no reply runs then');
+  const waiting = slice(file, 'function waitForFiles(', '\n}\n');
+  assert.ok(at(waiting, 'chat.setWaiting(true);') < at(waiting, 'chat.setWaiting(false);'), 'the module hears about the files');
   assert.match(src, /if \(e\.key === 'ArrowUp' && [^\n]*&& !busy\(\)\) \{/, '↑ in an empty box');
   const again = slice(file, 'async function runAgain(', '\n}\n');
   assert.match(again, /^async function runAgain\([^)]*\) \{\n {2}if \(busy\(\)\) return /, 'refused before anything is asked');
-  assert.match(again, /if \(busy\(\) \|\| req\.conversationId !== currentId\) return false;/, 'and again after the confirm');
+  assert.match(again, /if \(busy\(\) \|\| req\.conversationId !== chat\.convId\) return false;/, 'and again after the confirm');
   assert.ok(at(again, 'if (busy() || req.conversationId') < at(again, 'dropFrom(messageId);'));
   const edit = slice(file, 'function startEdit(', '\n}\n');
   assert.ok(at(edit, 'if (waitingFiles) return') < at(edit, 'editing = {'), 'no edit in the waiting message’s place');
@@ -388,8 +393,8 @@ test('chat.js: a message waiting for its files keeps Try again, Regenerate and E
 test('chat.js: a redo shows the files it keeps; Copy only with something to copy; a found reply’s card has its buttons', () => {
   const file = 'renderer/js/chat.js';
   const again = slice(file, 'async function runAgain(', '\n}\n');
-  assert.match(again, /const kept = \(shown\.find\(\(m\) => m\.id === messageId\)\?\.attachments \|\| \[\]\)\.filter\(\(a\) => a\?\.kind !== 'image'\);/);
-  assert.ok(at(again, 'const kept = ') < at(again, 'dropFrom(messageId);'), 'read before the message leaves `shown`');
+  assert.match(again, /const kept = \(chat\.messages\.find\(\(m\) => m\.id === messageId\)\?\.attachments \|\| \[\]\)\.filter\(\(a\) => a\?\.kind !== 'image'\);/);
+  assert.ok(at(again, 'const kept = ') < at(again, 'dropFrom(messageId);'), 'read before the message leaves the open conversation');
   assert.match(again, /await send\(chk\.text, \{ voice: chk\.voice, redo: \{ \.\.\.req, confirmed: true \}, kept \}\);/);
   const send = slice(file, 'export async function send(', '\nfunction refusedSend(');
   assert.match(send, /const showing = files\.meta\.length \? files\.meta : again \? kept : \[\];/);

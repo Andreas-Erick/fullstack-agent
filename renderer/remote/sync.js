@@ -1,7 +1,7 @@
 // Staying in step with the computer (pure; app.js and screens.js act on it; test/sync.test.js).
 // The event stream says *that* something changed (data.changed: screen names from main/synccore.js),
-// never what: these decide what to fetch again, when a silent stream is dead, and what to do with a
-// reply that was running while the link was down.
+// never what: these decide what to fetch again and when a silent stream is dead. What to do with a reply
+// that was running while the link was down is the conversation's state (renderer/js/turnstate.js reconcile).
 
 // The server pings every 25 s; nothing for this long means the connection died without closing (a
 // network switch, a sleeping radio) and the phone would wait forever while showing "connected".
@@ -28,20 +28,6 @@ export function refreshPlan(topics, { view, busy = false } = {}) {
     schedule: t.has('sched'),
     conversations: t.has('conversations'),
   };
-}
-
-/**
- * After the conversation was loaded again (a reconnect, the app opened mid-reply): `running` is the
- * server's list of replies still being written there. The phone's own reply in flight (`active`) is
- * kept when it is still running or not sent yet (no requestId), and ended when it finished while the
- * link was down (the loaded messages already hold it). Others still running are followed.
- * → { keepActive, endActive, follow: [requestId] }
- */
-export function reconcile(active, running) {
-  const list = Array.isArray(running) ? running.filter((x) => typeof x === 'string' && x) : [];
-  const id = active?.requestId;
-  const keepActive = Boolean(active) && (!id || list.includes(id));
-  return { keepActive, endActive: Boolean(active) && !keepActive, follow: list.filter((x) => x !== id) };
 }
 
 /**
