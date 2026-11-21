@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const core = require('../main/historycore');
 
-const { fold, foldMap, terms, searchable, matchesAll, marks, plainText, messageText, docOf, matchConversation, snippet, hitStatus, resultSummary, hitsReducer, messageHits, HITS, SNIPPET, MAX_MESSAGE, MAX_TERMS, MAX_TERM } = core;
+const { fold, foldMap, terms, searchable, matchesAll, marks, plainText, messageText, docOf, matchConversation, snippet, hitStatus, resultSummary, hitsReducer, messageHits, listModel, afterDelete, rowTarget, LIST_PAGE, HITS, SNIPPET, MAX_MESSAGE, MAX_TERMS, MAX_TERM } = core;
 
 test('fold: case, accents and compatibility forms', () => {
   assert.strictEqual(fold('Hörsaal'), 'horsaal');
@@ -296,4 +296,83 @@ test('hitsReducer and messageHits: the window’s search state', () => {
   assert.strictEqual(more.state, 'error');
   assert.deepStrictEqual(messageHits(more, 'pid').items.map((x) => x.id), ['a']);
   assert.strictEqual(messageHits(more, 'pid').stale, false);
+});
+
+// ------------------------------------------------------------------ History's list (history.js drawList)
+const DAY = 86400000;
+const D0 = new Date(2026, 10, 21).getTime(); // local midnight
+const conv = (id, title, updatedAt) => ({ id, title, updatedAt, count: 2 });
+const labels = (m) => m.groups.map((g) => `${g.label}:${g.items.map((c) => c.id).join(',')}`);
+
+test('listModel: date groups, newest page first, Show more counts the older ones', () => {
+  const list = [conv('a', 'PID tuning', D0 + 1000), conv('b', 'Lunch', D0 - 1000), conv('c', 'Résumé', D0 - 3 * DAY), conv('d', 'Old', D0 - 30 * DAY), conv('e', 'No time')];
+  let m = listModel(list, { startToday: D0 });
+  assert.deepStrictEqual(labels(m), ['Today:a', 'Yesterday:b', 'This week:c', 'Earlier:d'], 'an entry without a time is in no group, as before');
+  assert.strictEqual(m.more, 0);
+  assert.strictEqual(m.searched, false);
+  assert.strictEqual(m.empty, '');
+  assert.deepStrictEqual(m.counts, { titles: 5, shown: 0, found: 0 });
+  // A page at a time: Show more raises the limit by LIST_PAGE.
+  m = listModel(list, { startToday: D0, limit: 2 });
+  assert.deepStrictEqual(labels(m), ['Today:a', 'Yesterday:b']);
+  assert.strictEqual(m.more, 3);
+  assert.strictEqual(LIST_PAGE, 100);
+  const many = Array.from({ length: 250 }, (_, i) => conv(`k${i}`, `Chat ${i}`, D0 - i * 1000));
+  assert.strictEqual(listModel(many, { startToday: D0 }).more, 150);
+  assert.strictEqual(listModel(many, { startToday: D0, limit: 2 * LIST_PAGE }).more, 50);
+  // Titles: every word, accent- and case-blind.
+  m = listModel(list, { query: 'resume', startToday: D0 });
+  assert.deepStrictEqual(labels(m), ['This week:c']);
+  assert.deepStrictEqual(m.words, ['resume']);
+});
+
+test('listModel: the empty line, and message hits under the titles', () => {
+  assert.strictEqual(listModel([], {}).empty, 'No conversations yet.');
+  const list = [conv('a', 'PID tuning', D0), conv('b', 'Lunch', D0), conv('c', 'Garden', D0)];
+  assert.strictEqual(listModel(list, { query: 'zebra', startToday: D0 }).empty, 'No matches.');
+  const item = (id) => ({ id, messageId: `m-${id}`, snippet: { text: 'pid loop', marks: [[0, 3]] } });
+  let h = hitsReducer(HITS, { type: 'query', query: 'pid', searchable: true });
+  // Searching: no "No matches." yet, the rows dimmed.
+  let m = listModel(list, { query: 'pid', hits: h, startToday: D0 });
+  assert.strictEqual(m.stale, true);
+  assert.strictEqual(m.status, 'Searching the messages…');
+  h = hitsReducer(h, { type: 'result', token: h.token, result: { items: [item('a'), item('b'), item('gone')], done: false, capped: false, cursor: { updatedAt: 1, id: 'b' }, scanned: 3, total: 9 } });
+  m = listModel(list, { query: 'pid', hits: h, startToday: D0 });
+  // 'a' is already found by its title, 'gone' isn't listed any more (deleted since).
+  assert.deepStrictEqual(m.found.map((x) => x.conv.id), ['b']);
+  assert.strictEqual(m.found[0].hit.messageId, 'm-b');
+  assert.strictEqual(m.older, true, 'Search older chats continues from the cursor');
+  assert.strictEqual(m.stale, false);
+  assert.match(m.status, /Looked through the newest 3 of 9 chats/);
+  assert.deepStrictEqual(m.counts, { titles: 1, shown: 1, found: 2 });
+  assert.strictEqual(m.empty, '');
+  // Nothing anywhere, but the search stopped early: never "No matches."
+  const none = hitsReducer(hitsReducer(HITS, { type: 'query', query: 'zebra', searchable: true }), { type: 'result', token: 1, result: { items: [], done: false, cursor: { updatedAt: 1, id: 'x' } } });
+  assert.strictEqual(listModel(list, { query: 'zebra', hits: none, startToday: D0 }).empty, '');
+  // Done: no cursor, nothing more.
+  const done = hitsReducer(hitsReducer(HITS, { type: 'query', query: 'zebra', searchable: true }), { type: 'result', token: 1, result: { items: [], done: true } });
+  const md = listModel(list, { query: 'zebra', hits: done, startToday: D0 });
+  assert.strictEqual(md.older, false);
+  assert.strictEqual(md.empty, 'No matches.');
+  // Words that aren't searchable show titles only.
+  assert.strictEqual(listModel(list, { query: 'p', hits: h, startToday: D0 }).searched, false);
+});
+
+test('afterDelete: focus on the next row, else the one before, else the search; cancelled: the row itself', () => {
+  const rows = [{ id: 'a', kind: 'title' }, { id: 'b', kind: 'title' }, { id: 'c', kind: 'hit' }];
+  assert.deepStrictEqual(afterDelete(rows, 'b'), { next: { id: 'c', kind: 'hit', part: 'open' }, self: { id: 'b', kind: 'title', part: 'open' } });
+  assert.deepStrictEqual(afterDelete(rows, 'c').next, { id: 'b', kind: 'title', part: 'open' });
+  assert.strictEqual(afterDelete([{ id: 'a', kind: 'title' }], 'a').next, null);
+  assert.strictEqual(afterDelete([], 'a').next, null);
+});
+
+test('rowTarget: ↑ ↓ Home End in the list, ↑ from the first to the search', () => {
+  assert.strictEqual(rowTarget('ArrowDown', 0, 3), 1);
+  assert.strictEqual(rowTarget('ArrowDown', 2, 3), 2, 'past the last stays on it');
+  assert.strictEqual(rowTarget('ArrowUp', 1, 3), 0);
+  assert.strictEqual(rowTarget('ArrowUp', 0, 3), -1);
+  assert.strictEqual(rowTarget('Home', 2, 3), 0);
+  assert.strictEqual(rowTarget('End', 0, 3), 2);
+  assert.strictEqual(rowTarget('Delete', 0, 3), undefined);
+  assert.strictEqual(rowTarget('Enter', 0, 3), undefined);
 });

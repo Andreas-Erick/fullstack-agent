@@ -1,10 +1,14 @@
-// The History drawer: the chat's conversation panel (#convPanel, its list drawn by chat.js renderConvList)
-// slides over the chat where it has no room of its own (the Face layout, windows ≤ 980 px), opened by
-// 🕘 History or Ctrl+H. Open it is a dialog: the rest of the chat is inert, Tab stays inside, Esc closes it
-// back to the message box. Docked, the same button and key go to its search. Also the search's state:
-// titles are matched in chat.js at once, the words inside chats by main (conv:search) a moment later.
-// A leaf: chat.js passes its list functions in (initHistory), so this never imports chat.js.
-import { $, api, on, dialogOpen } from './util.js';
+// History: the chat's conversation panel (#convPanel). It keeps the conversation index (conv:list), draws
+// the list a page at a time in date groups, searches titles at once and, a moment later, the words inside
+// chats (conv:search in main), deletes a chat and puts the focus on its neighbour. Where the panel has no
+// room of its own (the Face layout, windows ≤ 980 px) it slides over the chat as a drawer, opened by
+// 🕘 History or Ctrl+H: a dialog, the rest of the chat inert, Tab inside, Esc back to the message box.
+// Docked, the same button and key go to its search. What the list shows is historycore.listModel (pure).
+// A leaf: chat.js hands in what it owns (initHistory: which chat is open, open one, start a new one), so
+// this never imports chat.js; chat.js tells it when the list may have changed (refreshList, drawList).
+import { $, api, el, on, timeAgo, confirmDialog, toastError, dialogOpen } from './util.js';
+import { state } from './state.js';
+import * as chatcore from './chatcore.js';
 import * as core from './historycore.mjs';
 
 const narrow = matchMedia('(max-width: 980px)');
@@ -12,18 +16,22 @@ const DEBOUNCE_MS = 250;
 const INERT = ':scope > :is(.chat-main, .splitter, #facePanel)'; // not the scrim, not #chatLive
 const FOCUSABLE = ':is(button, input, [tabindex]):not([tabindex="-1"]):not(:disabled)';
 
+let conversations = []; // the index, newest first
+let listLimit = core.LIST_PAGE;
 let hits = core.HITS;
 let timer = null;
-let renderList = () => ({});
-let refreshList = () => Promise.resolve();
+let chat = { current: () => null, open: () => {}, newChat: () => {} };
 
-export function initHistory({ render, refresh }) {
-  renderList = render;
-  refreshList = refresh;
+/** chat: { current() → the open conversation's id, open(id, at) → a row was chosen (at: the message
+ *  the search found), newChat() → the open conversation was deleted }. */
+export function initHistory(handlers) {
+  chat = { ...chat, ...handlers };
   $('#historyBtn').addEventListener('click', toggleHistory);
   $('#historyClose').addEventListener('click', () => closeHistory());
   $('#historyScrim').addEventListener('click', () => closeHistory());
   $('#convPanel').addEventListener('keydown', onPanelKey);
+  $('#convSearch').addEventListener('input', () => queryChanged($('#convSearch').value));
+  api.on('routine:event', (ev) => ev.type === 'finished' && refreshList()); // its run shows in History
   // A layout change or a wider window docks it: closed without moving focus (it is the same element).
   // From a microtask, after app.js's applyLayout, which hears the same event later.
   const settle = () => queueMicrotask(() => historyOpen() && historyDocked() && closeHistory({ focus: false }));
@@ -34,6 +42,99 @@ export function initHistory({ render, refresh }) {
   on('files-added', () => closeHistory({ focus: false })); // a file dropped into the chat (attach.js)
 }
 
+// ------------------------------------------------------------------ the list
+/** The index read again (a reply started or ended, a rename, a chat from the phone) and the list redrawn;
+ *  resolves to the index. */
+export async function refreshList() {
+  conversations = await api.conv.list().catch(() => []);
+  drawList();
+  return conversations;
+}
+
+const agentName = () => state.settings?.agent?.name || 'Siren';
+
+// Titles that hold every word of the search come first, in date groups; then, once main has looked
+// (conv:search), the chats whose messages hold them, each with the sentence around the words. The focused
+// row and the scroll position survive. Returns the counts for the live region.
+export function drawList() {
+  const q = $('#convSearch').value;
+  const list = $('#convList');
+  const kept = keepFocus(list);
+  const m = core.listModel(conversations, { query: q, limit: listLimit, startToday: new Date().setHours(0, 0, 0, 0), hits });
+  list.innerHTML = '';
+  for (const g of m.groups) {
+    list.append(el('li', { class: 'conv-group' }, g.label));
+    for (const c of g.items) list.append(convRow(c, { words: m.words }));
+  }
+  if (m.more > 0) {
+    list.append(el('li', {}, el('button', { class: 'btn ghost conv-more', type: 'button', onclick: () => ((listLimit += core.LIST_PAGE), drawList()) }, `Show more (${m.more} older)`)));
+  }
+  if (m.searched) {
+    if (m.found.length) list.append(el('li', { class: 'conv-group' }, 'In messages'));
+    for (const { conv, hit } of m.found) list.append(convRow(conv, { words: m.words, hit }));
+    if (m.status || m.older) list.append(el('li', { class: 'conv-status' }, m.status ? el('span', {}, m.status) : null, m.older ? el('button', { class: 'btn ghost small', type: 'button', onclick: searchOlder }, 'Search older chats') : null));
+  }
+  list.classList.toggle('stale', m.stale);
+  if (m.empty) list.append(el('li', { class: 'muted', style: { padding: '10px', fontSize: '13px' } }, m.empty));
+  restoreFocus(list, kept);
+  return m.counts;
+}
+
+// One row: the title (search words marked), for a message hit the sentence around them and who said it
+// when; ✕ deletes (Delete on the row does the same). `c` is the index entry, also for a hit (its title is
+// current after a rename, and it knows a routine's chat).
+function convRow(c, { words, hit = null }) {
+  const name = chatcore.historyTitle(c); // a routine's conversation is marked ⏰
+  const open_ = c.id === chat.current();
+  const meta = hit ? `${hit.role === 'user' ? 'You' : hit.persona || agentName()} · ${timeAgo(hit.at)}${hit.hits > 1 ? ` · ${hit.hits} messages` : ''}` : `${c.count} messages · ${timeAgo(c.updatedAt)}`;
+  const open = el(
+    'button',
+    { class: 'conv-open', type: 'button', title: name.tip, 'aria-current': open_ ? 'true' : null, onclick: () => chat.open(c.id, hit?.messageId || null) },
+    el('span', { class: 't' }, marked(name.text, core.marks(name.text, words))),
+    hit ? el('span', { class: 's' }, marked(hit.snippet?.text || '', hit.snippet?.marks)) : null,
+    el('span', { class: 'd' }, meta),
+  );
+  const x = el('button', { class: 'x', type: 'button', tabindex: '-1', title: 'Delete (Del)', 'aria-label': `Delete “${name.text}”`, onclick: () => deleteConversation(c) }, '✕');
+  return el('li', { class: `conv-item${hit ? ' conv-hit' : ''}${open_ ? ' active' : ''}`, 'data-id': c.id, 'data-kind': hit ? 'hit' : 'title' }, open, x);
+}
+
+// Text with the given [start, end) ranges in <mark>s (text nodes, never HTML).
+function marked(text, ranges) {
+  const out = [];
+  let at = 0;
+  for (const [s, e] of Array.isArray(ranges) ? ranges : []) {
+    if (!(s >= at && e > s && e <= text.length)) continue;
+    if (s > at) out.push(text.slice(at, s));
+    out.push(el('mark', {}, text.slice(s, e)));
+    at = e;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return out;
+}
+
+// Deleting from History keeps it open: focus goes to the next row (else the one before, else the search).
+async function deleteConversation(c) {
+  const list = $('#convList');
+  const inPanel = $('#convPanel').contains(document.activeElement);
+  const rows = [...list.querySelectorAll('.conv-item')].map((n) => ({ id: n.dataset.id, kind: n.dataset.kind }));
+  const { next, self } = core.afterDelete(rows, c.id);
+  const back = (row) => (inPanel || historyOpen()) && restoreFocus(list, { scroll: list.scrollTop, row, button: '' });
+  if (!(await confirmDialog('Delete conversation', `Delete “${c.title || 'Untitled'}”? This cannot be undone.`, 'Delete'))) return back(self);
+  try {
+    await api.conv.delete(c.id);
+  } catch (err) {
+    return toastError(err);
+  }
+  forgetHit(c.id);
+  if (c.id === chat.current()) chat.newChat();
+  await refreshList();
+  if (inPanel || historyOpen()) {
+    if (next) back(next);
+    else $('#convSearch').focus({ preventScroll: true });
+  }
+}
+
+// ------------------------------------------------------------------ the drawer
 // A dialog, the setup wizard or the brain-dump page is in front: the drawer's keys stand aside.
 const blocked = () => dialogOpen() || !$('#onboarding').classList.contains('hidden') || Boolean($('#notesDumpLayer'));
 
@@ -143,12 +244,11 @@ function onPanelKey(e) {
   const row = e.target.closest?.('.conv-open');
   if (!row) return;
   const list = rows();
-  const i = list.indexOf(row);
-  const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: list.length - 1 }[e.key];
+  const to = core.rowTarget(e.key, list.indexOf(row), list.length);
   if (to !== undefined) {
     e.preventDefault();
     if (to < 0) search.focus();
-    else list[Math.min(to, list.length - 1)].focus();
+    else list[to].focus();
   } else if (e.key === 'Delete') {
     e.preventDefault();
     row.closest('.conv-item')?.querySelector('.x')?.click();
@@ -156,8 +256,8 @@ function onPanelKey(e) {
 }
 
 // ------------------------------------------------------------------ the message search
-/** The search box changed: titles at once (render), the messages after a pause (or `now`). */
-export function queryChanged(query, { now = false } = {}) {
+// The search box changed: titles at once (drawList), the messages after a pause (or `now`).
+function queryChanged(query, { now = false } = {}) {
   clearTimeout(timer);
   const searchable = core.searchable(query);
   const had = hits.state !== 'idle';
@@ -165,10 +265,10 @@ export function queryChanged(query, { now = false } = {}) {
   $('#convList').scrollTop = 0; // new words: the best matches, from the top
   if (!searchable) {
     if (had) api.conv.search('').catch(() => {}); // stops a search still running
-    renderList();
+    drawList();
     return;
   }
-  renderList();
+  drawList();
   if (now) run(query);
   else timer = setTimeout(() => run(query), DEBOUNCE_MS);
 }
@@ -183,27 +283,26 @@ async function run(query, cursor = null) {
     hits = core.hitsReducer(hits, { type: 'error', token, message: err?.message || String(err) });
   }
   if (token !== hits.token || hits.state === 'searching') return; // a newer query renders its own
-  const counts = renderList() || {};
+  const counts = drawList();
   // With the list's status line: a search that stopped early isn't "No matches."
-  $('#convSearchStatus').textContent = core.resultSummary({ ...hits, titles: counts.titles || 0, shown: counts.shown || 0, found: counts.found || 0 });
+  $('#convSearchStatus').textContent = core.resultSummary({ ...hits, ...counts });
 }
 
-/** "Search older chats": the same words, from where the last search stopped. */
-export function searchOlder() {
+// "Search older chats": the same words, from where the last search stopped.
+function searchOlder() {
   if (!hits.cursor || hits.state !== 'done') return;
   const cursor = hits.cursor;
   hits = core.hitsReducer(hits, { type: 'more' });
-  renderList();
+  drawList();
   return run(hits.query, cursor);
 }
 
-export const messageHits = (query, listed) => core.messageHits(hits, query, listed);
-export const forgetHit = (id) => (hits = core.hitsReducer(hits, { type: 'forget', id }));
+const forgetHit = (id) => (hits = core.hitsReducer(hits, { type: 'forget', id }));
 
 // ------------------------------------------------------------------ focus across a redraw
 // The list is rebuilt after every reply's start and end (refreshList) and on each keystroke: the focused
 // row (or button) and the scroll position come back.
-export function keepFocus(list) {
+function keepFocus(list) {
   const a = document.activeElement;
   const kept = { scroll: list.scrollTop, row: null, button: '' };
   if (!a || !list.contains(a)) return kept;
@@ -213,7 +312,7 @@ export function keepFocus(list) {
   return kept;
 }
 
-export function restoreFocus(list, kept) {
+function restoreFocus(list, kept) {
   list.scrollTop = kept.scroll;
   if (!kept.row && !kept.button) return;
   let target = null;
