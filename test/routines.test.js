@@ -649,12 +649,13 @@ test('a routine that deletes or pauses itself in its own run finishes that run a
   assert.ok(!notes.some((n) => n.type === 'finished'));
 });
 
-// The run's own turn is told apart by its log tag: main.js hands routines.js the tag startTurn gives it.
+// The run's own turn is told apart by its log tag: main.js hands routines.js the tag turns.js gives it
+// (turns.tagFor; that the turn runs under it is shown in test/turns.test.js).
 test('main.js tells a routine run the log tag its turn runs under', () => {
   const src = fs.readFileSync(path.join(helpers.ROOT, 'main', 'main.js'), 'utf8');
-  const tag = /const tags = \{ turn: (requestId\.slice\(-\d+\)),/.exec(src)?.[1];
-  assert.ok(tag, 'startTurn tags its turn');
-  assert.ok(src.includes(`onTurn?.(${tag});`), 'startRoutines reports the same tag');
+  const turns = fs.readFileSync(path.join(helpers.ROOT, 'main', 'turns.js'), 'utf8');
+  assert.match(turns, /const tags = \{ turn: tagFor\(requestId\),/, 'turns.js tags its turn');
+  assert.ok(src.includes('onTurn?.(tagFor(requestId));'), 'startRoutines reports the same tag');
 });
 
 // A hand-written record without a creation time threw in tick() every minute ('routine check failed'),

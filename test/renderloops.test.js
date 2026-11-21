@@ -116,11 +116,7 @@ test('the window and main word a cut-off call as cut off, never as done', () => 
   assert.match(again, /ask\.filter\(\(t\) => !redo\.cutOff\(t\)\)/);
   assert.match(again, /ask\.filter\(redo\.cutOff\)/);
   assert.match(again, /may or may not have happened/);
-  const main = slice('main/main.js', 'if (again?.acted.length || again?.uncertain) {', '\n  }\n');
-  assert.match(main, /const cut = again\.unsure \|\| \[\];/);
-  assert.match(main, /const done = again\.acted\.filter\(\(a\) => !cut\.includes\(a\)\);/);
-  assert.match(main, /tools: done\.map\(\(a\) => a\.name\), cut: cut\.map\(\(a\) => a\.name\)/);
-  assert.match(main, /Cut off before it reported back \(check before repeating\): \$\{names\(cut\)\}\./);
+  // Main's notice (main/turns.js): test/turns.test.js 'Try again after a stop names the cut-off call as cut off'.
 });
 
 test('redo.apply hands the cut-off calls on with the rest (main.js words the notice from them)', () => {
