@@ -51,7 +51,7 @@ way, add it here (or as a lesson in the vault Job "Changing my own code").
 `scripts/verify.js` checks most of these automatically; the rest is on you.
 
 - **New tool:** its group file in `main/tools/` (listed in `TOOLS` in `main/tools.js`) (clear description: when to use it, what it returns), a
-  label in `TOOL_LABELS` (`renderer/js/chat.js`), the right `group` (and `activeTools()` if new),
+  label in `TOOL_LABELS` (`renderer/js/chatcore.js`, desktop and phone), the right `group` (and `activeTools()` if new),
   `requireApproval` for anything consequential. Tools that change things are never in a group the
   setup conversation or a remote device can reach without approval.
 - **New IPC call:** `handle('ns:method')` in `main/main.js` + the method in `channels` in
