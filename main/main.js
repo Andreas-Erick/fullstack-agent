@@ -82,7 +82,9 @@ let win = null;
 const redo = require('./redo');
 // Chat turns (main/turns.js): the window and paired devices hear them through send; setup only through toWindow.
 const turns = require('./turns').create({ send, toWindow });
-const { stripRaw, tagFor } = require('./turns');
+const { tagFor } = require('./turns');
+// What the window and paired devices see of a message or chat event (main/projections.js).
+const projections = require('./projections');
 
 // A second copy (e.g. a double click) hands over to the running one and exits at once, before it
 // can open a window or touch the same files.
@@ -534,7 +536,7 @@ function registerIpc() {
   handle('conv:list', () => store.listConversations());
   handle('conv:get', async (id) => {
     const c = await store.getConversation(id);
-    if (c) c.messages = c.messages.map(stripRaw);
+    if (c) c.messages = projections.messagesFor('window', c.messages);
     return c;
   });
   handle('conv:new', () => store.createConversation());
@@ -557,7 +559,7 @@ function registerIpc() {
     return turns.clearConversations().then(convsChanged);
   });
   handle('conv:export', async () => {
-    const all = (await store.exportConversations()).filter(Boolean).map((c) => ({ ...c, messages: c.messages.map(stripRaw) }));
+    const all = (await store.exportConversations()).filter(Boolean).map((c) => ({ ...c, messages: projections.messagesFor('window', c.messages) }));
     return saveFile('nexus-conversations.json', JSON.stringify(all, null, 2), [{ name: 'JSON', extensions: ['json'] }]);
   });
 
