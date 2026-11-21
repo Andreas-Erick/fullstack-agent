@@ -10,10 +10,16 @@ const dir = tmpDir('nexus-redo-');
 const KEY = 0x5a;
 const flip = (buf) => Buffer.from(buf.map((b) => b ^ KEY));
 const safeStorage = { isEncryptionAvailable: () => true, encryptString: (s) => flip(Buffer.from(s, 'utf8')), decryptString: (b) => flip(b).toString('utf8') };
+const withdrawn = [];
 stub({
   electron: { app: { getPath: () => dir }, safeStorage },
   './logger': quietLog,
   './tools': { TOOLS: [{ name: 'web_fetch', untrusted: true }, { name: 'memory_search' }, { name: 'calendar_add_event' }] },
+  // The conversation's Claude session (claudesession.js, its own tests in claudeforget.test.js): withdraw recorded.
+  './claudesession': {
+    hasSession: (c) => Boolean(c?.claudeSessionId),
+    withdraw: (c) => (withdrawn.push([c.id, c.claudeSessionId]), { claudeSessionId: null, claudeTokens: 0 }),
+  },
 });
 const redo = load('main/redo.js');
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -56,19 +62,19 @@ test('check: a missing conversation, the setup one and a running reply are refus
 });
 
 test('prepare: desktop only, confirmed when it must be; the old exchange goes and a Claude session that held it ends', () => {
-  const forgotten = [];
-  const forget = (...a) => forgotten.push(a);
+  const forgotten = withdrawn; // the session is taken out through claudesession.withdraw (stubbed above)
+  forgotten.length = 0;
   const base = () => conv([user('u0', 'hi'), reply('a0', 'hello', { provider: 'claude-code' }), user('u1', 'Add the dentist', { spoken: true }), reply('a1', 'Added.', { provider: 'claude-code', toolCalls: [{ name: 'calendar_add_event', input: { title: 'Dentist' }, ok: true }] })], { claudeSessionId: 's-old', claudeTokens: 90000, journaledUpTo: 4 });
   const req = { kind: 'again', messageId: 'u1' };
-  assert.throws(() => redo.prepare({ conv: base(), redo: req, remote: 'Phone', forget }), /Only the computer can send a message again/);
-  assert.throws(() => redo.prepare({ conv: base(), redo: req, forget }), /Confirm first/);
-  assert.throws(() => redo.prepare({ conv: conv([user('u1', 'x')]), redo: req, forget }), /Confirm first/, 'an uncertain attempt asks too');
-  assert.throws(() => redo.prepare({ conv: base(), redo: { ...req, messageId: 'u0', confirmed: true }, forget }), /Only your latest message/);
-  assert.throws(() => redo.prepare({ conv: base(), redo: { ...req, expectLast: 'u1', confirmed: true }, forget }), (err) => err.changed === true);
+  assert.throws(() => redo.prepare({ conv: base(), redo: req, remote: 'Phone' }), /Only the computer can send a message again/);
+  assert.throws(() => redo.prepare({ conv: base(), redo: req }), /Confirm first/);
+  assert.throws(() => redo.prepare({ conv: conv([user('u1', 'x')]), redo: req }), /Confirm first/, 'an uncertain attempt asks too');
+  assert.throws(() => redo.prepare({ conv: base(), redo: { ...req, messageId: 'u0', confirmed: true } }), /Only your latest message/);
+  assert.throws(() => redo.prepare({ conv: base(), redo: { ...req, expectLast: 'u1', confirmed: true } }), (err) => err.changed === true);
   assert.strictEqual(forgotten.length, 0);
 
   const c = base();
-  const r = redo.prepare({ conv: c, redo: { ...req, confirmed: true }, text: '', forget });
+  const r = redo.prepare({ conv: c, redo: { ...req, confirmed: true }, text: '' });
   assert.deepStrictEqual(c.messages.map((m) => m.id), ['u0', 'a0']);
   assert.deepStrictEqual(forgotten, [['c1', 's-old']]);
   assert.strictEqual(c.claudeSessionId, null);
@@ -86,7 +92,7 @@ test('prepare: desktop only, confirmed when it must be; the old exchange goes an
   // A failure on the API path: the session (none) stays, nothing to forget.
   forgotten.length = 0;
   const f = conv([user('u1', 'x', { attempt: failedAttempt() })]);
-  const g = redo.prepare({ conv: f, redo: { kind: 'again', messageId: 'u1' }, text: '', forget });
+  const g = redo.prepare({ conv: f, redo: { kind: 'again', messageId: 'u1' }, text: '' });
   assert.strictEqual(g.again.kind, 'again');
   assert.strictEqual(g.again.fresh, false);
   assert.deepStrictEqual(forgotten, []);
@@ -135,16 +141,8 @@ test('the window sees the plan’s summary, nothing else', () => {
 // The order of a turn (the gates first, busy before the first await, a second forget once the cut is saved,
 // the failure heard before it is recorded) is shown through main/turns.js in test/turns.test.js.
 
-// Regression: the warm-up's epoch was taken after the conversation was read, so a read that began before a
-// Regenerate's save and ended after its forget passed both checks with the withdrawn messages.
-test('llm:prewarm takes the epoch before it reads the conversation, and llm.prewarm uses it', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'main', 'main.js'), 'utf8');
-  const handler = src.slice(src.indexOf("handle('llm:prewarm'"), src.indexOf("handle('chat:endSession'"));
-  assert.ok(handler.indexOf('claudecode.epochOf(convId)') > 0 && handler.indexOf('claudecode.epochOf(convId)') < handler.indexOf('store.getConversation(convId)'));
-  assert.match(handler, /llm\.prewarm\(s, conv, \{ epoch \}\)/);
-  const llm = fs.readFileSync(path.join(__dirname, '..', 'main', 'llm.js'), 'utf8');
-  assert.match(llm, /async function prewarm\(settings, conv, \{ epoch = claudecode\.epochOf\(conv\?\.id\) \} = \{\}\)/);
-});
+// The warm-up's epoch, taken before the conversation is read (a Regenerate's save racing a chat being opened),
+// is claudesession.warm's own rule now: shown by behaviour in test/claudeforget.test.js.
 
 // Regression: the record kept the first 20 calls in order, reads too, so after 20 reads an action (and
 // a call that brought in outside content) was lost: Try again neither asked nor re-tainted the session.

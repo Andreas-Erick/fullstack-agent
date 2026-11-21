@@ -326,12 +326,12 @@ test('the cache warm-up: one tiny message on the target model, no tools, skipped
 
 test('the warm-up guesses the next model: spoken chats the voice model, typed ones the everyday one', () => {
   stub({ './claudecode': claudecode });
-  const llm = load('main/llm.js');
+  const session = load('main/claudesession.js'); // its warmTarget, over the real llm.js model rule
   const s = { llm: { provider: 'claude-code', voiceUsesFast: true, autoPace: true, modelMode: 'default' }, claudeCode: { model: 'default', fastModel: 'haiku', normalModel: 'sonnet', deepModel: 'opus' } };
-  assert.deepStrictEqual(llm.warmTarget(s, [{ role: 'user', content: 'hi', spoken: true }, { role: 'assistant', content: 'hello' }]), { model: 'haiku', effort: 'low' });
-  assert.deepStrictEqual(llm.warmTarget(s, [{ role: 'user', content: 'hi' }]), { model: 'sonnet', effort: 'default' });
-  assert.deepStrictEqual(llm.warmTarget(s, [{ role: 'user', content: 'hi', spoken: true }, { role: 'user', content: 'Sync', routine: 'x' }]).model, 'haiku', 'a routine run is not the user talking');
-  assert.strictEqual(llm.warmTarget(s, []).model, 'sonnet');
+  assert.deepStrictEqual(session.warmTarget(s, [{ role: 'user', content: 'hi', spoken: true }, { role: 'assistant', content: 'hello' }]), { model: 'haiku', effort: 'low' });
+  assert.deepStrictEqual(session.warmTarget(s, [{ role: 'user', content: 'hi' }]), { model: 'sonnet', effort: 'default' });
+  assert.deepStrictEqual(session.warmTarget(s, [{ role: 'user', content: 'hi', spoken: true }, { role: 'user', content: 'Sync', routine: 'x' }]).model, 'haiku', 'a routine run is not the user talking');
+  assert.strictEqual(session.warmTarget(s, []).model, 'sonnet');
 });
 
 // Regression: every failed own tool was logged twice (tools.js with its stack, then here from the

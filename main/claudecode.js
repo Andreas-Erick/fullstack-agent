@@ -297,6 +297,7 @@ function mcpServersFor(spec, { url, token, turn }) {
 // immediately instead of spawning the CLI, the MCP server and reloading the session every time.
 // Permission prompts are routed to the app (approval_prompt via MCP) so the user can approve
 // self-modification by click or voice.
+// The app reaches these through claudesession.js (a conversation's session: turn, warm, forget, deleted).
 const sessions = new Map(); // conversation id -> Session
 // A conversation whose latest exchange was taken out (Try again / Regenerate / Edit, main/redo.js):
 // its old session ids are never resumed, and warm-ups queued before it (with the old messages) don't run.
@@ -984,7 +985,7 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   return spec;
 }
 
-// The named fields that differ between two config keys (llm.sessionConfigKey), or null when they
+// The named fields that differ between two config keys (claudesession.configKey), or null when they
 // can't be compared (an older key format).
 function configFields(before, after) {
   try {
@@ -1047,7 +1048,8 @@ function chooseModel(conv, spec, { model, routine, settings }) {
   return pick.model;
 }
 
-async function startOrReuse(session, conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, folders, model: wanted, effort, routine = false, prewarming = false }) {
+// skipSaved: the conversation's saved session id is not resumed (runTurn's retry after a failed start).
+async function startOrReuse(session, conv, { settings, configKey, buildPrompt, activeTools, cwd, vault, repos, folders, model: wanted, effort, routine = false, prewarming = false, skipSaved = false }) {
   const spec = sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, folders, model: wanted });
   // A prewarm knows no message, so no pace: it never moves a live session's model (opening a chat
   // switched it to the settings' model), and a new process starts on the conversation's last one.
@@ -1066,7 +1068,7 @@ async function startOrReuse(session, conv, { settings, configKey, buildPrompt, a
   if (restart) log.info('claude session restarts', { conversation: conv.id, changed: changedParts(session.spec?.keyParts, spec.keyParts) });
   const p = await buildPrompt();
   spec.system = p.stable;
-  spec.resume = conv.claudeSessionId || session.resumable;
+  spec.resume = (skipSaved ? null : conv.claudeSessionId) || session.resumable;
   // A session that held a withdrawn exchange (forget): a stale copy of the conversation still names it.
   if (spec.resume && forgotten.get(conv.id)?.has(spec.resume)) {
     spec.resume = null;
@@ -1131,11 +1133,11 @@ function raceAbort(p, signal) {
 async function runTurn({ conv, history, buildContext, emit, signal, ctx, images = [], ...opts }) {
   const session0 = sessions.get(conv.id) || new Session(conv.id);
   sessions.set(conv.id, session0);
-  const attempt = async () => {
+  const attempt = async (retry = false) => {
     if (signal.aborted) throw abortError(); // stopped while waiting in line: never sent, nothing spawned
     await session0.interrupting; // the previous, interrupted turn must end first
     if (signal.aborted) throw abortError();
-    const session = await ensureSession(conv, opts);
+    const session = await ensureSession(conv, retry ? { ...opts, skipSaved: true } : opts);
     const context = await buildContext(session.memIds);
     let prompt = history[history.length - 1].content;
     if (context) prompt = `<context>\n${context}\n</context>\n\n${prompt}`;
@@ -1158,11 +1160,11 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, images 
       // A saved conversation the CLI can't find ("No conversation found with session ID") never started either.
       if (signal.aborted || (first.session.gotOutput && !NO_SAVED_SESSION.test(err.message))) throw err;
       log.warn('claude session failed to start; retrying with a fresh session', { conversation: conv.id, error: err });
-      conv.claudeSessionId = null;
+      // The saved id is skipped (never written into the caller's conversation: claudesession.js keeps that).
       first.session.sessionId = null;
       first.session.resumable = null;
       first.session.key = '';
-      return (await attempt()).result;
+      return (await attempt(true)).result;
     }
   };
   const p = session0.chain.then(run, run);
@@ -1171,8 +1173,8 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, images 
 }
 
 // Start the process ahead of time (e.g. while the greeting plays) so the first turn is warm.
-// Also after a persona switch (main.js, renderer personas.js): the new session's process and tool
-// servers start while the user reads or listens (~1 s), not when they speak again.
+// Also after a persona switch (claudesession.afterTurn, renderer personas.js): the new session's process
+// and tool servers start while the user reads or listens (~1 s), not when they speak again.
 // opts.epoch (epochOf when the caller read the conversation): a message run again since then makes it stale.
 async function prewarm(conv, opts) {
   if (!conv) return;
@@ -1182,8 +1184,8 @@ async function prewarm(conv, opts) {
 
 // Starting the process fills no cache: only a request does. So the first message after a launch or a
 // persona switch read the whole session cold (5.0 and 7.3 s to Haiku's first word at 64–72k tokens,
-// 2.3–3.4 s warm). warmCache sends one tiny message on the model the next one will likely use (llm.js
-// warmTarget), queued like a turn, while the greeting plays; skipped when the session is warm already.
+// 2.3–3.4 s warm). warmCache sends one tiny message on the model the next one will likely use
+// (claudesession.warmTarget), queued like a turn, while the greeting plays; skipped when the session is warm already.
 const WARMUP = '[Automatic warm-up from the app, not a message from the user. Do not use any tools. Reply with only: ok]';
 const WARMUP_TIMEOUT_MS = 60000;
 
