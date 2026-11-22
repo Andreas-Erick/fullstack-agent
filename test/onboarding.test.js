@@ -137,10 +137,17 @@ test('every shortcut a rail button advertises opens that view', () => {
   const app = read('renderer/js/app.js');
   const views = JSON.parse(/const views = (\[[^\]]*\]);/.exec(app)[1].replace(/'/g, '"'));
   const top = Math.max(...[...app.matchAll(/Digit\[1-(\d)\]/g)].map((m) => Number(m[1])));
-  const buttons = [...html.matchAll(/data-view="(\w+)" title="[^"]*\(Ctrl\+(\d)\)"/g)];
-  assert.ok(buttons.length >= 9);
-  for (const [, view, key] of buttons) {
-    assert.strictEqual(views[Number(key) - 1], view, `Ctrl+${key}`);
-    assert.ok(Number(key) <= top, `Ctrl+${key} is handled (keys up to ${top})`);
+  const buttons = [...html.matchAll(/data-view="(\w+)" title="[^"]*\(Ctrl\+(\d)\)"/g)].map(([, view, key]) => [view, Number(key)]);
+  // The numbers follow the rail, top to bottom: Chat, Notes, Calendar, Memories, Documents (spec #17).
+  assert.deepStrictEqual(buttons, [['chat', 1], ['notes', 2], ['calendar', 3], ['memory', 4], ['docs', 5]]);
+  for (const [view, key] of buttons) {
+    assert.strictEqual(views[key - 1], view, `Ctrl+${key}`);
+    assert.ok(key <= top, `Ctrl+${key} is handled (keys up to ${top})`);
   }
+  assert.strictEqual(views.length, 5, 'the More items have no number');
+  assert.match(html, /data-view="settings" title="Settings \(Ctrl\+,\)"/);
+  assert.match(app, /e\.key === ','\)[\s\S]{0,80}switchView\('settings'\)/);
+  // Ctrl+9 stays Notes for old habits, Ctrl+Shift+N the Dump.
+  assert.match(app, /e\.code === 'Digit9'\)[\s\S]{0,200}switchView\('notes'\)/);
+  assert.match(app, /e\.shiftKey && e\.key\.toLowerCase\(\) === 'n'\)[\s\S]{0,160}openDump\(\)/);
 });

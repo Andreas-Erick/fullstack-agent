@@ -154,7 +154,7 @@ async function render() {
     draft.name = draft.name || s.agent.name;
     const stage = el('div', { class: 'ob-face' });
     body.append(
-      el('div', { class: 'ob-hero' }, stage, el('div', {}, el('h2', {}, `Meet ${s.agent.name || 'Siren'}`), el('p', { class: 'muted' }, 'Your personal assistant on this computer: she talks and listens, remembers what matters to you, keeps your notes and schedule, teaches, coaches you toward your goals, works on the web and in your documents, and comes along on your phone.'), el('p', { class: 'muted' }, 'This setup takes a few minutes, one topic at a time. You can change everything later in Settings (the gear at the bottom of the left rail, labelled Config), and nothing you already have is overwritten.'))),
+      el('div', { class: 'ob-hero' }, stage, el('div', {}, el('h2', {}, `Meet ${s.agent.name || 'Siren'}`), el('p', { class: 'muted' }, 'Your personal assistant on this computer: she talks and listens, remembers what matters to you, keeps your notes and schedule, teaches, coaches you toward your goals, works on the web and in your documents, and comes along on your phone.'), el('p', { class: 'muted' }, 'This setup takes a few minutes, one topic at a time. You can change everything later in Settings (the gear at the bottom of the left rail), and nothing you already have is overwritten.'))),
       field('What should your assistant be called?', input(draft.name, 'Siren', (v) => (draft.name = v)), 'The name she answers to and uses for herself. Every persona can have its own.'),
     );
     faceHost = new FaceHost(stage, { compact: true });

@@ -128,7 +128,7 @@ async function memoryTour() {
   const profile = await wc.executeJavaScript(`import('./js/perf.js').then((m) => m.isBalanced() ? 'balanced' : 'full')`, true).catch(() => '?');
   await wait(3000);
   rows.push(await sampleMemory('boot (chat)'));
-  const views = await wc.executeJavaScript(`[...document.querySelectorAll('.rail-btn')].map((b) => b.dataset.view)`);
+  const views = await wc.executeJavaScript(`[...document.querySelectorAll('.rail-btn[data-view]')].map((b) => b.dataset.view)`);
   for (const v of views) {
     await wc.executeJavaScript(`document.querySelector('.rail-btn[data-view="${v}"]').click()`, true);
     await wait(4000);
@@ -168,11 +168,11 @@ function watch(electronApp, w) {
   w.webContents.on('render-process-gone', (_e, d) => finish(false, `the window crashed (${d.reason})`));
 }
 
-// After booting, every view in the rail is opened once (a view that throws when it opens fails too).
+// After booting, every view in the rail and its More menu is opened once (a view that throws when it opens fails too).
 const TOUR = `(async () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const opened = [];
-  for (const b of document.querySelectorAll('.rail-btn')) {
+  for (const b of document.querySelectorAll('.rail-btn[data-view]')) {
     b.click();
     opened.push(b.dataset.view);
     await wait(700);
@@ -212,7 +212,7 @@ const STEADY = `(async () => {
     }
     if (over() > 1) found.push(innerWidth + 'x' + innerHeight + ': the title bar content is cut off by ' + Math.round(over()) + ' px');
     // Every view stays reachable: the rail turns compact in a short window (styles.css) before it scrolls.
-    const below = [...document.querySelectorAll('.rail-btn')].filter((b) => b.getBoundingClientRect().bottom > innerHeight + 1).map((b) => b.dataset.view);
+    const below = [...document.querySelectorAll('#rail .rail-btn')].filter((b) => b.getBoundingClientRect().bottom > innerHeight + 1).map((b) => b.dataset.view || b.id);
     if (below.length) found.push(innerWidth + 'x' + innerHeight + ': rail buttons below the window: ' + below.join(', '));
   }
   // The cause seen before, on purpose: something transformed past the bar's edge (like the HUD scan
@@ -313,7 +313,7 @@ async function shootTour() {
   };
   // Still pictures: the app's reduce-motion look, so no view is caught halfway through fading in.
   await wc.executeJavaScript(`document.body.classList.add('fx-still')`);
-  const views = await wc.executeJavaScript(`[...document.querySelectorAll('.rail-btn')].map((b) => b.dataset.view)`);
+  const views = await wc.executeJavaScript(`[...document.querySelectorAll('.rail-btn[data-view]')].map((b) => b.dataset.view)`);
   for (const v of views) {
     await wc.executeJavaScript(`document.querySelector('.rail-btn[data-view="${v}"]').click()`, true);
     await wait(2600);
@@ -840,11 +840,34 @@ const HISTORY_JS = (layout, label, w) => `(async () => {
   }
   return found;
 })()`;
+// The More menu opens from its button, takes the focus, lists every other place inside the window, and
+// Esc closes it with the focus back on More (left open for the scans that follow; the caller closes it).
+const MORE_JS = (label) => `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const found = [];
+  const more = document.getElementById('railMore');
+  const menu = document.getElementById('moreMenu');
+  more.click();
+  await wait(150);
+  if (more.getAttribute('aria-expanded') !== 'true' || menu.classList.contains('hidden')) found.push('${label}: More does not open its menu');
+  if (!menu.contains(document.activeElement)) found.push('${label}: the open menu does not take the focus');
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await wait(100);
+  if (!menu.classList.contains('hidden') || document.activeElement !== more) found.push('${label}: Esc does not close the menu back to More');
+  more.click();
+  await wait(150);
+  for (const b of menu.querySelectorAll('[role="menuitem"]')) {
+    const r = b.getBoundingClientRect();
+    if (r.bottom > innerHeight + 1 || r.right > innerWidth + 1 || !r.width) found.push('${label}: ' + b.dataset.view + ' is outside the window');
+  }
+  return found;
+})()`;
+
 async function scanText() {
   const wc = win.webContents;
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const found = new Set();
-  const views = await wc.executeJavaScript(`[...document.querySelectorAll('.rail-btn')].map((b) => b.dataset.view)`);
+  const views = await wc.executeJavaScript(`[...document.querySelectorAll('.rail-btn[data-view]')].map((b) => b.dataset.view)`);
   for (const [w, h] of [[1600, 1000], [1100, 700], [900, 600]]) {
     await wc.executeJavaScript(`window.resizeTo(${w}, ${h})`);
     await wait(500);
@@ -868,6 +891,11 @@ async function scanText() {
         if (w === 1600) for (const p of await wc.executeJavaScript(namesJs(`settings/${tab}`), true)) found.add(p);
       }
     }
+    // The rail's More menu, open (moremenu.js): its places named, nothing cut off, inside the window.
+    for (const p of await wc.executeJavaScript(MORE_JS(`more menu @${w}`), true)) found.add(p);
+    for (const p of await wc.executeJavaScript(scanJs(`more menu @${w}`), true)) found.add(p);
+    if (w === 1600) for (const p of await wc.executeJavaScript(namesJs('more menu'), true)) found.add(p);
+    await wc.executeJavaScript(`document.querySelector('#railMore[aria-expanded="true"]')?.click()`, true);
     if (hadWizard) await wc.executeJavaScript(`document.querySelector('#onboarding').classList.remove('hidden')`);
     // History in the Face layout (always a drawer) and the Chat layout (docked where it has room).
     for (const layout of ['face', 'chat']) for (const p of await wc.executeJavaScript(HISTORY_JS(layout, `history ${layout} @${w}`, w), true)) found.add(p);

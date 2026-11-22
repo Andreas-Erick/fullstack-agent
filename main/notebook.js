@@ -166,7 +166,7 @@ async function remove(rel) {
   return obsidian.deleteNote(rel);
 }
 
-const GONE = 'That note isn’t in the vault’s bin (.trash) any more.';
+const GONE = 'That note isn’t in the Trash any more.';
 let restoring = Promise.resolve(); // one Undo at a time: two never land on the same name
 
 /** Undo of a delete: the file from the bin back to where it was, byte for byte (frontmatter included). */

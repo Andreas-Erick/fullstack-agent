@@ -9,9 +9,10 @@ entry `keyboard` points here).
 
 | Keys | What it does |
 | --- | --- |
-| Ctrl+1 … Ctrl+9 | Chat, Face, Memory, Calendar, Vault, Documents, Evolution, Skills, Notes |
+| Ctrl+1 … Ctrl+5 | Chat, Notes, Calendar, Memories, Documents (the rail, top to bottom; the places under More have no number) |
+| Ctrl+9 | Notes (its old number, kept) |
 | Ctrl+Shift+1 / 2 / 3 | Chat layout: chat only, split, face |
-| Ctrl+N | New chat (while the Notes view is open: a new note, also right after Ctrl+9) |
+| Ctrl+N | New chat (while the Notes view is open: a new note, also right after Ctrl+2) |
 | Ctrl+H | History: your earlier chats and the search through them (opens the chat; again: back to the message box) |
 | Ctrl+Shift+N | ⚡ Dump: a blank page for a brain dump (Notes) |
 | Ctrl+, | Settings |
@@ -27,7 +28,9 @@ Say “try again” after a reply failed or was stopped: your message is sent ag
 for its files).
 
 **The rail:** Tab into it, then ↑ / ↓ (Home / End) move between views and Enter or Space opens one.
-The open view is marked as the current page for screen readers.
+The open view is marked as the current page for screen readers. **More** (on the rail) opens a menu with
+Face, Skills & routines, Inner World, Library, How Siren works and Changes Siren made to itself: ↑ / ↓
+(Home / End) move through it, Enter opens a place, Esc closes it and goes back to More, Tab closes it.
 
 **More places:** the chat's splitter (Split layout): Tab to it, ← / → resize the face panel, Home / End go to the limits.
 The ⋯ menus: ↑ / ↓ move between items, Esc closes the menu. The calendar month: only the selected day is a Tab stop; the
@@ -38,14 +41,14 @@ panel (the title bar's meter): Esc closes it.
 
 | View | Keys | Esc |
 | --- | --- | --- |
-| Chat | Enter sends, Shift+Enter a new line; `/` suggests skills (↑ ↓, Tab or Enter picks); Enter on a focused [[note]] link opens it (also on the reply card and in the Vault); ↑ in an empty message box edits your last message (Enter sends it in place of the old one; nothing while a reply is being written or a message waits for its files); Ctrl+V in the chat attaches a copied image (or copied files), while copied text is pasted as text (a browser's “Copy image” that also copies text pastes the text); Delete or Backspace on a focused attachment chip removes it | Closes the skill suggestions, else cancels editing (the box gets back what was in it), else stops speaking, else stops the reply; closes the reply card (Face layout) when it has focus |
+| Chat | Enter sends, Shift+Enter a new line; `/` suggests skills (↑ ↓, Tab or Enter picks); Enter on a focused [[note]] link opens it (also on the reply card and in the Library); ↑ in an empty message box edits your last message (Enter sends it in place of the old one; nothing while a reply is being written or a message waits for its files); Ctrl+V in the chat attaches a copied image (or copied files), while copied text is pasted as text (a browser's “Copy image” that also copies text pastes the text); Delete or Backspace on a focused attachment chip removes it | Closes the skill suggestions, else cancels editing (the box gets back what was in it), else stops speaking, else stops the reply; closes the reply card (Face layout) when it has focus |
 | Chat → History | Type to search: titles at once, words from the messages a moment later; ↓ goes into the list, ↑ ↓ Home End move, Enter opens (Enter in the search opens the first), Delete deletes the chat; while it is open over the chat, Tab stays inside it | Closes it, back to the message box; in the side panel: clears the search |
 | Calendar | ← / → previous / next, T today, N new entry; Enter on a day starts a new entry on it (Enter on an entry inside the day opens its details; on “+N more” it selects the day) | Closes the entry editor |
 | Notes | Ctrl+N new note, Ctrl+E edit / show rendered (or click the text to edit right there; Enter on the rendered note edits it; on a focused [[link]] it opens the link), Ctrl+S save now; while writing: Ctrl+B bold, Ctrl+I italic, Enter continues a list (on an empty item it ends it), Tab / Shift+Tab indent list items; `[[` suggests notes to link (↑ ↓, Enter or Tab picks); ↓ from the search goes into the list, ↑ ↓ move through it. In ⚡ Dump: Ctrl+Enter saves and gives a fresh page | Closes the link suggestions, else clears the search; in Dump: saves and closes |
 | Inner World | Arrows or WASD (also with Shift or Caps Lock) pan, + / - zoom, 0 the whole island; the side panel lists every place and resident as buttons | Leaves the timelapse, stops following, steps outside, clears the selection (in that order) |
 | Inner World timelapse | Space play / pause (when focus is not on a button); Tab reaches the bar's play button, slider and speed | Leaves the timelapse |
-| Architecture | + / - zoom, 0 or Home everything, L the lessons, R the replay, Space play / pause in the replay | Leaves the replay, else goes up one level |
-| Vault → Growth | Space play / pause | Closes the replay |
+| How Siren works | + / - zoom, 0 or Home everything, L the lessons, R the replay, Space play / pause in the replay | Leaves the replay, else goes up one level |
+| Library → Growth | Space play / pause | Closes the replay |
 | Settings | On the tab bar: ← / → the previous / next section, Home / End the first / last; the search field looks through every section. Tab reaches every switch (in setup too, the privacy step's checkbox among them) and Space turns it on or off; a switch keeps the focus when the page redraws | Clears the search |
 | Agent window | Ctrl+L or a click edits the address; F5 reloads; Alt+← / Alt+→ back / forward | Leaves the address bar, else stops loading |
 | Pop-out document | Ctrl+= / Ctrl+- zoom, Ctrl+0 fit | Closes the window |

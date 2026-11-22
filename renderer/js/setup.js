@@ -201,7 +201,7 @@ async function bootstrapBrain() {
     state.setupMode = false;
     await api.setup.skip();
     await loadSettings();
-    say('Okay — everything can be configured later in **Settings** (the gear in the left rail, labelled Config).');
+    say('Okay — everything can be configured later in **Settings** (the gear at the bottom of the left rail).');
     return false;
   }
 

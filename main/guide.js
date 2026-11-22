@@ -11,7 +11,7 @@ const FEATURES = [
     title: 'Talking with me',
     what: 'Type or talk. Push-to-talk (hold the talk key) or hands-free; I answer in a voice (the offline voice runs right in the app; a cloud voice from Groq or OpenAI needs nothing installed; VoiceStudio is an optional app with more natural, cloneable voices) and my face shows what I am doing (listening, thinking, working, speaking). Speech is recognized on this computer with Whisper by default; Groq in the cloud can stand in while it loads or replace it (Settings → Voice input, free key). Voice calibration teaches me how your names and words come through. If writing down what you said fails (Groq busy, the connection gone), the recording is kept with one Try again notice, so you needn\'t say it again. You can answer an approval by voice too ("yes", "approve", "okay, go ahead"; "details" reads the action aloud; anything else says no, and Esc does too); words you began saying before the question appeared go into the message box instead, and I say whether I approved or declined. My greeting and the short \'one moment\' lines are kept as audio from the last time I said them, so I greet you as the window opens; if one ever sounds wrong, Settings → Voice output → Forget saved voice lines. When a reply fails I say why and offer Try again; ↻ Regenerate writes a new reply; ✎ Edit or ↑ in an empty box changes your last message and sends it again; Copy, and Copy on code. 🕘 History finds an earlier chat by its title or by what was said in it, and opens it at that message.',
     say: ['"Calibrate my voice"', '"Switch to hands-free"', '"Speak slower"', '"Start a new chat"', '"Cancel" (stops a reply that is still being written)', '"Try again" (after a reply failed)'],
-    where: 'Settings → Voice output and Voice input; the face (Ctrl+2); the chat layouts (Ctrl+Shift+1/2/3; in the Face layout the latest reply shows on a card over the face, and “Open in chat” switches to Split); ＋ New chat at the top of the chat (Ctrl+N); 🕘 History next to it (Ctrl+H) lists your earlier chats in every layout and finds one by what was said in it; ↻ Regenerate or Try again under the latest reply, ✎ Edit under your latest message, Copy under each message, and the same buttons on the Face layout\'s card.',
+    where: 'Settings → Voice output and Voice input; the face (More → Face); the chat layouts (Ctrl+Shift+1/2/3; in the Face layout the latest reply shows on a card over the face, and “Open in chat” switches to Split); ＋ New chat at the top of the chat (Ctrl+N); 🕘 History next to it (Ctrl+H) lists your earlier chats in every layout and finds one by what was said in it; ↻ Regenerate or Try again under the latest reply, ✎ Edit under your latest message, Copy under each message, and the same buttons on the Face layout\'s card.',
     status: (s) => `${s.voice.ttsEnabled ? `voice on (${VOICE_NAMES[s.voice.engine] || 'VoiceStudio'})` : 'voice off'}; ${s.stt.enabled ? (s.stt.micMode === 'open' ? 'hands-free' : `push-to-talk (${s.stt.pttKey})`) : 'voice input off'}`,
   },
   {
@@ -24,10 +24,10 @@ const FEATURES = [
   },
   {
     id: 'memory',
-    title: 'Memory and your vault',
-    what: 'I remember what matters about you, and keep notes, a daily journal, your priorities and your profile in an Obsidian vault of plain Markdown files you own. Besides facts, I keep a memory stream of small observations (how things went, what helped) and now and then reflect on it to draw a few insights; the most relevant ones come back to me with each message. When the app closes I note where we left off in your latest chat (never a routine\'s run). The vault keeps a version history, and 🌱 Growth in the Vault view plays it: every note appearing in its folder, from the first day to today, with lines between the notes that link to each other. Under every note the Vault view lists which notes link to it and which it links to. Forgetting a memory asks you first in Ask mode. The Memory view exports your memories (⋯ → Export as JSON) and imports such an export again (⋯ → Import JSON…); a memory that can\'t be read for a moment is left out until it can, and a Memory folder that can\'t be read says so, with Try again. The Vault view asks before throwing away what you typed, and before saving over a newer version.',
+    title: 'Memories and your Library',
+    what: 'I remember what matters about you, and keep notes, a daily journal, your priorities and your profile in an Obsidian vault of plain Markdown files you own. Besides facts, I keep a memory stream of small observations (how things went, what helped) and now and then reflect on it to draw a few insights; the most relevant ones come back to me with each message. When the app closes I note where we left off in your latest chat (never a routine\'s run). The vault keeps a version history, and 🌱 Growth in the Library (More → Library) plays it: every note appearing in its folder, from the first day to today, with lines between the notes that link to each other. Under every note the Library lists which notes link to it and which it links to. Forgetting a memory asks you first in Ask mode. Memories exports your memories (⋯ → Export as JSON) and imports such an export again (⋯ → Import JSON…); a memory that can\'t be read for a moment is left out until it can, and a Memory folder that can\'t be read says so, with Try again. The Library asks before throwing away what you typed, and before saving over a newer version.',
     say: ['"Remember that I prefer mornings for deep work"', '"What have you learned about how I work?"', '"What are my priorities?"', '"What did we talk about last Tuesday?"'],
-    where: 'Memory (Ctrl+3) and Vault (Ctrl+5); the vault in Obsidian.',
+    where: 'Memories (Ctrl+4) and More → Library; the folder in Obsidian, if you use it.',
     status: (s, f) => (f.vault ? `vault at ${f.vault}` : 'no vault yet: choose one in Settings → Vault'),
   },
   {
@@ -57,9 +57,9 @@ const FEATURES = [
   {
     id: 'notes',
     title: 'Your notes',
-    what: 'Write your own notes in the app, like in Obsidian: it saves as you type, [[links]] to other notes, #tags, pins and notebooks (folders). ⚡ Dump (or Ctrl+Shift+N from anywhere) is a blank page for getting everything out of your head: the first line is the title, Ctrl+Enter saves and gives you a fresh page. ✨ Polish tidies a messy note up and links your related notes; you see it before anything changes. They are plain Markdown in the vault, and I find them again when you ask about something you wrote. When I name one of your notes in a reply, it is a link that opens it. A deleted note goes to the vault\'s bin, and Undo on the notice brings it back exactly (tags and properties included), never over a note that took its name meanwhile.',
+    what: 'Write your own notes in the app, like in Obsidian: it saves as you type, [[links]] to other notes, #tags, pins and notebooks (folders). ⚡ Dump (or Ctrl+Shift+N from anywhere) is a blank page for getting everything out of your head: the first line is the title, Ctrl+Enter saves and gives you a fresh page. ✨ Polish tidies a messy note up and links your related notes; you see it before anything changes. They are plain Markdown in the vault, and I find them again when you ask about something you wrote. When I name one of your notes in a reply, it is a link that opens it. A deleted note goes to the Trash, and Undo on the notice brings it back exactly (tags and properties included), never over a note that took its name meanwhile.',
     say: ['"What did I write about PID tuning?"', '✨ Polish on a messy note: tidied up, with links to related notes, shown before anything changes', '"Find my note on the robot arm idea"', '"Summarize this week’s notes"', '"Turn my brain dump from today into a plan"'],
-    where: 'Notes (Ctrl+9); Notes/ and Inbox/ in the vault.',
+    where: 'Notes (Ctrl+2); Notes/ and Inbox/ in the Library.',
     status: (_s, f) => (f.vault ? `${f.notes} note${f.notes === 1 ? '' : 's'}` : 'needs the vault'),
   },
   {
@@ -67,7 +67,7 @@ const FEATURES = [
     title: 'The Inner World and rehearsals',
     what: 'A small fantasy village where your personas (and two villagers) live a fictional day: every morning a narrator writes their plans, meetings and conversations, and each of them remembers it. It mirrors you: the Library grows with what you understand, the Café with your vocabulary, the Training Grounds fly a banner per notebook (raised when you write in it today), the Garden blooms for each note you write today, and the Observatory rises as we plan ahead in your schedule and routines. Whatever I am doing right now you can watch: at the forge when I write code, up the Lookout when I search the web. Step inside a building and you see its room from above, like crew quarters: the furniture is made of your data (a shelf per topic, a table per deck, a cabinet per batch of memories, your recent documents as paper stacks, a bed per resident) and the residents walk between the stations doing what their day says; while I work, my figure stands at the right station with a progress bar. Click a paper stack to open the document. You choose its frame rate (automatic, 15, 30, 60 or 120 a second) in the view. When a building gains a level it lights up and sparks for a moment, and ⏳ Timelapse replays how the village grew, day by day, with the seasons turning. On its Stage I can rehearse a conversation you are preparing for, with characters who have their own hidden goals, and debrief it.',
     say: ['"What did you do today in the Inner World?"', '"Help me rehearse asking for a raise"', '"Rehearse my thesis defense with a skeptical examiner"'],
-    where: 'World view (rail; ⚙ there or Settings → Inner World for season, art and villagers); Inner World/ in the vault (Chronicle, residents’ memories, Rehearsals).',
+    where: 'More → Inner World (⚙ there or Settings → Inner World for season, art and villagers); Inner World/ in the vault (Chronicle, residents’ memories, Rehearsals).',
     status: (s, f) => (!f.vault ? 'needs the vault' : s.innerWorld?.enabled ? 'awake' : 'asleep: wake it in the World view (rehearsals work anyway)'),
   },
   {
@@ -75,7 +75,7 @@ const FEATURES = [
     title: 'Routines (things I do on a schedule)',
     what: 'I run instructions on a schedule while the app is open: a daily briefing, syncing Google Calendar or Todoist, summarizing new Plaud recordings, a daily language text. Each run is its own conversation (marked ⏰ in History) and you get a notification; the app opens on the chat you last wrote in, not a routine\'s that ran after it. The list shows how each one\'s last run went: running now, waiting (its brain or the internet was away; it tries again soon), cut off when the app closed (not repeated; the next run checks what was done), stopped, skipped, or ⚠ failed; one whose saved schedule is damaged says "schedule needs fixing" and runs again once you edit and save it. Stopping the chat reply that ran a routine, or switching the routine off or deleting it, stops a run in progress; a routine that switches itself off at the end of its own run finishes it and reports.',
     say: ['"Every morning at 8, check my Plaud for new recordings"', '"Run my daily briefing now"', '"Which routines do I have?"'],
-    where: 'Skills view → Routines.',
+    where: 'More → Skills & routines → Routines.',
     status: (_s, f) => `${f.routines} routine${f.routines === 1 ? '' : 's'}${f.routinesOn !== f.routines ? ` (${f.routinesOn} on)` : ''}`,
   },
   {
@@ -83,7 +83,7 @@ const FEATURES = [
     title: 'Your schedule and calendar',
     what: 'Tell me appointments and repeating things ("Linear Algebra every Monday at 10 in H1 until February") and I keep them in Schedule.md in your vault; a calendar view with month, week and agenda. A routine can sync your Google Calendar in. With the Todoist or TickTick connector, your dated tasks appear in the calendar too: press Sync in the calendar (or I save them whenever I look them up), then open one to reschedule it or mark it done (a time with a time zone shows in yours). The same entry added twice is kept once, and when Schedule.md can\'t be read (a sync app holding it), the calendar says so with Try again and never writes over it.',
     say: ['"I have the dentist on the 28th at 2"', '"What\'s on tomorrow?"', '"Skip the lecture next Monday"'],
-    where: 'Calendar (Ctrl+4).',
+    where: 'Calendar (Ctrl+3).',
     status: (s) => (s.calendar.enabled ? 'on' : 'off'),
   },
   {
@@ -99,7 +99,7 @@ const FEATURES = [
     title: 'Documents, files, PDFs and your screen',
     what: 'I open and read your documents (PDF, Word, images…) in their own windows and move them between monitors, write PDFs, jot quick notes, and see your screen while you share it. Drop, paste (Ctrl+V) or pick (📎) images and files in the chat and I read them with your message (up to 6; PDF, Word, text and code up to 25 MB): a copy stays with the conversation until you delete it, a picture only as a small preview. I treat what they say as information, not instructions; a brain that can\'t see pictures (a local model, Groq, DeepSeek) says so. ↗ Open externally opens documents, data and pictures in their own app (PDF, Word, Markdown, text, CSV, JSON, logs, images); scripts, web pages and other files only through Show in folder. A link in a reply or document never moves the app window: web links open in your browser.',
     say: ['"Open the quarterly report on the right monitor"', '"Make a PDF of this"', '"Note that I need to call the bank"', '"What do you see on my screen?"', '"(drop a lecture PDF) Summarize this"', '"(paste a screenshot) What\'s wrong here?"'],
-    where: 'Documents (Ctrl+6); 📎, paste or drop in the chat; Share screen in the chat.',
+    where: 'Documents (Ctrl+5); 📎, paste or drop in the chat; Share screen in the chat.',
     status: (s) => (s.documents.workspace ? `workspace: ${s.documents.workspace}` : 'no workspace folder set'),
   },
   {
@@ -121,9 +121,9 @@ const FEATURES = [
   {
     id: 'architecture',
     title: 'How I am built (and how to design software like it)',
-    what: 'The Arch view is a living map of my own code, drawn in the C4 style: zoom from the big picture (you, my processes, the outside services I use) into each part, then its components, its files and the functions inside them. Lines show how the parts talk: calls, IPC through the preload bridge, events, HTTP, processes and files. Click any part for what it does, what it talks to and the design idea behind it; 🎓 Learn explains the map and the principles you can reuse in your own projects. After I change my own code, Rebuild redraws it and marks the new parts. ▶ Replay plays my whole history on the map: files appear and grow commit by commit, the ones a commit touched glow, and my own self-changes are marked (Evolution → Watch the history opens it too). The map is on your phone and tablet as well.',
+    what: 'How Siren works (under More) is a living map of my own code, drawn in the C4 style: zoom from the big picture (you, my processes, the outside services I use) into each part, then its components, its files and the functions inside them. Lines show how the parts talk: calls, IPC through the preload bridge, events, HTTP, processes and files. Click any part for what it does, what it talks to and the design idea behind it; 🎓 Learn explains the map and the principles you can reuse in your own projects. After I change my own code, Rebuild redraws it and marks the new parts. ▶ Replay plays my whole history on the map: files appear and grow commit by commit, the ones a commit touched glow, and my own self-changes are marked (Changes Siren made to itself → Watch the history opens it too). The map is on your phone and tablet as well.',
     say: ['"Explain how your Claude Code bridge works"', '"Quiz me on your architecture"', '"Help me design the architecture of my project"'],
-    where: 'Arch view (rail) → 🎓 Learn, ▶ Replay, ⟳ Rebuild.',
+    where: 'More → How Siren works → 🎓 Learn, ▶ Replay, ⟳ Rebuild.',
     status: () => 'always on',
   },
   {
@@ -171,7 +171,7 @@ const FEATURES = [
     title: 'Skills (your workflows)',
     what: 'Save a workflow once and run it again by name, a slash command or a trigger phrase. Learning and coaching skills come built in, and you can import Agent Skills from GitHub (for example mattpocock/skills: /grill-me, /tdd, /diagnosing-bugs, /teach), with their reference files.',
     say: ['"Make what you just did a skill"', '"Import the skills from mattpocock/skills"', '"/grill-me my plan for the semester"'],
-    where: 'Skills (Ctrl+8) → ⬇ Import from GitHub.',
+    where: 'More → Skills & routines → ⬇ Import from GitHub.',
     status: (_s, f) => `${f.skillCount} skills`,
   },
   {
@@ -195,7 +195,7 @@ const FEATURES = [
     title: 'The web, GitHub, coding, and improving myself',
     what: 'I search and read the web with sources, work on your GitHub repositories on branches (pushing and pull requests always ask), and can change my own code when you ask for a feature, with checks, tests and a history you can undo.',
     say: ['"What\'s new in …? Cite sources"', '"Open an issue summary for my repo"', '"Add a feature that …"'],
-    where: 'Evolution (Ctrl+7) shows my own changes.',
+    where: 'More → Changes Siren made to itself shows my own changes.',
     status: (s) => `${s.web.enabled ? 'web on' : 'web off'}; self-improvement ${s.code.allowSelfModify ? 'on' : 'off'}`,
   },
   {
@@ -225,7 +225,7 @@ const FEATURES = [
   {
     id: 'keyboard',
     title: 'Keyboard and screen readers',
-    what: 'Everything works from the keyboard: Ctrl+1 to Ctrl+9 open the views, Ctrl+H opens History (your earlier chats and the search through them), ↑ in an empty message box edits your last message, Ctrl+V in the chat attaches a copied picture or file, Tab moves through the window with a visible focus ring, the arrow keys move along the rail, and each view has its own keys (the calendar’s arrows, the village’s WASD and zoom, Space to play a replay, Esc to go back a step). Every switch in Settings and in setup is reached with Tab and turned on or off with Space. A dialog takes the focus and gives it back when it closes (never onto Approve, Delete or Save); Esc on a form you changed asks before discarding it, and Esc on an approval says no. In the chat and the face, Esc stops speaking, then a reply still being written; End jumps to the latest message. Screen readers hear each finished reply once, in full, instead of every streamed word, and notices politely (a notice stays while the pointer or the focus is on it); the drawn views (the village, the architecture map) list their content in their side panels.',
+    what: 'Everything works from the keyboard: Ctrl+1 to Ctrl+5 open the places on the rail (Chat, Notes, Calendar, Memories, Documents; Ctrl+, Settings) and the rest are one click away under More, Ctrl+H opens History (your earlier chats and the search through them), ↑ in an empty message box edits your last message, Ctrl+V in the chat attaches a copied picture or file, Tab moves through the window with a visible focus ring, the arrow keys move along the rail, and each view has its own keys (the calendar’s arrows, the village’s WASD and zoom, Space to play a replay, Esc to go back a step). Every switch in Settings and in setup is reached with Tab and turned on or off with Space. A dialog takes the focus and gives it back when it closes (never onto Approve, Delete or Save); Esc on a form you changed asks before discarding it, and Esc on an approval says no. In the chat and the face, Esc stops speaking, then a reply still being written; End jumps to the latest message. Screen readers hear each finished reply once, in full, instead of every streamed word, and notices politely (a notice stays while the pointer or the focus is on it); the drawn views (the village, the architecture map) list their content in their side panels.',
     say: ['"Which keyboard shortcuts do you have?"', '"Can I use you with a screen reader?"'],
     where: 'docs/KEYBOARD.md lists every key per view.',
     status: () => 'always on',

@@ -21,6 +21,7 @@ function applyFx() {
   document.body.classList.toggle('fx-still', reduceMotion.matches);
   // Balanced: no backdrop blur (styles.css), and animations rest while nobody is looking.
   document.body.classList.toggle('perf-lite', balanced());
+  systemCodes();
   rest();
 }
 
@@ -77,7 +78,6 @@ export function initHud() {
     cascade(v);
   });
 
-  systemCodes();
   $('.views')?.prepend(el('div', { class: 'hud-motes', 'aria-hidden': 'true' }));
   reticle();
 }
@@ -89,13 +89,15 @@ const CASCADE = '.mem-card, .skill-card, .routine-row, .note-item, .kb-item, .ev
 const GLYPHS = '#%&@$*+=<>/\\|[]{}01ΔΣΞΛ';
 const viewTitle = (v) => v.querySelector('.view-head h2, .arch-head h2, .world-head h2');
 
-// Each view's title gets a system code from its place in the rail: "SYS.03 // MEMORY VAULT".
+// At the full HUD level each view's title gets a system code from its place in the rail and the More
+// menu: "SYS.04 // MEMORIES". At subtle and off the title stands alone (a code read like an error there).
 function systemCodes() {
-  $$('.rail-btn').forEach((b, i) => {
+  const hud = fxLevel() === 'hud';
+  $$('.rail-btn[data-view]').forEach((b, i) => {
     const title = viewTitle(document.getElementById(`view-${b.dataset.view}`) || document.createElement('div'));
     if (!title) return;
-    const label = (b.title || b.dataset.view).split(/ [—(]/)[0];
-    title.dataset.hudCode = `SYS.${String(i + 1).padStart(2, '0')} // ${label}`;
+    if (!hud) return void delete title.dataset.hudCode;
+    title.dataset.hudCode = `SYS.${String(i + 1).padStart(2, '0')} // ${b.getAttribute('aria-label') || b.dataset.view}`;
   });
 }
 

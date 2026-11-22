@@ -10,6 +10,8 @@ export function switchView(name, section) {
     if (b.dataset.view === name) b.setAttribute('aria-current', 'page');
     else b.removeAttribute('aria-current');
   });
+  // A place under More (moremenu.js) open: the More button shows where you are.
+  document.getElementById('railMore')?.classList.toggle('active', Boolean(document.querySelector(`#moreMenu [data-view="${name}"]`)));
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
   emit('view', { name, section });
 }

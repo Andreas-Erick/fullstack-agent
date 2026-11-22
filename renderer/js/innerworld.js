@@ -990,7 +990,7 @@ function fillPanel(box) {
     return box.append(el('h3', { class: 'display' }, 'Couldn’t open the village'), el('p', { role: 'alert' }, plainError(loadError)), el('button', { class: 'btn primary', onclick: (ev) => ((ev.currentTarget.disabled = true), refresh()) }, 'Try again'));
   }
   if (!data) return box.append(el('p', { class: 'hint', role: 'status' }, 'Loading the village…'));
-  if (!data.vault) return box.append(el('h3', { class: 'display' }, 'The Inner World needs a vault'), el('p', {}, 'It keeps its chronicle and the residents’ memories as notes in your vault. Set one up in Settings → Memory vault.'));
+  if (!data.vault) return box.append(el('h3', { class: 'display' }, 'The Inner World needs the Library'), el('p', {}, 'It keeps its chronicle and the residents’ memories as notes in the Library, the folder of files Siren keeps. Turn it on in Settings.'));
   if (!data.enabled) return box.append(...wakeCard());
   if (selected?.type === 'place') return box.append(...placePanel(placeById(selected.id)));
   if (selected?.type === 'resident') return residentPanel(box, selected.id);

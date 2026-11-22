@@ -760,10 +760,10 @@ const shownError = (card) => {
   return box.classList.contains('hidden') ? null : box.textContent;
 };
 
-test('the Vault editor: after Discard, a cancelled New note or an unreadable note leaves it working and guarded (regression); a change elsewhere keeps the text; Save asks before overwriting a newer version', async () => {
+test('the Library editor: after Cancel, or Discard and an unreadable note, it stays working and guarded (regression); a change elsewhere keeps the text; Save asks before overwriting a newer version', async () => {
   const n = makeDocument();
   doc.focused = false;
-  inView(n, [['h2', 'kbTitle'], ['input', 'kbSearch'], ['button', 'kbNew'], ['button', 'kbObsidian'], ['button', 'kbGrowth'], ['button', 'kbFolder'], ['div', 'kbList'], ['div', 'kbNote']]);
+  inView(n, [['h2', 'kbTitle'], ['input', 'kbSearch'],['button', 'kbObsidian'], ['button', 'kbGrowth'], ['button', 'kbFolder'], ['div', 'kbList'], ['div', 'kbNote']]);
   window.marked = { parse: (s) => s };
   window.DOMPurify = { sanitize: (h) => h, addHook() {}, removeHook() {} }; // renderMarkdown registers hooks around sanitize
   const vault = { 'Notes/Eigen.md': '# Eigen\r\nλ — שלום 👨‍👩‍👧‍👦', 'Notes/Other.md': 'other' };
@@ -805,17 +805,16 @@ test('the Vault editor: after Discard, a cancelled New note or an unreadable not
   assert.strictEqual(u.dialogOpen(), false, 'nothing to ask');
   assert.ok(!ta.isConnected && reading(), 'the other note shows');
 
-  // Typed, then New note: asked; Discard, then the path prompt cancelled. The editor stays, still guarded
-  // (another note asks again) and its Save writes, once for ten clicks (regression: Save did nothing).
+  // Typed, then another note: asked; Cancel keeps the editor, still guarded (another note asks again),
+  // and its Save writes, once for ten clicks (regression: Save did nothing). The Library has no New note
+  // (notes are written in Notes, spec #17).
+  assert.strictEqual(doc.getElementById('kbNew'), null);
   ta = await edit('Notes/Eigen.md');
   ta.value = 'my words';
-  click(doc.getElementById('kbNew'));
+  click(row('Notes/Other.md'));
   await settle();
   assert.strictEqual(heading(), 'Discard your changes?');
-  click(button(n.modalCard, 'Discard'));
-  await settle();
-  assert.strictEqual(heading(), 'New note (path inside the vault)');
-  doc.dispatchEvent(key('Escape'));
+  click(button(n.modalCard, 'Cancel'));
   await settle();
   assert.strictEqual(u.dialogOpen(), false);
   assert.ok(ta.isConnected, 'the editor stays');

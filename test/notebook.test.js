@@ -128,7 +128,7 @@ test('Undo of a delete brings the note back byte for byte, never over a note tha
     }
     return out.sort();
   };
-  const GONE = /isn’t in the vault’s bin \(\.trash\) any more/;
+  const GONE = /isn’t in the Trash any more/;
   const rel = 'Notes/Lecture/Eigen.md';
   const two = 'Notes/Lecture/Eigen 2.md';
   const body = ['# Eigenvalues', 'מטריצה — λ is an eigenvalue 👨‍👩‍👧‍👦', 'x'.repeat(10000)].join('\r\n');
