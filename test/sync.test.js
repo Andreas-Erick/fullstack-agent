@@ -7,7 +7,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { ROOT, tmpDir } = require('./helpers');
+const { ROOT, tmpDir, phoneClientSource } = require('./helpers');
 
 const sync = require('../main/synccore');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -229,7 +229,7 @@ test('the phone batches change messages too', async () => {
 test('every event the server streams has a handler on the phone, and the Android service ignores what it does not know', () => {
   const companion = read('main/companion.js');
   const streamed = [...new Set(/const STREAMED = new Set\(\[([^\]]*)\]/.exec(companion)[1].match(/'[^']+'/g).map((s) => s.slice(1, -1)))];
-  const app = read('renderer/remote/app.js');
+  const app = phoneClientSource();
   const handled = new Set([...app.matchAll(/event === '([\w.]+)'/g)].map((m) => m[1]));
   for (const ch of streamed) assert.ok(handled.has(ch.replace(':', '.')), `the phone has no handler for ${ch}`);
   const service = read('android/app/src/main/java/com/nexusagent/android/ConnectionService.java');
@@ -261,10 +261,16 @@ test('every module the phone client loads is served, and the offline shell cache
   const served = new Set([...(/const STATIC = \{([\s\S]*?)\n\};/.exec(companion)[1]).matchAll(/'(\/[^']*)':/g)].map((m) => m[1]));
   // The face files are spread into STATIC from the face registry (test/facesregistry.test.js checks it).
   for (const f of require('../main/facesregistry').FACE_FILES) served.add(`/js/${f}`);
-  for (const file of ['renderer/remote/app.js', 'renderer/remote/screens.js']) {
+  // Every module of the phone client (app.js and the modules it is split into), not a fixed list.
+  const modules = fs.readdirSync(path.join(ROOT, 'renderer/remote')).filter((f) => f.endsWith('.js') && f !== 'sw.js');
+  assert.ok(modules.length >= 10 && modules.includes('app.js') && modules.includes('state.js'), 'the test sees the client\'s modules');
+  const loaded = new Set(['/app.js']);
+  for (const f of modules) {
+    const file = `renderer/remote/${f}`;
     const src = read(file);
-    for (const m of src.matchAll(/(?:from|import\()\s*'(\.\/[\w./-]+|\/[\w./-]+)'/g)) {
+    for (const m of src.matchAll(/(?:from|import\(|import)\s*'(\.\/[\w./-]+|\/[\w./-]+)'/g)) {
       const p = m[1].replace(/^\.\//, '/');
+      loaded.add(p);
       assert.ok(served.has(p), `${file} loads ${p}, which the server does not serve`);
     }
   }
@@ -272,6 +278,12 @@ test('every module the phone client loads is served, and the offline shell cache
   const shell = [...sw.matchAll(/'(\/[^']*)'/g)].map((m) => m[1]);
   for (const p of shell) assert.ok(served.has(p), `the service worker caches ${p}, which is not served`);
   assert.ok(shell.includes('/sync.js'));
+  // Each module file is served, loaded by the client and in the offline shell (else the app breaks offline).
+  for (const f of modules) {
+    assert.ok(served.has(`/${f}`), `renderer/remote/${f} is not served (main/companion.js STATIC)`);
+    assert.ok(loaded.has(`/${f}`), `renderer/remote/${f} is served but no module loads it`);
+    assert.ok(shell.includes(`/${f}`), `renderer/remote/${f} is not in the service worker's shell (sw.js)`);
+  }
 });
 
 test('the server tells devices what changed but never which note or what it says', () => {
@@ -431,7 +443,7 @@ test('a message sent while its conversation isn’t drawn is never taken for an 
   assert.strictEqual(unsentPlan({ ...failed, priorUsers: 0 }, 'c1', earlier), 'drop', 'what counting the empty screen did');
 
   // app.js: the count goes through priorUsersFor, and only a load that drew the messages marks them shown.
-  const app = fs.readFileSync(path.join(ROOT, 'renderer/remote/app.js'), 'utf8').replace(/\r\n/g, '\n');
+  const app = phoneClientSource();
   assert.match(app, /const priorUsers = priorUsersFor\(\{ shownConv: state\.shownConv, convId: state\.convId, count: /);
   const load = app.slice(app.indexOf('async function loadConversation(id) {'), app.indexOf('\nfunction keepUnsent('));
   assert.match(load, /for \(const m of conv\.messages\) addMessage\(m\);\n\s*state\.shownConv = id;/);
@@ -523,9 +535,25 @@ test('the bridge offers its key only until the page has started: a face never pi
   assert.match(javaMethod(src, 'trusted'), /^\s*endOffer\(\);\s*return ours\(\);\s*$/, 'every call but hello ends the offer');
   assert.match(javaMethod(src, 'trusted', 'String k'), /return trusted\(\) &&/, 'the keyed check goes through trusted() too');
   assert.match(javaMethod(src, 'onPageFinished'), /if \(loaded\) bridge\.endOffer\(\);/, 'our page loaded: no key left on offer');
-  const app = read('renderer/remote/app.js');
-  const first = app.search(/\bandroid(\?)?\.\w+\(/);
-  assert.ok(first >= 0 && app.slice(first).startsWith('android.hello()'), `the page's first bridge call is hello (found: ${app.slice(first, first + 30)})`);
+  // The client is split into modules (renderer/remote): state.js asks for the key when it loads, and it
+  // loads before every module that calls the bridge. It imports none of the client's modules (so nothing
+  // runs before it but what app.js imports ahead of it), and app.js imports it before any of them.
+  const stateSrc = read('renderer/remote/state.js');
+  const first = stateSrc.search(/\bandroid(\?)?\.\w+\(/);
+  assert.ok(first >= 0 && stateSrc.slice(first).startsWith('android.hello()'), `the page's first bridge call is hello (found: ${stateSrc.slice(first, first + 30)})`);
+  const localImports = (src) => [...src.matchAll(/^import\s[^'\n]*'\.\/([\w-]+\.js)'/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(localImports(stateSrc), [], 'state.js loads none of the client\'s modules first');
+  const order = localImports(read('renderer/remote/app.js'));
+  assert.ok(order.indexOf('state.js') >= 0, 'app.js imports state.js');
+  for (const before of order.slice(0, order.indexOf('state.js'))) {
+    assert.ok(['screens.js', 'sync.js'].includes(before), `app.js imports ${before} before state.js`);
+    // screens.js reads only the keyless appVersion, inside a function (the More screen), never at load.
+    assert.doesNotMatch(read(`renderer/remote/${before}`), /\bandroid(\?)?\.\w+\(|\.hello\(/, `${before}, loaded before state.js, calls no bridge method`);
+  }
+  // Every other module reaches the bridge only through state.js (bridge(), android).
+  for (const rel of require('./helpers').phoneClientFiles().filter((f) => !f.endsWith('/state.js'))) {
+    assert.doesNotMatch(read(rel), /NexusAndroid|\.hello\(/, `${rel} takes no bridge of its own`);
+  }
 });
 
 test('the app lock stays over every screen rebuilt while locked', () => {
@@ -588,9 +616,11 @@ test('the watch keeps waiting for an answer while its screen is off', () => {
 });
 
 test('the phone page calls what changes something only through the key', () => {
-  const app = read('renderer/remote/app.js');
+  const app = phoneClientSource(); // app.js and every module it is split into
   assert.match(app, /const bridgeKey = .*android\.hello\(\)/);
   assert.match(app, /window\.nexusBack = /);
+  // The globals the Android app calls (MainActivity evaluateJavascript) stay defined on window.
+  for (const fn of ['nexusShare', 'nexusTalk', 'nexusBack', 'nexusMicBlocked', 'nexusBackgroundChanged', 'nexusLockChanged']) assert.match(app, new RegExp(`window\\.${fn} = `), `window.${fn} is defined`);
   for (const name of KEYED) assert.doesNotMatch(app, new RegExp(`android(\\?)?\\.${name}(\\?\\.)?\\(`), `${name} is called around the key`);
   assert.match(app, /bridge\('setToken'/);
 });
