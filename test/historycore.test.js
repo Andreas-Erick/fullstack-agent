@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const core = require('../main/historycore');
 
-const { fold, foldMap, terms, searchable, matchesAll, marks, plainText, messageText, docOf, matchConversation, snippet, hitStatus, resultSummary, hitsReducer, messageHits, listModel, afterDelete, rowTarget, LIST_PAGE, HITS, SNIPPET, MAX_MESSAGE, MAX_TERMS, MAX_TERM } = core;
+const { fold, foldMap, terms, searchable, matchesAll, marks, plainText, messageText, docOf, matchConversation, snippet, hitStatus, resultSummary, hitsReducer, messageHits, listModel, afterDelete, afterUndo, rowTarget, LIST_PAGE, HITS, SNIPPET, MAX_MESSAGE, MAX_TERMS, MAX_TERM } = core;
 
 test('fold: case, accents and compatibility forms', () => {
   assert.strictEqual(fold('Hörsaal'), 'horsaal');
@@ -364,6 +364,22 @@ test('afterDelete: focus on the next row, else the one before, else the search; 
   assert.deepStrictEqual(afterDelete(rows, 'c').next, { id: 'b', kind: 'title', part: 'open' });
   assert.strictEqual(afterDelete([{ id: 'a', kind: 'title' }], 'a').next, null);
   assert.strictEqual(afterDelete([], 'a').next, null);
+});
+
+test('afterDelete: a chat listed twice (by title and in messages) hides both rows, so the focus skips its other row', () => {
+  const rows = [{ id: 'a', kind: 'title' }, { id: 'b', kind: 'title' }, { id: 'c', kind: 'hit' }, { id: 'b', kind: 'hit' }];
+  assert.deepStrictEqual(afterDelete(rows, 'b').next, { id: 'c', kind: 'hit', part: 'open' });
+  assert.deepStrictEqual(afterDelete([{ id: 'a', kind: 'title' }, { id: 'b', kind: 'title' }, { id: 'b', kind: 'hit' }], 'b').next, { id: 'a', kind: 'title', part: 'open' });
+  assert.strictEqual(afterDelete([{ id: 'b', kind: 'title' }, { id: 'b', kind: 'hit' }], 'b').next, null);
+});
+
+test('afterUndo: the focus goes to the chat that came back, on the row it was deleted from; gone from the list (another search): null', () => {
+  const rows = [{ id: 'a', kind: 'title' }, { id: 'b', kind: 'title' }, { id: 'b', kind: 'hit' }];
+  assert.deepStrictEqual(afterUndo(rows, 'b', 'hit'), { id: 'b', kind: 'hit', part: 'open' });
+  assert.deepStrictEqual(afterUndo(rows, 'b', 'title'), { id: 'b', kind: 'title', part: 'open' });
+  assert.deepStrictEqual(afterUndo([{ id: 'b', kind: 'title' }], 'b', 'hit'), { id: 'b', kind: 'title', part: 'open' }, 'its other row when the hit is gone');
+  assert.strictEqual(afterUndo([{ id: 'a', kind: 'title' }], 'b', 'title'), null);
+  assert.strictEqual(afterUndo(null, 'b', 'title'), null);
 });
 
 test('rowTarget: ↑ ↓ Home End in the list, ↑ from the first to the search', () => {

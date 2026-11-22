@@ -374,15 +374,26 @@ export function listModel(conversations, { query = '', limit = LIST_PAGE, startT
 
 /** Deleting row `id` from History (rows: [{ id, kind }] in list order): where the focus goes once it is
  *  gone (`next`: the row after it, else the one before, else null for the search) and, when the delete is
- *  cancelled, back to the row itself (`self`). */
+ *  cancelled, back to the row itself (`self`). A chat listed twice (by title and in messages) loses both
+ *  rows, so its other row is never `next`. */
 export function afterDelete(rows, id) {
   const list = Array.isArray(rows) ? rows : [];
   const i = list.findIndex((r) => r.id === id);
-  const near = list[i + 1] || list[i - 1] || null;
+  const after = list.slice(i + 1).find((r) => r.id !== id);
+  const before = list.slice(0, Math.max(0, i)).reverse().find((r) => r.id !== id);
+  const near = after || before || null;
   return {
     next: near ? { id: near.id, kind: near.kind, part: 'open' } : null,
     self: { id, kind: list[i]?.kind, part: 'open' },
   };
+}
+
+/** Undo of a delete from History (rows: the list as drawn once the chat is back): the focus goes to its
+ *  row of `kind` (the row it was deleted from), else its other row, else null (it isn't listed now). */
+export function afterUndo(rows, id, kind) {
+  const list = Array.isArray(rows) ? rows : [];
+  const row = list.find((r) => r.id === id && r.kind === kind) || list.find((r) => r.id === id);
+  return row ? { id, kind: row.kind, part: 'open' } : null;
 }
 
 /** A key on row `i` of `n`: the row to focus (↓ ↑ Home End; past the last stays on it), -1 for the search

@@ -513,7 +513,8 @@ test('settings.js acknowledges: failed saves flip back, Test connection runs onc
   assert.match(brain, /finally \{\s*test\.disabled = false;/);
   assert.match(brain, /\.catch\(\(e\) => \(\{ state: 'unchecked', claude: \{ installed: true, checked: false, error: e\.message \} \}\)\)/, 'a failed IPC is a failed check, not "not installed"');
   const data = part('dataCard');
-  assert.match(data, /if \(b\.disabled \|\| !\(await confirmDialog\(title, msg, label\)\)\) return;\s*b\.disabled = true;/);
+  assert.match(data, /const ask = \(\) => \(exportFn \? confirmExportFirst\(title, msg, label, exportFn\) : confirmDialog\(title, msg, label\)\);/);
+  assert.match(data, /if \(b\.disabled \|\| !\(await ask\(\)\)\) return;\s*b\.disabled = true;/);
   assert.match(data, /toast\(\(await fn\(\)\) \|\| `\$\{label\}: done\.`\);\s*\} catch \(err\) \{\s*toastError\(err\);/);
   assert.match(data, /exported to \$\{p\}/, 'an export says where the file went');
   assert.match(data, /the setup wizard opens the next time the app starts\. Memories, notes and conversations are kept, and so is a copy of your old settings, in the data folder\./);

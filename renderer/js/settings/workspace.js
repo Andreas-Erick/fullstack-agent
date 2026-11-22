@@ -1,8 +1,9 @@
 // The cards for the user's things: learning, calendar, GitHub, the Obsidian vault, internet, self-improvement,
 // documents and folder access, the Inner World, memory and history.
-import { api, el, escapeHtml, toast, toastError, confirmDialog, emit } from '../util.js';
+import { api, el, escapeHtml, toast, toastError, confirmDialog, confirmExportFirst, emit } from '../util.js';
 import { state, loadSettings } from '../state.js';
 import { refreshList, newChat } from '../chat.js';
+import { settleDelete } from '../history.js';
 import { switchView } from '../nav.js';
 import { LANGUAGE_NAMES } from '../practice.js';
 import { checkNow as checkUpdatesNow } from '../updates.js';
@@ -217,12 +218,14 @@ export function worldCard() {
 
 export async function dataCard() {
   const [mems, convs, info, memDir] = await Promise.all([api.memory.list().catch(() => []), api.conv.list().catch(() => []), api.app.info(), api.memory.dir().catch(() => '')]);
-  // A destructive action: asked first, once at a time, and it says whether it worked.
-  const danger = (label, title, msg, fn) => {
+  // A destructive action: asked first (with Export first when there is an export), once at a time, and it
+  // says whether it worked.
+  const danger = (label, title, msg, fn, exportFn = null) => {
+    const ask = () => (exportFn ? confirmExportFirst(title, msg, label, exportFn) : confirmDialog(title, msg, label));
     const b = el('button', {
       class: 'btn danger',
       onclick: async () => {
-        if (b.disabled || !(await confirmDialog(title, msg, label))) return;
+        if (b.disabled || !(await ask())) return;
         b.disabled = true;
         try {
           toast((await fn()) || `${label}: done.`);
@@ -259,8 +262,8 @@ export async function dataCard() {
     el(
       'div',
       { class: 'row', style: { flexWrap: 'wrap' } },
-      danger('Clear history', 'Clear all conversations', 'Delete every conversation? This cannot be undone.', async () => (await api.conv.clear(), newChat(), refreshList(), 'All conversations deleted.')),
-      danger('Clear memory', 'Clear memory vault', 'Delete every memory? This cannot be undone.', async () => (await api.memory.clear(), emit('memory-changed'), 'Memory cleared.')),
+      danger('Clear history', 'Clear all conversations', 'Delete every conversation? This cannot be undone.', async () => (settleDelete(), await api.conv.clear(), newChat(), refreshList(), 'All conversations deleted.'), () => api.conv.export()),
+      danger('Clear memory', 'Clear memory vault', 'Delete every memory? This cannot be undone.', async () => (await api.memory.clear(), emit('memory-changed'), 'Memory cleared.'), () => api.memory.export('md')),
       danger(
         'Reset settings',
         'Reset settings',
