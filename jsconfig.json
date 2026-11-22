@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "strict": false,
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node10",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "skipLibCheck": true,
+    "maxNodeModuleJsDepth": 0
+  },
+  "include": [
+    "main/types.d.ts",
+    "main/ankicore.js",
+    "main/archcore.js",
+    "main/issuecore.js",
+    "main/learningcore.js",
+    "main/linkcore.js",
+    "main/localcore.js",
+    "main/netcore.js",
+    "main/notebookcore.js",
+    "main/outboundcore.js",
+    "main/personacore.js",
+    "main/polishcore.js",
+    "main/rehearsalcore.js",
+    "main/replaycore.js",
+    "main/routinecore.js",
+    "main/scenecore.js",
+    "main/schedulecore.js",
+    "main/streamcore.js",
+    "main/synccore.js",
+    "main/taskscore.js",
+    "main/updatecore.js",
+    "main/worldcore.js"
+  ]
+}

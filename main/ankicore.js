@@ -140,7 +140,29 @@ const isLearning = (c) => c.type === 'learn' || c.type === 'relearn';
 /** A card with no schedule yet. */
 const fresh = () => ({ type: 'new', step: 0, ivl: 0, ease: 0, reps: 0, lapses: 0 });
 
-/** Normalizes a stored schedule (missing or odd fields from hand edits). */
+/**
+ * A card's schedule as stored in its `<!-- srs … -->` comment.
+ * @typedef {object} Card
+ * @property {'new'|'learn'|'review'|'relearn'} type
+ * @property {number} step learning step index
+ * @property {number} ivl interval in days
+ * @property {number} ease
+ * @property {number} reps
+ * @property {number} lapses
+ * @property {string} [due] YYYY-MM-DD (review cards)
+ * @property {number} [dueAt] ms (cards in their learning steps)
+ * @property {string} [last] YYYY-MM-DD of the last answer
+ * @property {boolean} [leech]
+ * @property {boolean} [suspended]
+ * @property {number} [s] FSRS stability
+ * @property {number} [d] FSRS difficulty
+ */
+
+/**
+ * Normalizes a stored schedule (missing or odd fields from hand edits).
+ * @param {object} [c]
+ * @returns {Card}
+ */
 function normalize(c = {}) {
   const type = ['new', 'learn', 'review', 'relearn'].includes(c.type) ? c.type : c.due ? 'review' : 'new';
   return {
