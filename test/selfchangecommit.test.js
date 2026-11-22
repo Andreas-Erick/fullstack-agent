@@ -12,7 +12,7 @@ const { stub, load, tmpDir, quietLog, fileStore } = require('./helpers');
 const dir = tmpDir('nexus-selfcommit-');
 const repo = path.join(dir, 'repo');
 fs.mkdirSync(repo);
-const sh = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, encoding: 'utf8' });
+const sh = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false', ...args], { cwd: repo, encoding: 'utf8' });
 sh('init', '-q');
 fs.writeFileSync(path.join(repo, 'a.js'), '1\n');
 fs.writeFileSync(path.join(repo, 'b.js'), '1\n');
@@ -116,4 +116,26 @@ test('a marked change says so', async () => {
   const change = await selfchange.commit('Change a, marked', { only: ['a.js'] });
   assert.strictEqual(change.verifyPending, true);
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, 'selfchange-verify.json'), 'utf8')).state, 'pending');
+});
+
+// Regression: the revert's cleanup logged through `log`, which in selfchange.js is the git-history function, so a
+// failed revert threw a TypeError instead of saying why it couldn't revert.
+test('a revert that fails says why, and a failed cleanup is logged', async () => {
+  warnings.length = 0;
+  assert.strictEqual(sh('status', '--porcelain').trim(), '', 'the repository is clean');
+  // A merge commit can't be reverted without -m, and no revert is left in progress, so the abort fails too.
+  const main = sh('rev-parse', '--abbrev-ref', 'HEAD').trim();
+  sh('checkout', '-q', '-b', 'side');
+  fs.writeFileSync(path.join(repo, 'c.js'), '1\n');
+  sh('add', '-A');
+  sh('commit', '-q', '-m', 'side');
+  sh('checkout', '-q', main);
+  fs.writeFileSync(path.join(repo, 'd.js'), '1\n');
+  sh('add', '-A');
+  sh('commit', '-q', '-m', 'main');
+  sh('merge', '-q', '--no-ff', '--no-edit', 'side');
+  const merge = sh('rev-parse', 'HEAD').trim();
+  await assert.rejects(selfchange.revert(merge), /Could not revert automatically/);
+  assert.strictEqual(warnings.length, 1);
+  assert.strictEqual(warnings[0].event, 'revert not aborted');
 });
