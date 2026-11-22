@@ -30,6 +30,16 @@ const saved = [];
 let registered = null;
 const children = [];
 const realCp = require('child_process');
+// A cloned repo at repos/owner/name, on a work branch (approveRepoEdit).
+const githubStub = {
+  repoOf: (file) => {
+    const rel = path.relative(repos, path.resolve(file));
+    const [owner, name] = rel.split(path.sep);
+    return !rel.startsWith('..') && owner && name ? `${owner}/${name}` : null;
+  },
+  localPath: (repo) => path.join(repos, ...repo.split('/')),
+  requireWorkBranch: async () => ({ branch: 'work', main: 'main' }),
+};
 stub({
   child_process: {
     ...realCp,
@@ -48,7 +58,7 @@ stub({
   './store': { getSettings: async () => live, setSettings: async (patch) => saved.push(patch) },
   './obsidian': { IGNORE: ['.obsidian', '.trash', 'node_modules', '.git'], vaultPath: async () => vault },
   './bridge': { start: async () => ({ url: 'http://127.0.0.1:9', token: 't' }), registerSession: (id, opts) => ((registered = opts), () => {}) },
-  './github': {},
+  './github': githubStub,
   './logger': quietLog,
   './datadir': { attachmentsFolder: () => path.join(tmp, 'attachments') },
 });
@@ -476,4 +486,71 @@ test('Stop ends a Claude turn still waiting in line at once; it never starts, an
     }
     claudecode.endSession(conv.id);
   }
+});
+
+// ---------------------------------------------------------------- shell commands (security audit SEC-01)
+test('no shell command is pre-allowed by a wildcard: the CLI never runs one past approve()', () => {
+  const spec = claudecode.sessionSpec({ settings: { claudeCode: {}, web: { enabled: true }, code: { allowSelfModify: true }, extensions: {}, perf: { mode: 'full' } }, configKey: 'k', activeTools: [], cwd: app, vault, repos, folders: [ws], model: 'default' });
+  const bash = spec.allowed.filter((a) => a.startsWith('Bash'));
+  assert.ok(bash.length > 0, 'the app’s own checks are still pre-allowed');
+  for (const rule of bash) assert.match(rule, /^Bash\([^*?:]+\)$/, `${rule} is an exact command`);
+});
+
+test('approve(): plain checks run, anything that runs or writes something else asks', async () => {
+  live = { claudeCode: { connectors: true }, safety: SAFETY };
+  answer = (p) => approvals.respond(p.id, true);
+  requests = [];
+  const sess = session({ allowSelfModify: true });
+  for (const c of ['git log --oneline -20', 'git diff --stat', 'npm test']) assert.strictEqual((await approve(sess, 'Bash', { command: c })).behavior, 'allow', c);
+  assert.strictEqual(requests.length, 0, 'the safe list asks nothing');
+  const risky = ['npm test --prefix ../repos/evil', 'git log --output=y', 'git diff --no-index a b'];
+  for (const c of risky) await approve(session({ allowSelfModify: true }), 'Bash', { command: c }); // a turn each: a yes covers the turn while clean
+  assert.deepStrictEqual(requests.map((p) => [p.kind, p.detail]), risky.map((c) => ['command', c]));
+  requests = [];
+  answer = (p) => approvals.respond(p.id, false, 'no');
+  assert.strictEqual((await approve(session({ allowSelfModify: true }), 'Bash', { command: 'git log --output=y' })).behavior, 'deny');
+  assert.strictEqual((await approve(session({ allowSelfModify: false }), 'Bash', { command: 'git status' })).behavior, 'deny', 'without self-changes nothing is safe-listed');
+  answer = (p) => approvals.respond(p.id, true);
+});
+
+// ---------------------------------------------------------------- vault notes that feed the prompt (SEC-04, S-4)
+test('after outside content, writing a note the prompt reads or a package manifest asks; clean, it doesn’t', async () => {
+  live = { claudeCode: { connectors: true }, safety: SAFETY };
+  answer = (p) => approvals.respond(p.id, true);
+  const guarded = [path.join(vault, 'Memory', 'x.md'), path.join(vault, 'memory', 'y.md'), path.join(vault, 'Profile.md'), path.join(vault, 'Active Priorities.md'), path.join(vault, 'Jobs', 'j.md'), path.join(vault, 'package.json'), path.join(vault, 'Notes', 'tool', '.npmrc')];
+  requests = [];
+  for (const f of guarded) assert.strictEqual((await approve(session(), 'Write', { file_path: f, content: 'x' })).behavior, 'allow', f);
+  assert.strictEqual(requests.length, 0, 'a clean turn writes the vault without asking');
+  for (const f of guarded) {
+    requests = [];
+    assert.strictEqual((await approve(taintedSession(), 'Write', { file_path: f, content: 'x' })).behavior, 'allow', f);
+    assert.strictEqual(requests.length, 1, `${f} asks after outside content`);
+    assert.strictEqual(requests[0].tainted, true);
+  }
+  requests = [];
+  const sess = taintedSession();
+  await approve(sess, 'Write', { file_path: path.join(vault, 'Memory', 'a.md'), content: 'x' });
+  await approve(sess, 'Write', { file_path: path.join(vault, 'Memory', 'b.md'), content: 'x' });
+  assert.strictEqual(requests.length, 2, 'each one asks: an earlier yes doesn’t cover the next');
+  requests = [];
+  assert.strictEqual((await approve(taintedSession(), 'Write', { file_path: path.join(vault, 'Notes', 'a.md'), content: 'x' })).behavior, 'allow');
+  assert.strictEqual(requests.length, 0, 'an ordinary note still doesn’t ask');
+  answer = (p) => approvals.respond(p.id, false, 'no');
+  const no = await approve(taintedSession(), 'Write', { file_path: path.join(vault, 'Profile.md'), content: 'x' });
+  assert.strictEqual(no.behavior, 'deny');
+  answer = (p) => approvals.respond(p.id, true);
+});
+
+// ---------------------------------------------------------------- links inside a clone (SEC-02)
+test('an edit in a cloned repo can’t follow a link out of it', async (t) => {
+  live = { claudeCode: { connectors: true }, safety: SAFETY };
+  answer = (p) => approvals.respond(p.id, true);
+  const clone = path.join(repos, 'owner', 'name');
+  const link = path.join(clone, 'cfg');
+  fs.symlinkSync(outside, link, 'junction');
+  t.after(() => fs.rmSync(link, { force: true, recursive: false }));
+  const r = await approve(session(), 'Write', { file_path: path.join(link, 'x.txt'), content: 'x' });
+  assert.strictEqual(r.behavior, 'deny');
+  assert.match(r.message, /leads out of/);
+  assert.strictEqual((await approve(session(), 'Write', { file_path: path.join(clone, 'src', 'a.js'), content: 'x' })).behavior, 'allow', 'an ordinary file in the clone');
 });
