@@ -152,3 +152,51 @@ export function warmStep({ todo, idle, busy, away = false }) {
   if (busy) return 'wait';
   return 'warm';
 }
+
+/**
+ * A reply's speech, as the chat sees it (voice.js replySpeech): one rule for whether a reply is spoken
+ * (replies are spoken, active(), and the user didn't talk over this one, turn.muted), so chat.js never
+ * repeats it or reaches into the speaker. speaker: voice.js's Speaker; fillersOn(): filler lines wanted;
+ * fillerLines(): every filler line, made ahead in the quiet after a reply.
+ */
+export function createReplySpeech({ speaker, active, fillersOn, fillerLines }) {
+  const fillers = () => Boolean(active() && fillersOn());
+  const spoken = (turn) => Boolean(active() && !turn?.muted);
+  return {
+    active: () => Boolean(active()),
+    fillers,
+    spoken,
+    /** A streamed piece of `turn`: to the voice (through `filter`, e.g. practice's quote filter) when spoken. */
+    feed(turn, delta, filter = (d) => d) {
+      if (!spoken(turn)) return false;
+      speaker.feed(filter(delta));
+      return true;
+    },
+    /** A short line while `turn` is on its way: only from audio made ahead (Speaker.filler). */
+    filler(turn, line) {
+      if (!line || !fillers() || turn?.muted) return false;
+      return speaker.filler(line);
+    },
+    /** `turn` ended: what is left of it is said. */
+    flush(turn) {
+      if (spoken(turn)) speaker.flush();
+    },
+    /** After the reply, without stopping it (a new persona's hello), when replies are spoken. */
+    follow(text) {
+      if (active()) speaker.follow(text, { remember: true, firstAlone: true });
+    },
+    /** The filler lines' audio, made while idle() and nothing is being said. */
+    warm(idle) {
+      if (fillers()) speaker.warmFillers(fillerLines(), idle);
+    },
+    stop: () => speaker.stop(),
+    say: (text, override) => speaker.say(text, override),
+    /** The voice reached its speakLimit: the rest of the reply is for the screen. */
+    get capped() {
+      return Boolean(speaker.capped);
+    },
+    get busy() {
+      return speaker.busy;
+    },
+  };
+}

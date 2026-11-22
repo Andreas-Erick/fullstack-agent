@@ -304,14 +304,19 @@ test('voice.js: every change to the offline voice\'s jobs or load state updates 
   const methods = obj.split(/\n(?= {2}(?:async )?\w+\([^)]*\) \{\n)/);
   let checked = 0;
   for (const m of methods) {
-    for (const change of ['this.pending.set(', 'this.pending.delete(', 'this.pending.clear()', 'this.loaded = true', 'this.worker = new Worker(']) {
+    for (const change of ['this.pending.set(', 'this.pending.delete(', 'this.pending.clear()', 'this.host.ready()']) {
       for (let at = m.indexOf(change); at >= 0; at = m.indexOf(change, at + 1)) {
         checked++;
         assert.ok(m.indexOf('this.syncBusy()', at) > at, `${change} in ${m.trim().split('\n')[0]} is followed by this.syncBusy()`);
       }
     }
   }
-  assert.ok(checked >= 7, `found the changes (${checked})`);
+  assert.ok(checked >= 6, `found the changes (${checked})`);
+  // The worker's own changes come from the model host (modelhost.js): a new worker (onStart) and every
+  // way it goes (onStop → dropJobs) update it too.
+  assert.match(obj, /onStart\(\) \{\n\s+this\.startedAt = performance\.now\(\);\n\s+this\.syncBusy\(\);/);
+  assert.match(obj, /onStop\(reason, kind\) \{[^}]*this\.dropJobs\(reason\);/);
+  assert.match(obj, /dropJobs\(reason\) \{[\s\S]*?this\.syncBusy\(\);\n {2}\},/);
   assert.match(obj, /job\.faceFps = env\.maxFps\(\);/, 'the sentence log has the cap the faces really got');
   assert.match(obj, /faceFps: job\.faceFps/);
 });
@@ -346,7 +351,8 @@ test('app.js and chat.js: the greeting is kept, the handoff line never', () => {
   assert.doesNotMatch(app, /Last time we were on/, 'phrasecore.js launchGreeting builds it');
   assert.match(app, /import \{ launchGreeting, HANDOFF_LATE_MS \} from '\.\/phrasecore\.js';/);
   const chat = fs.readFileSync(path.join(ROOT, 'renderer/js/chat.js'), 'utf8');
-  assert.match(chat, /ttsActive\(\) && speaker\.follow\(greeting, \{ remember: true, firstAlone: true \}\)/, 'a new persona\'s hello after the reply');
+  assert.match(chat, /replySpeech\.follow\(greeting\)/, 'a new persona\'s hello after the reply');
+  assert.match(source('renderer/js/speechplan.js'), /if \(active\(\)\) speaker\.follow\(text, \{ remember: true, firstAlone: true \}\);/, 'kept, only when replies are spoken');
   const personas = fs.readFileSync(path.join(ROOT, 'renderer/js/personas.js'), 'utf8');
   assert.match(personas, /speaker\.say\(settings\.appearance\.greeting \|\| `Hi, \$\{name\} here\.`, undefined, \{ remember: true \}\)/);
 });

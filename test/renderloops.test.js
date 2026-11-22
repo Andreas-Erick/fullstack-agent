@@ -73,7 +73,7 @@ test('chat: a streamed frame renders once, and in the Face layout only what the 
   const file = 'renderer/js/chat.js';
   const render = slice(file, 'function renderFrame(t) {', '\n}\n');
   // Whether the card, the bubble or nothing shows the frame is replycard.js frame() (test/replycard.test.js).
-  assert.match(render, /const \{ render, decision \} = cardState\.frame\(t, \{ text: t\.text, capped: speaker\.capped \}\);/);
+  assert.match(render, /const \{ render, decision \} = cardState\.frame\(t, \{ text: t\.text, capped: replySpeech\.capped \}\);/);
   assert.ok(at(render, 'if (!render) return;') < at(render, 'renderMarkdown('), 'nothing rendered when nothing shows it');
   assert.strictEqual(render.split('renderMarkdown(').length, 2, 'one render a frame');
   assert.match(render, /if \(render === 'card'\) showCard\(decision\.card, \{ html \}\);/);
@@ -203,12 +203,12 @@ test('notes: our own autosave and changes while hidden don’t list every note a
 test('voice: the neural voice detector is released after hands-free ends, kept through a quick restart', () => {
   const file = 'renderer/js/voice.js';
   assert.match(read(file), /const NEURAL_IDLE_MS = 60000;/);
+  // The release itself (the idle clock, any profile, cancelled by use()) is modelhost.js's: test/modelhost.test.js.
   const neural = slice(file, 'const neural = {', '\n};\n');
-  assert.ok(at(neural, 'start() {\n    clearTimeout(this.idle);') < at(neural, 'if (this.worker) return;'), 'a start cancels the release');
-  const soon = neural.slice(at(neural, 'stopSoon() {'));
-  assert.ok(at(soon, 'clearTimeout(this.idle);') < at(soon, 'this.worker?.terminate();'));
-  assert.match(soon, /this\.worker = null;\n\s+this\.ready = false;/, 'onFrame falls back to the energy detector');
-  assert.match(soon, /\}, NEURAL_IDLE_MS\);/);
+  assert.match(neural, /idleMs: \(\) => NEURAL_IDLE_MS,/, 'on any profile');
+  assert.ok(at(neural, 'start() {\n    this.host.use();') < at(neural, 'this.host.load();'), 'a start cancels the release');
+  assert.match(neural, /stopSoon\(\) \{\n\s+this\.host\.idle\(\);/);
+  assert.match(neural, /get ready\(\) \{\n\s+return this\.host\.loaded;/, 'onFrame falls back to the energy detector once it is gone');
   const stop = slice(file, '  stop() {\n    if (!this.running) return;', '\n  }\n');
   assert.match(stop, /neural\.stopSoon\(\);/);
 });
