@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { pathToFileURL } = require('url');
-const { ROOT, tmpDir } = require('./helpers');
+const { ROOT, tmpDir, phoneClientSource } = require('./helpers');
 
 const CORE = fs.readFileSync(path.join(ROOT, 'renderer/faces/core.js'), 'utf8');
 const RATES = [60, 85, 120, 144, 165, 240];
@@ -234,7 +234,7 @@ test('the wiring: every face loop asks env.maxFps(); the desktop sets it, the ph
   assert.match(host, /maxFps: \(\) => faceFpsCap\(\{ balanced: profile\(state\.settings\) === 'balanced', voiceWorking: state\.voiceWorking, resting: !document\.hasFocus\(\) && state\.agentState === 'idle', sleeping: state\.agentState === 'sleeping' \}\)/);
   const message = host.slice(host.indexOf('  message(name) {'), host.indexOf('  setAvatar(a) {'));
   assert.match(message, /maxFps: env\.maxFps\(\)/, 'custom faces get the cap with every update');
-  assert.doesNotMatch(read('renderer/remote/app.js'), /maxFps/, 'the phone keeps every frame');
+  assert.doesNotMatch(phoneClientSource(), /maxFps/, 'the phone keeps every frame');
   assert.doesNotMatch(read('renderer/js/facecapture.js'), /maxFps/, 'so does the watch\'s recording');
   assert.match(read('renderer/js/state.js'), /voiceWorking: false,/);
 });

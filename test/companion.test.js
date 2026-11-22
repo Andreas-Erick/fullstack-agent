@@ -576,7 +576,7 @@ test('approvals for self-changes and connector trust can’t be answered from a 
   }
   const ok = await fetch(`${base}/api/approvals/cal1`, { method: 'POST', headers: auth, body: JSON.stringify({ allow: true }) });
   assert.strictEqual(ok.status, 200, 'ordinary approvals still work from the phone');
-  const src = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'remote', 'app.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'remote', 'approvals.js'), 'utf8');
   assert.match(src, /a\.desktopOnly \? el\('div', \{ class: 'desktop-only' \}/, 'the phone shows no buttons for them');
   companion.publish('approval:cancel', { id: 'self1' });
   companion.publish('approval:cancel', { id: 'trust1' });

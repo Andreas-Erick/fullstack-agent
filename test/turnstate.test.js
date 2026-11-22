@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { ROOT, tmpDir } = require('./helpers');
+const { ROOT, tmpDir, phoneClientSource } = require('./helpers');
 
 const ESM = tmpDir('nexus-turnstate-');
 fs.writeFileSync(path.join(ESM, 'package.json'), '{"type":"module"}');
@@ -309,7 +309,7 @@ test('the face: one rule for the desktop and the phone', () => {
   // Both clients go through it (state.js refreshAgentState, the phone's refreshFace / agentState).
   const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
   assert.match(read('renderer/js/state.js'), /const s = faceState\(\{/);
-  assert.match(read('renderer/remote/app.js'), /const s = faceState\(faceNow\(\)\);/);
+  assert.match(read('renderer/remote/face.js'), /const s = faceState\(faceNow\(\)\);/);
 });
 
 test('one tool label table for the desktop and the phone; the app’s own MCP names read like the tools', () => {
@@ -319,7 +319,7 @@ test('one tool label table for the desktop and the phone; the app’s own MCP na
   assert.strictEqual(chatcore.toolLabel('mcp__claude_ai_Todoist__find-tasks'), '🔌 Todoist · find tasks');
   assert.strictEqual(chatcore.toolLabel('toString'), '🔧 toString', 'only the table’s own entries');
   assert.strictEqual(chatcore.toolLabel(''), '🔧 tool');
-  const app = fs.readFileSync(path.join(ROOT, 'renderer/remote/app.js'), 'utf8');
+  const app = phoneClientSource();
   assert.doesNotMatch(app, /TOOL_WORDS/, 'the phone keeps no table of its own');
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'renderer/js/chat.js'), 'utf8'), /const TOOL_LABELS = \{/);
   // The stamp: one helper on both sides.

@@ -34,7 +34,8 @@ function jsFiles(root) {
 }
 
 const KEYWORDS = new Set(['if', 'for', 'while', 'switch', 'catch', 'function', 'return', 'with']);
-const isModule = (rel) => rel.startsWith('renderer/js/') || rel === 'renderer/remote/app.js';
+// The phone client (renderer/remote) is ES modules too, all but its service worker (a classic script).
+const isModule = (rel) => rel.startsWith('renderer/js/') || (rel.startsWith('renderer/remote/') && rel.endsWith('.js') && rel !== 'renderer/remote/sw.js');
 const lineOf = (text, index) => text.slice(0, index).split('\n').length;
 
 // main/tools.js and its groups (main/tools/<group>.js) define the agent's tools.

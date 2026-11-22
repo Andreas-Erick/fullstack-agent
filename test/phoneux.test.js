@@ -6,7 +6,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { ROOT, tmpDir } = require('./helpers');
+const { ROOT, tmpDir, phoneClientSource } = require('./helpers');
 
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 // sync.js is an ES module in a CommonJS package: loaded from an .mjs copy (as test/sync.test.js does).
@@ -105,7 +105,7 @@ test('releasePlan: a short press or one before the microphone started keeps list
 
 // ------------------------------------------------------------------ source contracts
 test('the phone page never shows a bare status or the browser’s own error text', () => {
-  const app = read('renderer/remote/app.js');
+  const app = phoneClientSource();
   assert.doesNotMatch(app, /`Error \$\{/, 'every status goes through plainStatus');
   assert.match(app, /networkFailure\(err\)\) throw new NetError/, 'fetchWithin turns "Failed to fetch" into NetError');
   assert.doesNotMatch(app, /Something went wrong: \$\{/, 'a script error is a plain sentence, its text under Details');
@@ -116,7 +116,7 @@ test('the phone page never shows a bare status or the browser’s own error text
 });
 
 test('push-to-talk works by tap, hold, keyboard and TalkBack, and says when it listens', () => {
-  const app = read('renderer/remote/app.js');
+  const app = phoneClientSource();
   assert.match(app, /mic\.addEventListener\('click'/, 'Enter, Space and a screen reader’s double tap reach it as a click');
   assert.match(app, /releasePlan\(\{ heldMs, starting: rec\.starting \}\)/);
   assert.match(app, /setAttribute\('aria-pressed', 'true'\)/);
@@ -130,7 +130,7 @@ test('notices let taps through unless they carry a button; the list stays pinned
   const css = read('renderer/remote/styles.css');
   assert.match(css, /\.toast \{[^}]*pointer-events: none/);
   assert.match(css, /\.toast\.actionable \{[^}]*pointer-events: auto/);
-  const app = read('renderer/remote/app.js');
+  const app = phoneClientSource();
   assert.match(app, /new ResizeObserver\(\(\) => stick &&/);
   assert.match(app, /document\.body\.classList\.toggle\('kbd', kbd\.up\)/);
   assert.match(css, /body\.kbd:not\(\.wide\):not\(\.face-full\) \.face-wrap, body\.kbd:not\(\.wide\):not\(\.face-full\) #tabs \{ display: none !important; \}/);
@@ -156,7 +156,7 @@ test('Android: the microphone and notifications refused for good lead to the app
   assert.match(src, /protected void onResume\(\) \{[\s\S]*?backgroundOn\(\) != bgReported\) reportBackground\(/, 'checked again when the app comes back');
   assert.match(src, /Settings\.ACTION_APP_NOTIFICATION_SETTINGS/);
   assert.match(src, /Settings\.ACTION_APPLICATION_DETAILS_SETTINGS/);
-  const app = read('renderer/remote/app.js');
+  const app = phoneClientSource();
   assert.match(app, /window\.nexusMicBlocked = /);
   assert.match(app, /bridge\('openAppSettings', 'app'\)/);
   assert.match(app, /bridge\('openAppSettings', 'notifications'\)/);
@@ -189,9 +189,9 @@ test('phone Markdown can never stand in for the page’s own elements (SEC-03)',
   for (const attr of ['style', 'for', 'form', 'formaction', 'action']) assert.ok(PHONE_PURIFY.FORBID_ATTR.includes(attr), attr);
   assert.strictEqual(PHONE_PURIFY.SANITIZE_NAMED_PROPS, true, 'ids and names get the user-content- prefix');
   assert.ok(Object.isFrozen(PHONE_PURIFY));
-  const app = read('renderer/remote/app.js');
+  const app = phoneClientSource();
   assert.match(app, /window\.DOMPurify\.sanitize\(html, \{ \.\.\.PHONE_PURIFY \}\)/, 'markdown() uses the profile');
   // The message box is taken once, before anything is drawn; Send never looks it up again.
-  assert.match(app, /^const inputEl = document\.getElementById\('input'\);$/m);
+  assert.match(app, /^(?:export )?const inputEl = document\.getElementById\('input'\);$/m);
   assert.doesNotMatch(app, /\$\('#input'\)|querySelector\('#input'\)/, 'no lookup of #input after load');
 });

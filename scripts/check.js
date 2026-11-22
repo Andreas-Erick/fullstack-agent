@@ -16,8 +16,9 @@ const walk = (dir, out = []) => {
 const cjs = ['preload.js', ...walk('main')];
 // Renderer modules (recursively), plus the custom-face API.
 const esm = walk('renderer/js');
-// The phone client (renderer/remote): app.js is a module, the service worker a classic script.
-esm.push('renderer/remote/app.js');
+// The phone client (renderer/remote): its modules (app.js and the parts it is split into), the service
+// worker a classic script.
+esm.push(...fs.readdirSync(path.join(root, 'renderer/remote')).filter((f) => f.endsWith('.js') && f !== 'sw.js').map((f) => `renderer/remote/${f}`));
 cjs.push('renderer/faces/core.js', 'renderer/remote/sw.js', ...fs.readdirSync(path.join(root, 'scripts')).map((f) => `scripts/${f}`));
 if (fs.existsSync(path.join(root, 'test'))) cjs.push(...walk('test'));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-check-'));
