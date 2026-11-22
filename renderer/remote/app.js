@@ -1983,7 +1983,8 @@ function setFx(fx) {
   store.set(FX_KEY, level);
   document.body.classList.toggle('fx-hud', level === 'hud');
   document.body.classList.toggle('fx-subtle', level === 'subtle');
-  document.body.classList.toggle('fx-still', level !== 'off' && stillMedia.matches);
+  // Reduce motion means still at every effects level (as the desktop's hud.js): the base loops run with effects off too.
+  document.body.classList.toggle('fx-still', stillMedia.matches);
 }
 setFx(store.get(FX_KEY) || 'hud');
 
