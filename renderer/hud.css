@@ -632,7 +632,7 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 /* ---------------------------------------------------------------- docs: awaiting input */
 :is(.fx-hud, .fx-subtle) .doc-empty { position: relative; overflow: hidden; }
 :is(.fx-hud, .fx-subtle) .doc-empty p { position: relative; max-width: 420px; font-family: var(--hud-mono); font-size: 12px; letter-spacing: 0.06em; line-height: 1.7; }
-:is(.fx-hud, .fx-subtle) .doc-empty p::before { content: 'AWAITING INPUT' / ''; display: block; margin-bottom: 10px; font-size: 13px; letter-spacing: 0.4em; color: rgb(var(--c1)); text-shadow: 0 0 12px rgba(var(--c1), 0.7); }
+:is(.fx-hud, .fx-subtle) .doc-empty .first-step::before { content: 'AWAITING INPUT' / ''; display: block; margin-bottom: 2px; font-family: var(--hud-mono); font-size: 13px; letter-spacing: 0.4em; color: rgb(var(--c1)); text-shadow: 0 0 12px rgba(var(--c1), 0.7); }
 :is(.fx-hud, .fx-subtle) .doc-empty::before,
 :is(.fx-hud, .fx-subtle) .doc-empty::after { content: ''; position: absolute; left: 50%; top: 50%; border-radius: 50%; pointer-events: none; }
 :is(.fx-hud, .fx-subtle) .doc-empty::before { width: 340px; height: 340px; margin: -170px 0 0 -170px; border: 1px dashed rgba(var(--c1), 0.3); }

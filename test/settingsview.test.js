@@ -553,6 +553,7 @@ async function evolution() {
   fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}');
   fs.writeFileSync(path.join(dir, 'util.js'), UTIL_STUB);
   fs.writeFileSync(path.join(dir, 'nav.js'), 'export const switchView = () => {};\n');
+  fs.writeFileSync(path.join(dir, 'firststep.js'), "export const firstStep = ({ title }) => title;\n");
   fs.copyFileSync(path.join(ROOT, 'renderer/js/evolution.js'), path.join(dir, 'evolution.js'));
   const u = await import(pathToFileURL(path.join(dir, 'util.js')).href);
   const evo = await import(pathToFileURL(path.join(dir, 'evolution.js')).href);

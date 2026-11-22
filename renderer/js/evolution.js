@@ -1,6 +1,7 @@
 // Evolution view: the history of changes the agent made to its own code, with diff, revert and restore.
 import { $, api, el, timeAgo, toast, toastError, toastActions, confirmDialog, promptDialog, escapeHtml, on } from './util.js';
 import { switchView } from './nav.js';
+import { firstStep } from './firststep.js';
 
 let selected = null;
 let selfBusy = ''; // 'record' | 'discard' while it runs: the checks and tests take minutes, and a redraw mustn't offer them again
@@ -146,7 +147,8 @@ export async function refresh() {
       ),
     );
   }
-  if (!log.length) list.append(el('div', { class: 'muted', style: { padding: '10px' } }, 'No changes yet.'));
+  // Nothing changed yet: what will show up here, and how to ask for the first change (spec #17).
+  if (!log.length) list.append(firstStep({ cls: 'evo-first', title: 'No changes yet', text: 'When you ask Siren to change how it works, each change it makes to its own code appears here, checked and recorded, so you can look at it or undo it.', ask: { label: '“Change yourself so that …”', text: 'Change yourself so that ' } }));
 }
 
 function renderDiff(text) {

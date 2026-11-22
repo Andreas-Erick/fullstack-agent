@@ -8,7 +8,7 @@ let current = null;
 let openSeq = 0; // the latest open: a slow docs:load never replaces a document asked for after it
 
 export function initDocs() {
-  $('#docOpen').onclick = async () => {
+  const pick = async () => {
     try {
       const doc = await api.docs.pick();
       if (!doc) return;
@@ -18,6 +18,8 @@ export function initDocs() {
       toastError(err);
     }
   };
+  $('#docOpen').onclick = pick;
+  $('#docOpenEmpty').onclick = pick; // the empty viewer's first step (spec #17); gone once a document shows
   $('#docExternal').onclick = () => current && api.docs.openExternal(current.path).catch(toastError);
   $('#docAsk').onclick = () => {
     if (!current) return;

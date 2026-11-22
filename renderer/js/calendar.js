@@ -1,8 +1,9 @@
 // Calendar view: the user's schedule from Schedule.md in the vault (main/calendar.js), as a month
 // grid, a week time grid or an agenda, with today's readout and the repeating rules on the side.
 // The agent adds entries from what the user tells it; the user can add and edit them here too.
-import { $, api, el, toast, toastError, modal, confirmDialog, on, emit, dialogOpen } from './util.js';
-import { switchView } from './nav.js';
+import { $, api, el, toast, toastError, modal, confirmDialog, on, emit, dialogOpen, plainError } from './util.js';
+import { saveSettings } from './state.js';
+import { firstStep, prefillChat, libraryAction, libraryOffText } from './firststep.js';
 
 const DAY = 86400000;
 const HOUR_PX = 46;
@@ -79,9 +80,9 @@ function taskDetails(t) {
         'div',
         { class: 'modal-actions' },
         el('button', { class: 'btn', onclick: () => close(null) }, 'Close'),
-        el('button', { class: 'btn', onclick: () => (close(null), askAgent(`In ${SOURCE_NAME[t.source]}, move the task “${t.title}” to `)) }, 'Reschedule…'),
+        el('button', { class: 'btn', onclick: () => (close(null), prefillChat(`In ${SOURCE_NAME[t.source]}, move the task “${t.title}” to `)) }, 'Reschedule…'),
         t.url ? el('button', { class: 'btn', onclick: () => api.shell.openExternal(t.url) }, `Open in ${SOURCE_NAME[t.source]} ↗`) : null,
-        el('button', { class: 'btn primary', onclick: () => (close(null), askAgent(`Mark the ${SOURCE_NAME[t.source]} task “${t.title}” as done.`)) }, 'Mark done…'),
+        el('button', { class: 'btn primary', onclick: () => (close(null), prefillChat(`Mark the ${SOURCE_NAME[t.source]} task “${t.title}” as done.`)) }, 'Mark done…'),
       ),
     );
   });
@@ -221,7 +222,7 @@ export async function refresh() {
   $('#calRange').textContent = rangeLabel(from, to);
   const status = await api.calendar.status().catch(() => ({}));
   $('#calObsidian').classList.toggle('hidden', !status.vault);
-  if (!status.vault || !status.enabled) return body.replaceChildren(offPanel(status));
+  if (!status.vault || !status.enabled) return body.replaceChildren(await offPanel(status));
   if (status.unreadable) return body.replaceChildren(errorPanel(status.unreadable));
   try {
     const [events, list, upcoming, tasks] = await Promise.all([
@@ -236,22 +237,50 @@ export async function refresh() {
     return;
   }
   $('#calStamp').textContent = `${cal.entries.length} ENTR${cal.entries.length === 1 ? 'Y' : 'IES'} · ${cal.entries.filter((e) => e.repeats).length} REPEATING · W${isoWeek(new Date())}`;
-  const main = el('div', { class: `cal-main glass cal-${cal.mode}` }, cal.mode === 'month' ? monthView(from) : cal.mode === 'week' ? weekView(from) : agendaView());
+  // Nothing in the month or week shown: the first step above the (empty) grid, which stays to click a day on.
+  const main = el('div', { class: `cal-main glass cal-${cal.mode}` }, cal.mode !== 'agenda' && nothingIn(from, to) ? nothingPlanned('cal-first') : null, cal.mode === 'month' ? monthView(from) : cal.mode === 'week' ? weekView(from) : agendaView());
   body.replaceChildren(el('div', { class: 'cal-layout' }, main, sidePanel()));
   if (cal.mode === 'week') scrollWeek(main);
   clearInterval(cal.nowTimer);
   cal.nowTimer = setInterval(tickNow, 60000);
 }
 
-function offPanel(status) {
-  const off = status.enabled === false;
-  return el(
-    'div',
-    { class: 'cal-empty glass' },
-    el('h3', { class: 'display' }, off ? 'The calendar is off' : 'Your schedule lives in the vault'),
-    el('p', { class: 'muted' }, off ? 'Turn it on in Settings → Calendar to see your schedule and let the agent keep it.' : 'The agent keeps your schedule as a note (Schedule.md) in its vault. Turn the vault on to use the calendar.'),
-    el('div', { class: 'row', style: { justifyContent: 'center' } }, el('button', { class: 'btn primary', onclick: () => switchView('settings', off ? 'calendar' : 'obsidian') }, 'Open settings')),
-  );
+// The calendar or the notes library is off: one sentence and the switch itself, right here (spec #17).
+async function offPanel(status) {
+  if (status.vault) {
+    const turnOn = el('button', { type: 'button', class: 'btn primary' }, 'Turn on the calendar');
+    turnOn.onclick = async () => {
+      turnOn.disabled = true;
+      try {
+        await saveSettings({ calendar: { enabled: true } });
+        emit('status-refresh');
+        await refresh();
+      } catch (err) {
+        turnOn.disabled = false;
+        toastError(plainError(err));
+      }
+    };
+    return firstStep({ cls: 'cal-empty', glass: true, title: 'The calendar is off', text: 'Turn it on to see your schedule here and let the assistant keep it for you.', action: turnOn });
+  }
+  const library = await api.obsidian.status().catch(() => ({}));
+  return firstStep({ cls: 'cal-empty', glass: true, title: 'Your schedule needs the notes library', text: libraryOffText(library, 'your schedule'), action: libraryAction(library, refresh) });
+}
+
+// Nothing in the range shown (a month or a week, or the agenda's four weeks).
+function nothingIn(from, to) {
+  if (cal.events.length) return false;
+  for (let d = from; d < to; d = addDays(d, 1)) if (tasksOn(d).length) return false;
+  return true;
+}
+
+function nothingPlanned(cls) {
+  return firstStep({
+    cls,
+    title: !cal.entries.length ? 'Nothing planned yet' : cal.mode === 'month' ? 'Nothing planned this month' : cal.mode === 'week' ? 'Nothing planned this week' : 'Nothing in the next four weeks',
+    text: 'Add an event here, or tell the assistant and it keeps your schedule for you.',
+    action: el('button', { type: 'button', class: 'btn primary', onclick: () => editor({ date: ymd(cal.selected) }) }, '＋ Add an event'),
+    ask: { label: '“remind me Friday at 3”', text: 'Remind me Friday at 3 to ' },
+  });
 }
 
 // Schedule.md is there but couldn't be read (locked by a sync or virus scan, only in the cloud): never an
@@ -464,7 +493,7 @@ function agendaView() {
       ),
     );
   }
-  if (!list.childElementCount) list.append(emptyHint('Nothing in the next four weeks.'));
+  if (!list.childElementCount) list.append(nothingPlanned('cal-agenda-first'));
   return list;
 }
 
@@ -537,16 +566,8 @@ function emptyHint(text) {
     { class: 'cal-hint' },
     el('p', { class: 'muted' }, text),
     el('p', { class: 'muted' }, 'Tell the agent, for example:'),
-    el('button', { class: 'chip-btn', onclick: () => askAgent('I have a lecture every Monday at 10:00 in room ') }, '“I have a lecture every Monday at 10:00 in …”'),
+    el('button', { class: 'chip-btn', onclick: () => prefillChat('I have a lecture every Monday at 10:00 in room ') }, '“I have a lecture every Monday at 10:00 in …”'),
   );
-}
-
-function askAgent(text) {
-  switchView('chat');
-  const input = $('#input');
-  input.value = text;
-  input.dispatchEvent(new Event('input'));
-  input.focus();
 }
 
 // ------------------------------------------------------------ details & editing

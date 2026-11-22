@@ -3,6 +3,7 @@
 import { $, api, el, renderMarkdown, timeAgo, debounce, toast, toastError, confirmDialog, modal, on, plainError } from './util.js';
 import { switchView, currentView } from './nav.js';
 import { openDocument } from './docs.js';
+import { firstStep, libraryAction, libraryOffText } from './firststep.js';
 
 let notes = [];
 let selected = null;
@@ -52,15 +53,8 @@ export async function refresh() {
   if (!st.ok) {
     list.innerHTML = '';
     $('#kbNote').innerHTML = '';
-    $('#kbNote').append(
-      el(
-        'div',
-        { class: 'cal-empty' },
-        el('h3', { class: 'display' }, 'Vault disabled'),
-        el('p', { class: 'muted' }, 'The agent’s own Obsidian vault is turned off or its folder is unavailable.'),
-        el('button', { class: 'btn primary', onclick: () => switchView('settings', 'obsidian') }, 'Vault settings'),
-      ),
-    );
+    // Off or its folder gone: the switch or the folder picker right here, not a trip to Settings (spec #17).
+    $('#kbNote').append(firstStep({ cls: 'cal-empty', title: st.enabled === false ? 'The notes library is off' : 'The notes library’s folder is missing', text: libraryOffText(st, 'notes, memories and your schedule'), action: libraryAction(st, refresh) }));
     return;
   }
   listError = null;
