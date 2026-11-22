@@ -10,9 +10,14 @@ const path = require('path');
 const { ROOT, stub, load, quietLog } = require('./helpers');
 
 const tools = fs.readFileSync(path.join(ROOT, 'main/tools.js'), 'utf8');
+// The brains' own sections come from the brain table (pure data): SETTABLE spreads agentSettable(),
+// SECRET_FIELDS spreads SECRET_KEYS. Both spreads are required, so nothing is read past.
+const braintable = require('../renderer/js/braintable.mjs');
 const settable = () => {
   const block = /const SETTABLE = \{([\s\S]*?)\n\};/.exec(tools)[1];
-  const out = {};
+  assert.match(block, /^\s*\.\.\.braintable\.agentSettable\(\),$/m);
+  assert.strictEqual([...block.matchAll(/\.\.\./g)].length, 1, 'no other spread in SETTABLE');
+  const out = { ...braintable.agentSettable() };
   for (const m of block.matchAll(/^\s*(\w+):\s*\[([^\]]*)\]/gm)) out[m[1]] = [...m[2].matchAll(/'([^']+)'/g)].map((x) => x[1]);
   return out;
 };
@@ -31,7 +36,9 @@ test('the agent can change none of the user-only sections or dangerous keys', ()
 
 test('every secret field stays out of SETTABLE and out of the setup list', () => {
   const src = fs.readFileSync(path.join(ROOT, 'main/store.js'), 'utf8');
-  const secrets = [...(/const SECRET_FIELDS = \[([\s\S]*?)\n\];/.exec(src)[1]).matchAll(/\['(\w+)', '(\w+)'\]/g)].map((m) => [m[1], m[2]]);
+  const block = /const SECRET_FIELDS = \[([\s\S]*?)\n\];/.exec(src)[1];
+  assert.match(block, /^\s*\.\.\.braintable\.SECRET_KEYS,/m);
+  const secrets = [...block.matchAll(/\['(\w+)', '(\w+)'\]/g)].map((m) => [m[1], m[2]]).concat(braintable.SECRET_KEYS);
   assert.ok(secrets.length >= 10);
   const s = settable();
   const setup = /const SETUP_SETTABLE = \[([\s\S]*?)\];/.exec(tools)[1];

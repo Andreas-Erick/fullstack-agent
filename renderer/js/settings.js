@@ -1,7 +1,7 @@
 // Configuration dashboard. Every control auto-saves to settings.json (secrets are encrypted at rest).
 import { $, api, el, escapeHtml, toast, toastError, confirmDialog, on, emit, modal, logEvent, plainError } from './util.js';
 import { testFailure } from './chatcore.js';
-import { ownEndpoint, name as brainName } from './braintable.mjs';
+import { ownEndpoint, brain, name as brainName } from './braintable.mjs';
 import { state, saveSettings, savePersonaSettings, loadSettings } from './state.js';
 import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice, forgetVoiceLines } from './voice.js';
 import { KOKORO_VOICES } from './kokorotext.js';
@@ -1109,17 +1109,8 @@ function brainCard() {
 // ------------------------------------------------------- multi-provider
 // The ranked provider list: drag (or ▲▼) to set the fallback order, switch providers on and off,
 // expand one to add its key and pick its model.
+// Each provider's line under it is its row's `blurb` in the brain table.
 let refreshRouting = null;
-const PROVIDER_HINT = {
-  'claude-code': 'Your Claude subscription through Claude Code. Best for tools, code and long tasks.',
-  anthropic: 'Pay-per-use Claude API key.',
-  gemini: 'Google Gemini. Free tier available; very long context.',
-  deepseek: 'DeepSeek. Low-cost, strong at code.',
-  groq: 'Groq. Very fast replies (good for voice); free tier available.',
-  perplexity: 'Perplexity Sonar. Searches the web itself; no tools (calendar, notes…).',
-  openai: 'FreeLLMAPI or any OpenAI-compatible server.',
-  local: 'A model running on this computer with Ollama or LM Studio: private, free, and quick for short replies with a small model. Smart routing sends quick spoken replies here first.',
-};
 
 // A local brain passes what it can't do well to Claude (main/llm.js runSingle). Off by default: it sends
 // those messages off this computer.
@@ -1284,7 +1275,7 @@ function providerRow(p, index, rows, opened, redraw) {
 }
 
 function providerConfig(p) {
-  const hint = el('div', { class: 'hint' }, PROVIDER_HINT[p.id] || '');
+  const hint = el('div', { class: 'hint' }, brain(p.id)?.blurb || '');
   const after = () => refreshRouting?.();
   if (p.id === 'claude-code') {
     return [
