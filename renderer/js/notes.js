@@ -3,7 +3,7 @@
 // "Saved ✓"), a new note lands in the list with a little pop, [[ suggests your other notes, Ctrl+E shows
 // the rendered note, and Dump is a blank page for getting everything out of your head (Ctrl+Enter: saved,
 // a fresh page; Esc: saved and closed). The assistant reads them like any vault note.
-import { $, api, el, renderMarkdown, timeAgo, toast, toastError, pushToast, on, plainError } from './util.js';
+import { $, api, el, renderMarkdown, timeAgo, toast, toastError, pushToast, on, emit, plainError } from './util.js';
 import { switchView, currentView } from './nav.js';
 import * as fmt from './notesedit.js';
 
@@ -538,6 +538,7 @@ function saveBody(done) {
     try {
       ownSave = { path: note.path, at: Date.now() };
       await api.notebook.save(note.path, { body: text });
+      if (text.trim()) emit('note-saved'); // the getting-started card's step (gettingstarted.js)
       if (current === note && note.body === text) dirty = Boolean(titleTimer);
       const item = notes.find((x) => x.path === note.path);
       if (item) {
@@ -776,6 +777,7 @@ export function openDump(prefill = '') {
     landed = path;
     total++;
     store.set(DRAFT_KEY, null);
+    emit('note-saved');
     saved.textContent = `✓ “${path.split('/').pop().replace(/\.md$/, '')}” saved to your Inbox`;
     saved.classList.remove('show');
     void saved.offsetWidth;

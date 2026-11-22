@@ -293,3 +293,23 @@ test('✎ Edit is refused while a message waits for its files, or while a reply 
   assert.strictEqual(w.outbox.startEdit('u1', null), false, 'the message isn’t there');
   assert.strictEqual(w.outbox.editing, false);
 });
+
+test('prefill (the getting-started card’s Try) fills the box, never sends, and never takes the user’s own words', () => {
+  const w = world();
+  assert.strictEqual(w.outbox.prefill('How can I use you?'), true);
+  assert.strictEqual(w.box, 'How can I use you?');
+  assert.strictEqual(w.sent.length, 0, 'nothing goes out');
+  assert.strictEqual(w.outbox.prefill('Save a note: ideas'), true, 'another Try replaces an example');
+  assert.strictEqual(w.box, 'Save a note: ideas');
+
+  w.box = 'my own words';
+  assert.strictEqual(w.outbox.prefill('How can I use you?'), false);
+  assert.strictEqual(w.box, 'my own words', 'typed words stay');
+  assert.ok(w.log.some((x) => x.startsWith('notify:Your message box already has words')));
+
+  const e = world();
+  e.outbox.startEdit('u1', 'the old message');
+  e.box = '';
+  assert.strictEqual(e.outbox.prefill('x'), false, 'edit mode is left alone');
+  assert.strictEqual(e.sent.length, 0);
+});

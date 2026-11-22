@@ -379,6 +379,70 @@ const FAILED_CARD_JS = (label) => `(async () => {
   for (const [what, sel] of Object.entries(parts)) if (!document.querySelector(sel)) found.push(${JSON.stringify(label)} + ': the chat shows no ' + what);
   return found;
 })()`;
+// The getting-started card in the empty chat (gettingstarted.js over gettingstartedcore.js), from a fresh
+// state (the stored one set aside and put back after): four steps in place of the chips, Try fills the box
+// and sends nothing, a reply done ticks the first step, Hide puts it away and the chips come back, and a new
+// chat stays without it. Nothing cut off, every control named. Ends in Split with csmoke01 open.
+const GETTING_STARTED_JS = (label) => `(async () => {
+  const L = ${JSON.stringify(label)};
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const found = [];
+  const KEY = 'siren.gettingStarted';
+  const { setLayout } = await import('./js/layout.js');
+  const chat = await import('./js/chat.js');
+  const gs = await import('./js/gettingstarted.js');
+  let kept = null;
+  try { kept = localStorage.getItem(KEY); localStorage.removeItem(KEY); } catch {} // storage blocked: the card is fresh anyway
+  gs.reload();
+  // The wizard (shown on this fresh install) makes the window behind it inert: hidden meanwhile, as the view walk does.
+  const wizard = document.querySelector('#onboarding');
+  const hadWizard = !wizard.classList.contains('hidden');
+  wizard.classList.add('hidden');
+  await wait(100);
+  document.querySelector('.rail-btn[data-view="chat"]').click();
+  setLayout('split');
+  for (let i = 0; i < 30 && document.querySelector('#view-chat.layout-face'); i++) await wait(100);
+  const input = document.querySelector('#input');
+  const draft = input.value;
+  input.value = '';
+  try {
+    chat.newChat({ focus: false });
+    await wait(400);
+    const empty = document.querySelector('#messages .empty-state');
+    const card = empty?.querySelector('.gs-card');
+    if (!card) return [L + ': the empty chat shows no getting-started card'];
+    if (card.querySelectorAll('.gs-step').length !== 4) found.push(L + ': the card has ' + card.querySelectorAll('.gs-step').length + ' steps, not 4');
+    if (!empty.querySelector('.suggestions')?.classList.contains('hidden')) found.push(L + ': the suggestion chips show beside the card');
+    const clip = await import('./js/cliptest.js');
+    for (const c of clip.findClippedText()) found.push(L + ': text cut off (' + c.how + ') at ' + c.where + ': "' + c.text + '"');
+    const a11y = await import('./js/a11ytest.js');
+    for (const c of a11y.findUnnamed(card)) found.push(L + ': a control without a name for screen readers: ' + c.where + ' ' + c.html);
+    card.querySelector('.gs-try').click();
+    await wait(100);
+    if (input.value !== 'How can I use you?') found.push(L + ': Try put "' + input.value.slice(0, 60) + '" in the box');
+    if (document.querySelector('#messages .msg')) found.push(L + ': Try sent a message');
+    input.value = '';
+    gs.note('reply-done');
+    const first = card.querySelector('.gs-step');
+    if (!first?.classList.contains('done')) found.push(L + ': a reply done did not tick "Ask anything"');
+    if (!/1 of 4 done/.test(card.querySelector('.gs-count')?.textContent || '')) found.push(L + ': the count reads "' + (card.querySelector('.gs-count')?.textContent || '') + '"');
+    card.querySelector('.gs-hide').click();
+    await wait(100);
+    if (document.querySelector('#messages .gs-card')) found.push(L + ': Hide left the card');
+    if (empty.querySelector('.suggestions')?.classList.contains('hidden')) found.push(L + ': the chips did not come back after Hide');
+    chat.newChat({ focus: false });
+    await wait(200);
+    if (document.querySelector('#messages .gs-card')) found.push(L + ': a hidden card came back in a new chat');
+  } finally {
+    try { if (kept == null) localStorage.removeItem(KEY); else localStorage.setItem(KEY, kept); } catch {} // storage blocked: nothing was stored
+    gs.reload();
+    input.value = draft;
+    await chat.openConversation('csmoke01');
+    await wait(300);
+    if (hadWizard) wizard.classList.remove('hidden');
+  }
+  return found;
+})()`;
 // The setup wizard's Quick start with the brain finder (onboarding.js, onboardcore brainPlan): the welcome's
 // Quick start, the privacy step (its progress label, the five folded points, the "saves as you go" line), then
 // the brain step. The detection is stubbed through the settings: a saved Gemini key on the Gemini brain is
@@ -999,6 +1063,7 @@ async function scanText() {
       await wait(200);
     }
     for (const p of await wc.executeJavaScript(FAILED_CARD_JS(`failed reply card @${w}`), true)) found.add(p);
+    for (const p of await wc.executeJavaScript(GETTING_STARTED_JS(`getting-started card @${w}`), true)) found.add(p);
     if (w === 1600) {
       for (const p of await expecting(cspRefusedHandler, () => wc.executeJavaScript(MARKDOWN_JS(`markdown safety @${w}`), true))) found.add(p); // render
       for (const p of await dialogScene(wc, `dialogs @${w}`)) found.add(p);                                                                       // dialogs
