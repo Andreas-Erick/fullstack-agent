@@ -32,6 +32,8 @@ public class ConnectionService extends Service {
     static final String CH_STATUS = "status";
     static final String CH_ALERTS = "alerts";
     private static final int ID_STATUS = 1;
+    // An approval's detail longer than this is cut, and then has no Allow (onApproval).
+    private static final int DETAIL_MAX = 300;
     private static final String ACTION_STOP = "com.nexusagent.android.STOP";
     /**
      * Without a connection for this long (the computer is off, the phone left the network), the service
@@ -195,15 +197,23 @@ public class ConnectionService extends Service {
         int nid = notifId(id);
         String title = a.optString("title", getString(R.string.approval_title));
         String detail = a.optString("detail", "");
-        if (detail.length() > 300) detail = detail.substring(0, 300) + "…";
-        // A change to the app's own code or a connector's trust is answered only on the computer (companion.js
-        // refuses a device's answer): no Allow or Deny here or on the watch, which would only make it go away.
+        // A detail cut short could hide what a yes would allow behind a harmless start: then there is no Allow
+        // here or on the watch, only Deny, and the user reads the whole request in the app's own card.
+        boolean cut = detail.length() > DETAIL_MAX;
+        if (cut) detail = detail.substring(0, DETAIL_MAX) + "…\n" + getString(R.string.approval_open_to_allow);
+        // What companion.js keeps for the computer (desktopOnly: a command, its own code, where keys go, more
+        // access, publishing…; it refuses a device's answer): no Allow or Deny here or on the watch, which
+        // would only make it go away.
         boolean desktopOnly = a.optBoolean("desktopOnly", false);
         if (desktopOnly) detail = getString(R.string.approval_desktop_only) + (detail.isEmpty() ? "" : "\n" + detail);
         Notification.Builder b = alertBuilder(getString(R.string.approval_title) + ": " + title, detail)
                 .setCategory(Notification.CATEGORY_REMINDER)
                 .setOnlyAlertOnce(true); // open approvals are replayed after a reconnect
-        if (!desktopOnly) {
+        if (!desktopOnly && cut) {
+            b.addAction(action(R.string.action_deny, ApprovalReceiver.intent(this, id, false, nid), nid * 2))
+                    .extend(new Notification.WearableExtender()
+                            .addAction(action(R.string.action_deny, ApprovalReceiver.intent(this, id, false, nid), nid * 2)));
+        } else if (!desktopOnly) {
             b.addAction(action(R.string.action_deny, ApprovalReceiver.intent(this, id, false, nid), nid * 2))
                     // Allow on the phone only once it is unlocked: a locked phone in someone else's hand can't say yes.
                     .addAction(action(R.string.action_allow, ApprovalReceiver.intent(this, id, true, nid), nid * 2 + 1, true))

@@ -55,6 +55,16 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- The launcher's "Talk" shortcut: adds the per-install push-to-talk key and hands over to
+             MainActivity (other apps can't start it; MainActivity ignores a TALK intent without the key). -->
+        <activity
+            android:name=".TalkActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <service
             android:name=".ConnectionService"
             android:exported="false"

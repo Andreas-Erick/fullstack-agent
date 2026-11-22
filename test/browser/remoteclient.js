@@ -252,7 +252,7 @@ async function run() {
     await shot(wc, ffLabel);
     // An approval while the face is full screen: its card is on top, a tap on Allow reaches Allow.
     const ffApproval = `browser-ff-${size.name}`;
-    companion.publish('approval:request', { id: ffApproval, kind: 'command', title: 'Run a quick check', timeoutSec: 60, sources: [] });
+    companion.publish('approval:request', { id: ffApproval, kind: 'settings', title: 'Change a setting', timeoutSec: 60, sources: [] });
     if (!(await until(wc, `!!document.querySelector('#approvals .approval')`))) problems.push(`${ffLabel}: the approval card never showed`);
     else {
       const allow = await wc.executeJavaScript(`(() => { const b = [...document.querySelectorAll('#approvals .approval .btn')].find((x) => x.textContent === 'Allow'); const r = b.getBoundingClientRect(); const el = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)); return { ok: !!el && (el === b || b.contains(el)), on: el ? el.tagName + '#' + el.id + '.' + el.className : 'nothing' }; })()`);
@@ -286,7 +286,8 @@ async function run() {
     else {
       await companion.stop(); // the link drops…
       const { conv, requestId } = pendingTurn;
-      const reply = { id: store.newId('m'), role: 'assistant', content: 'Yes, here from the computer.', createdAt: Date.now() };
+      // The reply also carries a form control dressed as the message box (SEC-03): it must not survive.
+      const reply = { id: store.newId('m'), role: 'assistant', content: 'Yes, here from the computer.\n\n<textarea id="input" name="input" hidden>planted</textarea><button id="composer">x</button>', createdAt: Date.now() };
       conv.messages.push(reply);
       await store.saveConversation(conv); // …the reply is stored as main.js does, then "done" goes to nobody
       companion.publish('chat:event', { requestId, conversationId: conv.id, type: 'done', message: reply });
@@ -298,6 +299,8 @@ async function run() {
       } else {
         const n = await sc.executeJavaScript(`[...document.querySelectorAll('#messages .msg.assistant')].filter((m) => m.innerText.includes('here from the computer')).length`);
         if (n !== 1) problems.push(`${size.name} sync: the reply shows ${n} times`);
+        const clobber = await sc.executeJavaScript(`({ controls: document.querySelectorAll('#messages textarea').length, inputs: document.querySelectorAll('[id="input"], [id="composer"]').length })`);
+        if (clobber.controls || clobber.inputs !== 2) problems.push(`${size.name} sync: a reply's markup stands in for the page's own (${JSON.stringify(clobber)})`);
         if (await sc.executeJavaScript(`document.querySelector('#sendBtn').classList.contains('hidden')`)) problems.push(`${size.name} sync: no send button after the reply`);
       }
       screens[`${size.name}/sync reply`] = await sc.executeJavaScript(`document.querySelector('#messages').innerText.replace(/\\s+/g, ' ').slice(-160)`);

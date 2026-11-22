@@ -1,7 +1,7 @@
 // Phone client for the companion server (main/companion.js, docs/ROADMAP-mobile.md step 2).
 // Talks only to the server it was loaded from. The device token lives in this browser's storage.
 import { initScreens, render as renderScreen, busy as screenBusy, TITLES, screenBack, hasScreenBack } from './screens.js';
-import { streamStale, refreshPlan, convCheck, batcher, backPlan, unsentPlan, priorUsersFor, DEADLINES, transcribeDeadline, retryAction, plainStatus, networkFailure, micError, toastMs, keyboardState, releasePlan } from './sync.js';
+import { streamStale, refreshPlan, convCheck, batcher, backPlan, unsentPlan, priorUsersFor, DEADLINES, transcribeDeadline, retryAction, plainStatus, networkFailure, micError, toastMs, keyboardState, releasePlan, PHONE_PURIFY } from './sync.js';
 // Served by the desktop from renderer/js/ (companion.js STATIC), so loaded by URL, not by file.
 // The conversation's turns from the events, the face's state (turnstate.js), and what a message shows (the
 // tool labels, the stamp, a failed reply in plain words: chatcore.js): the desktop's own modules.
@@ -11,6 +11,9 @@ let mathtext = null;
 import('./js/mathtext.js').then((m) => (mathtext = m)).catch(() => {});
 
 const $ = (s) => document.querySelector(s);
+// The message box, taken once before any message is drawn: whatever a reply renders can never be what
+// Send reads (PHONE_PURIFY also prefixes ids; this holds even if it didn't).
+const inputEl = document.getElementById('input');
 const TOKEN_KEY = 'nexus.token';
 const CONV_KEY = 'nexus.conv';
 const SPEAK_KEY = 'nexus.speak';
@@ -113,7 +116,7 @@ function markdown(text) {
   const math = window.katex && mathtext ? mathtext.extractMath(String(text ?? '')) : { text: String(text ?? ''), items: [] };
   let html = window.marked.parse(math.text, { breaks: true, gfm: true });
   if (math.items.length) html = mathtext.restoreMath(html, math.items, renderTex);
-  return window.DOMPurify.sanitize(html, { FORBID_TAGS: ['style', 'form', 'input', 'img'], FORBID_ATTR: ['style'], ADD_ATTR: ['target'] });
+  return window.DOMPurify.sanitize(html, { ...PHONE_PURIFY });
 }
 
 function renderTex(tex, display) {
@@ -863,13 +866,13 @@ async function send(text) {
 
 $('#composer').addEventListener('submit', (e) => {
   e.preventDefault();
-  const input = $('#input');
+  const input = inputEl;
   const text = input.value;
   input.value = '';
   autosize();
   send(text);
 });
-$('#input').addEventListener('keydown', (e) => {
+inputEl.addEventListener('keydown', (e) => {
   // On a hardware keyboard Enter sends; Shift+Enter makes a new line.
   // Tablets count too: a Book Cover keyboard doesn't make the pointer "fine".
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && (matchMedia('(pointer: fine)').matches || document.body.classList.contains('wide'))) {
@@ -878,11 +881,11 @@ $('#input').addEventListener('keydown', (e) => {
   }
 });
 const autosize = () => {
-  const i = $('#input');
+  const i = inputEl;
   i.style.height = '48px';
   i.style.height = `${Math.min(140, Math.max(48, i.scrollHeight + 2))}px`;
 };
-$('#input').addEventListener('input', autosize);
+inputEl.addEventListener('input', autosize);
 $('#stopBtn').addEventListener('click', () => {
   const id = chat.own?.requestId;
   if (id) api(`/api/chat/${encodeURIComponent(id)}/abort`, { method: 'POST', body: {} }).catch((err) => toast(err.message));
@@ -1416,7 +1419,7 @@ function updateFaceLabel() {
 }
 setInterval(updateFaceLabel, 1000);
 for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => (state.lastActivity = Date.now()), { passive: true });
-for (const ev of ['focus', 'pointerdown', 'keydown', 'input']) $('#input').addEventListener(ev, () => (wake(), updateFaceLabel()));
+for (const ev of ['focus', 'pointerdown', 'keydown', 'input']) inputEl.addEventListener(ev, () => (wake(), updateFaceLabel()));
 $('#micBtn').addEventListener('pointerdown', () => (wake(), updateFaceLabel()));
 
 // The scene behind the face: fetched when its key in /api/info changes, cleaned again here (DOMPurify's
@@ -1808,7 +1811,7 @@ $('#schedList').addEventListener('pointerup', (e) => {
 }, { passive: true });
 
 function prefill(text) {
-  const input = $('#input');
+  const input = inputEl;
   input.value = text;
   autosize();
   input.focus();
@@ -1884,7 +1887,7 @@ function noteClient(v) {
 }
 function reloadWhenFree() {
   reloadTimer = 0;
-  const typing = $('#input').value.trim() || ($('#composer').contains(document.activeElement) && document.activeElement.matches('textarea'));
+  const typing = inputEl.value.trim() || ($('#composer').contains(document.activeElement) && document.activeElement.matches('textarea'));
   const recording = !$('#recBar').classList.contains('hidden');
   const reading = state.view !== 'chat' && state.view !== 'sched' && screenBusy(state.view);
   if (replying() || state.face === 'speaking' || typing || recording || reading) reloadTimer = setTimeout(reloadWhenFree, 5000);
@@ -2000,7 +2003,7 @@ async function start() {
 // ------------------------------------------------------------------ Android app
 // Shared text (Share → Nexus) goes into the message box for the user to check and send.
 window.nexusShare = (text) => {
-  const input = $('#input');
+  const input = inputEl;
   input.value = input.value ? `${input.value}\n${text}` : text;
   autosize();
   input.focus();
