@@ -3,6 +3,7 @@
 // main/attachcore.js (the chartcore pattern). What may be attached and how big, safe file names, the
 // <attachment> blocks a message carries before the user's words, and reading them back. No DOM and no
 // Node here: Uint8Array, TextDecoder and atob only (test/attachments.test.js, test/attachflow.test.js).
+import { BRAINS } from './braintable.mjs'; // which brains see pictures (pure data)
 
 export const LIMITS = {
   files: 6, // attachments per message
@@ -545,8 +546,9 @@ export function chipFor(meta) {
 export const summary = (meta) => `📎 ${names(meta)}`;
 
 // ------------------------------------------------------------------ brains and pictures
-/** Which brains see images (main/router.js PROVIDERS vision); null = it depends on the model. */
-export const SEES_IMAGES = { 'claude-code': true, anthropic: true, gemini: true, deepseek: false, groq: false, perplexity: false, local: false, openai: null, auto: null };
+/** Which brains see images (the brain table's `vision`); null = it depends on the model (FreeLLMAPI) or,
+ *  for multi-provider, on the brain the router picks (one that sees goes first for a picture). */
+export const SEES_IMAGES = Object.fromEntries(BRAINS.map((b) => [b.id, b.path === 'router' || b.visionByModel ? null : Boolean(b.vision)]));
 
 /** The warning on an image chip for the current brain, or ''. */
 export function visionHint(provider) {

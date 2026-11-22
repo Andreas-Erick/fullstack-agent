@@ -16,16 +16,10 @@ const PROVIDERS = Object.fromEntries(
 );
 const IDS = Object.keys(PROVIDERS);
 
-// Which providers suit which kind of task, best first. Only providers the user enabled are used,
-// and the rest of their list follows in their own order.
-const PREFER = {
-  code: ['claude-code', 'anthropic', 'deepseek', 'gemini'],
-  search: ['perplexity', 'gemini'],
-  quick: ['local', 'groq', 'gemini', 'claude-code', 'anthropic'],
-  long: ['gemini', 'anthropic', 'claude-code'],
-  deep: ['anthropic', 'claude-code', 'gemini', 'deepseek'],
-};
+// Which providers suit which kind of task, best first (each row's `prefer` ranks in the brain table).
+// Only providers the user enabled are used, and the rest of their list follows in their own order.
 const TASK_LABEL = { code: 'code', search: 'a web question', quick: 'a quick spoken reply', long: 'a long input', deep: 'deep mode' };
+const PREFER = Object.fromEntries(Object.keys(TASK_LABEL).map((task) => [task, brains.preferFor(task)]));
 
 const limits = new Map(); // provider id -> { until, reason }
 let claudeStatus = { at: 0, st: null };
@@ -243,4 +237,4 @@ async function complete(settings, text, run) {
   throw lastErr;
 }
 
-module.exports = { PROVIDERS, label, order, plan, concrete, runTurn, complete, failed, succeeded, status, reset, classifyTask, classifyError };
+module.exports = { PROVIDERS, PREFER, label, order, plan, concrete, runTurn, complete, failed, succeeded, status, reset, classifyTask, classifyError };
