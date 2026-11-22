@@ -5,7 +5,7 @@ import { createChat } from './turnstate.js';
 import { switchView, currentView } from './nav.js';
 import { currentUsage } from './usage.js';
 import { practiceLanguage, quoteFilter } from './practice.js';
-import { state, setFlag, setCaption, ttsActive, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
+import { state, setFlag, setCaption, saveSettings, loadSettings, raiseAlert, celebrate } from './state.js';
 import { logEvent } from './util.js';
 import * as chatcore from './chatcore.js';
 import { initAttach, tray, attachmentsSummary } from './attach.js';
@@ -13,7 +13,7 @@ import * as attachcore from './attachcore.mjs';
 import { createOutbox } from './outbox.js';
 import { showNote } from './notes.js';
 import { showVaultNote, searchVault } from './knowledge.js';
-import { speaker } from './voice.js';
+import { replySpeech } from './voice.js';
 import { handoffSlot } from './handoff.js';
 import { initHistory, closeHistory, refreshList, drawList } from './history.js';
 import { createReplyCard, scrollFor } from './replycard.js';
@@ -100,7 +100,7 @@ export function initChat() {
 
   $('#speakToggle').onclick = async () => {
     await saveSettings({ voice: { autoSpeak: !state.settings.voice.autoSpeak } });
-    if (!state.settings.voice.autoSpeak) speaker.stop();
+    if (!state.settings.voice.autoSpeak) replySpeech.stop();
   };
   on('settings', updateSpeakToggle);
   initAttach();
@@ -355,7 +355,7 @@ function metaNode(m) {
   if (copy) meta.append(el('button', { onclick: () => navigator.clipboard.writeText(copy).then(() => toast('Copied'), toastError) }, 'Copy'));
   if (m.role === 'assistant') {
     meta.append(
-      el('button', { onclick: () => speaker.say(m.content || '') }, 'Speak'),
+      el('button', { onclick: () => replySpeech.say(m.content || '') }, 'Speak'),
       el('button', { title: 'Save this reply as a note in your vault Inbox', onclick: () => api.notes.quick(m.content || '').then((r) => toast(`Saved to ${r.path}`), toastError) }, 'Save as note'),
       el('button', {
         title: 'Save this reply as a PDF',
@@ -523,7 +523,7 @@ export async function send(text, opts = {}) {
 // The message on screen and to main. Returns { refused } or { error } (drawn here; the outbox gives the
 // words and files back), else {}.
 async function deliver({ text, voice, hidden, redo: again, kept, files }) {
-  speaker.stop();
+  replySpeech.stop();
   hideCard();
   closeHistory({ focus: false });
   $('#emptyState')?.remove();
@@ -545,11 +545,10 @@ async function deliver({ text, voice, hidden, redo: again, kept, files }) {
   syncFlags(); // generating, nothing streamed yet
   setCaption(text || (showing.length ? attachmentsSummary(showing) : ''), 'user');
   // A spoken message hears something within a moment, even when the reply starts with tools or thinking.
-  if (voice && ttsActive() && state.settings.voice.filler) {
+  if (voice && replySpeech.fillers()) {
     view.fillerTimer = setTimeout(() => {
-      if (chat.own !== turn || turn.muted || turn.text.trim() || state.toolsRunning) return;
-      const line = chatcore.earlyFiller(text);
-      if (line) speaker.filler(line);
+      if (chat.own !== turn || turn.text.trim() || state.toolsRunning) return;
+      replySpeech.filler(turn, chatcore.earlyFiller(text));
     }, chatcore.EARLY_FILLER_MS);
   }
   $('#sendBtn').classList.add('hidden');
@@ -599,7 +598,7 @@ function refusedSend(message, requestId, wrap, { keepWrap = false } = {}) {
 
 function stop() {
   if (chat.own) api.chat.abort(chat.own.requestId).catch(() => {});
-  speaker.stop();
+  replySpeech.stop();
 }
 
 // The face's flags from this window's own reply (a reply on another device doesn't make this face think,
@@ -645,7 +644,7 @@ function renderFrame(t) {
     // The Face layout hides the message list: its bubble gets the text when the reply ends ('done', 'error',
     // 'aborted' render it) or when the layout changes (initReplyCard); only the card, when it shows the text,
     // renders now (replycard.js frame: read on the card when it isn't spoken or past speakLimit).
-    const { render, decision } = cardState.frame(t, { text: t.text, capped: speaker.capped });
+    const { render, decision } = cardState.frame(t, { text: t.text, capped: replySpeech.capped });
     if (!render) return;
     const started = performance.now();
     const html = renderMarkdown(t.text, { wikilinks: 'open' });
@@ -679,8 +678,7 @@ function handleEvent(ev) {
       break;
     }
     case 'text':
-      if (ttsActive() && !t.muted) speaker.feed(v.speech(step.delta));
-      else {
+      if (!replySpeech.feed(t, step.delta, v.speech)) {
         cardState.text(t); // not spoken: in the Face layout it is read on the card as it comes
         setCaption(t.text.slice(-280), 'assistant');
       }
@@ -688,7 +686,7 @@ function handleEvent(ev) {
       renderActive();
       break;
     case 'retract':
-      speaker.stop();
+      replySpeech.stop();
       syncFlags();
       renderActive();
       break;
@@ -696,7 +694,7 @@ function handleEvent(ev) {
       syncFlags();
       const chip = toolChip(step.tool);
       v.chips.set(step.tool.id, chip);
-      if (ttsActive() && state.settings.voice.filler && !t.muted && !t.text.trim()) speaker.filler(chatcore.fillerFor(step.tool.name));
+      if (!t.text.trim()) replySpeech.filler(t, chatcore.fillerFor(step.tool.name));
       v.toolsEl.append(chip);
       scrollToBottom();
       break;
@@ -725,14 +723,14 @@ function handleEvent(ev) {
       decorateCode(v.bubble); // after announce: its text must not read "Copy"
       v.bubble.dataset.stamp = stamp(m);
       v.body.append(metaNode(m));
-      if (ttsActive() && !t.muted) speaker.flush();
+      replySpeech.flush(t);
       // A switch by voice: the new persona greets the user in its own voice, after the reply.
       if (t.greeting) {
         const greeting = t.greeting;
-        loadSettings().then(() => ttsActive() && speaker.follow(greeting, { remember: true, firstAlone: true })).catch(() => {});
+        loadSettings().then(() => replySpeech.follow(greeting)).catch(() => {});
       }
       finish(t);
-      if (!ttsActive()) celebrate();
+      if (!replySpeech.active()) celebrate();
       refreshList();
       syncActions();
       break;
@@ -821,7 +819,7 @@ function sideEvent(ev) {
       emit('world-changed');
       break;
     case 'voice_preview':
-      if (state.settings.voice.ttsEnabled) speaker.say(ev.text, { voice: ev.voice });
+      if (state.settings.voice.ttsEnabled) replySpeech.say(ev.text, { voice: ev.voice });
       break;
   }
 }
@@ -1120,11 +1118,11 @@ function decorateCode(root) {
 function finish(turn) {
   clearTimeout(turn?.view?.fillerTimer);
   if (turn && chat.own === turn) chat.end(turn, 'unsent');
-  // The filler lines' audio, made in the quiet after a reply (speaker.filler plays only what is ready).
-  if (ttsActive() && state.settings.voice.filler) speaker.warmFillers(chatcore.allFillers(), () => !chat.own && !state.recording);
+  // The filler lines' audio, made in the quiet after a reply (a filler plays only what is ready).
+  replySpeech.warm(() => !chat.own && !state.recording);
   outbox.replyEnded(); // a message queued behind it goes now
   syncFlags(); // not generating, no tools, nothing streaming
-  if (!speaker.busy) setCaption('');
+  if (!replySpeech.busy) setCaption('');
   $('#sendBtn').classList.remove('hidden');
   $('#stopBtn').classList.add('hidden');
 }
