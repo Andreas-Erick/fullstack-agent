@@ -1,7 +1,7 @@
 // Calendar view: the user's schedule from Schedule.md in the vault (main/calendar.js), as a month
 // grid, a week time grid or an agenda, with today's readout and the repeating rules on the side.
 // The agent adds entries from what the user tells it; the user can add and edit them here too.
-import { $, api, el, toast, toastError, modal, confirmDialog, on, emit, dialogOpen, plainError } from './util.js';
+import { $, api, el, toast, toastError, modal, confirmDialog, on, emit, dialogOpen, plainError, ignore } from './util.js';
 import { saveSettings } from './state.js';
 import { firstStep, prefillChat, libraryAction, libraryOffText } from './firststep.js';
 
@@ -262,7 +262,7 @@ async function offPanel(status) {
     };
     return firstStep({ cls: 'cal-empty', glass: true, title: 'The calendar is off', text: 'Turn it on to see your schedule here and let the assistant keep it for you.', action: turnOn });
   }
-  const library = await api.obsidian.status().catch(() => ({}));
+  const library = await api.obsidian.status().catch(ignore('library status unknown: the panel offers the setup anyway', {}));
   return firstStep({ cls: 'cal-empty', glass: true, title: 'Your schedule needs the notes library', text: libraryOffText(library, 'your schedule'), action: libraryAction(library, refresh) });
 }
 

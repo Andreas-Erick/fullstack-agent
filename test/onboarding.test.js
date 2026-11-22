@@ -229,6 +229,41 @@ test('setup reopened from Settings keeps the brain already set up', async () => 
   assert.strictEqual(brainPlan({ ...NOTHING, claude: 'ready' }, { ...FRESH, llm: { provider: 'anthropic' } }).preselect, 'claude-code');
 });
 
+// Review of spec #17: a ready brain chosen elsewhere that has no card of its own (Groq, DeepSeek,
+// Perplexity…) was never "current", so Claude was preselected and saved on Next → Continue anyway.
+test('setup reopened from Settings keeps a ready brain that has no card of its own', async () => {
+  const { brainPlan, detectionFrom } = await loadCore();
+  const catalogue = { brains: [{ id: 'claude-code', state: 'ready', ready: true }, { id: 'groq', name: 'Groq', ready: true }, { id: 'gemini', name: 'Gemini', ready: false }] };
+  const detection = detectionFrom(catalogue, []);
+  const groq = { ...FRESH, llm: { provider: 'groq' }, groq: { apiKey: 'gsk' } };
+  const plan = brainPlan(detection, groq);
+  assert.strictEqual(plan.preselect, 'groq');
+  assert.strictEqual(plan.chosen, 'groq');
+  assert.strictEqual(plan.cards[0].id, 'groq', 'kept first');
+  assert.strictEqual(plan.cards[0].works, true);
+  assert.match(plan.cards[0].title, /Keep what I have \(Groq\)/);
+  assert.strictEqual(plan.save, null, 'Next writes nothing');
+  assert.match(plan.warn, /Groq is set up/);
+  // Picking a card is the user's choice and is saved; picking the kept one changes nothing.
+  assert.strictEqual(brainPlan(detection, groq, { chosen: 'claude-code' }).save, 'claude-code');
+  assert.strictEqual(brainPlan(detection, groq, { chosen: 'groq' }).save, null);
+  // Not ready: no keep card; what works is preselected and saved, as on a fresh install.
+  const broken = brainPlan(detectionFrom({ brains: [{ id: 'claude-code', state: 'ready', ready: true }, { id: 'groq', name: 'Groq', ready: false }] }, []), groq);
+  assert.ok(!broken.cards.some((c) => c.id === 'groq'));
+  assert.strictEqual(broken.save, 'claude-code');
+  // The check failed (no catalogue): nothing is known about the current brain, so nothing is written over it.
+  assert.strictEqual(brainPlan(detectionFrom(null, OLLAMA.map((m) => ({ running: true, name: m.server, baseUrl: m.baseUrl, models: [{ id: m.model }] }))), groq).save, null);
+});
+
+test('Next saves a preselected brain only when the current one does not work', async () => {
+  const { brainPlan } = await loadCore();
+  assert.strictEqual(brainPlan({ ...NOTHING, claude: 'ready' }, FRESH).save, null, 'already the provider');
+  assert.strictEqual(brainPlan({ ...NOTHING, claude: 'missing', local: OLLAMA }, FRESH).save, 'local', 'a fresh install keeps what was found');
+  assert.strictEqual(brainPlan(NOTHING, FRESH).save, null, 'nothing works: nothing to save');
+  const local = { ...FRESH, llm: { provider: 'local' }, local: { baseUrl: 'http://localhost:1234/v1', model: 'qwen3' } };
+  assert.strictEqual(brainPlan({ ...NOTHING, claude: 'ready' }, local).save, null);
+});
+
 test('the wizard tells the truth about the brain: a warning on Next, Fix this and Set up a brain first on First hello', () => {
   const src = read('renderer/js/onboarding.js');
   // The brain step is drawn from the plan, from the checks that already exist (no new probing).
@@ -249,6 +284,9 @@ test('the wizard tells the truth about the brain: a warning on Next, Fix this an
   assert.match(src, /disabled: !ready,[^\n]*'Start ›'\)/);
   assert.match(src, /'Do this later'/);
   assert.match(src, /if \(!plan\.canStart && plan\.warn\) toast\(plan\.warn/);
+  // Do this later runs once at a time and its failure is shown (the same guard as Next: then()).
+  assert.match(src, /const later = then\(/);
+  assert.match(src, /onclick: later \}, 'Do this later'/);
   // First hello: the failed brain row gets Fix this, and the main button stops promising an interview.
   assert.match(src, /brain\.action\(el\('button', \{ class: 'btn small', onclick: fix \}, 'Fix this'\)\)/);
   assert.match(src, /if \(finder\.helloFailed\) return el\('div', \{ class: 'row' \}, el\('button', \{ class: 'btn', onclick: \(\) => finish\(\) \}, 'Start without a brain'\), el\('button', \{ class: 'btn primary', onclick: toBrain \}, 'Set up a brain first ›'\)\);/);
@@ -262,8 +300,18 @@ test('the finder reads what the app already checks: the brain catalogue and the 
     claude: 'signedOut',
     local: [{ server: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.2:3b', name: 'llama3.2:3b' }],
     keys: { gemini: true, groq: false, anthropic: false },
+    brains: { 'claude-code': { name: 'claude-code', ready: false }, gemini: { name: 'gemini', ready: true }, groq: { name: 'groq', ready: false }, anthropic: { name: 'anthropic', ready: false } },
   });
-  assert.deepStrictEqual(detectionFrom(null, null), { claude: 'unchecked', local: [], keys: { gemini: false, groq: false, anthropic: false } }, 'a failed check finds nothing and claims nothing');
+  assert.deepStrictEqual(detectionFrom(null, null), { claude: 'unchecked', local: [], keys: { gemini: false, groq: false, anthropic: false }, brains: null }, 'a failed check finds nothing and claims nothing');
+});
+
+// Review of spec #17: clearing the free key said "no key" while the old key stayed saved.
+test('the free key field saves what it shows, a cleared key included', async () => {
+  const { freeKeyPatch } = await loadCore();
+  assert.deepStrictEqual(freeKeyPatch('  AIza1 '), { llm: { provider: 'gemini' }, gemini: { apiKey: 'AIza1' } });
+  assert.deepStrictEqual(freeKeyPatch('   '), { gemini: { apiKey: '' } }, 'cleared: the key goes, the brain choice stays');
+  const src = read('renderer/js/onboarding.js');
+  assert.match(src, /saveSettings\(freeKeyPatch\(v\)\)/);
 });
 
 test('a brain card writes only the provider and its own key or detected model', async () => {

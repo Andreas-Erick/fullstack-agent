@@ -103,6 +103,16 @@ test('no builder words for places: Config, Configuration, Memory vault, Knowledg
   assert.deepStrictEqual(found, []);
 });
 
+// The old name of "Changes Siren made to itself" lingered on buttons and Health's fixes ("Open Evolution").
+test('no button or message on the computer calls a place by its old name, Evolution', () => {
+  const found = [];
+  for (const rel of ['renderer/index.html', ...files('renderer/js'), 'main/diagnostics.js', 'main/guide.js', 'main/main.js', 'main/prompt.js']) {
+    const src = uncommented(read(rel));
+    for (const m of src.matchAll(/\bEvolution\b/g)) found.push(`${rel}: ${src.slice(Math.max(0, m.index - 30), m.index + 30).replace(/\s+/g, ' ')}`);
+  }
+  assert.deepStrictEqual(found, []);
+});
+
 test('the HUD\'s system codes ("SYS.03 //") show only at the full HUD level', () => {
   const css = read('renderer/hud.css');
   assert.doesNotMatch(css, /fx-subtle\)? \[data-hud-code\]/, 'the subtle level shows no code');

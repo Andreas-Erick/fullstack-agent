@@ -301,7 +301,7 @@ function startFailed(name, err, view) {
   const box = el('div', { class: 'view-error', role: 'alert' },
     el('b', {}, `${name} couldn’t start: ${err?.message || err}`),
     el('button', { class: 'btn small', onclick: () => location.reload() }, '⟳ Reload'),
-    el('button', { class: 'btn small', onclick: () => switchView('evolution') }, 'Open Evolution'),
+    el('button', { class: 'btn small', onclick: () => switchView('evolution') }, 'Open Changes Siren made'),
   );
   if (host) host.prepend(box);
   else toast(`${name} couldn’t start: ${err?.message || err}`, 'error', 15000);

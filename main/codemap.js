@@ -131,6 +131,11 @@ function importsOf(root, rel, text) {
       if (m[1]) names.push('default');
       out.push({ spec: m[3], target: resolveRelative(root, rel, m[3]), names, line: lineOf(text, m.index) });
     }
+    // Dynamic imports with a literal path: `(await import('./x.js')).member` must find `member` too.
+    for (const m of text.matchAll(/\bimport\(\s*'(\.[^']+)'\s*\)(?:\)\.([\w$]+))?/g)) {
+      if (insideString(text, m.index)) continue;
+      out.push({ spec: m[1], target: resolveRelative(root, rel, m[1]), names: m[2] ? [m[2]] : [], line: lineOf(text, m.index) });
+    }
   } else {
     for (const m of text.matchAll(/(?:const\s+\{([^}]*)\}\s*=\s*)?require\('(\.[^']+)'\)(?:\.(\w+))?/g)) {
       if (insideString(text, m.index)) continue;

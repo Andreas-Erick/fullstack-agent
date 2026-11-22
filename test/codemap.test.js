@@ -51,7 +51,12 @@ test('catches the cross-file mistakes a syntax check misses', () => {
     plant(dir, 'renderer/js/handoff.js', "import { api, el } from './util.js';", "import { api, el, nope } from './util.js';");
     plant(dir, 'main/handoff.js', "const log = require('./logger');", "const log = require('./logger');\nconst gone = require('./does-not-exist');");
     plant(dir, 'renderer/js/settings/workspace.js', "toggle('journal.handoffOnClose'", "toggle('journal.handoffOnClos'");
+    // A dynamic import is resolved from its own file's folder (Settings' "Setup form" once imported
+    // './onboarding.js' from renderer/js/settings/), and the member it reads must exist.
+    plant(dir, 'renderer/js/history.js', "import { state } from './state.js';", "import { state } from './state.js';\nconst lazy = async () => (await import('./settings/onboarding.js')).go();\nconst lazy2 = async () => (await import('./util.js')).nothingHere();");
     const errors = verify(dir).errors.join('\n');
+    assert.match(errors, /imports "\.\/settings\/onboarding\.js", which doesn't exist/);
+    assert.match(errors, /imports "nothingHere" from renderer\/js\/util\.js/);
     assert.match(errors, /calls api\.remote\.cancelPair\(\) but preload\.js doesn't expose/);
     assert.match(errors, /imports "nope" from renderer\/js\/util\.js/);
     assert.match(errors, /imports "\.\/does-not-exist", which doesn't exist/);
@@ -59,6 +64,13 @@ test('catches the cross-file mistakes a syntax check misses', () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('importsOf reads dynamic imports with a literal path', () => {
+  const imps = codemap.importsOf(ROOT, 'renderer/js/settings/system.js', "const a = async () => (await import('../setup.js')).startSetup();\nconst b = () => import(name);\n");
+  assert.strictEqual(imps.length, 1);
+  assert.strictEqual(imps[0].target, 'renderer/js/setup.js');
+  assert.deepStrictEqual(imps[0].names, ['startSetup']);
 });
 
 test('outline lists functions, exports, IPC handlers and tools', () => {

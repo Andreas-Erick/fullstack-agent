@@ -115,8 +115,8 @@ async function run() {
       const st = await selfchange.status();
       if (!st.available) return { status: 'fail', detail: st.reason };
       const chk = await selfchange.check();
-      if (!chk.ok) return { status: 'fail', detail: `Code fails its checks (syntax or integrity):\n${chk.output.slice(0, 800)}`, fix: 'Open Evolution and revert the last change, or run: npm run recover -- undo' };
-      return { status: st.dirty?.length ? 'warn' : 'ok', detail: `History at ${st.head}${st.dirty?.length ? ` · ${st.dirty.length} uncommitted file(s)` : ''} · syntax and integrity checks pass`, fix: st.dirty?.length ? 'Evolution → Record or Discard the uncommitted changes.' : '' };
+      if (!chk.ok) return { status: 'fail', detail: `Code fails its checks (syntax or integrity):\n${chk.output.slice(0, 800)}`, fix: 'Open More → Changes Siren made to itself and revert the last change, or run: npm run recover -- undo' };
+      return { status: st.dirty?.length ? 'warn' : 'ok', detail: `History at ${st.head}${st.dirty?.length ? ` · ${st.dirty.length} uncommitted file(s)` : ''} · syntax and integrity checks pass`, fix: st.dirty?.length ? 'More → Changes Siren made to itself → Record or Discard the uncommitted changes.' : '' };
     }),
     check('lastchange', 'Last self-change', async () => {
       if (!s.code.allowSelfModify) return { status: 'off', detail: 'Disabled.' };
@@ -124,7 +124,7 @@ async function run() {
       if (!v) return { status: 'off', detail: 'No self-change recorded yet.' };
       const when = new Date(v.at).toLocaleString();
       if (v.state === 'pending') return { status: 'warn', detail: `“${v.subject}” (${v.short}, ${when}) is not live yet.`, fix: v.restart ? 'Restart the app to load it.' : 'Reload the window to load it.' };
-      if (v.state === 'problems') return { status: 'fail', detail: `“${v.subject}” (${v.short}) logged problems after it went live:\n${v.problems.map((p) => `${p.count}× ${p.event}: ${p.message.slice(0, 160)}${p.locations.length ? ` (${p.locations.join(', ')})` : ''}`).join('\n')}`, fix: 'Ask the assistant to fix it, or revert it in Evolution.' };
+      if (v.state === 'problems') return { status: 'fail', detail: `“${v.subject}” (${v.short}) logged problems after it went live:\n${v.problems.map((p) => `${p.count}× ${p.event}: ${p.message.slice(0, 160)}${p.locations.length ? ` (${p.locations.join(', ')})` : ''}`).join('\n')}`, fix: 'Ask the assistant to fix it, or revert it in More → Changes Siren made to itself.' };
       return { detail: `“${v.subject}” (${v.short}) started cleanly.` };
     }),
     check('log', 'Recent problems', async () => {

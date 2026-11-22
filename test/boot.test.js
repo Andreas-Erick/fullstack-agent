@@ -88,7 +88,7 @@ test('start() catches a throw and a rejection; startFailed() logs it and shows i
     assert.strictEqual(box.attrs.role, 'alert');
     assert.match(text(box), /chat couldn’t start: initChat is not a function/);
     assert.match(text(box), /Reload/);
-    assert.match(text(box), /Open Evolution/);
+    assert.match(text(box), /Open Changes Siren made/);
     // On the console too: the launch check (main/smoke.js) fails on console errors, as it did when a
     // throwing init rejected boot(); caught and only logged, a broken view passed it.
     assert.strictEqual(consoled.length, 1);

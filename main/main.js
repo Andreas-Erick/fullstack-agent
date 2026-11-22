@@ -211,7 +211,7 @@ function scheduleChangeVerification(loadedAt) {
     const v = await selfchange.verifyAfterLoad({ processStartedAt: Date.now() - process.uptime() * 1000, loadedAt }).catch((err) => log.warn('self-change verification failed', { error: err }));
     if (!v) return;
     log.info('self-change verified', { change: v.short, state: v.state, problems: v.problems.length });
-    if (v.state === 'problems') send('app:notice', { kind: 'error', message: `The last self-change (“${v.subject}”) logged ${v.problems.length} problem${v.problems.length > 1 ? 's' : ''} after it went live. Ask the assistant to look into it, or revert it in Evolution.` });
+    if (v.state === 'problems') send('app:notice', { kind: 'error', message: `The last self-change (“${v.subject}”) logged ${v.problems.length} problem${v.problems.length > 1 ? 's' : ''} after it went live. Ask the assistant to look into it, or revert it in More → Changes Siren made to itself.` });
   }, 45000);
   verifyTimer.unref?.();
 }

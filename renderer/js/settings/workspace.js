@@ -160,11 +160,11 @@ export async function selfCard() {
   return card(
     'code',
     'Self-improvement',
-    'Ask the agent for new features and it implements them by editing its own source code. Every change is syntax-checked and recorded so you can review, revert or restore any version from the <b>Evolution</b> view.',
+    'Ask the agent for new features and it implements them by editing its own source code. Every change is syntax-checked and recorded so you can review, revert or restore any version from <b>More → Changes Siren made to itself</b>.',
     toggle('code.enabled', 'Let the agent read its own source code'),
     toggle('code.allowSelfModify', 'Let the agent modify its own code (tracked & revertible)', () => render()),
     folder('code.rootPath', 'Code root', { placeholder: root, hint: `Leave empty for this app’s own source (<code>${escapeHtml(root)}</code>).` }),
-    el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => switchView('evolution') }, '⑂ Open Evolution history')),
+    el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => switchView('evolution') }, '⑂ Open Changes Siren made')),
     line,
   );
 }

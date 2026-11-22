@@ -17,7 +17,7 @@ import { scanInto } from './hwscan.js';
 import { KOKORO_VOICES } from './kokorotext.js';
 import { connectClaude, testOutcome, showResult, showFailure } from './settings.js';
 import { speechPlan } from './perfcore.js';
-import { faceChoices, stepsFor, finishPatch, launchMode, accepted, brainPlan, brainPatch, detectionFrom, FREE_KEY_URL, FREE_KEY_STEPS, CLAUDE_CODE_URL, CLAUDE_CODE_LINE, HELLO_BRAIN_FAILED, wizardProgress, PRIVACY_POINTS, SAVES_LINE, registerOffer } from './onboardcore.js';
+import { faceChoices, stepsFor, finishPatch, launchMode, accepted, brainPlan, brainPatch, freeKeyPatch, detectionFrom, FREE_KEY_URL, FREE_KEY_STEPS, CLAUDE_CODE_URL, CLAUDE_CODE_LINE, HELLO_BRAIN_FAILED, wizardProgress, PRIVACY_POINTS, SAVES_LINE, registerOffer } from './onboardcore.js';
 
 const STEP_NAMES = { welcome: 'Welcome', privacy: 'Privacy & safety', hardware: 'Your computer', brain: 'Brain', voice: 'Voice', vault: 'Notes & files', goals: 'What you want', connect: 'Link services', persona: 'Personality & face', tour: 'What I can do', hello: 'First hello' };
 const PRIVACY_URL = 'https://github.com/Andreas-Erick/fullstack-agent/blob/main/PRIVACY.md';
@@ -338,7 +338,7 @@ async function render() {
         const key = input(state.settings.gemini?.apiKey, 'Paste your key here', (v) => {
           finder.chosen = 'gemini';
           if (finder.detection) finder.detection.keys.gemini = Boolean(v.trim());
-          if (v.trim()) saveSettings(brainPatch('gemini', { key: v })).catch(toastError);
+          saveSettings(freeKeyPatch(v)).catch(toastError); // a cleared key is removed too, as the check now says
           untested();
         }, 'password');
         key.setAttribute('aria-label', 'Your free Gemini key');
@@ -359,6 +359,9 @@ async function render() {
           field('Server address', input(state.settings.llm.baseUrl, 'http://localhost:3001/v1', (v) => (saveSettings({ llm: { baseUrl: v } }), untested())), 'FreeLLMAPI or any OpenAI-compatible server.'),
           field('Bearer token', input(state.settings.llm.apiKey, 'optional', (v) => (saveSettings({ llm: { apiKey: v } }), untested()), 'password')),
         );
+      } else if (id !== 'anthropic') {
+        // The kept brain without a card of its own (brainPlan's keep card): set up in Settings, nothing to type here.
+        area.append(el('div', { class: 'hint' }, 'Siren keeps the brain you set up in Settings → AI brain. Click Test to check that it answers.'));
       } else {
         area.append(field('Anthropic API key', input(s.anthropic.apiKey, 'sk-ant-…', (v) => (saveSettings(brainPatch('anthropic', { key: v })), (finder.chosen = 'anthropic'), untested()), 'password')));
       }
@@ -380,9 +383,9 @@ async function render() {
       if (!plan.canStart && mode === 'full' && !(await warnOnce(plan.warn))) return false;
       await saveFound(plan);
     };
+    // Only what the user picked, or what was found when the current brain doesn't work (brainPlan's save).
     saveFound = async (plan) => {
-      const card = plan.cards.find((c) => c.id === plan.chosen);
-      if (card?.works && state.settings.llm.provider !== plan.chosen) await saveSettings(brainPatch(plan.chosen, { local: plan.chosen === 'local' ? localPick() : null }));
+      if (plan.save && state.settings.llm.provider !== plan.save) await saveSettings(brainPatch(plan.save, { local: plan.save === 'local' ? localPick() : null }));
     };
   }
 
@@ -653,13 +656,12 @@ async function render() {
     render();
   };
   // Quick start's brain step: "Start" leads once the test answered; "Do this later" says she can't answer yet.
-  const later = async () => {
-    if (moving) return;
+  // Through then(): once at a time, the brain step's beforeNext keeps what was found, a failure is shown.
+  const later = then(async () => {
     const plan = brainNow();
-    await saveFound(plan);
     await finish();
     if (!plan.canStart && plan.warn) toast(plan.warn, 'info', 10000);
-  };
+  });
   const lastButtons = () => {
     if (mode === 'missed') return el('button', { class: 'btn primary', disabled: !canNext(), onclick: then(finish) }, 'Continue');
     if (mode === 'quick') {

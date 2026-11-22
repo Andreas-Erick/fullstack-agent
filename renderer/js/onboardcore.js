@@ -86,38 +86,56 @@ function works(id, detection, settings) {
  * What the brain step offers. detection = { claude: 'missing'|'unchecked'|'signedOut'|'ready',
  * local: [{ server, baseUrl, model }], keys: { gemini, groq, anthropic } } (true = a key is saved);
  * progress = { chosen, tested } (the card the user picked; the brain whose test answered).
- * Returns { preselect, cards: [{ id, ico, title, desc, works, free }], canStart, warn }:
+ * Returns { preselect, chosen, cards: [{ id, ico, title, desc, works, free }], canStart, warn, save }:
  * preselect keeps a brain that is already set up (setup reopened from Settings), else what works here
  * (a signed-in Claude, a local model, a saved key), else the free card. cards: what works first, then
  * the free option, then the rest. canStart only once a test answered for the chosen brain; warn is the
  * plain sentence for going on without that ('' when the brain answered).
+ * save is the brain Next writes (null: leave llm.provider alone). detection.brains ({ id: { name, ready } },
+ * null when the check failed) lets a ready brain without a card (Groq, DeepSeek…) be kept as its own card.
  */
 export function brainPlan(detection, settings, progress = {}) {
   const current = settings?.llm?.provider;
-  const ids = ORDER.filter((id) => id !== 'openai' || current === 'openai');
-  const ok = (id) => works(id, detection, settings);
+  // A brain chosen elsewhere that has no card (Groq, DeepSeek, Perplexity…): kept as its own card while
+  // the catalogue says it is ready. detection.brains is null when the check failed (nothing known).
+  const known = detection?.brains || null;
+  const keep = current && !ORDER.includes(current) && known?.[current]?.ready
+    ? { id: current, ico: '✓', title: `Keep what I have (${known[current].name || current})`, desc: 'Already set up in Settings → AI brain. Siren keeps using it.' }
+    : null;
+  const ids = [...(keep ? [keep.id] : []), ...ORDER.filter((id) => id !== 'openai' || current === 'openai')];
+  const ok = (id) => (keep && id === keep.id) || works(id, detection, settings);
+  const cardOf = (id) => (keep && id === keep.id ? keep : BRAIN_CARDS[id]);
+  const nameOf = (id) => (keep && id === keep.id ? known[id].name || id : NAMES[id]);
   let preselect;
-  if (ids.includes(current) && ok(current)) preselect = current;
+  if (keep) preselect = keep.id;
+  else if (ids.includes(current) && ok(current)) preselect = current;
   else if (ok('claude-code')) preselect = 'claude-code';
   else if ((detection?.local || []).length) preselect = 'local';
   else if (detection?.keys?.gemini) preselect = 'gemini';
   else if (detection?.keys?.anthropic) preselect = 'anthropic';
   else if (detection?.keys?.groq) preselect = 'auto';
   else preselect = 'gemini';
-  const rank = (id) => (ok(id) ? 0 : BRAIN_CARDS[id].free ? 1 : 2);
+  const rank = (id) => (ok(id) ? 0 : cardOf(id).free ? 1 : 2);
   const cards = ids
-    .map((id, i) => ({ id, i, ...BRAIN_CARDS[id], free: Boolean(BRAIN_CARDS[id].free), works: ok(id) }))
+    .map((id, i) => ({ id, i, ...cardOf(id), free: Boolean(cardOf(id).free), works: ok(id) }))
     .sort((a, b) => rank(a.id) - rank(b.id) || a.i - b.i)
     .map(({ i, ...card }) => card);
-  const chosen = ids.includes(progress.chosen) ? progress.chosen : preselect;
+  const picked = ids.includes(progress.chosen);
+  const chosen = picked ? progress.chosen : preselect;
+  // What Next writes: the card the user picked, or a preselected brain that works when the current one
+  // is known not to (a fresh install keeps what was found). Never over a brain that works or is unknown.
+  const currentWorks = ids.includes(current) ? ok(current) : known && current in known ? Boolean(known[current].ready) : null;
+  let save = null;
+  if (picked) save = chosen !== current && ok(chosen) ? chosen : null;
+  else if (currentWorks === false && preselect !== current && ok(preselect)) save = preselect;
   const canStart = Boolean(progress.tested) && progress.tested === chosen;
   let warn = '';
   if (!canStart) {
     warn = ok(chosen)
-      ? `${NAMES[chosen]} is set up but hasn’t answered a test yet. If it doesn’t work, Siren can’t answer until you fix it in Settings → AI brain.`
+      ? `${nameOf(chosen)} is set up but hasn’t answered a test yet. If it doesn’t work, Siren can’t answer until you fix it in Settings → AI brain.`
       : 'Siren can’t answer yet: no brain is working. You can set one up later in Settings → AI brain.';
   }
-  return { preselect, chosen, cards, canStart, warn };
+  return { preselect, chosen, cards, canStart, warn, save };
 }
 
 /**
@@ -135,6 +153,8 @@ export function detectionFrom(catalogue, servers = []) {
       .filter((s) => s?.running)
       .flatMap((s) => (s.models || []).map((m) => ({ server: s.name, baseUrl: s.baseUrl, model: m.id, name: m.name || m.id }))),
     keys: { gemini: Boolean(row('gemini')?.ready), groq: Boolean(row('groq')?.ready), anthropic: Boolean(row('anthropic')?.ready) },
+    // Every brain's name and readiness, so one without a card can be kept; null when the check failed.
+    brains: rows.length ? Object.fromEntries(rows.filter((b) => b?.id).map((b) => [b.id, { name: b.name || b.id, ready: Boolean(b.ready) }])) : null,
   };
 }
 
@@ -148,6 +168,12 @@ export function brainPatch(id, { key, local } = {}) {
   if (k && (id === 'gemini' || id === 'anthropic')) patch[id] = { apiKey: k };
   if (id === 'local' && local?.model && local?.baseUrl) patch.local = { model: local.model, baseUrl: local.baseUrl };
   return patch;
+}
+
+/** What the free card's key field saves: the key and the Gemini brain, or, cleared, the key removed. */
+export function freeKeyPatch(value) {
+  const k = typeof value === 'string' ? value.trim() : '';
+  return k ? brainPatch('gemini', { key: k }) : { gemini: { apiKey: '' } };
 }
 
 /** The free card's guided steps: where to click, what to copy, where to paste. */
