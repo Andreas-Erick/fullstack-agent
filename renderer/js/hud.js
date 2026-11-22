@@ -4,6 +4,7 @@
 import { $, $$, el, on } from './util.js';
 import { state } from './state.js';
 import { effectsLevel, profile } from './perfcore.js';
+import { name as brainName } from './braintable.mjs';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const startedAt = Date.now();
@@ -199,7 +200,7 @@ function reticle() {
     );
     right.replaceChildren(
       el('i', {}, 'SUBSYSTEMS'),
-      row('CORE', PROVIDERS[s.llm?.provider] || s.llm?.provider || '—'),
+      row('CORE', brainName(s.llm?.provider) || '—'), // the configured brain, never an invented reading
       row('VOICE', s.voice?.ttsEnabled ? 'online' : 'off'),
       row('SPEECH IN', s.stt?.enabled ? 'online' : 'off'),
       row('VAULT', s.obsidian?.enabled ? 'mounted' : 'off'),
@@ -210,5 +211,3 @@ function reticle() {
   setInterval(tick, 1000);
 }
 
-// The brain's name on the face's telemetry (what is configured, never an invented reading).
-const PROVIDERS = { 'claude-code': 'Claude account', anthropic: 'Claude API', auto: 'Multi-provider', openai: 'OpenAI-compatible', local: 'Local model', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', perplexity: 'Perplexity' };

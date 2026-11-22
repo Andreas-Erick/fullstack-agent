@@ -36,6 +36,7 @@ import { switchPersona } from './personas.js';
 import { practiceLanguage, languageName } from './practice.js';
 import { initPerf, perfReady } from './perf.js';
 import { launchGreeting, HANDOFF_LATE_MS } from './phrasecore.js';
+import { ownEndpoint } from './braintable.mjs';
 
 // Safety net: an unexpected error anywhere in the UI is logged instead of disappearing (util.js).
 installErrorTrap();
@@ -539,9 +540,6 @@ function setPill(id, cls, title) {
   p.setAttribute('aria-label', `${p.textContent.trim()}: ${title}`);
 }
 
-// Brains that answer on their own with their settings in their own section (main/braincore.js).
-const SINGLE = { local: 'Local model', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', perplexity: 'Perplexity' };
-
 const STATUS_EVERY_MS = 5 * 60000;
 let lastStatusAt = 0;
 let voiceError = ''; // why the offline voice failed to load ('' once it loads); voice.js tries again a minute later
@@ -552,41 +550,41 @@ function offlineVoicePill(device = '') {
   else setPill('#pillVoice', 'ok', `The offline voice (Kokoro, in the app${device ? ` · ${device}` : ''})`);
 }
 
-async function refreshStatus() {
-  lastStatusAt = Date.now();
-  const s = state.settings;
-  // Brain
-  if (s.llm.provider === 'auto') {
-    api.llm
-      .routerStatus()
-      .then((list) => {
-        const on_ = list.filter((p) => p.enabled && p.configured);
-        const ready = on_.filter((p) => !p.resting);
-        const detail = on_.map((p) => `${p.name}${p.resting ? ` (skipped ${p.resting.minutes} min: ${p.resting.reason})` : ''}`).join(' > ');
-        setPill('#pillLlm', !ready.length ? 'err' : ready.length < on_.length || ready.length === 1 ? 'warn' : 'ok', ready.length ? `Multi-provider · ${detail}` : 'Multi-provider: no provider is ready');
-      })
-      .catch((e) => setPill('#pillLlm', 'err', e.message));
-  } else if (s.llm.provider === 'claude-code') {
-    api.claude
-      .status()
-      .then((c) => (c.installed && c.checked === false ? setPill('#pillLlm', 'warn', `Couldn’t check the Claude account: ${c.error}`) : setPill('#pillLlm', c.loggedIn ? 'ok' : 'err', !c.installed ? 'Claude Code not installed' : c.loggedIn ? `Claude account · ${c.email || ''} (${c.subscription || c.authMethod})` : 'Claude account not connected')))
-      .catch((e) => setPill('#pillLlm', 'err', e.message));
-  } else if (s.llm.provider === 'anthropic') {
-    setPill('#pillLlm', s.anthropic.apiKey ? 'ok' : 'err', s.anthropic.apiKey ? `Claude · ${s.anthropic.model}` : 'Claude: API key missing');
-  } else if (SINGLE[s.llm.provider]) {
+// The brain's light: b is the current brain's catalogue entry (main/brains.js entry()).
+function brainPill(s, b, routing) {
+  if (b.id === 'auto') {
+    const on_ = (routing || []).filter((p) => p.enabled && p.configured);
+    const ready = on_.filter((p) => !p.resting);
+    const detail = on_.map((p) => `${p.name}${p.resting ? ` (skipped ${p.resting.minutes} min: ${p.resting.reason})` : ''}`).join(' > ');
+    setPill('#pillLlm', !ready.length ? 'err' : ready.length < on_.length || ready.length === 1 ? 'warn' : 'ok', ready.length ? `Multi-provider · ${detail}` : 'Multi-provider: no provider is ready');
+  } else if (b.id === 'claude-code') {
+    const c = b.claude || {};
+    if (b.state === 'unchecked') setPill('#pillLlm', 'warn', `Couldn’t check the Claude account: ${c.error}`);
+    else setPill('#pillLlm', b.ready ? 'ok' : 'err', b.state === 'missing' ? 'Claude Code not installed' : b.ready ? `Claude account · ${c.email || ''} (${c.subscription || c.authMethod})` : 'Claude account not connected');
+  } else if (b.id === 'anthropic') {
+    setPill('#pillLlm', b.ready ? 'ok' : 'err', b.ready ? `Claude · ${s.anthropic.model}` : 'Claude: API key missing');
+  } else if (ownEndpoint(b.id)) {
     // One multi-provider brain on its own (switched in the chat): its model is in its own section.
-    const name = SINGLE[s.llm.provider];
-    const model = s[s.llm.provider]?.model;
     api.llm
       .models()
-      .then(() => setPill('#pillLlm', model ? 'ok' : 'warn', `${name} · ${model || 'no model picked'}`))
-      .catch((e) => setPill('#pillLlm', 'err', `${name} unreachable: ${e.message}`));
+      .then(() => setPill('#pillLlm', b.model ? 'ok' : 'warn', `${b.name} · ${b.model || 'no model picked'}`))
+      .catch((e) => setPill('#pillLlm', 'err', `${b.name} unreachable: ${e.message}`));
   } else {
     api.llm
       .models()
       .then((m) => setPill('#pillLlm', 'ok', `FreeLLMAPI · ${s.llm.model || m[0]?.id || 'default model'} (${m.length} models)`))
       .catch((e) => setPill('#pillLlm', 'err', `FreeLLMAPI unreachable: ${e.message}`));
   }
+}
+
+async function refreshStatus() {
+  lastStatusAt = Date.now();
+  const s = state.settings;
+  // Brain: which one answers and whether it is ready, from the catalogue (main/brains.js).
+  api.llm
+    .brains()
+    .then(({ current, routing }) => brainPill(s, current, routing))
+    .catch((e) => setPill('#pillLlm', 'err', e.message));
   // The offline voice runs in the app, so there is no server to check: red only while it failed to load.
   if (s.voice.engine === 'local') {
     if (s.voice.ttsEnabled) offlineVoicePill(offlineVoiceStatus().device);

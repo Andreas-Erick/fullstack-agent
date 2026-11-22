@@ -14,7 +14,7 @@ const { ROOT, tmpDir } = require('./helpers');
 
 const ESM = tmpDir('nexus-utter-');
 fs.writeFileSync(path.join(ESM, 'package.json'), '{"type":"module"}');
-for (const f of ['utterance.js', 'turnstate.js', 'chatcore.js']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(ESM, f));
+for (const f of ['utterance.js', 'turnstate.js', 'chatcore.js', 'braintable.mjs']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(ESM, f));
 test.after(() => fs.rmSync(ESM, { recursive: true, force: true }));
 const load = (f) => import(pathToFileURL(path.join(ESM, f)).href);
 
