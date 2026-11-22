@@ -765,14 +765,27 @@ async function copyText(text) {
   toast('Copied');
 }
 
+// The reply is rendered whole each time, so a long one costs more as it grows: the next render waits
+// RENDER_SPACING times the last one's cost (cheap ones still run every frame), as the desktop's chat.js.
+const RENDER_SPACING = 3;
+
 function renderTurn(turn) {
   const v = turn.view;
-  if (v.raf) return;
-  v.raf = requestAnimationFrame(() => {
-    v.raf = 0;
-    v.bubble.innerHTML = markdown(turn.text);
-    scrollDown();
-  });
+  if (v.raf || v.renderWait) return;
+  const draw = () => {
+    v.renderWait = 0;
+    v.raf = requestAnimationFrame(() => {
+      v.raf = 0;
+      const started = performance.now();
+      v.bubble.innerHTML = markdown(turn.text);
+      scrollDown();
+      const now = performance.now();
+      v.nextRenderAt = now + RENDER_SPACING * (now - started);
+    });
+  };
+  const wait = Math.max(0, (v.nextRenderAt || 0) - performance.now());
+  if (wait > 0) v.renderWait = setTimeout(draw, wait);
+  else draw();
 }
 
 // A turn is over (turnstate ended it on its event; a send that failed or a reconnect end it here).

@@ -623,10 +623,21 @@ function replyView() {
   return { wrap, body, bubble, toolsEl, chips: new Map() };
 }
 
+// A streamed reply is rendered whole each time (marked, DOMPurify, layout), so a long one costs more per
+// frame as it grows. The next render waits RENDER_SPACING times the last one's cost: a cheap render still
+// runs every frame, an expensive one takes at most about a quarter of the time (the face keeps its frames).
+const RENDER_SPACING = 3;
+
 function renderActive() {
   const t = chat.own;
   if (!t || t.view.renderQueued) return;
   t.view.renderQueued = true;
+  const wait = Math.max(0, (t.view.nextRenderAt || 0) - performance.now());
+  if (wait > 0) setTimeout(() => renderFrame(t), wait);
+  else renderFrame(t);
+}
+
+function renderFrame(t) {
   requestAnimationFrame(() => {
     if (chat.own !== t) return;
     const v = t.view;
@@ -636,12 +647,15 @@ function renderActive() {
     // renders now (replycard.js frame: read on the card when it isn't spoken or past speakLimit).
     const { render, decision } = cardState.frame(t, { text: t.text, capped: speaker.capped });
     if (!render) return;
+    const started = performance.now();
     const html = renderMarkdown(t.text, { wikilinks: 'open' });
     if (render === 'card') showCard(decision.card, { html });
     else {
       v.bubble.innerHTML = html;
       scrollToBottom();
     }
+    const now = performance.now();
+    v.nextRenderAt = now + RENDER_SPACING * (now - started);
   });
 }
 

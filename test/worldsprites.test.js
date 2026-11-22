@@ -79,6 +79,32 @@ test('a sprite whose picture failed to load is neither had nor drawn', async () 
   }
 });
 
+// Regression (perf audit OPT-03): a tinted copy of every roof mask was kept for every accent colour ever
+// shown (~14 MB a colour), so persona switches piled them up. Only the current colour's are kept.
+test('roof tints are made once per mask for the current colour, and a new colour lets the old ones go', async () => {
+  const saved = { document: globalThis.document };
+  let made = 0;
+  const ctx2d = { drawImage() {}, fillRect() {}, save() {}, restore() {} };
+  globalThis.document = { createElement: () => (made++, { getContext: () => ctx2d }) };
+  try {
+    const copy = path.join(tmpDir('nexus-tints-'), 'sprites.mjs');
+    fs.copyFileSync(path.join(ROOT, 'renderer/js/world/sprites.js'), copy);
+    const { tintRoofs } = await import(require('url').pathToFileURL(copy).href);
+    const s = (src) => ({ mask: { src, naturalWidth: 4, naturalHeight: 4 }, k: 1, ax: 0, ay: 0, w: 4, h: 4 });
+    const c = { ...ctx2d };
+    tintRoofs(c, s('a'), 0, 0, [1, 2, 3]);
+    tintRoofs(c, s('a'), 0, 0, [1, 2, 3]);
+    tintRoofs(c, s('b'), 0, 0, [1, 2, 3]);
+    assert.strictEqual(made, 2, 'one canvas per mask for a colour');
+    tintRoofs(c, s('a'), 0, 0, [9, 9, 9]);
+    assert.strictEqual(made, 3);
+    tintRoofs(c, s('a'), 0, 0, [1, 2, 3]);
+    assert.strictEqual(made, 4, 'the earlier colour was let go, so it is made again');
+  } finally {
+    Object.assign(globalThis, saved);
+  }
+});
+
 test('the kits’ licences ship with the art', () => {
   for (const f of ['LICENSE-kenney-fantasy-town-kit.txt', 'LICENSE-kenney-nature-kit.txt']) assert.match(fs.readFileSync(path.join(DIR, f), 'utf8'), /CC0/);
 });

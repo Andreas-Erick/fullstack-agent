@@ -71,7 +71,7 @@ test('livedoc: a playing chart draws through playDue (shown, 30 fps), one tick c
 // Regression (perf-1): each streamed frame rendered the reply twice in the Face layout (bubble + card) and laid out the hidden bubble.
 test('chat: a streamed frame renders once, and in the Face layout only what the card shows', () => {
   const file = 'renderer/js/chat.js';
-  const render = slice(file, 'function renderActive() {', '\n}\n');
+  const render = slice(file, 'function renderFrame(t) {', '\n}\n');
   // Whether the card, the bubble or nothing shows the frame is replycard.js frame() (test/replycard.test.js).
   assert.match(render, /const \{ render, decision \} = cardState\.frame\(t, \{ text: t\.text, capped: speaker\.capped \}\);/);
   assert.ok(at(render, 'if (!render) return;') < at(render, 'renderMarkdown('), 'nothing rendered when nothing shows it');
@@ -157,4 +157,58 @@ test('docview: each document is disposed by the next; listeners go with it; view
   const show = slice('renderer/js/viewer.js', 'async function show(path) {', '\n}\n');
   assert.ok(at(show, 'disposeDocument(viewer);') < at(show, 'await '), 'before the first await');
   assert.ok(at(show, 'if (seq !== showSeq) return;') < at(show, 'document.title = doc.name;'), 'a slower load never lands under the next');
+});
+
+// Regression (perf audit OPT-04): a long streamed reply re-rendered its whole Markdown every frame, up to
+// ~20 ms a frame at the end of a long answer, on the thread that draws the face. The next render waits
+// three times the last one's cost (a cheap one still runs every frame); the end of a reply renders at once.
+test('chat and phone: streamed renders are spaced by their own cost', () => {
+  const file = 'renderer/js/chat.js';
+  assert.match(read(file), /const RENDER_SPACING = 3;/);
+  const active = slice(file, 'function renderActive() {', '\n}\n');
+  assert.ok(at(active, 't.view.renderQueued = true;') < at(active, 'const wait = Math.max(0, (t.view.nextRenderAt || 0) - performance.now());'));
+  assert.match(active, /if \(wait > 0\) setTimeout\(\(\) => renderFrame\(t\), wait\);\n\s+else renderFrame\(t\);/);
+  const frame = slice(file, 'function renderFrame(t) {', '\n}\n');
+  assert.ok(at(frame, 'const started = performance.now();') < at(frame, 'renderMarkdown('));
+  assert.ok(at(frame, 'scrollToBottom();') < at(frame, 'v.nextRenderAt = now + RENDER_SPACING * (now - started);'));
+  assert.ok(!/nextRenderAt/.test(slice(file, "case 'done': {", "case 'failed':")), 'the final render never waits');
+
+  const phone = slice('renderer/remote/app.js', 'function renderTurn(turn) {', '\n}\n');
+  assert.match(read('renderer/remote/app.js'), /const RENDER_SPACING = 3;/);
+  assert.match(phone, /if \(v\.raf \|\| v\.renderWait\) return;/);
+  assert.ok(at(phone, 'const started = performance.now();') < at(phone, 'v.bubble.innerHTML = markdown(turn.text);'));
+  assert.match(phone, /v\.nextRenderAt = now \+ RENDER_SPACING \* \(now - started\);/);
+  assert.match(phone, /if \(wait > 0\) v\.renderWait = setTimeout\(draw, wait\);\n\s+else draw\(\);/);
+});
+
+// Regression (perf audit OPT-02): every autosave in Notes (each pause in typing) made the view list every
+// note again, and main read each one in full; also for changes while the view was hidden.
+test('notes: our own autosave and changes while hidden don’t list every note again', () => {
+  const file = 'renderer/js/notes.js';
+  const handler = slice(file, "on('vault-changed', (rel) => {", '\n  });\n');
+  assert.ok(at(handler, 'if (isOwnSave(rel)) return;') < at(handler, 'await loadList();'));
+  assert.ok(at(handler, "if (currentView !== 'notes') return;") < at(handler, 'await loadList();'));
+  const own = slice(file, 'function isOwnSave(rel) {', '\n}\n');
+  assert.match(own, /if \(rel !== ownSave\.path \|\| Date\.now\(\) - ownSave\.at > OWN_SAVE_MS\) return false;/);
+  assert.match(own, /ownSave = \{ path: '', at: 0 \};\n\s+return true;/, 'answered once');
+  const save = slice(file, 'function saveBody(done) {', '\n}\n');
+  assert.ok(at(save, 'ownSave = { path: note.path, at: Date.now() };') < at(save, 'await api.notebook.save(note.path, { body: text });'));
+  assert.ok(at(save, 'await api.notebook.save(') < at(save, 'redrawItem(item);'), 'the row shows the new text');
+  // The view lists again when it shows, so a change made while hidden isn't lost.
+  assert.match(slice(file, 'export async function refresh() {', '\n}\n'), /await loadList\(\);/);
+});
+
+// Regression (perf audit OPT-01): the voice detector (Silero + the ONNX runtime, tens of MB) stayed loaded
+// for the rest of the session after hands-free was turned off. It goes a minute after hands-free stops.
+test('voice: the neural voice detector is released after hands-free ends, kept through a quick restart', () => {
+  const file = 'renderer/js/voice.js';
+  assert.match(read(file), /const NEURAL_IDLE_MS = 60000;/);
+  const neural = slice(file, 'const neural = {', '\n};\n');
+  assert.ok(at(neural, 'start() {\n    clearTimeout(this.idle);') < at(neural, 'if (this.worker) return;'), 'a start cancels the release');
+  const soon = neural.slice(at(neural, 'stopSoon() {'));
+  assert.ok(at(soon, 'clearTimeout(this.idle);') < at(soon, 'this.worker?.terminate();'));
+  assert.match(soon, /this\.worker = null;\n\s+this\.ready = false;/, 'onFrame falls back to the energy detector');
+  assert.match(soon, /\}, NEURAL_IDLE_MS\);/);
+  const stop = slice(file, '  stop() {\n    if (!this.running) return;', '\n  }\n');
+  assert.match(stop, /neural\.stopSoon\(\);/);
 });
