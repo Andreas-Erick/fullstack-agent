@@ -34,6 +34,7 @@ const scratch = tmpDir('nexus-round2-');
 test.before(async () => {
   const copy = path.join(scratch, 'chatcore.mjs');
   fs.copyFileSync(path.join(ROOT, 'renderer/js/chatcore.js'), copy);
+  fs.copyFileSync(path.join(ROOT, 'renderer/js/braintable.mjs'), path.join(path.dirname(copy), 'braintable.mjs')); // chatcore's one import
   chatcore = await import(pathToFileURL(copy).href);
 });
 test.after(() => fs.rmSync(scratch, { recursive: true, force: true }));

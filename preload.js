@@ -15,7 +15,7 @@ function on(channel, fn) {
 
 const channels = {
   settings: ['get', 'set', 'reset'],
-  llm: ['models', 'test', 'prewarm', 'routerStatus', 'routerReset', 'localModels', 'localSuggest'],
+  llm: ['models', 'test', 'prewarm', 'routerStatus', 'brains', 'routerReset', 'localModels', 'localSuggest'],
   win: ['zoom', 'overlay', 'fullscreen'],
   screen: ['sources', 'start', 'stop', 'state', 'preview'],
   skills: ['list', 'save', 'delete', 'openFolder', 'scan', 'import'],

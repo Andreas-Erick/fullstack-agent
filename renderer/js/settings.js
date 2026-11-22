@@ -1,6 +1,7 @@
 // Configuration dashboard. Every control auto-saves to settings.json (secrets are encrypted at rest).
 import { $, api, el, escapeHtml, toast, toastError, confirmDialog, on, emit, modal, logEvent, plainError } from './util.js';
 import { testFailure } from './chatcore.js';
+import { ownEndpoint, name as brainName } from './braintable.mjs';
 import { state, saveSettings, savePersonaSettings, loadSettings } from './state.js';
 import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice, forgetVoiceLines } from './voice.js';
 import { KOKORO_VOICES } from './kokorotext.js';
@@ -927,9 +928,6 @@ function learningCard() {
   );
 }
 
-// Brains that can answer on their own besides the four modes above (main/braincore.js).
-const SINGLE_BRAINS = { local: 'A local model', gemini: 'Gemini', deepseek: 'DeepSeek', groq: 'Groq', perplexity: 'Perplexity' };
-
 function brainCard() {
   const provider = state.settings.llm.provider;
   const seg = el(
@@ -975,18 +973,20 @@ function brainCard() {
       line.className = 'test-result';
       line.textContent = 'Checking Claude Code…';
       actions.innerHTML = '';
-      // A check that failed (timed out, crashed) says nothing about the sign-in: it isn't "not installed".
-      const st = await api.claude.status({ fresh: true }).catch((e) => ({ installed: true, checked: false, error: e.message }));
+      // The catalogue's word on the account (main/brains.js claudeState), with a fresh sign-in check. A
+      // check that failed (timed out, crashed) says nothing about the sign-in: it isn't "not installed".
+      const b = await api.llm.brains({ fresh: true }).then((r) => r.current).catch((e) => ({ state: 'unchecked', claude: { installed: true, checked: false, error: e.message } }));
+      const st = b.claude || {};
       const connect = (cls) => el('button', { class: cls, onclick: () => connectClaude() }, 'Connect Claude account');
-      if (!st.installed) {
+      if (b.state === 'missing') {
         const hint = await api.claude.installHint();
         line.className = 'test-result err';
         line.textContent = `✕ Claude Code is not installed (or not found on PATH).\nInstall it with:\n  ${hint}\nthen click Refresh — or set the path to the claude executable below.`;
-      } else if (st.checked === false) {
+      } else if (b.state === 'unchecked') {
         line.className = 'test-result err';
         line.textContent = `Couldn’t check your Claude account: ${st.error}`;
         actions.append(connect('btn'));
-      } else if (!st.loggedIn) {
+      } else if (b.state !== 'ready') {
         line.className = 'test-result err';
         line.textContent = `Claude Code ${st.version} found, but no Claude account is connected.`;
         actions.append(connect('btn primary'));
@@ -996,7 +996,7 @@ function brainCard() {
       }
       actions.append(el('button', { class: 'btn', onclick: () => (refreshStatus(), emit('status-refresh')) }, '⟳ Refresh'));
       // Sign out opens Claude Code's own window: say what happens next, and keep it apart from Refresh.
-      if (st.installed && st.checked !== false && st.loggedIn) actions.append(el('button', { class: 'btn danger', style: { marginLeft: '12px' }, onclick: () => api.claude.logout().then(() => toast('Finish signing out in the window that opened, then click Refresh.', 'info', 8000), (e) => toastError(plainError(e))) }, 'Sign out'));
+      if (b.state === 'ready') actions.append(el('button', { class: 'btn danger', style: { marginLeft: '12px' }, onclick: () => api.claude.logout().then(() => toast('Finish signing out in the window that opened, then click Refresh.', 'info', 8000), (e) => toastError(plainError(e))) }, 'Sign out'));
     };
     refreshStatus();
     body.push(
@@ -1067,10 +1067,10 @@ function brainCard() {
       compactSelect(),
       handOverToggle(),
     );
-  } else if (SINGLE_BRAINS[provider]) {
+  } else if (ownEndpoint(provider)) {
     // One brain of the multi-provider list on its own (switched in the chat: "switch to a local model").
     body.push(
-      el('div', { class: 'test-result ok' }, `${SINGLE_BRAINS[provider]} answers on its own (switched in the chat). Pick another mode above, or say “switch to the Claude brain”.`),
+      el('div', { class: 'test-result ok' }, `${brainName(provider)} answers on its own (switched in the chat). Pick another mode above, or say “switch to the Claude brain”.`),
       ...(provider === 'local' ? [localFinder('local', () => (render(), emit('status-refresh')))] : []),
       text(`${provider}.model`, 'Model', { hint: provider === 'local' ? '' : 'Its API key is under Multi-provider.' }),
     );

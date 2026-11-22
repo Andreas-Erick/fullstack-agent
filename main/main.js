@@ -476,6 +476,8 @@ function registerIpc() {
   handle('llm:models', async (override) => llm.listModels(merge(await store.getSettings(), override)));
   handle('llm:test', async (override) => llm.testConnection(merge(await store.getSettings(), override)));
   handle('llm:routerStatus', async () => router.status(await store.getSettings()));
+  // The brain catalogue with live probes (brains.js): which brain answers, is it ready, what fixes it.
+  handle('llm:brains', async (opts) => require('./brains').live(await store.getSettings(), { fresh: Boolean(opts?.fresh), all: Boolean(opts?.all) }));
   handle('llm:localModels', async () => require('./localmodels').detect());
   handle('llm:localSuggest', async (hw) => require('./localcore').suggest({ vramGb: Number(hw?.vramGb) || 0, ramGb: Number(hw?.ramGb) || 0 }));
   handle('llm:routerReset', (id) => router.reset(id));

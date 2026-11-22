@@ -1,38 +1,21 @@
 // Switching the brain from the chat ("switch to a local model", "use Claude again"): the choices,
-// the model each one runs, and the settings a switch writes. Pure; the tools are in tools/brain.js.
-// Any id of router.js PROVIDERS can answer on its own as llm.provider (llm.js narrow()), and 'auto'
-// is the multi-provider mode.
+// the model each one runs, and the settings a switch writes. Pure; the tools are in tools/brain.js, the
+// brains themselves (names, readiness) in brains.js. Any id of router.js PROVIDERS can answer on its own
+// as llm.provider (llm.js narrow()), and 'auto' is the multi-provider mode.
 
-// In the order they are offered. section = where the brain's model is kept.
-const CHOICES = [
-  { id: 'claude-code', name: 'Claude (your Claude account)', section: 'claudeCode' },
-  { id: 'anthropic', name: 'Claude (API key)', section: 'anthropic' },
-  { id: 'local', name: 'A local model on this computer (Ollama / LM Studio)', section: 'local' },
-  { id: 'gemini', name: 'Gemini', section: 'gemini' },
-  { id: 'deepseek', name: 'DeepSeek', section: 'deepseek' },
-  { id: 'groq', name: 'Groq', section: 'groq' },
-  { id: 'perplexity', name: 'Perplexity (web answers, no tools)', section: 'perplexity' },
-  { id: 'openai', name: 'FreeLLMAPI', section: 'llm' },
-  { id: 'auto', name: 'Multi-provider (the best ready brain for each message, falling back when one hits a limit)', section: null },
-];
+const brains = require('./brains');
+
+// In the order they are offered (the rows live once, in brains.js's table). name = how brain_options
+// offers it; section = where the brain's model is kept.
+const CHOICES = brains.BRAINS.map((b) => ({ id: b.id, name: b.offer, section: b.section }));
 const IDS = CHOICES.map((c) => c.id);
 const choice = (id) => CHOICES.find((c) => c.id === id) || null;
 
 // What the user set up for it, so a "not ready" answer can say what is missing.
-const MISSING = {
-  'claude-code': 'Claude Code is not installed or not signed in (Settings → AI brain → Claude account)',
-  anthropic: 'no Anthropic API key (Settings → AI brain → Claude API key)',
-  local: 'no local model picked yet: Ollama or LM Studio must be running with a model',
-  openai: 'no FreeLLMAPI address (Settings → AI brain)',
-  auto: 'no brain is set up and switched on in the multi-provider list (Settings → AI brain → Multi-provider)',
-};
-const missing = (id) => MISSING[id] || `no ${choice(id)?.name || id} API key (Settings → AI brain → Multi-provider)`;
+const missing = brains.missingFor;
 
 /** The model a brain runs now ('' = its default). */
-function modelOf(settings, id) {
-  const c = choice(id);
-  return c?.section ? String(settings?.[c.section]?.model || '') : '';
-}
+const modelOf = brains.modelOf;
 
 // A model name as the user (or a model list) gives it: no spaces, no paths outside a name.
 function cleanModel(model) {

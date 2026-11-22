@@ -185,7 +185,7 @@ test('after a reconnect: the own reply ends if it finished meanwhile, stays if r
   // test/turnstate.test.js drives it through createChat().reconcile.
   const dir = tmpDir('nexus-sync-turns-');
   fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}');
-  for (const f of ['turnstate.js', 'chatcore.js']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(dir, f));
+  for (const f of ['turnstate.js', 'chatcore.js', 'braintable.mjs']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(dir, f));
   const { reconcile } = await import(pathToFileURL(path.join(dir, 'turnstate.js')).href);
   assert.ok(!('reconcile' in (await client())), 'one copy of the rule');
   // The bug this fixes: the reply finished while the link was down, so "done" never came and the
