@@ -8,7 +8,7 @@
 // is claudecode.js, this module's adapter; tests fake the CLI process under it (Session.prototype).
 const fsp = require('fs').promises;
 const claudecode = require('./claudecode');
-const prompt = require('./prompt');
+const turnprompt = require('./turnprompt');
 const tools = require('./tools');
 const codebase = require('./codebase');
 const obsidian = require('./obsidian');
@@ -39,10 +39,11 @@ function configKey(settings) {
 }
 const PROMPT_VERSION = 19;
 
-// What a session is started with: its configuration, prompt, tools and folders.
-async function options(settings, active, model) {
+// What a session is started with: its configuration, prompt, tools and folders. `facts`: the turn's
+// (turnprompt.facts), or none for a session warmed or measured without a turn (the persona's prompt).
+async function options(settings, active, model, facts = null) {
   const names = active.map((t) => t.name);
-  const [cwd, vault] = await Promise.all([codebase.root(), obsidian.vaultPath()]);
+  const [cwd, vault, prompts] = await Promise.all([codebase.root(), obsidian.vaultPath(), turnprompt.forBrain(settings, facts, 'claude-session', { tools: names })]);
   // With GitHub connected, Claude Code may also read and (on work branches) edit the cloned repos.
   let repos = null;
   if (names.includes('github_clone')) {
@@ -52,7 +53,9 @@ async function options(settings, active, model) {
   return {
     settings,
     configKey: configKey(settings),
-    buildPrompt: () => prompt.build(settings, names, { forSession: true }),
+    // The stable prompt once when the process starts, the turn's context with each message.
+    buildPrompt: prompts.buildPrompt,
+    buildContext: prompts.buildContext,
     activeTools: active,
     cwd,
     vault,
@@ -103,17 +106,15 @@ function savedAfter({ sessionId, contextTokens, freshTokens }, rolled) {
 /**
  * One turn through the conversation's session (llm.runOn). `active` the tools, `model`/`effort` the pace's
  * choice (the warm model may keep another), `routine` background work (never moves the model, never warms
- * the next session). Returns the reply with `convPatch`, the fields the conversation keeps.
+ * the next session), `facts` the turn's (turnprompt.facts; read from the turn when not given). Returns the
+ * reply with `convPatch`, the fields the conversation keeps.
  */
-async function runTurn(settings, { conv, history, active, model, effort, routine = false, buildContext, emit, signal, ctx, images = [] }) {
+async function runTurn(settings, { conv, history, active, model, effort, routine = false, facts = null, emit, signal, ctx, images = [] }) {
   const setup = Boolean(conv.setup);
-  const opts = { ...(await options(settings, active, model)), effort, routine };
-  if (setup) {
-    // The setup interview keeps one stable session even though the answers change the persona.
-    opts.configKey = 'first-run-setup';
-    opts.buildPrompt = async () => prompt.buildSetup(settings);
-  }
-  const { sessionId, contextTokens, freshTokens, ...reply } = await claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, buildContext, images });
+  const opts = { ...(await options(settings, active, model, facts || turnprompt.facts({ conv, history, routine }))), effort, routine };
+  // The setup interview keeps one stable session even though the answers change the persona.
+  if (setup) opts.configKey = 'first-run-setup';
+  const { sessionId, contextTokens, freshTokens, ...reply } = await claudecode.runTurn({ ...opts, conv, history, emit, signal, ctx, images });
   // A session grown too big (claudecode.ROLLOVER_TOKENS) is closed now and a fresh one started in the
   // background, so the next message is quick (not after a routine run: nobody writes there next); the
   // conversation then keeps no session id to resume.

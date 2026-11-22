@@ -288,8 +288,9 @@ test('a message answered again says so in its context (Try again, Regenerate, Ed
 });
 
 test('who wrote the latest reply: the persona stored on it, skipping the user and replies from before personas', () => {
-  const llm = fs.readFileSync(path.join(ROOT, 'main/llm.js'), 'utf8');
-  assert.match(llm, /previousPersona = core\.lastPersona\(history\)|previousPersona = require\('\.\/personacore'\)\.lastPersona\(history\)/, 'llm.js asks personacore');
+  // The turn's facts (turnprompt.js, which every brain's prompt reads) ask personacore.
+  const turnFacts = load('main/turnprompt.js').facts({ conv: {}, history: [{ role: 'assistant', content: 'x', persona: 'Nova' }, { role: 'user', content: 'x' }] });
+  assert.strictEqual(turnFacts.previousPersona, 'Nova', 'the turn prompt names who wrote the last reply');
   const msgs = (...list) => list.map(([role, p]) => ({ role, content: 'x', ...(p ? { persona: p } : {}) }));
   assert.strictEqual(core.lastPersona(msgs(['assistant', 'Nova'], ['user'], ['assistant', 'Vega'], ['user'])), 'Vega');
   assert.strictEqual(core.lastPersona(msgs(['assistant', 'Nova'], ['user'], ['assistant'], ['user'])), 'Nova', 'a reply without a persona (before 2.7.10) is skipped');
