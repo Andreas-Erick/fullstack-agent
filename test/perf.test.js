@@ -1,6 +1,6 @@
-// Performance profiles: the rule shared by the window (renderer/js/perfcore.js) and the main process
-// (main/perfcore.js), the hardware classification, the speech model choice, the effects level, and
-// which Claude sessions close under Balanced.
+// Performance profiles: the rules in renderer/js/perfcore.mjs, shared by the window (js/perfcore.js) and
+// the main process (main/perfcore.js): the hardware classification, the speech model choice, the effects
+// level, and which Claude sessions close under Balanced.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -11,24 +11,32 @@ const main = require('../main/perfcore');
 
 let r;
 test.before(async () => {
-  const copy = path.join(tmpDir('nexus-perf-'), 'perfcore.mjs');
-  fs.copyFileSync(path.join(ROOT, 'renderer/js/perfcore.js'), copy);
-  r = await import(pathToFileURL(copy).href);
+  r = await import(pathToFileURL(path.join(ROOT, 'renderer/js/perfcore.mjs')).href);
 });
 
 const settings = (perf = {}, extra = {}) => ({ perf: { mode: 'auto', detected: '', hw: null, ...perf }, stt: { localModel: 'onnx-community/whisper-large-v3-turbo' }, ui: { fx: 'hud' }, ...extra });
 
-test('the window and the main process agree on the profile', () => {
-  for (const mode of ['auto', 'full', 'balanced', undefined, 'nonsense'])
-    for (const detected of ['', 'low', 'high']) {
-      const s = settings({ mode, detected });
-      assert.strictEqual(r.profile(s), main.profile(s), `${mode}/${detected}`);
-    }
-  assert.strictEqual(main.profile(settings({ detected: 'low' })), 'balanced');
-  assert.strictEqual(main.profile(settings({ detected: '' })), 'full', 'not checked yet: nothing changes');
-  assert.strictEqual(main.profile(settings({ mode: 'full', detected: 'low' })), 'full', 'the user decides');
-  assert.strictEqual(main.profile(settings({ mode: 'balanced', detected: 'high' })), 'balanced');
-  assert.strictEqual(main.profile({}), 'full');
+test('one implementation: the main process and the window load the same perfcore.mjs', async () => {
+  assert.strictEqual(main.profile, r.profile, 'main/perfcore.js is the shared module itself');
+  assert.strictEqual(main.BALANCED, r.BALANCED);
+  // The window's './perfcore.js' only re-exports it, so its importers keep their paths.
+  const dir = tmpDir('nexus-perf-');
+  fs.copyFileSync(path.join(ROOT, 'renderer/js/perfcore.mjs'), path.join(dir, 'perfcore.mjs'));
+  fs.copyFileSync(path.join(ROOT, 'renderer/js/perfcore.js'), path.join(dir, 'door.mjs'));
+  const door = await import(pathToFileURL(path.join(dir, 'door.mjs')).href);
+  assert.deepStrictEqual(Object.keys(door).sort(), Object.keys(r).sort());
+});
+
+test('the profile: the user decides, else the hardware check; unchecked changes nothing', () => {
+  for (const mode of ['auto', undefined, 'nonsense']) {
+    assert.strictEqual(r.profile(settings({ mode, detected: 'low' })), 'balanced', String(mode));
+    assert.strictEqual(r.profile(settings({ mode, detected: 'high' })), 'full', String(mode));
+  }
+  assert.strictEqual(r.profile(settings({ detected: '' })), 'full', 'not checked yet: nothing changes');
+  assert.strictEqual(r.profile(settings({ mode: 'full', detected: 'low' })), 'full', 'the user decides');
+  assert.strictEqual(r.profile(settings({ mode: 'balanced', detected: 'high' })), 'balanced');
+  assert.strictEqual(r.profile({}), 'full');
+  assert.strictEqual(r.profile(undefined), 'full');
 });
 
 test('a lighter computer: little memory, or no graphics card with its own memory', () => {
@@ -207,7 +215,7 @@ test('faceFpsCap: resting 30, asleep 20, the lowest cap wins', () => {
   assert.strictEqual(r.faceFpsCap({}), 0);
   assert.strictEqual(r.faceFpsCap(), 0);
   // Asked on every display frame (env.maxFps): no arrays built there.
-  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/perfcore.js'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/perfcore.mjs'), 'utf8');
   const body = src.slice(src.indexOf('export function faceFpsCap('), src.indexOf('export const REST_CANVAS_FPS'));
   assert.ok(body.includes('let cap = Infinity;'), 'faceFpsCap found');
   assert.ok(!/\[|\.filter\(|\.\.\./.test(body), 'allocates nothing');
