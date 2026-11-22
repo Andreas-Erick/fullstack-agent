@@ -276,7 +276,7 @@ test('a level changed in Settings never overwrites the saved lists with the wind
   assert.match(renderer, /api\.on\('claude:connectorLevels'/);
   const main = fs.readFileSync(path.join(ROOT, 'main/main.js'), 'utf8');
   assert.match(main, /handle\('claude:setConnectorLevel'[\s\S]{0,600}levelPatch\(\(await store\.getSettings\(\)\)\.claudeCode/);
-  assert.match(main, /toWindow\('claude:connectorLevels'/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'main/settingseffects.js'), 'utf8'), /toWindow\('claude:connectorLevels'/);
 });
 
 test('changing one connector keeps every other connector’s level', () => {
