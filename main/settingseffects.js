@@ -27,7 +27,16 @@ const has = (patch, section, key) => {
 
 // The table: [name, when(patch), run(settings, patch, deps)]. A run may return a promise.
 const EFFECTS = [
-  ['voice shortcut', (p) => has(p, 'stt', 'globalShortcut'), (s, p, d) => d.registerShortcut()],
+  // registerShortcut logs a refused shortcut itself (accel and reason as data). Anything else it throws is
+  // still about the user's value: data too, never an Error, whose stack would count against a self-change.
+  [
+    'voice shortcut',
+    (p) => has(p, 'stt', 'globalShortcut'),
+    (s, p, d) =>
+      Promise.resolve()
+        .then(() => d.registerShortcut())
+        .catch((err) => d.log.warn('voice shortcut not registered', { accel: String(s.stt?.globalShortcut || ''), reason: String(err?.message || err) })),
+  ],
   ['logging', (p) => has(p, 'logging'), (s, p, d) => d.log.setDebug(s.logging?.debug)],
   // Remote access: started, stopped or moved (port, LAN, tunnel). Serialized: the latest save wins in order.
   ['remote access', (p) => has(p, 'remote'), (s, p, d) => (remoteChain = remoteChain.catch(() => {}).then(() => d.companion.apply(s)))],
