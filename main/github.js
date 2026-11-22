@@ -28,7 +28,9 @@ function run(cmd, args, { cwd, timeout = 60000 } = {}) {
 
 const gh = (args, opts) => run('gh', args, opts);
 // Long paths on Windows: deep repos otherwise fail with "Filename too long".
-const git = (repo, args, opts) => run('git', ['-c', 'core.longpaths=true', ...args], { cwd: localPath(repo), ...opts });
+// Hooks and file monitors off, as in vaultgit.js: a repo's own hook setup (husky's core.hooksPath after an
+// npm install, a planted fsmonitor) never runs a program when the assistant commits or reads status.
+const git = (repo, args, opts) => run('git', ['-c', 'core.longpaths=true', '-c', `core.hooksPath=${os.devNull}`, '-c', 'core.fsmonitor=false', ...args], { cwd: localPath(repo), ...opts });
 const json = async (args) => JSON.parse(await gh(args));
 const clip = (t, n = MAX_TEXT) => (t.length > n ? `${t.slice(0, n)}\n… (cut at ${n} characters)` : t);
 
@@ -229,14 +231,15 @@ async function diff(repo) {
   return clip(`${staged}${unstaged}${untracked ? `\nNew files:\n${untracked}` : ''}`.trim() || 'No changes.', 30000);
 }
 
-/** A file inside the clone; never .git. */
+/** A file inside the clone, where it really is (a link or junction committed in the repo can't lead out); never .git. */
 function fileIn(repo, rel) {
+  const files = require('./files');
   const root = localPath(repo);
   const full = path.resolve(root, String(rel || ''));
   const r = path.relative(root, full);
-  if (!r || r.startsWith('..') || path.isAbsolute(r)) throw new Error(`"${rel}" is outside ${repo}.`);
+  if (!r || r.startsWith('..') || path.isAbsolute(r) || !files.isInside(root, full)) throw new Error(`"${rel}" is outside ${repo}.`);
   // Any part, compared as the OS does (".GIT/config" is .git/config on Windows).
-  if (require('./files').hasReservedPart(r, ['.git'])) throw new Error('.git must not be touched directly.');
+  if (files.hasReservedPart(r, ['.git'])) throw new Error('.git must not be touched directly.');
   return full;
 }
 

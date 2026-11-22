@@ -16,6 +16,7 @@ const approvals = require('./approvals');
 const log = require('./logger');
 const connectors = require('./connectors');
 const outbound = require('./outboundcore');
+const { safeCommand } = require('./commandsafety');
 const claudeUsage = require('./claudeusage');
 const perf = require('./perfcore');
 
@@ -337,6 +338,21 @@ function realPath(p) {
 }
 const shortTool = (name) => String(name || '').replace(/^mcp__nexus(_more)?__/, '');
 
+// Vault paths that matter beyond the note itself (relative to the vault, as the OS compares names):
+// 'prompt' for what the system prompt reads every turn (memory.js, obsidian.startupContext), 'package'
+// for the manifests a command would run (npm scripts, .npmrc). Else ''.
+const PROMPT_NOTES = ['profile.md', 'active priorities.md'];
+const PROMPT_FOLDERS = ['memory', 'jobs'];
+const PACKAGE_FILES = ['package.json', '.npmrc'];
+function vaultGuarded(rel) {
+  const parts = String(rel || '').split(/[/\\]+/).map((p) => p.toLowerCase().replace(/[. ]+$/, ''));
+  const last = String(rel || '').split(/[/\\]+/).pop().toLowerCase().replace(/ +$/, '');
+  if (PACKAGE_FILES.includes(last)) return 'package';
+  if (parts.length === 1 && PROMPT_NOTES.includes(parts[0])) return 'prompt';
+  if (parts.length > 1 && PROMPT_FOLDERS.includes(parts[0])) return 'prompt';
+  return '';
+}
+
 function inside(root, file) {
   if (!root || !file) return false;
   const rel = path.relative(path.resolve(root), path.resolve(file));
@@ -587,6 +603,15 @@ class Session {
         // A colon names an NTFS stream (".git::$INDEX_ALLOCATION" is .git itself); no note name has one.
         if (rel.includes(':')) return { behavior: 'deny', message: 'A vault path can’t contain “:” (Obsidian doesn’t allow it in a note’s name either).' };
         if (require('./files').hasReservedPart(rel, require('./obsidian').IGNORE)) return { behavior: 'deny', message: 'The vault’s .git, .obsidian, .trash and node_modules folders are not edited from here.' };
+        // After outside content, a note the prompt reads in later turns (memories, Profile, Active
+        // Priorities, Jobs) or a package manifest a command would run asks, each one: else a page's
+        // words would come back as the user's own data in a clean turn.
+        const guarded = vaultGuarded(rel);
+        if (guarded && turnState?.tainted) {
+          const preview = String(input.new_string ?? input.content ?? '').slice(0, 600);
+          const r = await approvals.gate(turnState, 'settings', guarded === 'prompt' ? `Write a note your assistant reads every time (${rel.split(path.sep).join('/')})` : `Write a package file (${rel.split(path.sep).join('/')})`, `${tool} ${rel.split(path.sep).join('/')}${preview ? `\n\n${preview}` : ''}`, { taintAsks: true });
+          if (!r.allow) return { behavior: 'deny', message: `User did not approve: ${r.reason}` };
+        }
         return { behavior: 'allow', updatedInput: input };
       }
       if (repos && inside(repos, file)) return this.approveRepoEdit(tool, file, input, turnState);
@@ -602,6 +627,8 @@ class Session {
       return { behavior: 'deny', message: 'Writing outside your code folder and your vault is not allowed.' };
     }
     if (tool === 'Bash') {
+      // The app's own checks and plain git views, word for word (commandsafety.js); anything else asks.
+      if (allowSelfModify && safeCommand(input.command)) return { behavior: 'allow', updatedInput: input };
       const r = await approvals.gate(turnState, 'command', 'Run a command on your computer', String(input.command || ''));
       return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
     }
@@ -687,8 +714,12 @@ class Session {
   async approveRepoEdit(tool, file, input, turnState) {
     const repo = github.repoOf(file);
     if (!repo) return { behavior: 'deny', message: 'Edit files inside a cloned repository (owner/name folder).' };
+    // Compared where the file really is: a link or junction committed in the clone can't lead out of it.
+    const real = path.relative(realPath(github.localPath(repo)), realPath(file));
+    if (!real || real.startsWith('..') || path.isAbsolute(real)) return { behavior: 'deny', message: `That path leads out of ${repo}.` };
+    if (real.includes(':')) return { behavior: 'deny', message: 'A file path in a repository can’t contain “:”.' };
     const rel = path.relative(github.localPath(repo), file).split(path.sep).join('/');
-    if (require('./files').hasReservedPart(rel, ['.git'])) return { behavior: 'deny', message: '.git must not be modified.' };
+    if (require('./files').hasReservedPart(rel, ['.git']) || require('./files').hasReservedPart(real, ['.git'])) return { behavior: 'deny', message: '.git must not be modified.' };
     let branch;
     try {
       ({ branch } = await github.requireWorkBranch(repo));
@@ -931,7 +962,10 @@ function sessionSpec({ settings, configKey, activeTools, cwd, vault, repos, fold
   const allowed = ['mcp__nexus'];
   const readRoots = [...new Set([cwd, vault, repos, ...folders, cwd && cliProjectDir(cwd)].filter(Boolean).map((p) => path.resolve(p)))];
   if (settings.web.enabled) allowed.push('WebSearch'); // WebFetch comes to approve() (approvals.askOutbound)
-  if (settings.code.allowSelfModify) allowed.push('Bash(npm run check)', 'Bash(node scripts/check.js)', 'Bash(npm test*)', 'Bash(node scripts/test.js*)', 'Bash(node scripts/verify.js*)', 'Bash(git status*)', 'Bash(git diff*)', 'Bash(git log*)');
+  // Exact commands only: a wildcard rule (Bash(git diff*)) let "git log --output=<file>", "git diff
+  // --no-index <any file>" and "npm test --prefix <clone>" run without approve(). The other safe
+  // forms (flags such as --oneline, one test file) come to approve(), which allows commandsafety's list.
+  if (settings.code.allowSelfModify) allowed.push('Bash(npm run check)', 'Bash(node scripts/check.js)', 'Bash(npm test)', 'Bash(node scripts/test.js)', 'Bash(node scripts/verify.js)', 'Bash(git status)', 'Bash(git diff)', 'Bash(git log)');
   // The user's claude.ai connectors and plugins: found with ToolSearch, plugin skills with Skill.
   const withConnectors = Boolean(cc.connectors);
   const withPlugins = withConnectors && cc.plugins === true; // their skills (Skill) and MCP servers
