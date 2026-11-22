@@ -821,7 +821,7 @@ const SESSION_SETTINGS = { autoMemoryEnabled: false };
 
 /**
  * Which of the user's own Claude Code settings a session loads. Never the project's (the repo's
- * CLAUDE.md, the developer map: ~22k tokens, ~40% of a fresh session; the assistant reads it itself
+ * CLAUDE.md, which imports the developer map docs/agents/MAP.md: ~50k tokens; the assistant reads the map itself
  * before changing its code, prompt.js Self-improvement) and never local ones. The user's settings only
  * with connectors on, where their plugins are set up: otherwise the user's permission rules and extra
  * folders (written for their own coding sessions, e.g. "git push" allowed, a whole workspace readable)

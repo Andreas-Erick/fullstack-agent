@@ -1,6 +1,6 @@
 // Static knowledge of this codebase, without running it: symbols per file, the IPC surface, the tool
 // list, imports and exports. Used by the agent (code_outline, code_map) and by scripts/verify.js,
-// which turns the cross-file rules from CLAUDE.md into checks. Plain Node, no Electron: it takes the
+// which turns the cross-file rules from docs/agents/MAP.md into checks. Plain Node, no Electron: it takes the
 // code root as an argument so scripts can use it too.
 const fs = require('fs');
 const path = require('path');
@@ -209,7 +209,7 @@ function map(root) {
     ipc: { channels: i.handlers.length, byNamespace: i.handlers.reduce((a, h) => ((a[h.split(':')[0]] = (a[h.split(':')[0]] || 0) + 1), a), {}) },
     tools: groups,
     settingsSections: defaults ? Object.keys(defaults) : [],
-    docs: ['CLAUDE.md', 'docs/ENGINEERING.md', 'TROUBLESHOOTING.md', 'PRIVACY.md', 'CHANGELOG.md'].filter((d) => fs.existsSync(path.join(root, d))),
+    docs: ['docs/agents/MAP.md', 'docs/ENGINEERING.md', 'docs/adr', 'TROUBLESHOOTING.md', 'PRIVACY.md', 'CHANGELOG.md'].filter((d) => fs.existsSync(path.join(root, d))),
   };
 }
 

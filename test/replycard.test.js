@@ -23,7 +23,7 @@ function setup(face = true) {
   return { card, layout };
 }
 
-// The rule as CLAUDE.md states it, written out on its own: the card shows the reply as it is written when it
+// The rule as the code map (docs/agents/MAP.md) states it, written out on its own: the card shows the reply as it is written when it
 // isn't spoken or the voice reached its limit, else when it is done; a failure always; a stop only where it
 // was being read; never in another layout, never after the user closed it during this reply.
 function expected({ face, spoken, capped, closed, outcome, words }) {

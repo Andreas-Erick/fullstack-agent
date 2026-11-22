@@ -44,7 +44,7 @@ module.exports = [
   {
     name: 'code_map',
     group: 'engineering',
-    description: 'Architecture overview of your own codebase: every module with its purpose, exports and size, the IPC surface, your tools by group, the settings sections and the design docs. Start here when planning a feature or a refactor, together with CLAUDE.md and docs/ENGINEERING.md.',
+    description: 'Architecture overview of your own codebase: every module with its purpose, exports and size, the IPC surface, your tools by group, the settings sections and the design docs. Start here when planning a feature or a refactor, together with docs/agents/MAP.md (the code map) and docs/ENGINEERING.md.',
     parameters: obj({}),
     run: async () => codebase.map(),
   },
