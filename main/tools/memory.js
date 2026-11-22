@@ -3,6 +3,15 @@
 const memory = require('../memory');
 const { obj, str, requireApproval } = require('./common');
 
+// Memories go into every later prompt, and a later turn reads them as the user's own data, untainted. So
+// after outside content (a web page, an email, a file) a save asks first, in auto mode too, and what is
+// saved is marked `source: outside` (memory.OUTSIDE), which the prompt shows as data. True when marked.
+async function outsideWrite(ctx, title, detail) {
+  if (!ctx?.turn?.tainted) return false;
+  await requireApproval(ctx, 'settings', title, String(detail || '').slice(0, 600), { taintAsks: true });
+  return true;
+}
+
 module.exports = [
   {
     name: 'memory_save',
@@ -18,7 +27,8 @@ module.exports = [
       ['title', 'content'],
     ),
     run: async (a, ctx) => {
-      const e = await memory.save(a);
+      const outside = await outsideWrite(ctx, `Remember “${String(a.title || a.content).slice(0, 80)}”`, a.content);
+      const e = await memory.save({ ...a, ...(outside ? { source: memory.OUTSIDE } : {}) });
       ctx.emit({ type: 'memory_changed' });
       return { saved: true, id: e.id, title: e.title };
     },
@@ -29,7 +39,8 @@ module.exports = [
     description: 'Update an existing memory by id (ids are listed in the Memory vault section of the system prompt). Use when information changes.',
     parameters: obj({ id: str('Memory id'), title: str('New title (optional)'), content: str('New full content (optional)'), category: str('New category (optional)') }, ['id']),
     run: async (a, ctx) => {
-      const e = await memory.update(a.id, a);
+      const outside = await outsideWrite(ctx, `Change the memory “${String(a.title || a.id).slice(0, 80)}”`, a.content || a.title || '');
+      const e = await memory.update(a.id, { ...a, ...(outside ? { source: memory.OUTSIDE } : {}) });
       ctx.emit({ type: 'memory_changed' });
       return { updated: true, id: e.id, title: e.title };
     },
@@ -54,6 +65,6 @@ module.exports = [
     group: 'memory',
     description: 'Search the memory vault by keywords. All memories are already in your system prompt; use this only to double-check.',
     parameters: obj({ query: str('Keywords') }, ['query']),
-    run: async (a) => (await memory.search(a.query)).slice(0, 20).map((e) => ({ id: e.id, title: e.title, category: e.category, content: e.content })),
+    run: async (a) => (await memory.search(a.query)).slice(0, 20).map((e) => ({ id: e.id, title: e.title, category: e.category, content: e.content, ...(e.source ? { source: e.source } : {}) })),
   },
 ];
