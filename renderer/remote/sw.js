@@ -1,7 +1,9 @@
 // Service worker for the phone client: caches the app shell only. Conversations and every /api/
 // response go straight to the network and are never stored.
-const CACHE = 'nexus-shell-v14';
-const FACES = ['/js/themecore.js', '/js/visualizer.js', '/js/faces/env.js', '/js/faces/common.js', '/js/faces/radial.js', '/js/faces/rain.js', '/js/faces/neural.js', '/js/faces/companion.js', '/js/faces/siren.js'];
+const CACHE = 'nexus-shell-v15';
+// Every file of the built-in faces (renderer/js/faces/registry.mjs FACE_FILES, under /js/). A classic worker
+// can't import that module: test/facesregistry.test.js keeps this list equal to it.
+const FACES = ['/js/themecore.js', '/js/faces/env.js', '/js/faces/common.js', '/js/faces/registry.mjs', '/js/faces/siren.js', '/js/visualizer.js', '/js/faces/radial.js', '/js/faces/rain.js', '/js/faces/neural.js', '/js/faces/companion.js'];
 const SHELL = ['/', '/app.js', '/screens.js', '/sync.js', '/styles.css', '/manifest.webmanifest', '/icon.png', '/vendor/marked.js', '/vendor/purify.js', '/vendor/katex.js', '/js/mathtext.js', '/js/chatcore.js', '/js/braintable.mjs', '/js/turnstate.js', ...FACES];
 
 self.addEventListener('install', (e) => {

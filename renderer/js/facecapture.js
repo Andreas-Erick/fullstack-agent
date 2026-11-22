@@ -4,15 +4,9 @@
 import { configureFaces } from './faces/env.js';
 import { normalizeTheme } from './themecore.js';
 import { faceState, samples64, audio } from './faces/common.js';
+import { BUILT_IN_FACES, DEFAULT_FACE } from './faces/registry.mjs';
 
-const BUILT_IN = {
-  siren: ['./faces/siren.js', 'SirenFace'],
-  circuit: ['./visualizer.js', 'CircuitFace'],
-  radial: ['./faces/radial.js', 'RadialFace'],
-  rain: ['./faces/rain.js', 'RainFace'],
-  neural: ['./faces/neural.js', 'NeuralFace'],
-  companion: ['./faces/companion.js', 'CompanionFace'],
-};
+const BUILT_IN = Object.fromEntries(BUILT_IN_FACES.map((f) => [f.id, [`./${f.module}`, f.export]]));
 
 let current = 'idle';
 let theme = normalizeTheme({});
@@ -56,7 +50,7 @@ window.__face = {
       setInterval(() => frame.contentWindow?.postMessage({ type: 'av', state: faceState(), level: audio().level, samples: samples64(), env: { name, colors: theme.colors, states: theme.face.states, alert: null } }, '*'), 33);
       return true;
     }
-    const [file, cls] = BUILT_IN[face] || BUILT_IN.siren;
+    const [file, cls] = BUILT_IN[face] || BUILT_IN[DEFAULT_FACE];
     const Face = (await import(file))[cls];
     const canvas = document.createElement('canvas');
     stage.append(canvas);
