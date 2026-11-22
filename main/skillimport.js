@@ -3,6 +3,7 @@
 // commit, file tree); the chosen folders' text files come from raw.githubusercontent.com at that commit.
 // Only text is copied and nothing in a skill is ever run. Each imported folder keeps the repository's
 // license (LICENSE) and where it came from (.source.json), so an update replaces it in place.
+const crypto = require('crypto');
 const fsp = require('fs').promises;
 const path = require('path');
 const skills = require('./skills');
@@ -48,6 +49,16 @@ async function pool(items, n, fn) {
 
 const scans = new Map(); // owner/repo → { at, ...scan }
 
+// A skill folder's slug. A name with no Latin letters or digits ("スキル", "___") slugifies to '', and an
+// empty slug made the install's target the skills folder itself (removed whole before the rename): such a
+// folder gets a slug of its own, stable for the same path in the same repository.
+function skillSlug(r, d) {
+  const own = skills.slugify(d === '.' ? r.repo : path.posix.basename(d));
+  if (own) return own;
+  const tag = crypto.createHash('sha256').update(`${r.owner}/${r.repo}/${d}`.toLowerCase()).digest('hex').slice(0, 8);
+  return skills.slugify(`skill-${r.repo}-${tag}`) || `skill-${tag}`;
+}
+
 /** The skills a repository offers: [{ path, slug, name, description, files, bytes }]. */
 async function scan(input) {
   const r = parseRepo(input);
@@ -65,7 +76,7 @@ async function scan(input) {
     const text = (await get(raw(r, commit.sha, `${prefix}SKILL.md`), { json: false }).catch(() => Buffer.from(''))).toString('utf8');
     const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     const fm = skills.frontmatter(m ? m[1] : '');
-    return { path: d, slug: skills.slugify(d === '.' ? r.repo : path.posix.basename(d)), name: fm.name || path.posix.basename(d), description: String(fm.description || '').slice(0, 400), files: own.length, bytes: own.reduce((n, f) => n + f.size, 0) };
+    return { path: d, slug: skillSlug(r, d), name: fm.name || path.posix.basename(d), description: String(fm.description || '').slice(0, 400), files: own.length, bytes: own.reduce((n, f) => n + f.size, 0) };
   });
   const license = files.find((f) => /^(LICENSE|LICENCE|COPYING)(\.(md|txt))?$/i.test(f.path));
   const out = { at: Date.now(), repo: `${r.owner}/${r.repo}`, owner: r.owner, name: r.repo, sha: commit.sha, files, license: meta.license?.spdx_id || null, licensePath: license?.path || null, description: meta.description || '', truncated: Boolean(tree.truncated), skills: found.sort((a, b) => a.path.localeCompare(b.path)) };
@@ -94,6 +105,8 @@ async function install(input, paths) {
     // A skill of the user's own (or from another repository) with that name is never replaced.
     const clash = existing.find((x) => x.slug === k.slug && x.source !== s.repo);
     const slug = clash ? skills.slugify(`${k.slug}-${s.owner}`) : k.slug;
+    // Only ever a folder directly inside the skills folder: the rm below must never reach the folder itself.
+    if (!slug || path.dirname(path.join(root, slug)) !== path.resolve(root)) throw new Error(`Importing ${k.name} failed: it has no usable folder name.`);
     const prefix = k.path === '.' ? '' : `${k.path}/`;
     let bytes = 0;
     const files = s.files.filter((f) => f.path.startsWith(prefix) && importable(f.path.slice(prefix.length), f.size)).filter((f) => (bytes += f.size) <= MAX_SKILL_BYTES).slice(0, MAX_SKILL_FILES);

@@ -235,7 +235,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
       const before = trackChanges ? await selfchange.fingerprint() : null;
       codeRoot = trackChanges ? await selfchange.root().catch(() => null) : null;
       try {
-        const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images, routine: Boolean(routine), again: again?.again || null, taint: [...(screenShot ? ['the shared screen'] : []), ...(composed?.taint || [])], imageNoun: attachcore.imageNoun({ screen: screenShot, images: composed?.images.length || 0 }) });
+        const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images, routine: Boolean(routine), again: again?.again || null, taint: [...(screenShot ? ['the shared screen'] : []), ...(slash && skills.imported(slash.skill) ? [`the skill /${slash.skill.slug}`] : []), ...(composed?.taint || [])], imageNoun: attachcore.imageNoun({ screen: screenShot, images: composed?.images.length || 0 }) });
         const assistantMsg = {
           id: store.newId('m'),
           role: 'assistant',

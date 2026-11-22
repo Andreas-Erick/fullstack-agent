@@ -20,9 +20,12 @@ module.exports = [
     group: 'skills',
     description: 'Load a saved skill (by name or slash command) to run it: returns its steps, which you then carry out in order with your tools. Use it when the user asks for a skill by name or says one of its trigger phrases.',
     parameters: obj({ name: str('Skill name or /command'), input: str('What the user gave it to work on (optional)') }, ['name']),
-    run: async (a) => {
+    run: async (a, ctx) => {
       const s = await skills.get(a.name);
       if (!s) throw new Error(`No skill called "${a.name}". Saved skills: ${(await skills.list()).map((x) => x.name).join(', ') || 'none'}.`);
+      // Someone else's skill (skills.imported: a folder from GitHub): its steps are outside content, like
+      // its files (skill_file), so what they ask to save or change asks as after any outside content.
+      if (s.folder || s.source) require('../approvals').markTainted(ctx?.turn, `skill_run ${s.slug}`);
       return { skill: s.name, purpose: s.description, input: a.input || '(none given)', steps: s.steps, ...(s.folder ? { files: s.files.slice(0, 120), howToUseFiles: `When a step names a file (e.g. "references/…"), load it with skill_file (skill "${s.slug}"). Scripts are reference only; you can't run them here.` } : {}), next: 'Carry out these steps now, in order, then report briefly what you did.' };
     },
   },
