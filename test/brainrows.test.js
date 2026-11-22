@@ -9,7 +9,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { ROOT, stub, load } = require('./helpers');
+const { ROOT, stub, load, settingsSource } = require('./helpers');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-brainrows-'));
 const anything = new Proxy(function () {}, {
@@ -122,6 +122,6 @@ test('the same brains see pictures', () => {
 
 test('Settings shows the same blurb for each routed brain', () => {
   for (const [id, text] of Object.entries(SNAPSHOT.blurbs)) assert.strictEqual(table.brain(id)?.blurb, text, id);
-  assert.match(fs.readFileSync(path.join(ROOT, 'renderer/js/settings.js'), 'utf8'), /brain\(p\.id\)\?\.blurb/, 'settings.js reads the row');
-  assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'renderer/js/settings.js'), 'utf8'), /const PROVIDER_HINT/, 'no second copy');
+  assert.match(settingsSource(), /brain\(p\.id\)\?\.blurb/, 'settings.js reads the row');
+  assert.doesNotMatch(settingsSource(), /const PROVIDER_HINT/, 'no second copy');
 });

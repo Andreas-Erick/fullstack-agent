@@ -6,11 +6,12 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
+const { settingsSource } = require('./helpers');
 const fx = require('./appfixture')('viewerrors');
 const { dir, store, read } = fx;
 
 test('Settings never sends its card intros through the Markdown sanitizer, and a failed card’s error is text', () => {
-  const src = read('renderer/js/settings.js');
+  const src = settingsSource();
   for (const re of [/\brenderMarkdown\b/, /\bsanitizeHtml\b/, /\bDOMPurify\b/, /\bmarked\s*\.\s*parse\b/]) assert.doesNotMatch(src, re, `settings.js uses ${re.source}`);
   const cardFn = /function card\(id, title, desc, \.\.\.children\) \{\n([\s\S]*?)\n\}/.exec(src);
   assert.ok(cardFn, 'settings.js has card(id, title, desc, ...children)');

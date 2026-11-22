@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { ROOT, stub, load, quietLog } = require('./helpers');
+const { ROOT, stub, load, quietLog, settingsSource } = require('./helpers');
 
 const gates = [];
 let answer = true;
@@ -270,7 +270,8 @@ test('extensions reach the session with connectors off, through the permission l
 // erased it and the connector asked again after a restart. Levels are now changed in the main
 // process on the saved lists, and the window is told about changes made elsewhere.
 test('a level changed in Settings never overwrites the saved lists with the window’s copy', () => {
-  const renderer = fs.readdirSync(path.join(ROOT, 'renderer/js')).filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(ROOT, 'renderer/js', f), 'utf8')).join('\n');
+  const topLevel = fs.readdirSync(path.join(ROOT, 'renderer/js')).filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(ROOT, 'renderer/js', f), 'utf8')).join('\n');
+  const renderer = `${topLevel}\n${settingsSource()}`; // with the Settings view's modules (renderer/js/settings/)
   assert.doesNotMatch(renderer, /saveSettings\(\{\s*claudeCode:\s*\{[^}]*connectors(Allowed|ReadOnly|Write)/, 'the window must not save the level lists itself');
   assert.match(renderer, /api\.claude\.setConnectorLevel\(/);
   assert.match(renderer, /api\.on\('claude:connectorLevels'/);
