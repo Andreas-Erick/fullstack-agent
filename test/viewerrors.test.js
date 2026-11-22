@@ -35,7 +35,9 @@ test('a Schedule.md that can’t be read: calendar.status says why, and the titl
   assert.strictEqual(st.enabled, true);
   assert.strictEqual(st.connected, true, 'the tools and the view stay available');
   assert.match(st.unreadable || '', /Couldn't read Schedule\.md/);
-  assert.match(read('renderer/js/app.js'), /c\.enabled && c\.unreadable \? setPill\('#pillCal', 'warn', `Schedule\.md couldn’t be read: \$\{c\.unreadable\}`\)/);
+  // The light says it in plain words (statuscore.js 'unreadable' is amber); the reason is in Health.
+  assert.match(read('renderer/js/app.js'), /setPill\('#pillCal', 'calendar', !c\.enabled \? 'off' : c\.unreadable \? 'unreadable'/);
+  assert.match(read('main/diagnostics.js'), /if \(st\.unreadable\) return \{ status: 'warn', detail: st\.unreadable/);
 });
 
 test('the routine and calendar editors pass a dirty check, which modal() honours', () => {

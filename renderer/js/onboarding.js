@@ -3,18 +3,21 @@
 // voice (the offline voice by default), the vault, goals, connectors and the persona, shows a tour of
 // everything the app can do (from main/guide.js, the same entries the agent uses for "how can I use
 // you?"), and ends with a "first hello" test; then it offers the agent's get-to-know-you interview.
-// "Quick start" is the welcome and the privacy step only; an install set up without accepting the notice
-// sees that step alone at launch (onboardcore.js stepsFor / launchMode).
-import { $, api, el, toast, toastError, on, dialogOpen } from './util.js';
+// "Quick start" is the welcome, the privacy step and the brain finder; an install set up without accepting
+// the notice sees that step alone at launch (onboardcore.js stepsFor / launchMode). The brain finder
+// (onboardcore brainPlan) preselects what works here, offers the free Gemini card otherwise, and says
+// plainly when she can't answer yet: on Next (once), and on First hello ("Fix this", "Set up a brain first").
+import { $, api, el, toast, toastError, on, dialogOpen, modal, ignore, plainError } from './util.js';
+import { testFailure } from './chatcore.js';
 import { state, saveSettings, loadSettings } from './state.js';
 import { ROUTINE_TEMPLATES } from './routines.js';
 import { speaker, listMics, testLocalVoice } from './voice.js';
 import { BUILT_IN, FaceHost } from './faces/host.js';
 import { scanInto } from './hwscan.js';
 import { KOKORO_VOICES } from './kokorotext.js';
-import { localFinder, connectClaude, testOutcome, showResult, showFailure } from './settings.js';
+import { connectClaude, testOutcome, showResult, showFailure } from './settings.js';
 import { speechPlan } from './perfcore.js';
-import { faceChoices, stepsFor, finishPatch, launchMode, accepted } from './onboardcore.js';
+import { faceChoices, stepsFor, finishPatch, launchMode, accepted, brainPlan, brainPatch, detectionFrom, FREE_KEY_URL, FREE_KEY_STEPS, CLAUDE_CODE_URL, CLAUDE_CODE_LINE, HELLO_BRAIN_FAILED } from './onboardcore.js';
 
 const STEP_NAMES = { welcome: 'Welcome', privacy: 'Privacy & safety', hardware: 'Your computer', brain: 'Brain', voice: 'Voice', vault: 'Memory & files', goals: 'What you want', connect: 'Connectors & extras', persona: 'Personality & face', tour: 'What I can do', hello: 'First hello' };
 const PRIVACY_URL = 'https://github.com/Andreas-Erick/fullstack-agent/blob/main/PRIVACY.md';
@@ -35,7 +38,7 @@ const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '
 // How the privacy step opens, by the way through the wizard (onboardcore stepsFor).
 const PRIVACY_LEAD = {
   full: 'Please read this once. It is the short version of the full privacy policy.',
-  quick: 'Please read this once (the short version of the full privacy policy), then you can start. Everything else can be set up later in Settings.',
+  quick: 'Please read this once (the short version of the full privacy policy). Then she finds a brain to think with, and you can start. Everything else can be set up later in Settings.',
   missed: 'One thing we missed: you haven’t accepted the privacy and safety notice yet. Please read it once (the short version of the full privacy policy); everything else stays as you set it up.',
 };
 
@@ -46,6 +49,13 @@ let moving = false; // a step change in progress: a double click moves one step
 let shownStep = null; // the step whose heading last took the focus (a redraw of the same step keeps it)
 const draft = {};
 let faceHost = null;
+// The brain finder's state for this run of the wizard: what was found (detectionFrom; null until checked),
+// the Claude status behind it, the card picked, the brain whose test answered, whether the "no working
+// brain" warning was shown, and whether First hello's brain check failed.
+const NOTHING_FOUND = { claude: 'unchecked', local: [], keys: {} };
+const finder = { detection: null, claude: null, chosen: null, tested: null, warned: false, helloFailed: false };
+const resetFinder = () => Object.assign(finder, { detection: null, claude: null, chosen: null, tested: null, warned: false, helloFailed: false });
+const brainNow = () => brainPlan(finder.detection || NOTHING_FOUND, state.settings, finder);
 
 // At launch: the whole wizard on a first run; an install set up without accepting the privacy notice
 // (an older one, or one that skipped it) gets that step alone, once, and `then` runs after it.
@@ -61,6 +71,7 @@ export function startOnboarding(how = 'full', after = null) {
   afterFinish = after;
   step = 0;
   shownStep = null;
+  resetFinder();
   watchBehind();
   $('#onboarding').classList.remove('hidden');
   render();
@@ -106,6 +117,20 @@ async function finish({ interview = false } = {}) {
   if (interview) (await import('./setup.js')).startInterview();
 }
 
+// Going on without a brain that answered: said once per run of the wizard. True = continue anyway.
+async function warnOnce(text) {
+  if (finder.warned) return true;
+  const go = await modal((card, close) => {
+    card.append(
+      el('h3', {}, 'She can’t answer yet'),
+      el('p', { class: 'muted' }, text),
+      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(true) }, 'Continue anyway'), el('button', { class: 'btn primary', onclick: () => close(false) }, 'Set it up now')),
+    );
+  });
+  if (go) finder.warned = true;
+  return Boolean(go);
+}
+
 function choices(options, value, onPick) {
   const box = el('div', { class: 'ob-choices' });
   const draw = (v) => {
@@ -147,8 +172,10 @@ async function render() {
   );
   const body = el('div', { class: 'field', style: { gap: '12px' } });
   card.append(body);
-  let beforeNext = async () => {};
+  let beforeNext = async () => {}; // returns false to stay on the step
   let canNext = () => true;
+  let redrawNav = () => {}; // set once the nav is built: a step's checks can change its buttons
+  let saveFound = async () => {}; // the brain step: keep a brain found here that was only preselected
 
   if (id === 'welcome') {
     draft.name = draft.name || s.agent.name;
@@ -215,76 +242,154 @@ async function render() {
   }
 
   if (id === 'brain') {
-    draft.provider ||= s.llm.provider;
+    const status = el('div', { class: 'hint', role: 'status' }, 'Checking this computer…');
+    const cards = el('div', {});
     const area = el('div', { class: 'field' });
-    const out = el('div', { class: 'test-result hidden' });
+    const out = el('div', { class: 'test-result hidden', role: 'status' });
+    const testBtn = el('button', { class: 'btn', onclick: (ev) => testBrain(ev) }, '⚡ Test');
+    const chosen = () => brainNow().chosen;
+    // A detected local model to write with the card, unless one is set up already (kept as it is).
+    const localPick = () => (state.settings.local?.model && state.settings.local?.baseUrl ? null : finder.detection?.local[0] || null);
+    // Something changed about the chosen brain: its old test no longer counts.
+    const untested = () => {
+      finder.tested = null;
+      out.className = 'test-result hidden';
+      redrawNav();
+    };
+    const pick = async (v) => {
+      finder.chosen = v;
+      await saveSettings(brainPatch(v, { local: v === 'local' ? localPick() : null }));
+      untested();
+      drawCards();
+      drawArea();
+    };
     // The same outcome as Settings' Test connection: plain words, the provider's own text under Details.
     const testBrain = async (ev) => {
       const btn = ev.currentTarget;
       if (btn.disabled) return;
       btn.disabled = true;
       out.className = 'test-result';
-      out.textContent = 'Testing…';
+      out.textContent = 'Asking her a test question…';
+      const id = chosen();
       try {
+        if (state.settings.llm.provider !== id) await saveSettings(brainPatch(id, { local: id === 'local' ? localPick() : null }));
         const o = testOutcome(await api.llm.test());
-        showResult(out, o.ok, o.text, o.raw);
+        showResult(out, o.ok, o.ok ? `${o.text}\nShe can answer. You’re ready to start.` : o.text, o.raw);
+        finder.tested = o.ok ? id : null;
       } catch (e) {
         showFailure(out, e);
+        finder.tested = null;
       } finally {
         btn.disabled = false;
+        redrawNav();
       }
+    };
+    const detect = async () => {
+      status.textContent = 'Checking this computer…';
+      const [catalogue, servers] = await Promise.all([api.llm.brains({ fresh: true, all: true }).catch(ignore('brain check failed', null)), api.llm.localModels().catch(ignore('no local model servers', []))]);
+      finder.claude = catalogue?.brains?.find((b) => b.id === 'claude-code')?.claude || null;
+      finder.detection = detectionFrom(catalogue, servers);
+      const d = finder.detection;
+      const found = [d.claude === 'ready' && 'your Claude plan', d.local.length && `${d.local.length === 1 ? 'a model' : `${d.local.length} models`} on this computer (${d.local[0].server})`].filter(Boolean);
+      status.textContent = found.length ? `Found ${found.join(' and ')}.` : 'Nothing set up yet, so here’s a free option that needs nothing installed.';
+    };
+    const drawCards = () => {
+      const plan = brainNow();
+      cards.replaceChildren(
+        choices(
+          plan.cards.map((c) => ({ value: c.id, ico: c.ico, title: c.works ? `${c.title} · ✓ found` : c.title, desc: c.desc })),
+          plan.chosen,
+          pick,
+        ),
+      );
     };
     const drawArea = async () => {
       area.innerHTML = '';
-      if (draft.provider === 'claude-code') {
+      const id = chosen();
+      if (id === 'claude-code') {
         // The buttons sit in a row under the result, never stretched across the field.
         const actions = el('div', { class: 'row' });
-        const connect = () => el('button', { class: 'btn', onclick: () => connectClaude('Re-check') }, 'Connect Claude account');
-        const st = await api.claude.status({ fresh: true }).catch((e) => ({ installed: true, checked: false, error: e.message }));
-        if (!st.installed) area.append(el('div', { class: 'test-result err' }, `Claude Code isn’t installed. Install it, then click Re-check:\n  ${await api.claude.installHint()}`));
-        else if (st.checked === false) area.append(el('div', { class: 'test-result err' }, `Couldn’t check your Claude account: ${st.error}`)), actions.append(connect());
-        else if (!st.loggedIn) area.append(el('div', { class: 'test-result' }, `Claude Code ${st.version} found — connect your account:`)), actions.append(connect());
-        else area.append(el('div', { class: 'test-result ok' }, `✓ Connected as ${st.email} (${st.subscription || st.authMethod} plan)`));
-        actions.append(el('button', { class: 'btn', onclick: drawArea }, '⟳ Re-check'));
+        const recheck = el('button', { class: 'btn', onclick: async () => (await detect(), drawCards(), drawArea()) }, '⟳ Re-check');
+        const st = finder.claude || {};
+        const claudeNow = finder.detection?.claude;
+        if (claudeNow === 'ready') area.append(el('div', { class: 'test-result ok' }, `✓ Connected as ${st.email || 'your Claude account'}${st.subscription || st.authMethod ? ` (${st.subscription || st.authMethod} plan)` : ''}`));
+        else if (claudeNow === 'signedOut') area.append(el('div', { class: 'test-result' }, 'Claude Code is on this computer. Connect your Claude account (a window opens where you sign in), then click Re-check.')), actions.append(el('button', { class: 'btn', onclick: () => connectClaude('Re-check') }, 'Connect Claude account'));
+        else if (claudeNow === 'unchecked') area.append(el('div', { class: 'test-result' }, 'Couldn’t check your Claude account just now. Connect it again, or try Re-check in a moment.')), actions.append(el('button', { class: 'btn', onclick: () => connectClaude('Re-check') }, 'Connect Claude account'));
+        else {
+          // Claude Code missing: one plain line and the official page; the terminal command only folded away.
+          area.append(el('div', { class: 'test-result' }, CLAUDE_CODE_LINE));
+          actions.append(el('button', { class: 'btn', onclick: () => api.shell.openExternal(CLAUDE_CODE_URL) }, '🌐 Open the download page'));
+          const how = el('details', {}, el('summary', {}, 'Install it from a terminal instead'), el('pre', { class: 'hint' }, ''));
+          api.claude.installHint().then((h) => (how.querySelector('pre').textContent = h), ignore('no install hint'));
+          area.append(how);
+        }
+        actions.append(recheck);
         area.append(actions);
-      } else if (draft.provider === 'openai') {
-        // Ollama / LM Studio found on this computer fill in the address and model (settings.js localFinder).
+        if (claudeNow !== 'ready') area.append(el('div', { class: 'row' }, el('button', { class: 'btn small', onclick: () => pick('gemini') }, 'No Claude plan? Choose the free option instead')));
+      } else if (id === 'local') {
+        const found = finder.detection?.local || [];
+        const current = state.settings.llm.provider === 'local' ? state.settings.local?.model : localPick()?.model;
+        if (found.length) {
+          area.append(
+            el('div', { class: 'hint' }, 'Pick the model she thinks with:'),
+            el('div', { class: 'row', style: { flexWrap: 'wrap' } }, ...found.map((m) => el('button', { class: `chip ${m.model === current ? 'on' : ''}`, 'aria-pressed': String(m.model === current), onclick: async () => (await saveSettings(brainPatch('local', { local: m })), (finder.chosen = 'local'), untested(), drawArea()) }, `${m.name} · ${m.server}`))),
+            checkbox(state.settings.llm.handOver, 'Hand hard messages to my Claude account (code, connected services, long or careful work). Those messages then leave this computer.', (v) => saveSettings({ llm: { handOver: v } })),
+          );
+        } else {
+          area.append(el('div', { class: 'test-result' }, 'No model found on this computer yet. Install Ollama (ollama.com) or LM Studio (lmstudio.ai), start it and download a model, then click Look again.'));
+        }
+        area.append(el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => (await detect(), drawCards(), drawArea()) }, '⟳ Look again')));
+      } else if (id === 'gemini') {
+        // The guided free key: where to click, what to copy, where to paste.
+        const key = input(state.settings.gemini?.apiKey, 'Paste your key here', (v) => {
+          finder.chosen = 'gemini';
+          if (finder.detection) finder.detection.keys.gemini = Boolean(v.trim());
+          if (v.trim()) saveSettings(brainPatch('gemini', { key: v })).catch(toastError);
+          untested();
+        }, 'password');
+        key.setAttribute('aria-label', 'Your free Gemini key');
         area.append(
-          localFinder('llm', drawArea),
-          field('Server address', input(state.settings.llm.baseUrl, 'http://localhost:11434/v1', (v) => saveSettings({ llm: { baseUrl: v } })), 'Filled in when you pick a model above. Also any OpenAI-compatible server, such as FreeLLMAPI.'),
-          field('Bearer token', input(state.settings.llm.apiKey, 'optional', (v) => saveSettings({ llm: { apiKey: v } }), 'password')),
-          checkbox(state.settings.llm.handOver, 'Hand hard messages to my Claude account (code, connected services, long or careful work). Those messages then leave this computer.', (v) => saveSettings({ llm: { handOver: v } })),
+          el('ol', { class: 'muted', style: { margin: 0, paddingLeft: '20px' } },...FREE_KEY_STEPS.map((t) => el('li', {}, t))),
+          el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: () => api.shell.openExternal(FREE_KEY_URL) }, '🔑 Get my free key')),
+          field('Your key', key, 'Then click Test. Google’s free tier has daily limits; your messages go to Google.'),
         );
-      } else if (draft.provider === 'auto') {
+      } else if (id === 'auto') {
         area.append(
           el('p', { class: 'muted', style: { margin: 0 } }, 'Uses every provider you set up, best one first, and switches automatically when one hits a rate limit or runs out of credits. Add the keys you have (all optional; your Claude account is used if it is connected). You can rank them and add more later in Settings → AI brain.'),
-          field('Gemini API key (free tier)', input(s.gemini.apiKey, 'optional', (v) => saveSettings({ gemini: { apiKey: v } }), 'password'), 'Get one at <a href="https://aistudio.google.com/apikey">aistudio.google.com</a>.'),
-          field('Groq API key (free tier, very fast)', input(s.groq.apiKey, 'optional', (v) => saveSettings({ groq: { apiKey: v } }), 'password'), 'Get one at <a href="https://console.groq.com/keys">console.groq.com</a>.'),
-          field('Anthropic API key', input(s.anthropic.apiKey, 'optional', (v) => saveSettings({ anthropic: { apiKey: v } }), 'password')),
+          field('Gemini API key (free tier)', input(s.gemini.apiKey, 'optional', (v) => (saveSettings({ gemini: { apiKey: v } }), untested()), 'password'), 'Get one at <a href="https://aistudio.google.com/apikey">aistudio.google.com</a>.'),
+          field('Groq API key (free tier, very fast)', input(s.groq.apiKey, 'optional', (v) => (saveSettings({ groq: { apiKey: v } }), untested()), 'password'), 'Get one at <a href="https://console.groq.com/keys">console.groq.com</a>.'),
+          field('Anthropic API key', input(s.anthropic.apiKey, 'optional', (v) => (saveSettings({ anthropic: { apiKey: v } }), untested()), 'password')),
+        );
+      } else if (id === 'openai') {
+        area.append(
+          field('Server address', input(state.settings.llm.baseUrl, 'http://localhost:3001/v1', (v) => (saveSettings({ llm: { baseUrl: v } }), untested())), 'FreeLLMAPI or any OpenAI-compatible server.'),
+          field('Bearer token', input(state.settings.llm.apiKey, 'optional', (v) => (saveSettings({ llm: { apiKey: v } }), untested()), 'password')),
         );
       } else {
-        area.append(field('Anthropic API key', input(s.anthropic.apiKey, 'sk-ant-…', (v) => saveSettings({ anthropic: { apiKey: v } }), 'password')));
+        area.append(field('Anthropic API key', input(s.anthropic.apiKey, 'sk-ant-…', (v) => (saveSettings(brainPatch('anthropic', { key: v })), (finder.chosen = 'anthropic'), untested()), 'password')));
       }
     };
-    body.append(el('h2', {}, 'The brain'), el('p', { class: 'muted' }, 'The language model she thinks with. Your messages go to the provider you pick here.'));
+    body.append(el('h2', {}, 'Let’s give her a brain'), el('p', { class: 'muted' }, 'The AI she thinks with. Your messages go to the one you pick here. You can switch any time in Settings → AI brain.'));
     if (draft.hw?.rec?.brain) body.append(el('div', { class: 'rec' }, el('span', {}, el('b', {}, 'From the hardware check: '), draft.hw.rec.brain.why)));
-    body.append(
-      choices(
-        [
-          { value: 'claude-code', ico: '✦', title: 'My Claude account', desc: 'Recommended. Uses your Claude subscription through Claude Code, with your connectors and plugins.' },
-          { value: 'auto', ico: '⇄', title: 'Several providers', desc: 'Claude, Gemini, Groq, DeepSeek, Perplexity… with automatic fallback when one hits a limit.' },
-          { value: 'openai', ico: '⌂', title: 'A model on this computer', desc: 'Ollama or LM Studio (or a FreeLLMAPI server). Private and free; a small model answers everyday things in a second or two.' },
-          { value: 'anthropic', ico: '🔑', title: 'Anthropic API key', desc: 'Pay-per-use API.' },
-        ],
-        draft.provider,
-        async (v) => ((draft.provider = v), await saveSettings({ llm: { provider: v } }), drawArea()),
-      ),
-      area,
-      el('div', { class: 'row' }, el('button', { class: 'btn', onclick: testBrain }, '⚡ Test')),
-      out,
-    );
-    drawArea();
-    beforeNext = () => saveSettings({ llm: { provider: draft.provider } });
+    body.append(status, cards, area, el('div', { class: 'row' }, testBtn), out);
+    (async () => {
+      if (!finder.detection) await detect();
+      else status.textContent = '';
+      drawCards();
+      drawArea();
+      redrawNav();
+    })().catch(toastError);
+    // Next without a brain that answered: say so once (Continue anyway / Set it up now). A brain that
+    // works here but was only preselected is saved, so going on keeps what was found.
+    beforeNext = async () => {
+      const plan = brainNow();
+      if (!plan.canStart && mode === 'full' && !(await warnOnce(plan.warn))) return false;
+      await saveFound(plan);
+    };
+    saveFound = async (plan) => {
+      const card = plan.cards.find((c) => c.id === plan.chosen);
+      if (card?.works && state.settings.llm.provider !== plan.chosen) await saveSettings(brainPatch(plan.chosen, { local: plan.chosen === 'local' ? localPick() : null }));
+    };
   }
 
   if (id === 'voice') {
@@ -514,9 +619,8 @@ async function render() {
   }
 
   if (id === 'hello') {
-    const list = el('div', {});
-    body.append(el('h2', {}, 'First hello'), el('p', { class: 'muted' }, 'Testing everything end to end…'), list);
-    firstHello(list);
+    finder.helloFailed = false;
+    body.append(el('h2', {}, 'First hello'), el('p', { class: 'muted' }, 'Testing everything end to end…'), el('div', { class: 'ob-hello' }));
   }
 
   const last = step === steps.length - 1;
@@ -524,7 +628,7 @@ async function render() {
     if (moving) return;
     moving = true;
     try {
-      await beforeNext();
+      if ((await beforeNext()) === false) return;
       await next();
     } catch (e) {
       toastError(e);
@@ -532,27 +636,56 @@ async function render() {
       moving = false;
     }
   };
-  // Quick start: the privacy step, then done. Back from it is the whole setup again.
+  // Quick start: the privacy step and the brain finder, then done. Back to the welcome is the whole setup again.
   const quick = () => {
     mode = 'quick';
     go(1);
   };
   const back = () => {
-    if (mode === 'quick') mode = 'full';
+    if (mode === 'quick' && step === 1) mode = 'full';
     go(-1);
   };
+  const toBrain = () => {
+    draft.cleanup?.();
+    draft.cleanup = null;
+    step = stepsFor(mode).indexOf('brain');
+    render();
+  };
+  // Quick start's brain step: "Start" leads once the test answered; "Do this later" says she can't answer yet.
+  const later = async () => {
+    if (moving) return;
+    const plan = brainNow();
+    await saveFound(plan);
+    await finish();
+    if (!plan.canStart && plan.warn) toast(plan.warn, 'info', 10000);
+  };
+  const lastButtons = () => {
+    if (mode === 'missed') return el('button', { class: 'btn primary', disabled: !canNext(), onclick: then(finish) }, 'Continue');
+    if (mode === 'quick') {
+      const ready = brainNow().canStart;
+      return el('div', { class: 'row' }, el('button', { class: 'btn', onclick: later }, 'Do this later'), el('button', { class: 'btn primary', disabled: !ready, title: ready ? '' : 'Test the brain first: Start lights up once she answers.', onclick: then(finish) }, 'Start ›'));
+    }
+    // The whole setup ends on First hello: with a brain that didn't answer, the main button fixes that
+    // instead of starting an interview that can't run.
+    if (finder.helloFailed) return el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => finish() }, 'Start without a brain'), el('button', { class: 'btn primary', onclick: toBrain }, 'Set up a brain first ›'));
+    return el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => finish() }, 'Start using her'), el('button', { class: 'btn primary', onclick: () => finish({ interview: true }) }, '💬 Let’s get to know each other'));
+  };
   // On the first page: Quick start, or Close once the notice is accepted (the wizard opened from Settings).
-  const first = mode !== 'full' ? el('span') : accepted(s) ? el('button', { class: 'btn', title: 'Keep everything as it is. Set things up later in Settings.', onclick: () => finish() }, 'Close') : el('button', { class: 'btn', title: 'Only the privacy step, then start. Set up the rest later in Settings.', onclick: then(quick) }, 'Quick start');
-  const nav = el(
+  const first = mode !== 'full' ? el('span') : accepted(s) ? el('button', { class: 'btn', title: 'Keep everything as it is. Set things up later in Settings.', onclick: () => finish() }, 'Close') : el('button', { class: 'btn', title: 'The privacy step and a brain, then start. Set up the rest later in Settings.', onclick: then(quick) }, 'Quick start');
+  const buildNav = () => el(
     'div',
     { class: 'ob-nav' },
     step > 0 ? el('button', { class: 'btn', onclick: back }, '‹ Back') : first,
-    !last
-      ? el('button', { class: 'btn primary', disabled: !canNext(), onclick: then(() => go(1)) }, 'Next ›')
-      : mode === 'full'
-        ? el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => finish() }, 'Start using her'), el('button', { class: 'btn primary', onclick: () => finish({ interview: true }) }, '💬 Let’s get to know each other'))
-        : el('button', { class: 'btn primary', disabled: !canNext(), onclick: then(finish) }, mode === 'missed' ? 'Continue' : 'Start using her'),
+    !last ? el('button', { class: 'btn primary', disabled: !canNext(), onclick: then(() => go(1)) }, 'Next ›') : lastButtons(),
   );
+  let nav = buildNav();
+  redrawNav = () => {
+    if (nav.parentNode !== card) return; // not shown yet (drawn with the card), or the wizard moved on
+    const fresh = buildNav();
+    nav.replaceWith(fresh);
+    nav = fresh;
+  };
+  if (id === 'hello') firstHello(body.querySelector('.ob-hello'), { onBrain: () => redrawNav(), fix: toBrain });
   card.append(nav);
   $('#onboarding').innerHTML = '';
   $('#onboarding').append(card);
@@ -653,15 +786,18 @@ async function testMic(meter) {
   }
 }
 
-async function firstHello(list) {
+// onBrain: the brain check settled (finder.helloFailed says how); fix: back to the brain step.
+async function firstHello(list, { onBrain = () => {}, fix = () => {} } = {}) {
   const row = (label) => {
     const r = el('div', { class: 'ob-check' }, el('span', { class: 'ic' }, '…'), el('div', {}, el('b', {}, label), el('div', { class: 'muted' }, '')));
     list.append(r);
-    return (ok, detail) => {
+    const set = (ok, detail) => {
       r.querySelector('.ic').textContent = ok === true ? '✓' : ok === null ? '–' : '✕';
       r.querySelector('.ic').style.color = ok === true ? 'rgb(var(--ok))' : ok === null ? 'var(--muted)' : 'rgb(var(--err))';
       r.querySelector('.muted').textContent = detail;
     };
+    set.action = (button) => r.lastChild.append(el('div', { class: 'row' }, button));
+    return set;
   };
   const s = state.settings;
   const greet = row('Voice speaks the greeting');
@@ -694,9 +830,14 @@ async function firstHello(list) {
   try {
     const r = await api.llm.test();
     brain(true, `${r.model} · “${r.reply}” · ${r.ms} ms`);
+    finder.helloFailed = false;
   } catch (e) {
-    brain(false, e.message);
+    // Plain words first, the provider's own words after (chatcore.testFailure), and the way to fix it.
+    brain(false, `${HELLO_BRAIN_FAILED} ${testFailure(plainError(e), { settings: state.settings }).line.replace(/^✕ /, '')}`);
+    brain.action(el('button', { class: 'btn small', onclick: fix }, 'Fix this'));
+    finder.helloFailed = true;
   }
+  onBrain();
   const vault = row('Vault is writable');
   const st = await api.obsidian.status().catch(() => ({}));
   vault(Boolean(st.ok), st.ok ? `${st.path} · ${st.count} notes` : 'Vault unavailable — choose a folder in Settings → Vault.');
