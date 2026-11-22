@@ -99,6 +99,28 @@ test('an effect that throws or rejects does not stop the others', async () => {
   assert.ok(warned.every((w) => w.data.error instanceof Error), 'the Error itself is logged');
 });
 
+test('a refused voice shortcut is logged as data, never as a failed effect with an Error', async () => {
+  const warned = [];
+  effects.init(
+    {
+      store,
+      log: { ...quietLog, warn: (event, data) => warned.push({ event, data }), setDebug() {} },
+      companion: { apply: async () => {}, settingsChanged() {} },
+      helperApps: { ensureAll() {} },
+      router: { reset() {} },
+      registerShortcut: async () => {
+        throw new Error('Foo+Bar is not a valid accelerator');
+      },
+      toWindow() {},
+      persona: { ensureSummary: async () => ({}) },
+    },
+    { summaryAfterStartMs: null },
+  );
+  await store.setSettings({ stt: { globalShortcut: 'Foo+Bar' } });
+  await effects.settled();
+  assert.deepStrictEqual(warned, [{ event: 'voice shortcut not registered', data: { accel: 'Foo+Bar', reason: 'Foo+Bar is not a valid accelerator' } }]);
+});
+
 test('a dropped persona save triggers nothing', async () => {
   const { did } = setup();
   const active = (await store.getSettings()).personas.active;
