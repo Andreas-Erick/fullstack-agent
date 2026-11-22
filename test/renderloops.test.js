@@ -201,7 +201,7 @@ test('notes: our own autosave and changes while hidden don’t list every note a
 // Regression (perf audit OPT-01): the voice detector (Silero + the ONNX runtime, tens of MB) stayed loaded
 // for the rest of the session after hands-free was turned off. It goes a minute after hands-free stops.
 test('voice: the neural voice detector is released after hands-free ends, kept through a quick restart', () => {
-  const file = 'renderer/js/voice.js';
+  const file = 'renderer/js/handsfree.js';
   assert.match(read(file), /const NEURAL_IDLE_MS = 60000;/);
   // The release itself (the idle clock, any profile, cancelled by use()) is modelhost.js's: test/modelhost.test.js.
   const neural = slice(file, 'const neural = {', '\n};\n');
