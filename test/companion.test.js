@@ -192,6 +192,32 @@ test('devices never see setup, tool inputs/results or raw provider data', async 
   assert.match(streamed, /"expiresIn":7[45]/);
 });
 
+test('which conversations reach devices is projections.reachesDevices: the list, the route and the chat all ask it', async () => {
+  const projections = require('../main/projections'); // the instance companion.js required
+  const auth = { Authorization: `Bearer ${await pairDevice('Rule phone')}` };
+  const asked = [];
+  const real = projections.reachesDevices;
+  // The rule changed in its one place (here: c1 kept off devices too) changes every route with it.
+  projections.reachesDevices = (conv) => (asked.push(conv?.id), real(conv) && conv?.id !== 'c1');
+  try {
+    const list = await (await fetch(`${base}/api/conversations`, { headers: auth })).json();
+    assert.deepStrictEqual(list, [], 'the list');
+    assert.strictEqual((await fetch(`${base}/api/conversations/c1`, { headers: auth })).status, 404, 'the route');
+    const count = turns.length;
+    const r = await post('/api/chat', { text: 'hi', conversationId: 'c1' }, auth);
+    assert.strictEqual(r.status, 403, 'the chat');
+    assert.match((await r.json()).error, /only be used on the desktop/);
+    assert.strictEqual(turns.length, count, 'no turn started');
+    assert.ok(asked.includes('c1') && asked.includes('s1'), String(asked));
+  } finally {
+    projections.reachesDevices = real;
+  }
+  // The real rule: only the setup conversation stays off devices.
+  assert.strictEqual(real({ id: 's1', setup: true }), false);
+  assert.strictEqual(real({ id: 'c1' }), true);
+  assert.strictEqual((await post('/api/chat', { text: 'hi', conversationId: 's1' }, auth)).status, 403);
+});
+
 test('a persona or look change reaches devices as info.changed; unrelated settings do not', async () => {
   const auth = { Authorization: `Bearer ${await pairDevice('Tablet')}` };
   assert.strictEqual((await fetch(`${base}/js/archdraw.js`)).status, 200, 'the architecture map’s drawing code is served');

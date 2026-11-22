@@ -27,7 +27,18 @@ function verify(root) {
   // Imports and requires resolve, and the named imports exist.
   const exportCache = new Map();
   const exportsOf = (rel) => {
-    if (!exportCache.has(rel)) exportCache.set(rel, codemap.exportsOf(fs.readFileSync(path.join(root, rel), 'utf8'), rel));
+    if (!exportCache.has(rel)) {
+      exportCache.set(rel, null); // a cycle of re-exports reads as unknown
+      const text = fs.readFileSync(path.join(root, rel), 'utf8');
+      let names = codemap.exportsOf(text, rel);
+      // `export * from './x.mjs'` (renderer/js/perfcore.js): the names of the module it re-exports.
+      for (const m of text.matchAll(/^export\s*\*\s*from\s*['"]([^'"]+)['"]/gm)) {
+        const target = path.posix.join(path.posix.dirname(rel), m[1]);
+        const more = fs.existsSync(path.join(root, target)) ? exportsOf(target) : null;
+        names = names && more ? new Set([...names, ...more]) : null;
+      }
+      exportCache.set(rel, names);
+    }
     return exportCache.get(rel);
   };
   for (const f of files) {
