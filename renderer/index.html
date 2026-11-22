@@ -124,12 +124,12 @@
 
           <div class="chat-main">
             <div class="chat-header">
-              <h2 id="chatTitle">New conversation</h2>
+              <h2 id="chatTitle" title="Double-click (or F2) to rename" aria-keyshortcuts="F2">New conversation</h2>
               <div class="chat-header-actions">
                 <button class="chip-btn" id="historyBtn" title="Your earlier chats, and a search through them (Ctrl+H)" aria-controls="convPanel" aria-expanded="false" aria-keyshortcuts="Control+H">🕘 History</button>
                 <button class="chip-btn" id="newChatTop" title="Start a new chat (Ctrl+N, or say &quot;new chat&quot;)">＋ New chat</button>
                 <button class="chip-btn" id="shareBtn" title="Share a screen or window so the assistant can see it">🖥 Share screen</button>
-                <button class="chip-btn" id="speakToggle" title="Speak replies aloud">🔊 Voice on</button>
+                <button class="chip-btn" id="speakToggle" title="Speak replies aloud" aria-pressed="true">🔊 Voice on</button>
                 <div class="seg small" id="layoutSeg" role="group" aria-label="Layout">
                   <button data-layout="chat" title="Chat only (Ctrl+Shift+1)">▤ Chat</button>
                   <button data-layout="split" title="Chat and face side by side (Ctrl+Shift+2)">◧ Split</button>
@@ -137,11 +137,11 @@
                 </div>
                 <button class="chip-btn" id="windowFull" title="Full screen (F11)">⛶</button>
                 <div class="dropdown">
-                  <button class="chip-btn" id="chatMore" title="More">⋯</button>
-                  <div class="dropdown-menu" id="chatMenu">
-                    <button data-act="pdf">Export this chat as PDF</button>
-                    <button data-act="note">Quick note… (Ctrl+Shift+N)</button>
-                    <button data-act="skills">Skills…</button>
+                  <button class="chip-btn" id="chatMore" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false" aria-controls="chatMenu">⋯</button>
+                  <div class="dropdown-menu" id="chatMenu" role="menu" aria-label="More">
+                    <button data-act="pdf" role="menuitem">Export this chat as PDF</button>
+                    <button data-act="note" role="menuitem">Quick note… (Ctrl+Shift+N)</button>
+                    <button data-act="skills" role="menuitem">Skills…</button>
                   </div>
                 </div>
               </div>
@@ -191,7 +191,7 @@
             <div class="voice-status hidden" id="voiceStatus"></div>
           </div>
 
-          <div class="splitter" id="faceSplitter" title="Drag to resize"></div>
+          <div class="splitter" id="faceSplitter" title="Drag, or use ← → when focused, to resize" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize the face panel" aria-controls="facePanel"></div>
           <aside class="face-panel glass" id="facePanel">
             <div class="face-scene" id="miniScene" aria-hidden="true"></div>
             <div class="face-host" id="miniFace"></div>
@@ -217,7 +217,7 @@
               <button class="chip-btn" id="faceDemo" title="Play a scripted listen → think → speak cycle">▶ Demo</button>
               <button class="chip-btn" id="faceFolder" title="Custom faces folder">＋ Custom faces</button>
             </div>
-            <div class="face-hint">Hold <kbd class="ptt-key">F8</kbd> or the mic to talk · Esc to exit full screen</div>
+            <div class="face-hint">Hold <kbd class="ptt-key">F8</kbd> or the mic to talk<span class="fs-only"> · Esc to exit full screen</span></div>
           </div>
         </section>
 

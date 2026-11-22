@@ -1,5 +1,5 @@
 // Chat view: the open conversation (History's list is history.js), streaming messages, tool-call chips, voice integration.
-import { $, api, el, renderMarkdown, toast, toastActions, toastError, confirmDialog, promptDialog, on, emit, plainError } from './util.js';
+import { $, api, el, renderMarkdown, toast, toastActions, toastError, confirmDialog, promptDialog, on, emit, plainError, dialogOpen } from './util.js';
 import * as redo from './redocore.mjs';
 import { createChat } from './turnstate.js';
 import { switchView, currentView } from './nav.js';
@@ -83,6 +83,14 @@ export function initChat() {
   $('#newChatBtn').onclick = () => newChat();
   $('#newChatTop').onclick = () => newChat(); // ＋ in the header: History (and its ＋) slides over the chat where there is no room
   $('#chatTitle').ondblclick = renameCurrent;
+  // F2 renames too, from anywhere in the chat view that isn't a text field.
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'F2' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
+    const t = e.target;
+    if (currentView !== 'chat' || dialogOpen() || t?.matches?.('input, textarea, select, [contenteditable]')) return;
+    e.preventDefault();
+    renameCurrent();
+  });
   initHistory({ current: () => chat.convId, open: openFromHistory, newChat: () => newChat({ focus: false }) });
   // [[Note]] links in replies open the note (click, or Enter on a focused one).
   for (const box of [messagesEl(), $('#replyCard')]) for (const type of ['click', 'keydown']) box.addEventListener(type, onNoteLink);
@@ -129,6 +137,7 @@ function updateSpeakToggle() {
   const on_ = state.settings.voice.ttsEnabled && state.settings.voice.autoSpeak;
   b.textContent = on_ ? '🔊 Voice on' : '🔇 Voice off';
   b.classList.toggle('off', !on_);
+  b.setAttribute('aria-pressed', String(on_));
 }
 
 function autosize() {
@@ -203,7 +212,7 @@ export async function openConversation(id, { at = null, card = false, quiet = fa
   // The latest messages first; older ones are added when you scroll up (or press the button).
   earlier = conv.messages.filter((m) => !m.hidden);
   const recent = earlier.splice(-MESSAGE_PAGE);
-  for (const m of recent) box.append(messageNode(m));
+  for (const m of recent) box.append(settled(messageNode(m)));
   updateEarlierButton();
   box.scrollTop = box.scrollHeight;
   drawList(); // this one's row marked open
@@ -230,6 +239,14 @@ function updateEarlierButton() {
 }
 
 // Adds the previous page above the first message, keeping what you are looking at in place.
+// Messages drawn in bulk (a conversation opened, an earlier page) skip the entrance: forty bubbles rising at
+// once is noise. A class on each node, never one toggled on the list: taking `animation: none` off later
+// would start every entrance then.
+function settled(node) {
+  node.classList?.add('settled');
+  return node;
+}
+
 function showEarlier() {
   const box = messagesEl();
   if (!earlier.length || !box.querySelector('.show-earlier')) return; // another view (setup) replaced the messages
@@ -237,7 +254,7 @@ function showEarlier() {
   const before = box.scrollHeight;
   const anchor = box.querySelector('.show-earlier')?.nextSibling || box.firstChild;
   const frag = document.createDocumentFragment();
-  for (const m of page) frag.append(messageNode(m));
+  for (const m of page) frag.append(settled(messageNode(m)));
   box.insertBefore(frag, anchor);
   updateEarlierButton();
   box.scrollTo({ top: box.scrollTop + box.scrollHeight - before, behavior: 'instant' }); // .messages scrolls smoothly; this must not
@@ -335,7 +352,7 @@ function metaNode(m) {
   if (m.model) meta.append(el('span', {}, m.model));
   // Nothing to copy (files without a word, a reply that only used tools): no Copy that empties the clipboard.
   const copy = chatcore.copyText(m);
-  if (copy) meta.append(el('button', { onclick: () => (navigator.clipboard.writeText(copy), toast('Copied')) }, 'Copy'));
+  if (copy) meta.append(el('button', { onclick: () => navigator.clipboard.writeText(copy).then(() => toast('Copied'), toastError) }, 'Copy'));
   if (m.role === 'assistant') {
     meta.append(
       el('button', { onclick: () => speaker.say(m.content || '') }, 'Speak'),
@@ -1063,7 +1080,7 @@ function fillCardActions() {
   const buttons = cardState.buttons(chat.actions()); // drawn after turnstate ended the reply, so a finished one offers its buttons
   box.replaceChildren(...buttons.map((b) => {
     const [label, title] = CARD_BUTTONS[b.label || b.action];
-    const onclick = b.action === 'copy' ? () => (navigator.clipboard.writeText(chatcore.copyText(reply)), toast('Copied')) : b.action === 'edit' ? () => startEdit(b.id) : () => runAgain('again', b.id);
+    const onclick = b.action === 'copy' ? () => navigator.clipboard.writeText(chatcore.copyText(reply)).then(() => toast('Copied'), toastError) : b.action === 'edit' ? () => startEdit(b.id) : () => runAgain('again', b.id);
     return el('button', { class: 'chip-btn', type: 'button', title, onclick }, label);
   }));
 }
@@ -1076,9 +1093,10 @@ function decorateCode(root) {
     pre.replaceWith(wrap);
     const copy = el('button', { class: 'code-copy', type: 'button', title: 'Copy code', 'aria-label': 'Copy code' }, 'Copy');
     copy.onclick = () => {
-      navigator.clipboard.writeText(pre.querySelector('code')?.textContent ?? pre.textContent);
-      copy.textContent = 'Copied';
-      setTimeout(() => (copy.textContent = 'Copy'), 1500);
+      navigator.clipboard.writeText(pre.querySelector('code')?.textContent ?? pre.textContent).then(() => {
+        copy.textContent = 'Copied';
+        setTimeout(() => (copy.textContent = 'Copy'), 1500);
+      }, toastError);
     };
     wrap.append(pre, copy);
   }
