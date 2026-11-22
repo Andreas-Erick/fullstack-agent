@@ -140,6 +140,27 @@ final class Prefs {
         }
     }
 
+    /**
+     * The per-install secret a push-to-talk intent must carry (MainActivity.handleIntent): MainActivity is
+     * exported, so without it any app on the phone could start the microphone. Only this app's own senders
+     * (TalkTileService, TalkActivity behind the launcher shortcut) know it. Made on first use.
+     */
+    static synchronized String talkSecret(Context c) {
+        String s = sp(c).getString("talkSecret", null);
+        if (s != null && s.length() >= 32) return s;
+        byte[] b = new byte[24];
+        new java.security.SecureRandom().nextBytes(b);
+        s = Base64.encodeToString(b, Base64.NO_WRAP | Base64.URL_SAFE | Base64.NO_PADDING);
+        sp(c).edit().putString("talkSecret", s).commit();
+        return s;
+    }
+
+    /** Whether a push-to-talk intent carries the secret (compared in constant time). */
+    static boolean isTalkSecret(Context c, String given) {
+        if (given == null) return false;
+        return java.security.MessageDigest.isEqual(talkSecret(c).getBytes(StandardCharsets.UTF_8), given.getBytes(StandardCharsets.UTF_8));
+    }
+
     /** Forgets the address and the token (the user chose "Change address" or was unpaired). */
     static void reset(Context c) {
         sp(c).edit().clear().apply();

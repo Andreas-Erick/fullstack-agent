@@ -549,6 +549,29 @@ test('approvals for self-changes and connector trust can’t be answered from a 
   companion.publish('approval:cancel', { id: 'trust1' });
 });
 
+// SEC-05: devices answer only the kinds on an allow-list. Running a command, where keys are sent, more
+// access, publishing, cloning a voice, and any kind added later stay on the computer; the approval stays
+// open there (a second answer is refused the same way, not "no open approval").
+test('a device can’t answer commands, endpoints, permissions, publishing or unknown kinds', async () => {
+  const auth = { Authorization: `Bearer ${await pairDevice('Phone')}`, 'Content-Type': 'application/json' };
+  const refused = ['command', 'endpoint', 'permissions', 'github_publish', 'voice_clone', 'some_new_kind'];
+  for (const kind of refused) companion.publish('approval:request', { id: `dk_${kind}`, kind, title: kind, detail: 'echo hi', timeoutSec: 60 });
+  for (const kind of ['settings', 'delete', 'connector']) companion.publish('approval:request', { id: `ok_${kind}`, kind, title: kind, timeoutSec: 60 });
+  for (const kind of refused) {
+    for (let i = 0; i < 2; i++) {
+      const r = await fetch(`${base}/api/approvals/dk_${kind}`, { method: 'POST', headers: auth, body: JSON.stringify({ allow: true }) });
+      assert.strictEqual(r.status, 403, `${kind} (try ${i + 1})`);
+    }
+  }
+  for (const kind of ['settings', 'delete', 'connector']) {
+    const r = await fetch(`${base}/api/approvals/ok_${kind}`, { method: 'POST', headers: auth, body: JSON.stringify({ allow: true }) });
+    assert.strictEqual(r.status, 200, kind);
+  }
+  const src = fs.readFileSync(path.join(__dirname, '..', 'main', 'companion.js'), 'utf8');
+  assert.match(src, /const desktopOnly = \(kind\) => !DEVICE_OK\.has\(kind\);/, 'an allow-list, so a new kind is desktop-only by default');
+  for (const kind of refused) companion.publish('approval:cancel', { id: `dk_${kind}` });
+});
+
 // ------------------------------------------------------------------ staying in step (synccore.js)
 // Reads a device's event stream for `ms` while `act` runs, and returns what came.
 async function listen(auth, act, ms = 900) {
@@ -769,7 +792,7 @@ test('before anything else: an unknown host, a foreign origin, a wrong type, bad
 
 test('a body that is not a JSON object is a 400 everywhere, and an open approval stays open', async () => {
   const auth = { Authorization: `Bearer ${await pairDevice('Body phone')}` };
-  companion.publish('approval:request', { id: 'apBody', kind: 'command', title: 'x', timeoutSec: 60 });
+  companion.publish('approval:request', { id: 'apBody', kind: 'delete', title: 'x', timeoutSec: 60 });
   const before = turns.length;
   const failures = await failuresWhile(async () => {
     for (const body of ['null', '[]', '7', '"x"', '[{"text":"hi"}]', 'true']) {

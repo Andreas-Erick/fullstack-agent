@@ -24,6 +24,26 @@ test("the globe's local server is the one exception", () => {
   assert.strictEqual(core.checkUrl('https://localhost:4173/').ok, false, 'only the plain http dev server');
 });
 
+// SEC-09: a public page can't send the window (or a request) to the globe's local server; the app's own
+// load of the globe and the globe page itself can.
+test('only the globe and the app’s own loads reach the globe’s server', () => {
+  const allowed = core.globeRequestAllowed;
+  const globe = 'http://localhost:4173/@fs/C:/Users/x/.ssh/id_ed25519?raw';
+  assert.strictEqual(allowed({ url: globe, resourceType: 'mainFrame', from: 'https://evil.example/' }), false, 'a website navigating there');
+  assert.strictEqual(allowed({ url: globe, resourceType: 'mainFrame', from: '' }), false, 'nothing behind it: not the app’s load either');
+  assert.strictEqual(allowed({ url: globe, resourceType: 'xhr', from: 'https://evil.example/' }), false);
+  assert.strictEqual(allowed({ url: 'http://localhost:4173/', resourceType: 'mainFrame', from: 'https://example.com/', appNav: true }), true, 'browser_open / globe_open');
+  assert.strictEqual(allowed({ url: 'http://127.0.0.1:4173/#lat=1', resourceType: 'mainFrame', from: 'http://localhost:4173/#lat=0' }), true, 'the globe reloading itself');
+  assert.strictEqual(allowed({ url: 'http://localhost:4173/api/tiles', resourceType: 'xhr', from: 'http://localhost:4173/' }), true, 'the globe’s own requests');
+  assert.strictEqual(allowed({ url: 'http://localhost:4173/x', resourceType: 'subFrame', from: 'https://localhost.evil.example:4173/' }), false, 'a look-alike page');
+  assert.strictEqual(allowed({ url: 'https://example.com/', resourceType: 'mainFrame', from: '', appNav: true }), false, 'only the globe’s server is meant');
+  assert.strictEqual(allowed({ url: 'not a url', resourceType: 'mainFrame', appNav: true }), false);
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main', 'agentwindow.js'), 'utf8');
+  assert.match(src, /appNav: globeNav === details\.webContentsId/, 'the request filter asks the rule');
+  assert.match(src, /globeNav = c\.globe \? wc\.id : null;/, 'set only by open()');
+  assert.doesNotMatch(src, /resourceType === 'mainFrame'\) return true/, 'no blanket main-frame exception');
+});
+
 test('a new globe view that only changes the # reloads the page', () => {
   assert.ok(core.onlyHashDiffers('http://localhost:4173/#lat=1', 'http://localhost:4173/#lat=2'));
   assert.ok(!core.onlyHashDiffers('http://localhost:4173/#lat=1', 'http://localhost:4173/#lat=1'));
