@@ -485,7 +485,7 @@ test('state.js: a persona save names the persona and passes on main’s answer; 
   assert.deepStrictEqual(u.calls.set.at(-1), [{ ui: { zoom: 1.2 } }]);
 });
 
-test('the Safety copy says what really asks (ORDER.md §3.13), in Settings and in the wizard', () => {
+test('the Safety copy says what really asks, in Settings and in the wizard', () => {
   const src = read('renderer/js/settings.js');
   for (const old of ['no questions at all', 'anything that reaches other people or services', 'Always ask before self-modification']) assert.ok(!src.includes(old), `settings.js still says “${old}”`);
   for (const now of [
