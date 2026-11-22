@@ -512,6 +512,13 @@ mark { background: rgba(var(--c1), 0.25); color: inherit; border-radius: 3px; }
 .settings > .card.tab-hidden { display: none !important; }
 .settings-empty { grid-column: 1 / -1; text-align: center; padding: 30px 0; }
 body.perf-lite .settings-tabs { backdrop-filter: none; }
+/* Simple / Advanced (renderer/js/settingsmode.js): a field marked advanced stays in the page, hidden until
+   Advanced mode or a search shows it (settings/index.js showAdvanced adds .adv-shown). */
+.settings-mode { flex: none; margin-left: auto; font-size: 13px; white-space: nowrap; }
+.settings-mode + .settings-search { margin-left: 0; }
+.settings [data-advanced]:not(.adv-shown), .settings .adv-empty { display: none !important; }
+.adv-note { margin-left: 8px; padding: 1px 7px; border-radius: var(--radius-sm); border: 1px solid rgba(var(--c1), 0.35); color: rgb(var(--c1-soft)); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.toggle-field > .hint { margin: 4px 0 0 48px; }
 .settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(440px, 100%), 1fr)); gap: 16px; align-items: start; }
 /* A card never grows past its column for a long dropdown option or a long line (it overflowed a
    900-px window sideways): it shrinks, and its controls with it. */

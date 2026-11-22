@@ -721,8 +721,8 @@ test('settings.js: number fields never save Number(""), paths are cleaned, "✓ 
   assert.match(text, /addEventListener\('blur'/, 'the last good value comes back on blur');
   assert.match(part('folder'), /cleanPath\(input\.value\)/);
   assert.match(src, /text\('claudeCode\.cliPath', [^\n]*\{ path: true/);
-  assert.match(src, /text\('llm\.temperature', 'Temperature', \{ type: 'number', decimal: true \}\)/);
-  assert.match(part('drawTabs'), /bar\.replaceChildren\(list, saved, search\)/);
+  assert.match(src, /text\('llm\.temperature', 'Creativity', \{ type: 'number', decimal: true,/);
+  assert.match(part('drawTabs'), /bar\.replaceChildren\(list, saved, advancedSwitch\(\), search\)/);
   assert.match(read('renderer/index.html'), /<div class="settings-tabs" id="settingsTabs"><span class="save-state" id="saveState">/);
   // Test connection: plain words, the raw text under Details (chatcore.testFailure); the wizard shares it.
   assert.match(part('showFailure'), /testFailure\(plainError\(err\)/);
