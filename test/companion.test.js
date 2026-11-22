@@ -154,6 +154,13 @@ test('the phone gets the desktop face and its modules', async () => {
   assert.match(r.headers.get('content-type'), /javascript/);
   assert.match(r.headers.get('content-security-policy'), /script-src 'self'/);
   assert.notStrictEqual((await fetch(`${base}/js/faces/host.js`)).status, 200, 'the desktop-only host is not served');
+  // Every file of the one face list (renderer/js/faces/registry.mjs), the list itself included, as JavaScript.
+  for (const f of require('../main/facesregistry').FACE_FILES) {
+    const res = await fetch(`${base}/js/${f}`);
+    assert.strictEqual(res.status, 200, `/js/${f} is served`);
+    assert.match(res.headers.get('content-type'), /javascript/, `/js/${f} as JavaScript`);
+    await res.arrayBuffer();
+  }
 });
 
 test('devices never see setup, tool inputs/results or raw provider data', async () => {
