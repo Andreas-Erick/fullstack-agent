@@ -74,7 +74,7 @@ async function stopRecording() {
   clearTimeout(r.limit);
   r.node.disconnect();
   r.stream.getTracks().forEach((t) => t.stop());
-  r.ctx.close().catch(() => {});
+  r.ctx.close().catch(() => {}); // already closed
   state.micLevel = 0;
   $('#micBtn').classList.remove('live');
   hideRecBar();

@@ -100,7 +100,7 @@ export function ensureAnalyser() {
       src.connect(voiceAnalyser);
       voiceAnalyser.connect(voiceCtx.destination);
     }
-    voiceCtx.resume().catch(() => {});
+    voiceCtx.resume().catch(() => {}); // resumes on the next tap if the browser refuses now
   } catch {
     voiceCtx = null;
     voiceAnalyser = null;
@@ -116,8 +116,8 @@ export function setFaceFull(on) {
   $('#faceFull').setAttribute('aria-pressed', String(on));
   $('#faceFull').setAttribute('aria-label', on ? 'Back to the chat' : 'Show the face full screen');
   $('#faceFull').replaceChildren(icon(on ? 'close' : 'expand'));
-  if (on) document.documentElement.requestFullscreen?.().catch(() => {});
-  else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  if (on) document.documentElement.requestFullscreen?.().catch(() => {}); // refused without a gesture: the face still fills the page
+  else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); // already left full screen
   syncBack();
 }
 $('#faceFull').addEventListener('click', () => setFaceFull(!document.body.classList.contains('face-full')));
@@ -141,7 +141,7 @@ export async function mountFace(id, theme) {
       onTheme: (fn) => (faceView.themeFns.add(fn), () => faceView.themeFns.delete(fn)),
     });
     faceView.themeFns.forEach((fn) => fn());
-    if (theme.face?.custom && (await mountCustomFace().catch(() => false))) return;
+    if (theme.face?.custom && (await mountCustomFace().catch(() => false))) return; // a face that fails to load falls back to the built-in one below
     if (faceView.id === want && faceView.obj) return faceView.obj.setLabel(state.name);
     const [file, cls] = FACE_MODULES[want];
     const Face = (await import(file))[cls];

@@ -88,15 +88,13 @@ function verify(root) {
     const hits = codemap.silentCatches(fs.readFileSync(path.join(root, f), 'utf8'));
     for (const h of hits) {
       const msg = `${f}:${h.line} drops an error without saying why (${h.code}): use ignore('reason') (main/ignore.js, util.js) or add a comment on that line.`;
-      (SILENT_CATCH_WARN_ONLY.some((p) => f.startsWith(p)) ? warnings : errors).push(msg);
+      errors.push(msg);
     }
   }
 
   return { errors, warnings };
 }
 
-// Folders whose silent catches are only warned about for now (the phone client is being split up).
-const SILENT_CATCH_WARN_ONLY = ['renderer/remote/'];
 
 // The code the silent-catch rule covers: preload.js, main/ (tools included) and renderer/ (.js and .mjs).
 function catchFiles(root) {
