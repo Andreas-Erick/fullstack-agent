@@ -97,6 +97,8 @@ async function run() {
       if (!s.calendar.enabled) return { status: 'off', detail: 'Disabled.' };
       const st = await calendar.status();
       if (!st.vault) return { status: 'warn', detail: 'The schedule lives in the vault, which is off.', fix: 'Settings → Vault → turn it on.' };
+      // The title-bar light only says the schedule couldn't be read; the reason is here.
+      if (st.unreadable) return { status: 'warn', detail: st.unreadable, fix: `Check that ${calendar.FILE} in the vault is a file that can be opened, or move it aside so a new one is made.` };
       const ev = await calendar.events();
       const detail = `${calendar.FILE} · ${st.recurring} repeating, ${st.events} single · ${ev.length} in the next days`;
       if (st.problems) return { status: 'warn', detail: `${detail} · ${st.problems} unreadable line(s)`, fix: 'Ask the agent to fix them (calendar_list_entries shows which), or correct them in Obsidian.' };
