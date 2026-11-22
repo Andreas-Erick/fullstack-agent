@@ -1,8 +1,9 @@
-// Round 2's cross-package behaviour (ORDER.md §4): what needs two of the packages at once, so no single
-// worktree could test it. Running a message again (actions: renderer/js/redocore.mjs, main/redo.js) with
-// files (attach: renderer/js/attachcore.mjs), what History finds in such a message (history:
-// renderer/js/historycore.mjs, main/historysearch.js), what the bubble, Copy and the Edit box show
-// (chatcore.js), and the merged glue in chat.js, pinned by source checks (main's turn: test/turns.test.js).
+// A message with files run again (Try again, Edit and resend: renderer/js/redocore.mjs, main/redo.js) keeps its
+// file blocks as they were (renderer/js/attachcore.mjs recompose) and never a picture; the same words sent
+// again never drop it; a message of files only or of a picture only; History finds such a message by its
+// typed words, never the files' text (historycore.mjs, main/historysearch.js); and the bubble, Copy, the Edit
+// box, History and the phone all read the same words from it (chatcore.js, projections.js). The turn itself
+// is driven in test/turns.test.js.
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -30,7 +31,7 @@ const redo = load('main/redo.js');
 const historysearch = load('main/historysearch.js');
 
 let chatcore;
-const scratch = tmpDir('nexus-round2-');
+const scratch = tmpDir('nexus-redoattach-');
 test.before(async () => {
   const copy = path.join(scratch, 'chatcore.mjs');
   fs.copyFileSync(path.join(ROOT, 'renderer/js/chatcore.js'), copy);
@@ -85,7 +86,7 @@ const at = (body, s) => {
   return i;
 };
 
-// ------------------------------------------------------------------ §4.1 a message run again keeps its files
+// ------------------------------------------------------------------ a message run again keeps its files
 test('Try again and Edit of a message with files: the file blocks as they were, the new words after them', () => {
   const first = attachcore.compose({ prompt: TYPED, typed: TYPED, items: [PDF, IMAGE, NOTES], notice: NOTICE });
   const user = stored(first, { attempt: FAILED });
@@ -174,7 +175,7 @@ test('main/redo.js hands startTurn the dropped message with its files (Try again
   assert.strictEqual(attachcore.recompose(ed.again.user, { prompt: ed.text, typed: ed.text }).content, `${block(first.content, 1)}\n\nOnly slide 5`);
 });
 
-// ------------------------------------------------------------------ §4.2 the implicit supersede
+// ------------------------------------------------------------------ the implicit supersede
 test('the same words sent again never drop a message with files', () => {
   const user = stored(attachcore.compose({ prompt: TYPED, typed: TYPED, items: [PDF], notice: NOTICE }), { attempt: FAILED });
   assert.strictEqual(redocore.supersedes([user], TYPED, OPTS), null);
@@ -189,7 +190,7 @@ test('the same words sent again never drop a message with files', () => {
   assert.strictEqual(conv.messages.length, 1);
 });
 
-// ------------------------------------------------------------------ §4.3 a message of files only
+// ------------------------------------------------------------------ a message of files only
 test('Try again on a message of files only: through the gates, sent as files without a message', () => {
   const first = attachcore.compose({ prompt: '', typed: '', items: [PDF], notice: NOTICE });
   const user = stored(first, { attempt: FAILED });
@@ -268,7 +269,7 @@ test('Try again on a message that was only a picture never sends an empty messag
   assert.strictEqual(rerun({ ...ed.again, text: ed.text }).msg.content, 'What is this?');
 });
 
-// ------------------------------------------------------------------ §4.6 History never indexes attached text
+// ------------------------------------------------------------------ History never indexes attached text
 test('History finds a message with files by its typed words, never by the files’ text', async () => {
   const first = attachcore.compose({ prompt: TYPED, typed: TYPED, items: [PDF, IMAGE, NOTES], notice: NOTICE });
   const user = stored(first);
@@ -320,98 +321,4 @@ test('a message with files reads the same everywhere: bubble, Copy, the Edit box
   // The phone shows `display ?? content` of what a device gets (main/projections.js): only the typed words.
   const projections = require(path.join(ROOT, 'main/projections.js'));
   for (const [name, m] of Object.entries(shapes)) assert.strictEqual(projections.messageFor('device', m).content, want[name], `phone: ${name}`);
-});
-
-// ------------------------------------------------------------------ the turn's merged order
-// Claim first, one fail() that frees the turn and the files, the gates inside it, recompose for a redo, the
-// title of files only, the taint and the lost-picture notice: through main/turns.js in test/turns.test.js.
-
-// ------------------------------------------------------------------ chat.js: the merged hunks
-test('chat.js: the stored message (its files, its id) replaces the pending one; queued sends keep their files', () => {
-  const node = slice('renderer/js/chat.js', 'function messageNode(m) {', '\n}\n');
-  assert.match(node, /'data-pending': m\.pending/, 'the pending node is marked (actions)');
-  assert.match(node, /if \(m\.attachments\?\.length\) body\.append\(filesNode\(m\.attachments\)\);/, 'the file chips (attach)');
-  assert.match(node, /if \(d\.text \|\| !m\.attachments\?\.length\) body\.append\(bubble\);/, 'files alone: no empty bubble');
-  const start = slice('renderer/js/chat.js', "case 'start': {", 'break;');
-  assert.match(start, /if \(step\.drop\) dropFrom\(step\.drop, \{ keep: v\.wrap \}\);/);
-  assert.match(start, /\.msg\[data-pending="\$\{CSS\.escape\(t\.requestId\)\}"\]/);
-  assert.match(start, /if \(pending && t\.userMessage\) pending\.replaceWith\(messageNode\(t\.userMessage\)\);/);
-  // The stored message joins the open conversation at start (its id for Edit): test/turnstate.test.js.
-  assert.ok(!/files-row|filesNode/.test(start), 'attach’s own files-row patch is dropped (the whole node is replaced)');
-  // A queued send keeps its files: outbox.replyEnded, in test/outbox.test.js ('the files finish while the reply still runs…').
-});
-
-// ------------------------------------------------------------------ §4.9 voice × actions
-test('chat.js done: the new persona’s greeting follows the reply, next to actions’ bookkeeping', () => {
-  const done = slice('renderer/js/chat.js', "case 'done': {", "case 'failed':");
-  // replySpeech.follow: only when replies are spoken, kept, first chunk alone (test/modelhost.test.js).
-  assert.match(done, /loadSettings\(\)\.then\(\(\) => replySpeech\.follow\(greeting\)\)/);
-  assert.ok(at(done, 'replySpeech.flush(t)') < at(done, 'replySpeech.follow(greeting'), 'after the reply has gone to the voice');
-  // actions: the reply is known (and the turn ended) before the buttons are set: turnstate.apply stores it
-  // before the window draws (test/turnstate.test.js 'own reply…').
-  assert.ok(at(done, 'finish(t);') < at(done, 'syncActions();'));
-  // The card's part (a reply with words on it, none for tools only): test/replycard.test.js.
-  assert.match(done, /paintCard\(cardState\.ended\(t, \{ outcome: 'done', text: t\.text, message: m \}\)\.decision\);/);
-  assert.strictEqual(done.split('replySpeech.follow(').length, 2, 'one greeting');
-});
-
-// ------------------------------------------------------------------ attach × actions: a send waiting for its files
-// Regression: while "Reading 1 file…" showed, ✎ / ↻, the ↑ key and the spoken "try again" still worked: a
-// Regenerate started meanwhile was stopped by the waiting message once read (the old reply already gone), and an
-// Edit started meanwhile was sent by itself when the reading finished (sendFromInput's `editing` branch), while
-// the waiting message fell back to the box unsent.
-test('chat.js: a message waiting for its files keeps Try again, Regenerate and Edit away until it is sent', () => {
-  const file = 'renderer/js/chat.js';
-  const src = fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n');
-  // One busy rule, in turnstate.js (a reply here or elsewhere in the conversation, or files being read):
-  // every action path asks the module, which test/turnstate.test.js drives.
-  assert.match(src, /const busy = \(\) => chat\.busy\(\);/);
-  assert.ok(!/redo\.actions\(/.test(src), 'no path decides the actions with its own busy argument');
-  for (const from of ['function syncActions(', 'export async function retryLatest(', 'export function canRetryLatest(', 'function runHelpAction(', 'function fillCardActions(']) {
-    assert.match(slice(file, from, '\n}\n'), /chat\.actions\(\)/, from);
-  }
-  // The outbox tells turnstate about the wait (setWaiting) and its buttons step aside when the wait starts and
-  // come back before the message goes; Edit is refused meanwhile; spoken words never take the place of a
-  // queued message: driven through outbox.js in test/outbox.test.js. chat.js passes turnstate and syncActions.
-  assert.match(src, /turn: chat,/);
-  assert.match(src, /waitChanged: \(\) => syncActions\(\),/);
-  assert.match(src, /if \(e\.key === 'ArrowUp' && [^\n]*&& !busy\(\)\) \{/, '↑ in an empty box');
-  const again = slice(file, 'async function runAgain(', '\n}\n');
-  assert.match(again, /^async function runAgain\([^)]*\) \{\n {2}if \(busy\(\)\) return /, 'refused before anything is asked');
-  assert.match(again, /if \(busy\(\) \|\| req\.conversationId !== chat\.convId\) return false;/, 'and again after the confirm');
-  assert.ok(at(again, 'if (busy() || req.conversationId') < at(again, 'dropFrom(messageId);'));
-  assert.match(again, /toast\(outbox\.waitingFiles \? 'Still reading your file…'/);
-});
-
-// Found by the e2e check: a redo of a message of files showed an empty bubble until 'start'; Copy on files
-// without a word emptied the clipboard ("Copied"); a reply found by History had no buttons on the card.
-test('chat.js: a redo shows the files it keeps; Copy only with something to copy; a found reply’s card has its buttons', () => {
-  const file = 'renderer/js/chat.js';
-  const again = slice(file, 'async function runAgain(', '\n}\n');
-  assert.match(again, /const kept = \(chat\.messages\.find\(\(m\) => m\.id === messageId\)\?\.attachments \|\| \[\]\)\.filter\(\(a\) => a\?\.kind !== 'image'\);/);
-  assert.ok(at(again, 'const kept = ') < at(again, 'dropFrom(messageId);'), 'read before the message leaves the open conversation');
-  assert.match(again, /await send\(chk\.text, \{ voice: chk\.voice, redo: \{ \.\.\.req, confirmed: true \}, kept \}\);/);
-  const send = slice(file, 'async function deliver(', '\nfunction refusedSend(');
-  assert.match(send, /const showing = files\.meta\.length \? files\.meta : again \? kept : \[\];/);
-  assert.match(send, /\.\.\.\(showing\.length \? \{ attachments: showing \} : \{\}\)/, 'the pending node');
-  const meta = slice(file, 'function metaNode(m) {', '\n}\n');
-  assert.match(meta, /const copy = chatcore\.copyText\(m\);\n {2}if \(copy\) meta\.append\(/);
-  assert.strictEqual(chatcore.copyText(stored(attachcore.compose({ prompt: '', typed: '', items: [PDF], notice: NOTICE }))), '', 'files only: nothing to copy');
-  // A found reply's card carries the reply (its buttons): replycard.js opened(), test/replycard.test.js.
-  assert.match(slice(file, 'export async function openConversation(', '\n}\n'), /cardState\.opened\(/);
-  // History's list lives in history.js (drawList), so no local count can shadow the open conversation's `shown`.
-  assert.ok(!/let shown = 0;/.test(slice('renderer/js/history.js', 'export function drawList() {', '\n}\n')));
-});
-
-// ------------------------------------------------------------------ history × actions × attach: deleting while it runs
-// The behaviour (the window leaves 'generating', nothing stored, the copies removed, the session forgotten,
-// never ended) is in test/turns.test.js; main.js's handlers only have to go through the module.
-test('main.js: deleting a conversation goes through turns.js, which forgets the session (never endSession)', () => {
-  const del = slice('main/main.js', "handle('conv:delete'", '\n  });');
-  const clear = slice('main/main.js', "handle('conv:clear'", '\n  });');
-  assert.match(del, /turns\s*\.deleteConversation\(id\)/);
-  assert.match(clear, /turns\.clearConversations\(\)/);
-  for (const h of [del, clear]) assert.ok(!h.includes('endSession'), h);
-  const turns = fs.readFileSync(path.join(ROOT, 'main/turns.js'), 'utf8');
-  assert.ok(!turns.includes('endSession'), 'turns.js forgets, never ends, a session');
 });
