@@ -41,7 +41,7 @@ const channels = {
   calendar: ['status', 'events', 'entries', 'add', 'update', 'remove'],
   tasks: ['status', 'sync'],
   github: ['status'],
-  obsidian: ['status', 'list', 'read', 'search', 'write', 'delete', 'openFolder', 'openInObsidian', 'defaultPath', 'vaults', 'register', 'history', 'showVersion', 'restoreVersion', 'priorities', 'growth', 'links'],
+  obsidian: ['status', 'list', 'read', 'search', 'write', 'delete', 'openFolder', 'openInObsidian', 'defaultPath', 'vaults', 'installed', 'register', 'history', 'showVersion', 'restoreVersion', 'priorities', 'growth', 'links'],
   docs: ['pick', 'load', 'popup', 'closePopup', 'windowState', 'recent', 'clearRecent', 'roots', 'showInFolder', 'openExternal'],
   code: ['root'],
   self: ['status', 'ensure', 'log', 'show', 'check', 'verification', 'commit', 'revert', 'restore', 'discard', 'reload', 'restart'],
