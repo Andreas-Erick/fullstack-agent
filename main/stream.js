@@ -123,7 +123,7 @@ function reflect(loc, { force = false, who, threshold } = {}) {
 // ------------------------------------------------------------------ the user's stream
 async function enabled() {
   const s = await store.getSettings();
-  return s.memory?.stream !== false && Boolean(await obsidian.vaultPath().catch(() => null));
+  return s.memory?.stream !== false && Boolean(await obsidian.vaultPath().catch(() => null)); // no vault: off
 }
 
 /** Records what the assistant noticed; reflects in the background when enough has piled up. */

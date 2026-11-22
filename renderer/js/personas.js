@@ -1,6 +1,6 @@
 // Persona switching from the UI (title-bar switcher, Persona studio). The list and the switch itself
 // live in the main process (main/persona.js, main/personacore.js); each call returns the new settings.
-import { api, emit, toast, toastError } from './util.js';
+import { api, emit, toast, toastError, ignore } from './util.js';
 import { state } from './state.js';
 import { speaker } from './voice.js';
 
@@ -24,10 +24,10 @@ export function setBeforeSwitch(fn) {
 export async function switchPersona(id) {
   if (!id || id === state.settings.personas?.active) return state.settings;
   try {
-    await beforeSwitch().catch(() => {});
+    await beforeSwitch().catch(() => {}); // flushSaves shows its own notice; the switch goes on
     const settings = took(await api.persona.switch(id), { greet: true });
     // The new persona's session starts while it says hello, not with the next message.
-    import('./chat.js').then((m) => m.currentConversationId() && api.llm.prewarm(m.currentConversationId(), { now: true })).catch(() => {});
+    import('./chat.js').then((m) => m.currentConversationId() && api.llm.prewarm(m.currentConversationId(), { now: true })).catch(ignore('chat not prewarmed after the switch'));
     return settings;
   } catch (err) {
     toastError(err);

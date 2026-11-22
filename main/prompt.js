@@ -515,7 +515,7 @@ async function matchesFor(query, activeToolNames) {
   const has = (prefix) => activeToolNames.some((n) => n.startsWith(prefix));
   const out = [];
   if (has('calendar_')) {
-    const entries = ((await Promise.resolve().then(() => calendar.entries()).catch(() => null))?.entries || []).filter((e) => sharesWord(query, e.title)).slice(0, 6);
+    const entries = ((await Promise.resolve().then(() => calendar.entries()).catch(() => null))?.entries || []).filter((e) => sharesWord(query, e.title)).slice(0, 6); // schedule unreadable: no matches in the notes
     if (entries.length) out.push(`## Schedule entries that match this message\n${entries.map((e) => `- ${e.title}: ${e.when}${e.location ? ` @ ${e.location}` : ''}`).join('\n')}`);
   }
   if (has('vault_')) {
@@ -523,7 +523,7 @@ async function matchesFor(query, activeToolNames) {
     // on every message; then only the (at most) two best-matching notes are read.
     const matches = sharesWordWith(query);
     const terms = String(query).toLowerCase().split(/[\s,]+/).filter((t) => t.length > 1);
-    const hits = ((await Promise.resolve().then(() => obsidian.notePaths()).catch(() => null)) || [])
+    const hits = ((await Promise.resolve().then(() => obsidian.notePaths()).catch(() => null)) || []) // no vault: no matches
       .map((p) => ({ path: p, title: String(p).split('/').pop().replace(/\.md$/, '') }))
       .filter((h) => matches(h.title))
       .map((h) => ({ ...h, score: terms.filter((t) => h.title.toLowerCase().includes(t)).length }))
@@ -531,7 +531,7 @@ async function matchesFor(query, activeToolNames) {
       .slice(0, 2);
     const notes = [];
     for (const h of hits) {
-      const n = await obsidian.readNote(h.path, 1200).catch(() => null);
+      const n = await obsidian.readNote(h.path, 1200).catch(() => null); // a note removed meanwhile is skipped
       if (n?.content) notes.push(`### ${h.path}\n${n.content.trim()}`);
     }
     if (notes.length) out.push(`## Notes that match this message (from the vault; answer from them)\n${notes.join('\n\n')}`);

@@ -75,7 +75,7 @@ let globeNav = null;
 function asked(question) {
   const q = Promise.resolve().then(question); // a question that throws cancels the request, never leaves it hanging
   asking = q;
-  q.finally(() => asking === q && (asking = null)).catch(() => {});
+  q.finally(() => asking === q && (asking = null)).catch(() => {}); // the caller awaits q itself; this branch only clears asking
   return q;
 }
 
@@ -202,7 +202,7 @@ function create() {
   // Links that open a new window open here instead.
   wc.setWindowOpenHandler(({ url }) => {
     const c = core.checkUrl(url);
-    if (c.ok) wc.loadURL(c.url).catch(() => {});
+    if (c.ok) wc.loadURL(c.url).catch(() => {}); // failures arrive as did-fail-load
     else say(c.reason);
     return { action: 'deny' };
   });
@@ -280,7 +280,7 @@ async function open(raw, { byAgent = true, monitor, position, focus = false, bef
   let loaded = await settle(c.globe ? 30000 : 15000);
   // Still loading because a redirect waits for the user's answer: the result says how that ended.
   while (!loaded && asking && alive()) {
-    await asking.catch(() => {});
+    await asking.catch(() => {}); // waits for the answer only; how it ended shows in the next settle
     loaded = await settle(15000);
   }
   return { url: wc.getURL(), title: wc.getTitle(), loaded, ...(loaded ? {} : { note: 'Still loading; check again with browser_read in a moment.' }) };

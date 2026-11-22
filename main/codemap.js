@@ -178,7 +178,7 @@ function settingsDefaults(root) {
   let braintable = nothing;
   try {
     braintable = require(path.join(root, 'renderer/js/braintable.mjs'));
-  } catch {}
+  } catch {} // no brain table (an older checkout): its sections read as unknown, never as an error
   const anyName = new Proxy({}, { has: () => true, get: (_t, k) => (k === Symbol.unscopables ? undefined : k === 'braintable' ? braintable : nothing) });
   try {
     return new Function('scope', `with (scope) { return {${body}}; }`)(anyName);
@@ -212,4 +212,26 @@ function map(root) {
   };
 }
 
-module.exports = { jsFiles, isModule, outline, exportsOf, importsOf, ipc, toolsInfo, settingsDefaults, hasPath, map };
+// Silent catches: a promise `.catch` that drops the error (`() => {}`, `null`, `undefined`, `false`)
+// or an empty `catch {}` block, with no comment saying why (docs/ENGINEERING.md §2). A comment after it
+// on the same line, or inside the block, is the reason; one in front of it on the line means the code
+// itself is commented out or quoted in a comment.
+const SILENT_PROMISE = /\.catch\(\s*(?:\(\s*[\w$]*\s*\)|[\w$]+)\s*=>\s*(?:\{\s*\}|null|undefined|false)\s*\)/g;
+const SILENT_BLOCK = /(?<![.\w$])catch\s*(?:\(\s*[\w$]*\s*\))?\s*\{\s*\}/g;
+
+function silentCatches(text) {
+  const out = [];
+  const lineStart = (i) => text.lastIndexOf('\n', i - 1) + 1;
+  const lineEnd = (i) => (text.indexOf('\n', i) + 1 || text.length + 1) - 1;
+  for (const re of [SILENT_PROMISE, SILENT_BLOCK]) {
+    for (const m of text.matchAll(re)) {
+      const end = m.index + m[0].length;
+      if (/\/\/|\/\*/.test(text.slice(lineStart(m.index), m.index))) continue;
+      if (/\/\/|\/\*/.test(text.slice(end, lineEnd(end)))) continue;
+      out.push({ line: lineOf(text, m.index), code: m[0].replace(/\s+/g, ' ') });
+    }
+  }
+  return out.sort((a, b) => a.line - b.line);
+}
+
+module.exports = { jsFiles, isModule, outline, exportsOf, importsOf, ipc, toolsInfo, settingsDefaults, hasPath, map, silentCatches };

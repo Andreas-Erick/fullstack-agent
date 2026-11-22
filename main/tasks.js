@@ -31,7 +31,7 @@ function save(source, list) {
     await store.writeJsonAtomic(file(), next);
     return { source, saved: tasks.length, skipped };
   });
-  writing = run.catch(() => {});
+  writing = run.catch(() => {}); // the queue only orders the work; each caller gets its own error
   return run.then((r) => (notify(), log.info('tasks saved', { source, saved: r.saved, skipped }), r));
 }
 
@@ -39,7 +39,7 @@ function save(source, list) {
 async function status() {
   const s = await store.getSettings();
   const d = await read();
-  const cached = await require('./claudecode').cachedConnectors().catch(() => null);
+  const cached = await require('./claudecode').cachedConnectors().catch(() => null); // no cached connector list
   const available = core.connectedSources(cached?.list);
   const brain = s.llm.provider === 'claude-code' || (s.llm.provider === 'auto' && !(s.routing?.disabled || []).includes('claude-code'));
   return {

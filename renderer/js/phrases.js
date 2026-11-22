@@ -8,7 +8,7 @@ let off = false; // Cache Storage can't be opened here: nothing is read or kept 
 // Writes and deletes run one at a time, in order (a forget queued after a keep removes it too).
 let chain = Promise.resolve();
 const queue = (fn) => {
-  const run = chain.then(fn).catch(() => null);
+  const run = chain.then(fn).catch(() => null); // a failed kept-line write or delete costs only that line; the chain goes on
   chain = run;
   return run;
 };

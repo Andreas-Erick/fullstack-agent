@@ -31,7 +31,7 @@ async function pdfText(buf, maxChars) {
     }
     return { text: out.trim(), pages: pdf.numPages, pagesRead };
   } finally {
-    task.destroy().catch(() => {});
+    task.destroy().catch(() => {}); // the loading task already ended: nothing to release
   }
 }
 

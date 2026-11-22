@@ -82,11 +82,11 @@ const sizeLabel = (n) => (n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1
 // The window buttons (drawn by the OS over the title bar) take the theme's colors.
 function themeWindow(settings) {
   const t = applyTheme(settings.appearance?.theme);
-  api.win.overlay({ color: t.colors.bg, symbolColor: t.colors.accent }).catch(() => {});
+  api.win.overlay({ color: t.colors.bg, symbolColor: t.colors.accent }).catch(() => {}); // the overlay colours are cosmetic; the window works without them
 }
 
-api.app.info().then((i) => i.platform === 'darwin' && document.body.classList.add('mac')).catch(() => {});
-api.settings.get().then(themeWindow).catch(() => {});
+api.app.info().then((i) => i.platform === 'darwin' && document.body.classList.add('mac')).catch(() => {}); // the platform class is cosmetic
+api.settings.get().then(themeWindow).catch(() => {}); // the window keeps the default look
 api.on('docpopup:show', show);
 window.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;

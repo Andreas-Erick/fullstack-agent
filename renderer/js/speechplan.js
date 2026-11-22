@@ -78,7 +78,7 @@ export function createLineOrder() {
       const mine = epoch;
       const found = Promise.resolve()
         .then(find)
-        .catch(() => null)
+        .catch(() => null) // a lookup that fails counts as a miss: the line is made
         .then(async (hit) => (await prior, hit));
       const audio = found.then((hit) => hit || (mine === epoch ? make() : null)); // registered first: a miss is made first
       const decided = found.then(() => {});

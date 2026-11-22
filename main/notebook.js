@@ -57,7 +57,7 @@ async function scan(r) {
       if (core.isNotePath(rel)) found.push({ rel, top, full });
     }
   }
-  const stats = await inBatches(found, (f) => fsp.stat(f.full).catch(() => null));
+  const stats = await inBatches(found, (f) => fsp.stat(f.full).catch(() => null)); // a note removed meanwhile is skipped
   return found.map((f, i) => ({ ...f, st: stats[i] })).filter((f) => f.st && f.st.size <= MAX_BYTES);
 }
 
@@ -150,7 +150,7 @@ async function rename(rel, title) {
     const from = typeof b === 'string' ? b : b?.path || b?.from;
     if (!from || from === rel) continue;
     const fromFull = resolveInside(r, from);
-    const text = await fsp.readFile(fromFull, 'utf8').catch(() => null);
+    const text = await fsp.readFile(fromFull, 'utf8').catch(() => null); // a linking note removed meanwhile has nothing to relink
     if (text == null) continue;
     const updated = core.relink(text, rel, next);
     if (updated === text) continue;
@@ -172,7 +172,7 @@ let restoring = Promise.resolve(); // one Undo at a time: two never land on the 
 /** Undo of a delete: the file from the bin back to where it was, byte for byte (frontmatter included). */
 function restore(trashed, rel) {
   const run = restoring.then(() => restoreNow(String(trashed || ''), String(rel || '')));
-  restoring = run.catch(() => {});
+  restoring = run.catch(() => {}); // the queue only orders the work; each caller gets its own error
   return run;
 }
 
@@ -181,7 +181,7 @@ async function restoreNow(trashed, rel) {
   if (!/^\.trash\/[^/\\]+\.md$/i.test(trashed)) throw new Error(GONE);
   const r = await root();
   const from = resolveInside(r, trashed);
-  const st = await fsp.stat(from).catch(() => null);
+  const st = await fsp.stat(from).catch(() => null); // not in the bin: said below
   if (!st?.isFile()) throw new Error(GONE);
   const dir = rel.split('/').slice(0, -1).join('/');
   const used = await taken(r, dir);

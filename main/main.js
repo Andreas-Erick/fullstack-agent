@@ -25,6 +25,7 @@ const selfchange = require('./selfchange');
 const websearch = require('./websearch');
 const persona = require('./persona');
 const log = require('./logger');
+const { ignore } = require('./ignore');
 const { plainIpcError } = require('./plainerror');
 const approvals = require('./approvals');
 const diagnostics = require('./diagnostics');
@@ -197,7 +198,7 @@ function createWindow() {
       const r = store.settingsRecovery();
       const reset = r?.dropped?.length && `Some of your settings (${r.dropped.join(', ')}) were damaged and went back to their defaults${r.fromPersona?.length ? ', except what belongs to your persona' : ''}.${r.kept ? ' The damaged file was kept for recovery.' : ''}`;
       if (r) send('app:notice', { kind: 'error', message: reset || (r.restored ? 'Your settings file was damaged and has been restored from the last good copy.' : 'Your settings file was damaged; defaults are used. The damaged file was kept for recovery.') });
-    }).catch(() => {});
+    }).catch(ignore('settings recovery notice not shown'));
     scheduleChangeVerification(Date.now());
   });
 }
@@ -282,7 +283,7 @@ function startRoutines() {
         signal?.addEventListener('abort', stop, { once: true });
         // The user's own chat (routinecore.takenOver) isn't the routine's any more: a new conversation.
         const startIn = async () => {
-          const conv = routine.conversationId ? await store.getConversation(routine.conversationId).catch(() => null) : null;
+          const conv = routine.conversationId ? await store.getConversation(routine.conversationId).catch(() => null) : null; // a conversation that is gone or unreadable counts as not taken over
           if (!conv || !require('./routinecore').takenOver(conv, routine.id)) return routine.conversationId;
           log.info('routine gets its own conversation', { routine: routine.name, was: routine.conversationId });
           return '';
@@ -493,7 +494,7 @@ function registerIpc() {
     return true;
   });
   // Try again / Regenerate / Edit (main/redo.js): desktop only; the window checks first (a confirm may be needed).
-  handle('chat:redoCheck', async (req) => redo.forWindow(redo.check(await store.getConversation(String(req?.conversationId || '')).catch(() => null), req, { busy: turns.busy(req?.conversationId) })));
+  handle('chat:redoCheck', async (req) => redo.forWindow(redo.check(await store.getConversation(String(req?.conversationId || '')).catch(() => null), req, { busy: turns.busy(req?.conversationId) }))); // a conversation that is gone: redo.check refuses it
   handle('chat:redo', (req) => {
     if (!/^[\w-]{1,64}$/.test(String(req?.requestId || ''))) throw new Error('Bad request');
     return turns.start({ conversationId: String(req?.conversationId || ''), requestId: String(req.requestId), text: '', redo: req });
@@ -856,7 +857,7 @@ function registerIpc() {
   // The feature guide (main/guide.js) for the onboarding tour: the same entries the agent explains.
   handle('guide:features', async () => {
     const { FEATURES, guide } = require('./guide');
-    const now = new Map(((await guide().catch(() => null))?.features || []).map((f) => [f.id, f.status]));
+    const now = new Map(((await guide().catch(() => null))?.features || []).map((f) => [f.id, f.status])); // statuses unknown: the tour shows the entries without them
     return FEATURES.map((f) => ({ id: f.id, title: f.title, what: f.what, say: f.say, where: f.where, status: now.get(f.id) || '' }));
   });
   handle('setup:skip', async () => {
@@ -980,7 +981,7 @@ app.whenReady().then(async () => {
   const s = await store.getSettings();
   log.setDebug(s.logging?.debug);
   if (s.code.enabled && s.code.allowSelfModify) selfchange.ensureRepo().catch((e) => log.warn('change history unavailable', e));
-  obsidian.vaultPath().catch(() => {});
+  obsidian.vaultPath().catch(ignore('vault path not warmed (asked again when needed)'));
   // The launch check starts no servers and no helper programs.
   if (!smoke.active) companion.apply(s).catch((e) => log.warn('remote server start failed', e));
   helperApps.init({ notify: (ev) => send('helperApps:event', ev) });
@@ -992,8 +993,8 @@ app.whenReady().then(async () => {
   require('./innerworld').start({ notify: (ev) => (toWindow('world:event', ev), ev?.type !== 'work' && companion.dataChanged(['world'])) });
   // A check's answer goes to the title bar, and to paired phones (they offer the newest APK from /api/info).
   if (!smoke.active) require('./updates').start({ notify: (st) => (toWindow('updates:state', st), companion.infoChanged()) });
-  store.sweepStaleTemp().catch(() => {});
-  claudecode.sweepStaleTemp().catch(() => {});
+  store.sweepStaleTemp().catch(ignore('stale temp files not swept'));
+  claudecode.sweepStaleTemp().catch(ignore('stale temp folders not swept'));
 
   app.on('activate', () => {
     if (closing && !handoffDone) showMain(); // the dock while the window is hidden for its handoff note

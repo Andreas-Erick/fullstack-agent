@@ -133,7 +133,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
     controller.conversationId = conv.id;
     active.set(requestId, controller);
     // "/skill-name input": the agent gets the skill's steps; the chat shows what was typed.
-    const slash = conv.setup ? null : await skills.fromSlash(text).catch(() => null);
+    const slash = conv.setup ? null : await skills.fromSlash(text).catch(() => null); // a skill that cannot be read: the text goes as typed
     // While the screen is shared, the message carries a fresh screenshot (not stored).
     let images = [];
     if (!remote && !conv.setup && screenshare.state().active && settings.screen.attachToMessages !== false) {
@@ -236,7 +236,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
     const background = log.withContext(tags, async () => {
       const trackChanges = settings.code.enabled && settings.code.allowSelfModify;
       const before = trackChanges ? await selfchange.fingerprint() : null;
-      codeRoot = trackChanges ? await selfchange.root().catch(() => null) : null;
+      codeRoot = trackChanges ? await selfchange.root().catch(() => null) : null; // no code repository: no changes tracked
       try {
         const result = await llm.runTurn({ settings, conv, history: conv.messages, emit, signal: controller.signal, voice: viaVoice, images, routine: Boolean(routine), again: again?.again || null, taint: [...(screenShot ? ['the shared screen'] : []), ...(slash && skills.imported(slash.skill) ? [`the skill /${slash.skill.slug}`] : []), ...(composed?.taint || [])], imageNoun: attachcore.imageNoun({ screen: screenShot, images: composed?.images.length || 0 }) });
         const assistantMsg = {

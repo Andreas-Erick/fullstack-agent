@@ -135,7 +135,7 @@ async function record(r) {
       reject(new Error('Recording the face took too long.'));
     }, RECORD_LIMIT_MS);
   });
-  overdue.catch(() => {});
+  overdue.catch(() => {}); // only raced below; without this a recording that ends first leaves an unhandled rejection
   try {
     return await Promise.race([overdue, draw(r, win, wc, nativeImage)]);
   } finally {
@@ -169,7 +169,7 @@ async function draw(r, win, wc, nativeImage) {
  *  isn't read); null when it isn't recorded yet. For the warm-up and a 304 before anything is read. */
 async function cached(settings) {
   const key = keyOf(recipe(settings));
-  const st = await fsp.stat(path.join(cacheDir(), `${key}.bin`)).catch(() => null);
+  const st = await fsp.stat(path.join(cacheDir(), `${key}.bin`)).catch(() => null); // no cached pack yet
   return st?.isFile() ? { key, at: st.mtimeMs } : null;
 }
 
@@ -178,17 +178,17 @@ async function frames(settings) {
   const r = recipe(settings);
   const key = keyOf(r);
   const file = path.join(cacheDir(), `${key}.bin`);
-  const cached = await fsp.readFile(file).catch(() => null);
-  if (cached) return { key, data: cached, at: (await fsp.stat(file).catch(() => null))?.mtimeMs || null };
+  const cached = await fsp.readFile(file).catch(() => null); // no cached pack yet: recorded below
+  if (cached) return { key, data: cached, at: (await fsp.stat(file).catch(() => null))?.mtimeMs || null }; // the pack was read; its time is only shown
   if (running?.key === key) return running.promise;
-  if (running) await running.promise.catch(() => {});
+  if (running) await running.promise.catch(() => {}); // the earlier recording failed for its own caller; this one records afresh
   const promise = (async () => {
     const started = Date.now();
     const recorded = await record(r);
     const colors = Object.fromEntries(Object.entries(r.theme.colors || {}).filter(([k, v]) => /^\w{1,20}$/.test(k) && /^#[0-9a-f]{6}$/i.test(v)));
     const data = pack({ fps: FPS, size: SIZE, name: r.name, colors }, recorded);
     // Only the latest face is kept.
-    await fsp.rm(cacheDir(), { recursive: true, force: true }).catch(() => {});
+    await fsp.rm(cacheDir(), { recursive: true, force: true }).catch(() => {}); // nothing cached yet; the mkdir below reports a real problem
     await fsp.mkdir(cacheDir(), { recursive: true });
     await fsp.writeFile(file, data);
     log.info('face frames recorded', { face: r.face.startsWith('custom:') ? 'custom' : r.face, ms: Date.now() - started, bytes: data.length });

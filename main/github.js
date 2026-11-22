@@ -7,6 +7,7 @@ const fsp = fs.promises;
 const os = require('os');
 const path = require('path');
 const store = require('./store');
+const { ignore } = require('./ignore');
 
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BRANCH_RE = /^(?!.*\.\.)(?!\/)(?!.*\/$)[A-Za-z0-9._/-]{1,100}$/;
@@ -63,7 +64,7 @@ function checkAuth() {
 async function status({ fresh = false } = {}) {
   await refreshWorkspace();
   if (fresh || !authCache.value) return checkAuth();
-  if (Date.now() - authCache.at > 10 * 60 * 1000) checkAuth().catch(() => {});
+  if (Date.now() - authCache.at > 10 * 60 * 1000) checkAuth().catch(ignore('background sign-in check failed (the cached answer stays)'));
   return authCache.value;
 }
 

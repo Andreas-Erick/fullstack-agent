@@ -43,7 +43,7 @@ export async function renderDocument(doc, viewer, ctl) {
     parts.observer?.disconnect();
     for (const t of parts.tasks.values()) t.cancel();
     parts.tasks.clear();
-    parts.task?.destroy().catch(() => {});
+    parts.task?.destroy().catch(() => {}); // the loading task already ended: nothing to release
     showing.delete(viewer);
   });
   const tools = el('div', { class: 'doc-tools' });

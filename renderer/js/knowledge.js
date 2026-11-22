@@ -169,7 +169,7 @@ async function openNote(ref) {
 
 // Under the note: which notes link to it, and which it links to (main/linkindex.js), as buttons.
 async function backlinks(box, rel) {
-  const r = await api.obsidian.links(rel).catch(() => null);
+  const r = await api.obsidian.links(rel).catch(() => null); // no backlinks shown
   if (!r || selected !== rel || (!r.backlinks.length && !r.links.length)) return;
   const list = (title, paths) =>
     paths.length
@@ -194,7 +194,7 @@ function editNote(n) {
     saving = true;
     saveBtn.disabled = true;
     try {
-      const fresh = await api.obsidian.read(n.path).catch(() => null);
+      const fresh = await api.obsidian.read(n.path).catch(() => null); // unreadable: handled as null below
       if (fresh && fresh.content !== mine.read && !(await confirmDialog('Overwrite the newer version?', 'This note changed since you opened it (the assistant or another app wrote it). Your text replaces that version; the vault’s history keeps it.', 'Overwrite'))) return;
       editing = null; // the save's own vault-changed reloads the pane as usual
       await api.obsidian.write(n.path, ta.value, 'overwrite');

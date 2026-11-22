@@ -1,7 +1,7 @@
 // The title-bar meter for the Claude plan (main/claudeusage.js): the share left in the tightest window,
 // with every window and its reset time in the tooltip. Shown while the Claude account brain is in use
 // and `ui.showClaudeUsage` is on; it fills in after the first Claude reply.
-import { $, api, on } from './util.js';
+import { $, api, on, ignore } from './util.js';
 import { state } from './state.js';
 
 let usage = null;
@@ -12,7 +12,7 @@ export const currentUsage = () => usage;
 export function initUsage() {
   on('settings', render);
   api.on('claude:usage', (s) => ((usage = s), render()));
-  api.claude.usage().then((s) => ((usage = s), render())).catch(() => {});
+  api.claude.usage().then((s) => ((usage = s), render())).catch(ignore('plan usage not read'));
   setInterval(render, 60000); // reset times pass while the app is idle
 }
 

@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const store = require('./store');
 const log = require('./logger');
+const { ignore } = require('./ignore');
 
 // A memory written in a turn that had read outside content (a web page, an email, a file): kept as
 // `source: outside` in its frontmatter, so the prompt shows it as data, never as the user's own words.
@@ -23,7 +24,7 @@ async function vaultDir() {
   await fsp.mkdir(dir, { recursive: true });
   if (!migrated) {
     migrated = true;
-    await migrateLegacy(dir).catch(() => {});
+    await migrateLegacy(dir).catch((err) => log.warn('memories not copied from the old folder', { error: err }));
   }
   return dir;
 }
@@ -37,7 +38,7 @@ async function migrateLegacy(dir) {
   if (!old.some((f) => f.endsWith('.md')) || old.includes('.migrated')) return;
   for (const f of old.filter((x) => x.endsWith('.md'))) {
     const dest = path.join(dir, f);
-    await fsp.copyFile(path.join(legacy, f), dest).catch(() => {});
+    await fsp.copyFile(path.join(legacy, f), dest).catch((err) => log.warn('memory not copied from the old folder', { error: err }));
   }
   await fsp.writeFile(marker, `Copied to ${dir} on ${new Date().toISOString()}\n`);
 }
@@ -88,7 +89,7 @@ const isMemoryFile = (f) => f.endsWith('.md') && f !== 'Memory.md';
 
 // Keep the vault folder index and note history in sync (no-op when memories live outside the vault).
 function notify(full, message) {
-  require('./obsidian').notifyExternalChange(full, message).catch(() => {});
+  require('./obsidian').notifyExternalChange(full, message).catch(ignore('folder index and history not updated for a memory'));
 }
 
 function slug(text) {
@@ -135,14 +136,14 @@ async function readOne(dir, f) {
 async function readAll() {
   const dir = await vaultDir();
   const files = (await fsp.readdir(dir)).filter(isMemoryFile);
-  const read = await Promise.all(files.map((f) => readOne(dir, f).catch(() => null)));
+  const read = await Promise.all(files.map((f) => readOne(dir, f).catch(() => null))); // an unreadable file is skipped and counted below
   const entries = read.filter(Boolean).sort((a, b) => b.updated - a.updated);
   return { entries, skipped: read.length - entries.length };
 }
 
 async function get(id) {
   const dir = await vaultDir();
-  const text = await fsp.readFile(path.join(dir, `${checkId(id)}.md`), 'utf8').catch(() => null);
+  const text = await fsp.readFile(path.join(dir, `${checkId(id)}.md`), 'utf8').catch(() => null); // no such memory
   return text == null ? null : parseEntry(id, text);
 }
 

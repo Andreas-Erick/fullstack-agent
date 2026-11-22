@@ -39,7 +39,7 @@ const EFFECTS = [
   ],
   ['logging', (p) => has(p, 'logging'), (s, p, d) => d.log.setDebug(s.logging?.debug)],
   // Remote access: started, stopped or moved (port, LAN, tunnel). Serialized: the latest save wins in order.
-  ['remote access', (p) => has(p, 'remote'), (s, p, d) => (remoteChain = remoteChain.catch(() => {}).then(() => d.companion.apply(s)))],
+  ['remote access', (p) => has(p, 'remote'), (s, p, d) => (remoteChain = remoteChain.catch(() => {}).then(() => d.companion.apply(s)))], // the chain only orders the applies; a failed one is logged as settings effect failed
   // Paired phones (and through them the watch) hear of a persona switch or a changed look at once.
   ['devices', () => true, (s, p, d) => d.companion.settingsChanged(p)],
   // A newly used or re-enabled helper app (VoiceStudio, FreeLLMAPI) starts now; helperapps.js also keeps

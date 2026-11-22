@@ -15,6 +15,7 @@ const { execFile } = require('child_process');
 const { app } = require('electron');
 const store = require('./store');
 const log = require('./logger');
+const { ignore } = require('./ignore');
 const { resolveInside, hasReservedPart, walk, toPosix, scoreText, queryTerms } = require('./files');
 
 const IGNORE = ['.obsidian', '.trash', 'node_modules', '.git'];
@@ -173,7 +174,7 @@ async function placeGuides(dir, agentName) {
     if (!(name in seen)) {
       await writeIfMissing(target, text);
     } else if (seen[name] !== h) {
-      const current = await fsp.readFile(target, 'utf8').catch(() => null);
+      const current = await fsp.readFile(target, 'utf8').catch(() => null); // no note there yet
       if (current === null) continue; // the user removed it
       if (seen[name] !== null && hashOf(current) !== seen[name]) continue; // the user edited it
       if (current !== text) {
@@ -186,7 +187,7 @@ async function placeGuides(dir, agentName) {
   }
   if (!changed) return;
   await store.writeJsonAtomic(seenFile, seen);
-  await refreshFolderIndex(dir, 'Notes').catch(() => {});
+  await refreshFolderIndex(dir, 'Notes').catch(ignore('folder index not refreshed'));
 }
 
 // Builds the structure without ever overwriting existing files (safe on adopted vaults).
@@ -414,7 +415,7 @@ async function afterChange(root, rel, message, { deleted = false } = {}) {
   // notes doesn't walk the folder again.
   const known = folderNotes.get(path.join(root, top));
   const listChanged = deleted || !known || !known.has(rel);
-  if (FOLDERS[top] && rel !== `${top}/${top}.md` && listChanged) await refreshFolderIndex(root, top).catch(() => {});
+  if (FOLDERS[top] && rel !== `${top}/${top}.md` && listChanged) await refreshFolderIndex(root, top).catch(ignore('folder index not refreshed'));
   require('./vaultgit').commitSoon(root, message);
   require('./linkindex').touched(rel);
   onChange(rel);

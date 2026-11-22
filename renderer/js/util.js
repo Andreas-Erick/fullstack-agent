@@ -353,7 +353,16 @@ export const on = (type, fn) => {
 
 // Diagnostic log line in <userData>/logs/nexus.log (read by the agent when it diagnoses itself).
 export function logEvent(level, event, data) {
-  api.log.write(level, event, data).catch(() => {});
+  api.log.write(level, event, data).catch(() => {}); // the log itself is unreachable: nowhere left to report it
+}
+
+// A failure that is safe to drop, said out loud: `p.catch(ignore('why'))` writes a DEBUG line (only with
+// Detailed logging on) and yields `value` (main/ignore.js is the same for the main process).
+export function ignore(reason, value) {
+  return (err) => {
+    logEvent('debug', 'ignored', { reason, error: String(err?.message || err).slice(0, 300) });
+    return value;
+  };
 }
 
 // Safety net: an unexpected error in a page is logged (the same one at most once a minute) instead of

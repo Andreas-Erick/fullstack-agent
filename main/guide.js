@@ -242,7 +242,7 @@ const FEATURES = [
 
 async function facts() {
   const out = { vault: '', topics: 0, decks: 0, notes: 0, routines: 0, routinesOn: 0, skillCount: 0 };
-  const safe = (p) => p.catch(() => null);
+  const safe = (p) => p.catch(() => null); // a part that cannot be read shows as unknown, never fails the guide
   out.vault = (await safe(require('./obsidian').vaultPath())) || '';
   const [topics, decks, notes, routines, skills] = await Promise.all([
     out.vault ? safe(require('./learning').topics()) : null,
