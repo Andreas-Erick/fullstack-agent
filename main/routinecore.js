@@ -14,9 +14,12 @@ function parseTime(t) {
   return [Number(m[1]), Number(m[2])];
 }
 
-/** A clean schedule, or an error saying what is wrong. */
+/**
+ * A clean schedule, or an error saying what is wrong.
+ * @returns {RoutineSchedule}
+ */
 function normalizeSchedule(s = {}) {
-  const kind = String(s.kind || '').toLowerCase();
+  const kind = /** @type {RoutineSchedule['kind']} */ (String(s.kind || '').toLowerCase());
   if (!KINDS.includes(kind)) throw new Error(`schedule.kind must be one of: ${KINDS.join(', ')}`);
   if (kind === 'interval') {
     const hours = Number(s.hours);
@@ -37,7 +40,18 @@ function normalizeSchedule(s = {}) {
 // A time from routines.json a Date can use (an edit by hand may leave it out or garble it).
 const usableTime = (t) => Boolean(t) && !Number.isNaN(new Date(t).getTime());
 
-/** A routine from the user or the agent, validated. */
+/**
+ * @typedef {import('./types').Routine} Routine
+ * @typedef {import('./types').RoutineSchedule} RoutineSchedule
+ * @typedef {import('./types').RoutineCheck} RoutineCheck
+ */
+
+/**
+ * A routine from the user or the agent, validated.
+ * @param {Partial<Routine> & Record<string, any>} r
+ * @param {{ newId?: (prefix: string) => string, now?: number }} [opts]
+ * @returns {Routine}
+ */
 function normalize(r, { newId, now = Date.now() } = {}) {
   const name = String(r.name || '').replace(/\s+/g, ' ').trim().slice(0, 60);
   if (!name) throw new Error('Give the routine a short name.');
@@ -91,6 +105,9 @@ const lateLimitMs = (s) => (s.kind === 'interval' ? s.hours * 3600000 : s.kind =
 /**
  * What to do with a routine now: 'run', 'skip' (missed by too much: move on to the next time without
  * running) or 'wait'. The reference point is the last run, or when it was created.
+ * @param {Routine} routine
+ * @param {Date} [now]
+ * @returns {RoutineCheck}
  */
 function check(routine, now = new Date()) {
   if (!routine.enabled) return { action: 'wait', next: null };
@@ -100,7 +117,7 @@ function check(routine, now = new Date()) {
   // Several missed occurrences count once; a run that is too late is skipped.
   let latest = due;
   for (let n = nextRun(routine.schedule, due); n && n <= now; n = nextRun(routine.schedule, n)) latest = n;
-  return { action: now - latest <= lateLimitMs(routine.schedule) ? 'run' : 'skip', next: nextRun(routine.schedule, now), due: latest };
+  return { action: Number(now) - Number(latest) <= lateLimitMs(routine.schedule) ? 'run' : 'skip', next: nextRun(routine.schedule, now), due: latest };
 }
 
 function describe(s) {

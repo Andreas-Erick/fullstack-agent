@@ -8,6 +8,7 @@ const TOPICS = ['today', 'learn', 'memory', 'notes', 'world', 'skills', 'sched',
 
 // Vault notes by where they live (vault-relative, forward slashes), first match wins; every note also
 // counts for 'notes'. Vocabulary decks and learning topics feed Today too.
+/** @type {Array<[RegExp, string[]]>} */
 const VAULT_RULES = [
   [/^Schedule\.md$/i, ['sched', 'today']],
   [/^Memory\//i, ['memory']],

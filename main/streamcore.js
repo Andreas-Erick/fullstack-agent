@@ -69,7 +69,11 @@ function formatLine(r) {
   return `- ${stamp(r.at)} · ★${clampImportance(r.importance)} · ${clip(r.text).replace(/<!--|-->/g, '')} <!-- rec ${JSON.stringify(meta)} -->`;
 }
 
-/** A whole stream note: a heading, a line of explanation, one line per record. */
+/**
+ * A whole stream note: a heading, a line of explanation, one line per record.
+ * @param {Iterable<object>} records
+ * @param {{ title?: string, intro?: string }} [opts]
+ */
 function serialize(records, { title, intro } = {}) {
   const head = [`# ${title || 'Memory stream'}`, '', intro || '_One line per record: when, how important (★1–10), what. Edit or delete lines freely._', ''];
   return `${head.join('\n')}\n${[...records].sort((a, b) => a.at - b.at).map(formatLine).join('\n')}\n`;

@@ -25,6 +25,7 @@ const PLACES = [
 // it; the narrator hears how the day went). Covers the app's own tools and Claude Code's native ones. A fourth entry
 // counts the work toward another place than the one it happens in (research is read in the Library
 // but is a trip out to the web: the Lookout grows with it).
+/** @type {Array<[RegExp, string, string, string?]>} tool pattern, place, label, place it counts for */
 const WORK = [
   [/^(code_|self_change|run_tests|analyze_errors|read_app_log|diagnose|github_|diagram_save|pdf_|Edit$|Write$|MultiEdit$|NotebookEdit$|Bash$|PowerShell$|Glob$|Grep$|TodoWrite$)/, 'workshop', 'at the forge, building something'],
   [/^(web_search|web_fetch|WebSearch$|WebFetch$)/, 'library', 'in the Library, researching', 'lookout'],
@@ -145,7 +146,7 @@ const HEX = /^#[0-9a-f]{6}$/i;
 
 /** The residents: the user's personas (active first) plus the townsfolk, at most MAX_RESIDENTS, unique names. */
 function residents(personas, { townsfolk = true } = {}) {
-  const list = [...(personas?.list || [])].sort((a, b) => (b.id === personas?.active) - (a.id === personas?.active));
+  const list = [...(personas?.list || [])].sort((a, b) => Number(b.id === personas?.active) - Number(a.id === personas?.active));
   const out = [];
   const seen = new Set();
   for (const p of list) {

@@ -93,12 +93,16 @@ function find(personas, query) {
 /**
  * A new persona: a copy of the active one (copy) or a fresh one from the defaults that keeps the
  * current voice. Returns { personas, persona }; the caller switches to it.
+ * @param {object} settings
+ * @param {{ name?: string, copy?: boolean, template?: Record<string, any> | null }} opts
+ * @param {{ newId: (prefix?: string) => string, defaults: object }} deps
  */
 function create(settings, { name, copy = false, template = null } = {}, { newId, defaults }) {
   const p = sync(settings);
   if (p.list.length >= MAX_PERSONAS) throw new Error(`You can keep up to ${MAX_PERSONAS} personas. Delete one first.`);
   // A template (personatemplates.js) fills in prompt, look, face and greeting; the voice stays the current one.
   // A fresh persona starts without Siren's cove scene (scene: null) until its own scene is drawn.
+  /** @type {Record<string, any>} */
   const base = { ...snapshot(copy ? settings : { agent: defaults.agent, appearance: { ...defaults.appearance, scene: null }, ui: defaults.ui, voice: settings.voice }), ...(template || {}) };
   const wanted = String(name || '').trim().slice(0, 40) || (template?.name ? template.name : copy ? `${base.name || 'Persona'} (copy)` : 'New persona');
   const persona = { ...base, id: newId('p-'), name: uniqueName(p.list, wanted) };
@@ -200,13 +204,26 @@ const fingerprint = (text) => require('crypto').createHash('sha256').update(Stri
 
 const needsSummary = (agent) => String(agent?.personality || '').trim().length >= SUMMARY_FROM;
 
-/** The summary is current: written for this master prompt (or by the user, which always stands). */
+/**
+ * @typedef {import('./types').PersonaSummary} PersonaSummary
+ * @typedef {{ personality?: string, personaSummary?: PersonaSummary | null }} AgentPersonaFields the part of `agent.*` read here
+ */
+
+/**
+ * The summary is current: written for this master prompt (or by the user, which always stands).
+ * @param {AgentPersonaFields} agent
+ * @returns {boolean}
+ */
 function summaryFresh(agent) {
   const s = agent?.personaSummary;
   return Boolean(s?.text && (s.by === 'user' || s.for === fingerprint(agent.personality)));
 }
 
-/** What a local model reads as the persona: the master prompt when short, else its summary, else the digest. */
+/**
+ * What a local model reads as the persona: the master prompt when short, else its summary, else the digest.
+ * @param {AgentPersonaFields} agent
+ * @returns {string}
+ */
 function forSmallModels(agent) {
   const text = String(agent?.personality || '').trim();
   if (!needsSummary(agent)) return text;
