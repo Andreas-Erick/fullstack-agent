@@ -95,7 +95,7 @@ body.fx-rest *, body.fx-rest *::before, body.fx-rest *::after { animation-play-s
    entrance held its first frame, so a reply, notice or view that arrived in the background stayed
    invisible until the window got focus; turned off (animation: none) they would all replay when it
    does. A new entrance belongs here (js/hud.js CASCADE is covered by .hud-cascade *). */
-body.fx-rest :is(.view, .msg, .toast, .scroll-latest, .conv-panel, .ob-card, .empty-state h1, .note-item.landed, .dump-saved, .dump-area.fresh, .dump-layer, .world-room, .arch-panel, .hud-readout), body.fx-rest .hud-cascade * { animation-play-state: running !important; }
+body.fx-rest :is(.view, .msg, .toast, .scroll-latest, .conv-panel, .ob-card, .empty-state h1, .gs-card, .note-item.landed, .dump-saved, .dump-area.fresh, .dump-layer, .world-room, .arch-panel, .hud-readout), body.fx-rest .hud-cascade * { animation-play-state: running !important; }
 
 /* Three zones: who (brand + state) on the left, the HUD clock in the middle, tools and connections on the right. */
 .titlebar {
@@ -288,6 +288,27 @@ select.input option { background: var(--bg-3); }
 .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 22px; }
 .suggestion { border: 1px solid var(--line); background: var(--glass); border-radius: 999px; padding: 7px 14px; font-size: 13px; cursor: pointer; color: var(--text-2); }
 .suggestion:hover { border-color: var(--line-strong); color: var(--text); }
+/* The getting-started card (gettingstarted.js): in the empty chat, in place of the chips, until done or hidden. */
+.gs-card { margin: 22px auto 0; max-width: 520px; padding: 14px 16px; text-align: left; border-radius: var(--radius); animation: rise 0.3s ease; }
+.gs-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gs-title { margin: 0; font-family: var(--font-display); font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: rgb(var(--c1-soft)); }
+.gs-count { font-size: 12px; color: var(--muted); }
+.gs-hide { margin-left: auto; }
+.gs-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.gs-step { display: flex; align-items: center; gap: 10px; }
+.gs-tick { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line-strong); display: grid; place-items: center; font-size: 12px; color: rgb(var(--ok)); }
+.gs-step.done .gs-tick { border-color: rgba(var(--ok), 0.6); background: rgba(var(--ok), 0.12); }
+.gs-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gs-text strong { font-size: 14px; font-weight: 600; color: var(--text); }
+.gs-hint { font-size: 12.5px; color: var(--text-2); }
+.gs-step.done strong { color: var(--text-2); }
+.gs-try { flex: none; }
+/* Try on "Talk out loud" points at the mic (a short pulse; none under reduced motion). */
+.mic-btn.gs-point { animation: gs-point 0.8s ease 3; }
+@keyframes gs-point { 50% { box-shadow: 0 0 0 6px rgba(var(--c1), 0.35); } }
+body.fx-still :is(.gs-card, .mic-btn.gs-point) { animation: none; }
+body.fx-still .mic-btn.gs-point { box-shadow: 0 0 0 3px rgba(var(--c1), 0.45); }
+@media (prefers-reduced-motion: reduce) { :is(.gs-card, .mic-btn.gs-point) { animation: none; } }
 
 .msg { display: flex; gap: 12px; max-width: 900px; width: 100%; margin: 0 auto; animation: rise 0.25s ease; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } }

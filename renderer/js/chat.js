@@ -17,6 +17,7 @@ import { replySpeech } from './voice.js';
 import { handoffSlot } from './handoff.js';
 import { initHistory, closeHistory, refreshList, drawList } from './history.js';
 import { createReplyCard, scrollFor } from './replycard.js';
+import * as gettingStarted from './gettingstarted.js';
 
 export { refreshList }; // the list read again (settings.js after Clear all, setup.js)
 
@@ -186,7 +187,11 @@ function emptyStateNode() {
   node.querySelector('#welcomeTitle').textContent = name; // no status claim: the title bar's lights say whether the brain is ready
   node.querySelector('#welcomeGreeting').textContent = state.settings?.appearance?.greeting || '';
   node.querySelector('#pttHint').textContent = state.settings?.stt?.pttKey || 'F8';
-  node.querySelector('.suggestions').before(handoffSlot(openConversation)); // "Where we left off"
+  const chips = node.querySelector('.suggestions');
+  chips.before(handoffSlot(openConversation)); // "Where we left off"
+  // Four things to try once, in place of the chips until they're done or hidden (gettingstarted.js).
+  const card = gettingStarted.gettingStartedCard({ prefill: (text) => outbox.prefill(text) && $('#input').focus() });
+  if (card) (chips.before(card), chips.classList.add('hidden'));
   return node;
 }
 
@@ -561,6 +566,7 @@ async function deliver({ text, voice, hidden, redo: again, kept, files }) {
       return { refused: res.refused };
     }
     chat.setConv(res.conversationId);
+    if (voice && !hidden && !state.setupMode) gettingStarted.note('spoken-turn');
     return {};
   } catch (err) {
     if (again) {
@@ -702,6 +708,7 @@ function handleEvent(ev) {
     case 'tool_end':
       syncFlags();
       drawToolEnd(v, step.tool);
+      gettingStarted.noteTool(step.tool.name, step.tool.ok);
       break;
     case 'notice':
       // Tools an earlier attempt or reply ran (a message sent again), named as the chips name them: turnstate.noticeText.
@@ -730,6 +737,7 @@ function handleEvent(ev) {
         loadSettings().then(() => replySpeech.follow(greeting)).catch(() => {}); // the greeting is optional
       }
       finish(t);
+      if (!state.setupMode) gettingStarted.note('reply-done');
       if (!replySpeech.active()) celebrate();
       refreshList();
       syncActions();

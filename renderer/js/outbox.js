@@ -31,6 +31,7 @@ export function createOutbox(ports) {
   let waiting = false; // a message waits for its attachments to be read
   let queued = null; // { text, voice, attach }: sent once the reply being stopped has ended
   let editing = null; // { messageId, draft }: ✎ Edit put the latest message in the box (draft: what was there)
+  let lastPrefill = ''; // the example prefill() put in the box last (another Try may replace it)
 
   // Anything already waiting (for files, or behind the reply being stopped) goes first.
   const plan = (text) => sendPlan({ text, files: tray.count(), reading: tray.reading(), active: Boolean(turn.own), waiting: waiting || Boolean(queued) });
@@ -168,5 +169,17 @@ export function createOutbox(ports) {
     },
 
     cancelEdit,
+
+    /**
+     * An example into the box (the getting-started card's Try): never sent. The user's own words win: a box
+     * holding something other than an earlier example, or edit mode, is left alone. Returns whether it filled.
+     */
+    prefill(text) {
+      const now = box.read();
+      if (editing || (now.trim() && now !== lastPrefill)) return (notify('Your message box already has words in it: send or clear them first.'), false);
+      lastPrefill = String(text || '');
+      box.write(lastPrefill);
+      return true;
+    },
   };
 }
