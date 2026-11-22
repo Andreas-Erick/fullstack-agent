@@ -1,5 +1,6 @@
 // Agent tools: The user's vault (obsidian.js): notes, daily notes, priorities, history.
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
+const path = require('path');
 const memory = require('../memory');
 const obsidian = require('../obsidian');
 const store = require('../store');
@@ -20,6 +21,23 @@ function mayHoldDay(c, date) {
   if (updated > 0 && updated < start - DAY_MS) return false; // last touched well before that day
   if (created > 0 && created >= start + 2 * DAY_MS) return false; // started well after it
   return true;
+}
+
+// Notes that go into every later prompt, or that the agent is told to follow (the operating manual, a
+// Job's steps). After outside content a write to one asks first, in auto mode too (taintAsks): otherwise
+// a web page could leave instructions that a later, clean turn reads as the user's own. (vault_write_note
+// always writes a .md note, so it can't leave a package.json or .npmrc for a command to run.)
+const STEERING_NOTES = new Set(['profile.md', 'active priorities.md', 'vault-index.md']);
+const STEERING_FOLDERS = ['memory/', 'jobs/'];
+function steersLater(ref) {
+  // As obsidian.normalizeRef reads it ([[link]], |alias, #heading, .md added), then folded.
+  let p = String(ref || '').replace(/^\[\[|\]\]$/g, '').split('|')[0].split('#')[0].trim().replace(/\\/g, '/');
+  if (!p.toLowerCase().endsWith('.md')) p += '.md';
+  p = path.posix.normalize(p).replace(/^(\.\/|\/)+/, '').toLowerCase();
+  return STEERING_NOTES.has(p) || STEERING_FOLDERS.some((f) => p.startsWith(f));
+}
+async function askIfOutside(ctx, title, detail) {
+  if (ctx?.turn?.tainted) await requireApproval(ctx, 'settings', title, String(detail || '').slice(0, 600), { taintAsks: true });
 }
 
 module.exports = [
@@ -65,6 +83,7 @@ module.exports = [
       'Create or update a Markdown note in your vault. Use folders (Notes/, Research/, Journal/YYYY-MM-DD.md, …), [[wikilinks]] and #tags. mode: "create" (new note only), "overwrite" (replace), "append" (add to the end, e.g. journal entries), "prepend".',
     parameters: obj({ path: str('Vault-relative path, e.g. "Research/Solar panels.md"'), content: str('Markdown content'), mode: { type: 'string', enum: ['create', 'overwrite', 'append', 'prepend'], description: 'Write mode (default overwrite)' } }, ['path', 'content']),
     run: async (a, ctx) => {
+      if (steersLater(a.path)) await askIfOutside(ctx, `Write ${String(a.path).slice(0, 120)}`, a.content);
       const r = await obsidian.writeNote(a.path, a.content, a.mode || 'overwrite');
       ctx.emit({ type: 'vault_changed', path: r.path });
       return r;
@@ -119,6 +138,7 @@ module.exports = [
       'Rewrite Active Priorities.md — the single list of open work (sections: Now, Next, Waiting on, Done recently; Markdown checkboxes). Its current content is in your context; keep everything still relevant and only change what the user asked or what verifiably changed.',
     parameters: obj({ content: str('Full new Markdown content of the note') }, ['content']),
     run: async (a, ctx) => {
+      await askIfOutside(ctx, 'Rewrite your Active Priorities', a.content);
       const r = await obsidian.writePriorities(a.content);
       ctx.emit({ type: 'vault_changed', path: r.path });
       return r;
@@ -130,6 +150,7 @@ module.exports = [
     description: `Update the user's living profile (Profile.md) with something you learned. You may only change these sections: ${obsidian.PROFILE_AGENT_SECTIONS.join(', ')}. Few, high-quality updates; replace contradicted facts. Every change is logged.`,
     parameters: obj({ section: { type: 'string', enum: obsidian.PROFILE_AGENT_SECTIONS }, content: str('Text to add (or the full new section text when mode is replace)'), mode: { type: 'string', enum: ['append', 'replace'] } }, ['section', 'content']),
     run: async (a, ctx) => {
+      await askIfOutside(ctx, `Update your profile (${String(a.section).slice(0, 60)})`, a.content);
       const r = await obsidian.updateProfile(a.section, a.content, a.mode || 'append');
       ctx.emit({ type: 'vault_changed', path: 'Profile.md' });
       return r;
@@ -142,6 +163,7 @@ module.exports = [
       'Create or replace a Job note (Jobs/<name>.md): the reusable procedure for a recurring task — purpose, numbered steps, quality bar, notes to read first, lessons learned. Save one whenever you work out how to do a recurring task well.',
     parameters: obj({ name: str('Job name, e.g. "Weekly review"'), purpose: str('One sentence'), procedure: arr('Steps in order'), quality_bar: arr('What "good" looks like'), read_first: arr('Vault notes to read before doing it'), lessons: arr('Lessons learned / dead ends to avoid') }, ['name', 'purpose', 'procedure']),
     run: async (a, ctx) => {
+      await askIfOutside(ctx, `Save the job "${String(a.name).slice(0, 80)}"`, [a.purpose, ...(a.procedure || [])].join('\n'));
       const r = await obsidian.saveJob({ name: a.name, purpose: a.purpose, procedure: a.procedure, qualityBar: a.quality_bar, related: a.read_first, lessons: a.lessons });
       ctx.emit({ type: 'vault_changed', path: r.path });
       return r;
@@ -152,7 +174,10 @@ module.exports = [
     group: 'vault',
     description: 'Add a lesson learned to an existing Job note after doing the job (what worked, what to avoid next time).',
     parameters: obj({ name: str('Job name'), lesson: str('The lesson') }, ['name', 'lesson']),
-    run: async (a) => obsidian.addJobLesson(a.name, a.lesson),
+    run: async (a, ctx) => {
+      await askIfOutside(ctx, `Add a lesson to the job "${String(a.name).slice(0, 80)}"`, a.lesson);
+      return obsidian.addJobLesson(a.name, a.lesson);
+    },
   },
   {
     name: 'vault_note_history',

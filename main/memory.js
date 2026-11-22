@@ -6,6 +6,9 @@ const crypto = require('crypto');
 const store = require('./store');
 const log = require('./logger');
 
+// A memory written in a turn that had read outside content (a web page, an email, a file): kept as
+// `source: outside` in its frontmatter, so the prompt shows it as data, never as the user's own words.
+const OUTSIDE = 'outside';
 const LEGACY_DIR = () => path.join(store.dataDir(), 'memory-vault');
 let migrated = false;
 
@@ -50,6 +53,7 @@ function parseEntry(id, text) {
       const [, k, v] = kv;
       if (k === 'created' || k === 'updated') entry[k] = Date.parse(v) || 0;
       else if (k === 'title' || k === 'category') entry[k] = unquote(v);
+      else if (k === 'source' && unquote(v) === OUTSIDE) entry.source = OUTSIDE;
     }
   }
   return entry;
@@ -69,6 +73,7 @@ function serialize(entry) {
     'type: memory',
     `title: ${JSON.stringify(entry.title)}`,
     `category: ${JSON.stringify(entry.category || 'general')}`,
+    ...(entry.source === OUTSIDE ? [`source: ${OUTSIDE}`] : []),
     `created: ${new Date(entry.created).toISOString()}`,
     `updated: ${new Date(entry.updated).toISOString()}`,
     '---',
@@ -141,7 +146,7 @@ async function get(id) {
   return text == null ? null : parseEntry(id, text);
 }
 
-async function save({ title, content, category }) {
+async function save({ title, content, category, source }) {
   if (!content || !String(content).trim()) throw new Error('Memory content is required');
   const dir = await vaultDir();
   const now = Date.now();
@@ -153,6 +158,7 @@ async function save({ title, content, category }) {
     created: now,
     updated: now,
     content: String(content),
+    ...(source === OUTSIDE ? { source: OUTSIDE } : {}),
   };
   await store.writeTextAtomic(path.join(dir, `${id}.md`), serialize(entry));
   forget();
@@ -165,6 +171,7 @@ async function update(id, patch) {
   if (!existing) throw new Error(`Memory "${id}" not found`);
   const entry = { ...existing };
   for (const k of ['title', 'content', 'category']) if (patch[k] != null && patch[k] !== '') entry[k] = String(patch[k]);
+  if (patch.source === OUTSIDE) entry.source = OUTSIDE; // once outside content wrote into it, it stays marked
   entry.updated = Date.now();
   const dir = await vaultDir();
   await store.writeTextAtomic(path.join(dir, `${id}.md`), serialize(entry));
@@ -199,6 +206,7 @@ async function restore(entry) {
     created: time(entry.created),
     updated: time(entry.updated),
     content: entry.content,
+    ...(entry.source === OUTSIDE ? { source: OUTSIDE } : {}),
   };
   await store.writeTextAtomic(full, serialize(back));
   forget();
@@ -267,4 +275,4 @@ async function relevant(query, k = 8) {
   return top.map((r) => r.entry);
 }
 
-module.exports = { vaultDir, list, get, save, update, remove, restore, search, exportMarkdown, importEntries, clear, relevant, NOT_AN_EXPORT };
+module.exports = { vaultDir, list, get, save, update, remove, restore, search, exportMarkdown, importEntries, clear, relevant, NOT_AN_EXPORT, OUTSIDE };

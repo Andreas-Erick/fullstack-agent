@@ -56,6 +56,7 @@ function parse(text) {
       importance: clampImportance(m[3] ?? 5),
       text: body,
       evidence: Array.isArray(meta.ev) ? meta.ev.filter((x) => typeof x === 'string').slice(0, 20) : [],
+      ...(meta.x === 1 ? { outside: true } : {}),
     });
   }
   return records.sort((a, b) => a.at - b.at);
@@ -64,6 +65,7 @@ function parse(text) {
 function formatLine(r) {
   const meta = { id: r.id, k: r.kind === 'reflection' ? 'r' : 'o' };
   if (r.evidence?.length) meta.ev = r.evidence;
+  if (r.outside) meta.x = 1;
   return `- ${stamp(r.at)} · ★${clampImportance(r.importance)} · ${clip(r.text).replace(/<!--|-->/g, '')} <!-- rec ${JSON.stringify(meta)} -->`;
 }
 
@@ -74,10 +76,12 @@ function serialize(records, { title, intro } = {}) {
 }
 
 /** A new record from untrusted input (tool arguments, model output). */
-function make({ id, text, importance, kind = 'observation', evidence = [], at }) {
+// outside: recorded in a turn that had read outside content (x: 1 in the comment); the prompt shows it as
+// data, and an insight resting on such a record is marked too (parseReflections).
+function make({ id, text, importance, kind = 'observation', evidence = [], at, outside = false }) {
   const t = clip(text);
   if (!t) throw new Error('A memory needs some text.');
-  return { id, kind: kind === 'reflection' ? 'reflection' : 'observation', at, importance: clampImportance(importance), text: t, evidence: Array.isArray(evidence) ? evidence.slice(0, 20) : [] };
+  return { id, kind: kind === 'reflection' ? 'reflection' : 'observation', at, importance: clampImportance(importance), text: t, evidence: Array.isArray(evidence) ? evidence.slice(0, 20) : [], ...(outside ? { outside: true } : {}) };
 }
 
 // ------------------------------------------------------------- relevance (TF-IDF, no model needed)
@@ -175,10 +179,10 @@ function parseReflections(json, records, { max = 5 } = {}) {
   return items
     .map((x) => {
       const text = clip(x?.text, 300);
-      const evidence = (Array.isArray(x?.because) ? x.because : [])
-        .map((n) => list[Number(n) - 1]?.id)
-        .filter(Boolean);
-      return text && evidence.length ? { text, importance: clampImportance(x.importance ?? 7), evidence: [...new Set(evidence)] } : null;
+      const cited = (Array.isArray(x?.because) ? x.because : []).map((n) => list[Number(n) - 1]).filter((r) => r?.id);
+      const evidence = cited.map((r) => r.id);
+      const outside = cited.some((r) => r.outside);
+      return text && evidence.length ? { text, importance: clampImportance(x.importance ?? 7), evidence: [...new Set(evidence)], ...(outside ? { outside: true } : {}) } : null;
     })
     .filter(Boolean)
     .slice(0, max);
