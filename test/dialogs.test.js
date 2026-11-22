@@ -245,6 +245,7 @@ const STUBS = {
   'chat.js': 'export function send() {}\n',
   'docs.js': 'export function openDocument() {}\n',
   'state.js': "export const state = { settings: { agent: { name: 'Siren' } } };\n",
+  'firststep.js': "export const firstStep = () => null;\nexport const libraryAction = () => null;\nexport const libraryOffText = () => '';\nexport function prefillChat() {}\n",
 };
 const API = {}; // window.nexus: each test puts the namespaces its view calls
 let u;
