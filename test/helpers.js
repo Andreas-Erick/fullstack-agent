@@ -48,4 +48,14 @@ function fileStore(dir, extra = {}) {
   };
 }
 
-module.exports = { ROOT, stub, load, tmpDir, quietLog, fileStore };
+// The Settings view's source for tests that check its contracts: renderer/js/settings.js and its modules in
+// renderer/js/settings/ (index.js, core.js and fields.js first, then the card modules), one after another.
+function settingsSource() {
+  const dir = path.join(ROOT, 'renderer/js/settings');
+  const first = ['index.js', 'core.js', 'fields.js'];
+  const rest = fs.readdirSync(dir).filter((n) => n.endsWith('.js') && !first.includes(n)).sort();
+  const files = [path.join(ROOT, 'renderer/js/settings.js'), ...[...first, ...rest].map((n) => path.join(dir, n))];
+  return files.map((f) => fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n')).join('\n');
+}
+
+module.exports = { ROOT, stub, load, tmpDir, quietLog, fileStore, settingsSource };

@@ -8,7 +8,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { ROOT, tmpDir } = require('./helpers');
+const { ROOT, tmpDir, settingsSource } = require('./helpers');
 
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
@@ -681,6 +681,7 @@ test('the #modal checks go through dialogOpen(); only util.js and growth.js read
     if (f === 'util.js' || f === 'growth.js') continue;
     assert.doesNotMatch(fs.readFileSync(path.join(dir, f), 'utf8'), /['"]#modal['"]|getElementById\(['"]modal['"]\)/, f);
   }
+  assert.doesNotMatch(settingsSource(), /['"]#modal['"]|getElementById\(['"]modal['"]\)/, 'renderer/js/settings/');
   for (const f of ['app.js', 'history.js', 'attach.js', 'calendar.js']) {
     const src = read(`renderer/js/${f}`);
     assert.match(src, /import \{[^}]*\bdialogOpen\b[^}]*\} from '\.\/util\.js'/, `${f} imports dialogOpen`);

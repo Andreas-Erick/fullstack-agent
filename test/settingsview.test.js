@@ -9,7 +9,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { ROOT, tmpDir } = require('./helpers');
+const { ROOT, tmpDir, settingsSource } = require('./helpers');
 
 let m;
 const ESM = tmpDir('nexus-settingsave-');
@@ -368,7 +368,7 @@ test('one field list: main/personacore.js and the window read renderer/js/person
 
 // settings.js needs the window: what it must keep is checked in its source.
 test('settings.js renders every card at once and swaps them in only for the latest render', () => {
-  const src = read('renderer/js/settings.js');
+  const src = settingsSource();
   const block = /const CARDS = \[([\s\S]*?)\n\];/.exec(src);
   assert.ok(block, 'settings.js has a CARDS list');
   const listed = [...block[1].matchAll(/\['([a-z-]+)', '[^']+', \w+\]/g)].map((x) => x[1]);
@@ -405,7 +405,7 @@ test('settings.js renders every card at once and swaps them in only for the late
 });
 
 test('a check before a model call is awaited, and only model calls are checked before (main decides every save)', () => {
-  const src = read('renderer/js/settings.js');
+  const src = settingsSource();
   const calls = [...src.matchAll(/(\S+\s)?switchedAway\(/g)].map((x) => x[1] || '');
   assert.strictEqual(calls.length, 3, 'defined once, used by Generate look & feel and Draw the scene');
   for (const before of calls) assert.ok(/^(\(?await |function )$/.test(before), `switchedAway( after “${before}”`);
@@ -414,7 +414,7 @@ test('a check before a model call is awaited, and only model calls are checked b
 });
 
 test('the Persona studio saves what was typed before its own switch, New, Duplicate, Template and Delete', () => {
-  const src = read('renderer/js/settings.js');
+  const src = settingsSource();
   const part = (name) => {
     const i = src.indexOf(`function ${name}(`);
     return src.slice(i, src.indexOf('\n}\n', i));
@@ -486,7 +486,7 @@ test('state.js: a persona save names the persona and passes on main’s answer; 
 });
 
 test('the Safety copy says what really asks, in Settings and in the wizard', () => {
-  const src = read('renderer/js/settings.js');
+  const src = settingsSource();
   for (const old of ['no questions at all', 'anything that reaches other people or services', 'Always ask before self-modification']) assert.ok(!src.includes(old), `settings.js still says “${old}”`);
   for (const now of [
     'Just do it — still asks before code changes, commands, publishing to GitHub, invitations and services you haven’t allowed (and, after reading outside content, before deleting or inviting in your services, opening new websites or saving routines and skills)',
@@ -499,7 +499,7 @@ test('the Safety copy says what really asks, in Settings and in the wizard', () 
 });
 
 test('settings.js acknowledges: failed saves flip back, Test connection runs once, actions say how they went', () => {
-  const src = read('renderer/js/settings.js');
+  const src = settingsSource();
   const part = (name) => {
     const i = src.indexOf(`function ${name}(`);
     assert.ok(i >= 0, `settings.js has ${name}`);
@@ -709,7 +709,7 @@ test('paths: one pair of surrounding quotes and the spaces go (Explorer’s "Cop
 });
 
 test('settings.js: number fields never save Number(""), paths are cleaned, "✓ Saved" sits in the sticky tab bar', () => {
-  const src = read('renderer/js/settings.js');
+  const src = settingsSource();
   const part = (name) => {
     const i = src.indexOf(`function ${name}(`);
     assert.ok(i >= 0, `settings.js has ${name}`);
