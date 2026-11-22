@@ -20,6 +20,8 @@
   --text-2: #a9c3d6;
   --muted: #6f839b;
   --radius: 14px;
+  /* Controls (buttons, fields, menus, notices) follow the theme's corner style, a step tighter than cards. */
+  --radius-sm: clamp(2px, calc(var(--radius) * 0.7), 12px);
   --blur: 16px;
   --glass-alpha: 0.55;
   --glass: rgba(var(--surface), var(--glass-alpha));
@@ -62,13 +64,13 @@ kbd { font-family: var(--font-mono); font-size: 0.8em; padding: 1px 6px; border-
 .num { font-variant-numeric: tabular-nums; } /* live numbers (countdowns, timers) keep their width */
 [aria-selected="true"] .muted { color: var(--text-2); } /* muted on a selected tint falls under 4.5:1 */
 /* A press answers: buttons sink a little (transform only), never under reduced motion. */
-:is(.btn, .chip-btn, .icon-btn, .mic-btn, .send-btn, .stop-btn):active:not(:disabled) { transform: scale(0.97); }
-body.fx-still :is(.btn, .chip-btn, .icon-btn, .mic-btn, .send-btn, .stop-btn):active { transform: none; }
+:is(.btn, .chip-btn, .icon-btn, .mic-btn, .send-btn, .stop-btn, .seg button):active:not(:disabled) { transform: scale(0.97); }
+body.fx-still :is(.btn, .chip-btn, .icon-btn, .mic-btn, .send-btn, .stop-btn, .seg button):active { transform: none; }
 /* Smooth scrolling only where motion is welcome (js scrollTo calls choose their own behaviour). */
 body.fx-still * { scroll-behavior: auto !important; }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; }
-  :is(.btn, .chip-btn, .icon-btn, .mic-btn, .send-btn, .stop-btn):active { transform: none; }
+  :is(.btn, .chip-btn, .icon-btn, .mic-btn, .send-btn, .stop-btn, .seg button):active { transform: none; }
 }
 .display { font-family: var(--font-display); letter-spacing: var(--display-spacing); text-transform: var(--display-transform); }
 
@@ -191,7 +193,7 @@ body.fx-still .view.active { animation: none; }
 .glass { background: var(--glass); backdrop-filter: blur(var(--blur)) saturate(140%); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--glow); }
 
 /* Controls */
-.btn, .chip-btn { border: 1px solid var(--line-strong); background: rgba(var(--c1), 0.05); color: var(--text); padding: 7px 14px; border-radius: 10px; cursor: pointer; transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, opacity 0.15s, transform 0.1s; white-space: nowrap; }
+.btn, .chip-btn { border: 1px solid var(--line-strong); background: rgba(var(--c1), 0.05); color: var(--text); padding: 7px 14px; border-radius: var(--radius-sm); cursor: pointer; transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, opacity 0.15s, transform 0.1s; white-space: nowrap; }
 .btn:hover:not(:disabled), .chip-btn:hover { background: rgba(var(--c1), 0.12); box-shadow: 0 0 14px rgba(var(--c1), 0.18); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn.primary { background: linear-gradient(135deg, rgba(var(--c1), 0.25), rgba(var(--c2), 0.25)); border-color: rgba(var(--c1), 0.6); color: var(--text); } /* a tint over the glass: the theme's text reads on it in light themes too */
@@ -199,9 +201,9 @@ body.fx-still .view.active { animation: none; }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 .chip-btn { padding: 4px 11px; font-size: 12.5px; border-radius: 999px; }
 .chip-btn.off { opacity: 0.55; }
-.icon-btn { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; border: 1px solid var(--line); background: none; color: rgb(var(--c1-soft)); cursor: pointer; }
+.icon-btn { width: 32px; height: 32px; display: grid; place-items: center; border-radius: max(2px, calc(var(--radius-sm) - 2px)); border: 1px solid var(--line); background: none; color: rgb(var(--c1-soft)); cursor: pointer; }
 .icon-btn:hover { background: rgba(var(--c1), 0.1); }
-.input { background: rgba(var(--well), 0.6); border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px; outline: none; transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s; min-width: 0; }
+.input { background: rgba(var(--well), 0.6); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 7px 11px; outline: none; transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s; min-width: 0; }
 .input:focus { border-color: var(--line-strong); box-shadow: 0 0 0 3px rgba(var(--c1), 0.08); }
 textarea.input { resize: vertical; min-height: 80px; line-height: 1.5; }
 select.input option { background: var(--bg-3); }
@@ -210,9 +212,9 @@ select.input option { background: var(--bg-3); }
 .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; margin: 0.6em 0; }
 .katex-error { color: rgb(var(--err)); }
 .dropdown { position: relative; }
-.dropdown-menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 210px; display: none; flex-direction: column; padding: 6px; z-index: 20; background: var(--glass-strong); border: 1px solid var(--line-strong); border-radius: 12px; backdrop-filter: blur(16px); }
+.dropdown-menu { position: absolute; right: 0; top: calc(100% + 6px); min-width: 210px; display: none; flex-direction: column; padding: 6px; z-index: 20; background: var(--glass-strong); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); backdrop-filter: blur(16px); }
 .dropdown-menu.open { display: flex; }
-.dropdown-menu button { text-align: left; padding: 8px 10px; border: none; background: none; border-radius: 8px; cursor: pointer; }
+.dropdown-menu button { text-align: left; padding: 8px 10px; border: none; background: none; border-radius: max(2px, calc(var(--radius-sm) - 4px)); cursor: pointer; }
 .dropdown-menu button:hover { background: rgba(var(--c1), 0.08); }
 /* A destructive entry stands apart from the ones above it. */
 .dropdown-menu :not(.danger) + .danger { position: relative; margin-top: 9px; }
@@ -535,18 +537,26 @@ body.perf-lite .settings-tabs { backdrop-filter: none; }
 .test-result.ok { border-color: rgba(var(--ok), 0.4); color: rgb(var(--ok)); }
 .test-result.err { border-color: rgba(var(--err), 0.4); color: rgb(var(--err)); }
 .avatar-preview { width: 64px; height: 64px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--bg-3) center/cover; box-shadow: 0 0 18px rgba(var(--c1), 0.25); flex: none; }
-.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
-.seg button { border: none; background: none; padding: 7px 14px; cursor: pointer; color: var(--text-2); }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }
+.seg button { border: none; background: none; padding: 7px 14px; cursor: pointer; color: var(--text-2); transition: background-color 0.15s, color 0.15s, transform 0.1s; }
+.seg button:hover:not(.active) { background: rgba(var(--c1), 0.07); color: var(--text); }
 .seg button.active { background: rgba(var(--c1), 0.15); color: rgb(var(--c1-soft)); }
 #view-settings .seg { flex-wrap: wrap; max-width: 100%; } /* the brain picker wraps in a narrow card */
 #view-settings .btn.small { min-height: 30px; }
+/* .seg and .zoom-ctl clip their corners (overflow: hidden): the focus ring goes inside the button. */
+:is(.seg, .zoom-ctl) button:focus-visible { outline-offset: -2px; }
 .save-state { flex: none; font-size: 12px; white-space: nowrap; color: rgb(var(--ok)); opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; }
 .save-state.show { opacity: 1; visibility: visible; }
 .card.wide { grid-column: 1 / -1; }
 
 /* Toasts + modal */
-.toasts { position: fixed; right: 18px; bottom: 18px; z-index: var(--z-toast); display: flex; flex-direction: column; gap: 8px; }
-.toast { padding: 10px 14px; border-radius: 10px; background: var(--glass-strong); border: 1px solid var(--line-strong); backdrop-filter: blur(12px); font-size: 13px; max-width: 380px; box-shadow: var(--glow); animation: rise 0.2s ease; }
+/* Bottom right, lifted above the chat's composer (its send and mic buttons sit in the bottom-right corner;
+   at the top right they would cover the views' header actions instead). Only the notices take clicks,
+   never the empty column around them. */
+.toasts { position: fixed; right: 18px; bottom: 96px; z-index: var(--z-toast); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.toast { padding: 10px 14px; border-radius: var(--radius-sm); background: var(--glass-strong); border: 1px solid var(--line-strong); backdrop-filter: blur(12px); font-size: 13px; max-width: 380px; box-shadow: var(--glow); animation: rise 0.2s ease; pointer-events: auto; transition: opacity 0.16s ease, transform 0.16s ease; }
+/* Leaving (util.js removeLater): a short fade before it is removed; instant under reduce motion (.fx-still). */
+.toast.leaving { opacity: 0; transform: translateY(6px); }
 .toast.err { border-color: rgba(var(--err), 0.6); }
 .modal { position: fixed; inset: 0; z-index: var(--z-dialog); background: rgba(var(--shadow), 0.55); display: grid; place-items: safe center; overflow-y: auto; padding: 16px 0; backdrop-filter: blur(3px); }
 /* No backdrop blur on the card itself: the overlay behind it already blurs, and a blurred card over a
@@ -566,6 +576,10 @@ body.perf-lite .settings-tabs { backdrop-filter: none; }
    than the dialog wraps onto a second line instead of being cut off. */
 .modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .modal-actions > .btn { flex: 0 0 auto; white-space: normal; overflow-wrap: anywhere; }
+/* An approval (js/approval.js): what is asked reads first; the voice hint and countdown below it. Deny is
+   a plain button: saying no is the safe choice, not a destructive one. */
+.approval-what { font-size: 16px; }
+.approval-hint { font-size: 12px; }
 .approval-remember { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 4px; }
 .approval-remember .chip-btn { white-space: normal; text-align: left; }
 
@@ -727,7 +741,7 @@ body.fx-still :is(.ob-feature, .ob-choice):hover { transform: none; }
 
 /* ================= Zoom, screen sharing (title bar) ================= */
 .zoom-ctl { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
-.zoom-ctl button { border: none; background: none; color: var(--muted); font-size: 11px; padding: 3px 8px; cursor: pointer; line-height: 1; }
+.zoom-ctl button { border: none; background: none; color: var(--muted); font-size: 11px; padding: 3px 8px; min-width: 24px; align-self: stretch; cursor: pointer; line-height: 1; } /* the whole capsule's height is the target */
 .zoom-ctl button:hover { color: var(--text); background: rgba(var(--c1), 0.08); }
 #zoomReset { min-width: 42px; font-variant-numeric: tabular-nums; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
 .screen-pill, .update-pill, .remote-pill, .practice-pill { height: 26px; box-sizing: border-box; overflow: hidden; white-space: nowrap; }
@@ -747,9 +761,10 @@ body.fx-still :is(.ob-feature, .ob-choice):hover { transform: none; }
 .practice-pill i { background: rgb(var(--c3)); box-shadow: 0 0 8px rgb(var(--c3)); }
 .aw-pill { cursor: pointer; font: inherit; font-size: 12px; padding: 2px 8px; }
 .aw-pill svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
-.usage-pill { gap: 6px; font-variant-numeric: tabular-nums; }
+.usage-pill { gap: 6px; font-variant-numeric: tabular-nums; cursor: pointer; } /* opens Settings → AI brain (app.js) */
+.usage-pill:hover { color: var(--text); border-color: var(--line-strong); }
 .usage-pill .usage-bar { display: inline-block; width: 28px; height: 5px; border-radius: 3px; background: rgba(var(--text-rgb), 0.12); overflow: hidden; }
-.usage-pill .usage-bar b { display: block; height: 100%; width: 0; background: rgb(var(--ok)); transition: width 0.4s; }
+.usage-pill .usage-bar b { display: block; height: 100%; width: 100%; background: rgb(var(--ok)); transform: scaleX(var(--p, 0)); transform-origin: left; transition: transform 0.4s; }
 .usage-pill.mid .usage-bar b { background: rgb(var(--warn)); }
 .usage-pill.low { color: rgb(var(--err)); border-color: rgba(var(--err), 0.5); }
 .usage-pill.low .usage-bar b { background: rgb(var(--err)); }
@@ -879,7 +894,7 @@ body:is(.fx-hud, .fx-subtle):not(.fx-still) #view-chat.history-open .conv-panel 
 .modal-card.wide { width: min(880px, 94vw); max-height: 88vh; overflow: auto; }
 .screen-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; max-height: 55vh; overflow: auto; padding: 2px; }
 .screen-src { border: 1px solid var(--line); border-radius: 10px; padding: 6px; background: rgba(var(--well), 0.5); cursor: pointer; text-align: left; display: flex; flex-direction: column; gap: 6px; color: inherit; font: inherit; }
-.screen-src img { width: 100%; aspect-ratio: 16 / 10; object-fit: contain; background: #000; border-radius: 6px; }
+.screen-src img { width: 100%; aspect-ratio: 16 / 10; object-fit: contain; background: rgb(var(--well)); border-radius: 6px; }
 .screen-src span { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .screen-src:hover, .screen-src.sel { border-color: rgb(var(--c1)); box-shadow: 0 0 14px rgba(var(--c1), 0.25); }
 .picker-group { font-family: var(--font-display); font-size: 10px; letter-spacing: 0.18em; color: var(--muted); text-transform: var(--display-transform); grid-column: 1 / -1; margin-top: 4px; }
@@ -1345,7 +1360,7 @@ body.agent .aw-frame::before { border-color: rgba(var(--c1), 0.85); box-shadow: 
 .sys-m { display: inline-flex; align-items: center; gap: 4px; }
 .sys-m b { font-weight: 600; letter-spacing: 0.04em; font-size: 9.5px; opacity: 0.8; }
 .sys-pill .sys-m i, .sys-row i { display: inline-block; width: 22px; height: 5px; border-radius: 3px; background: rgba(var(--text-rgb), 0.12); box-shadow: none; overflow: hidden; }
-.sys-m i u, .sys-row i u { display: block; height: 100%; width: 0; background: rgb(var(--c1)); transition: width 0.5s; }
+.sys-m i u, .sys-row i u { display: block; height: 100%; width: 100%; background: rgb(var(--c1)); transform: scaleX(var(--p, 0)); transform-origin: left; transition: transform 0.5s; }
 /* Wide enough for "100%" in every system font (macOS's is wider): a reading going 99% → 100% → 99% must not shift the title bar. */
 .sys-m em { font-style: normal; min-width: 3em; text-align: right; }
 .sys-m.mid i u, .sys-row.mid i u { background: rgb(var(--warn)); }
@@ -1373,7 +1388,7 @@ body.agent .aw-frame::before { border-color: rgba(var(--c1), 0.85); box-shadow: 
 .sys-list em.low { color: rgb(var(--warn)); }
 .sys-nexus li { align-items: center; }
 .sys-nexus li span { flex: 1; }
-.sys-nexus li .btn { padding: 1px 8px; font-size: 10.5px; }
+.sys-nexus li .btn { padding: 4px 10px; font-size: 11.5px; }
 .sys-row small a { color: rgb(var(--c1-soft)); }
 .sys-speed { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0 4px; text-align: center; }
 .sys-speed span { display: flex; flex-direction: column; padding: 6px 4px; border: 1px solid var(--line); border-radius: 8px; background: rgba(var(--c1), 0.04); }
@@ -1522,4 +1537,8 @@ body.fx-still .dump-saved.show { opacity: 1; }
 body.fx-still .note-page.polishing::after { animation: none; }
 
 /* A part of the window that couldn't start (app.js start): said on its view, with a way out. */
-.view-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px; padding: 10px 12px; border: 1px solid rgba(var(--err), 0.6); border-radius: var(--radius); background: rgba(var(--err), 0.08); color: var(--text); }
+/* Over the view's top edge, not one of its flex items: a row layout (the chat) squeezed it and the face
+   view's canvas painted over it. Values stay local to the .shell stacking context. */
+.view-error { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid rgba(var(--err), 0.6); border-radius: var(--radius); background: linear-gradient(rgba(var(--err), 0.1), rgba(var(--err), 0.1)), var(--glass-strong); box-shadow: var(--glow); color: var(--text); }
+/* The window itself couldn't start (app.js boot): a bar along the bottom with Reload. */
+.startup-error { position: fixed; bottom: 0; left: 0; right: 0; z-index: var(--z-toast); display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--glass-strong); border-top: 1px solid rgba(var(--err), 0.6); color: rgb(var(--err)); }

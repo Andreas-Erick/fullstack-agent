@@ -152,10 +152,18 @@ export function timeAgo(ts) {
 
 // Removes a notice `ms` after the user can see it: one that came while the window was in the background
 // waits until it has focus again, and none goes while the pointer or the keyboard focus is on it.
+// The last LEAVE_MS of its time it fades out (.toast.leaving in styles.css); the pointer or the focus
+// arriving then brings it back.
+const LEAVE_MS = 160;
 export function removeLater(node, ms) {
   let timer = null;
-  const start = () => (clearTimeout(timer), (timer = setTimeout(() => node.remove(), ms)));
-  const hold = () => clearTimeout(timer);
+  let fade = null;
+  const hold = () => (clearTimeout(timer), clearTimeout(fade), node.classList?.remove('leaving'));
+  const start = () => {
+    hold();
+    fade = setTimeout(() => node.classList?.add('leaving'), Math.max(0, ms - LEAVE_MS));
+    timer = setTimeout(() => node.remove(), ms);
+  };
   node.addEventListener('mouseenter', hold);
   node.addEventListener('focusin', hold);
   node.addEventListener('mouseleave', () => !node.contains(document.activeElement) && start());
@@ -259,7 +267,7 @@ export function confirmDialog(title, message, okLabel = 'Confirm', danger = true
 export function promptDialog(title, value = '') {
   return modal((card, close) => {
     const input = el('input', { class: 'input', value });
-    input.addEventListener('keydown', (e) => e.key === 'Enter' && close(input.value));
+    input.addEventListener('keydown', (e) => e.key === 'Enter' && !e.isComposing && close(input.value)); // not while an IME composes
     card.append(el('h3', {}, title), input, el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), el('button', { class: 'btn primary', onclick: () => close(input.value) }, 'Save')));
     setTimeout(() => input.select(), 0);
   });

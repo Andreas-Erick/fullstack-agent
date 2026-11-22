@@ -3,7 +3,7 @@
 // connection) on click. The speed test (main/netspeed.js) runs only when the user clicks "Measure".
 // For the user only: none of this goes to the assistant. Sampling runs only while the meter is on and
 // the window is visible; Bluetooth is checked only while the panel is open.
-import { $, api, el, on, toastError } from './util.js';
+import { $, api, dialogOpen, el, on, toastError } from './util.js';
 import { state } from './state.js';
 import { switchView } from './nav.js';
 import { speechStatus, unloadSpeech, offlineVoiceStatus, unloadOfflineVoice } from './voice.js';
@@ -27,6 +27,15 @@ export function initSysmon() {
   });
   panel.addEventListener('click', (e) => e.stopPropagation());
   document.addEventListener('click', closePanel);
+  // Esc closes the panel (and only that: the voice and the reply keep going) and the focus goes back
+  // to the meter when it was there or in the panel.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.isComposing || !isOpen() || dialogOpen()) return;
+    e.stopImmediatePropagation();
+    const back = panel.contains(document.activeElement) || document.activeElement === pill;
+    closePanel();
+    if (back) pill.focus();
+  }, true);
   api.on('system:stats', (s) => ((stats = s), render()));
   on('settings', update);
   document.addEventListener('visibilitychange', update);
@@ -56,6 +65,7 @@ function update() {
 // Bluetooth and the network adapter: checked when the panel opens, then every 15 seconds while open.
 function openPanel() {
   $('#sysPanel').classList.remove('hidden');
+  $('#pillSys').setAttribute('aria-expanded', 'true');
   renderPanel();
   refreshExtras();
   clearInterval(extrasTimer);
@@ -64,6 +74,7 @@ function openPanel() {
 
 function closePanel() {
   $('#sysPanel').classList.add('hidden');
+  $('#pillSys').setAttribute('aria-expanded', 'false');
   clearInterval(extrasTimer);
   extrasTimer = null;
 }
@@ -93,7 +104,14 @@ async function measureSpeed() {
 const level = (pct) => (pct >= 90 ? 'high' : pct >= 70 ? 'mid' : '');
 
 function meter(label, pct) {
-  return el('span', { class: `sys-m ${level(pct)}` }, el('b', {}, label), el('i', {}, el('u', { style: { width: `${pct ?? 0}%` } })), el('em', {}, pct == null ? '–' : `${pct}%`));
+  return el('span', { class: `sys-m ${level(pct)}` }, el('b', {}, label), el('i', {}, bar(pct)), el('em', {}, pct == null ? '–' : `${pct}%`));
+}
+
+// A meter's fill, scaled (styles.css: transform: scaleX(var(--p))), so a new reading costs no layout.
+function bar(pct) {
+  const u = el('u', {});
+  u.style.setProperty('--p', String((pct ?? 0) / 100));
+  return u;
 }
 
 // The busiest GPU is the one shown in the title bar.
@@ -109,7 +127,7 @@ function render() {
 }
 
 function row(label, pct, detail) {
-  return el('div', { class: `sys-row ${level(pct)}` }, el('div', { class: 'sys-head' }, el('b', {}, label), el('span', {}, pct == null ? '' : `${pct}%`)), el('i', {}, el('u', { style: { width: `${pct ?? 0}%` } })), detail ? el('small', {}, detail) : null);
+  return el('div', { class: `sys-row ${level(pct)}` }, el('div', { class: 'sys-head' }, el('b', {}, label), el('span', {}, pct == null ? '' : `${pct}%`)), el('i', {}, bar(pct)), detail ? el('small', {}, detail) : null);
 }
 
 function bluetoothSection() {

@@ -35,7 +35,7 @@ export async function review(list) {
         el('p', { class: 'muted' }, 'This is everything the report contains. Your conversations, notes, names, folders and keys are not in it. "Open on GitHub" opens it in your browser, where you can still change it before you submit (a GitHub account is needed).'),
         el('div', { class: 'field' }, el('label', {}, 'Title'), el('div', { class: 'input', style: { whiteSpace: 'pre-wrap' } }, r.title)),
         el('div', { class: 'field' }, el('label', {}, 'Text'), el('pre', { class: 'log-box', style: { maxHeight: '320px', overflow: 'auto', whiteSpace: 'pre-wrap' } }, r.body)),
-        el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: () => close('open') }, 'Open on GitHub'), el('button', { class: 'btn', onclick: () => close('skip') }, 'Don’t report this'), el('button', { class: 'btn', onclick: () => close('later') }, 'Later')),
+        el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close('later') }, 'Later'), el('button', { class: 'btn', onclick: () => close('skip') }, 'Don’t report this'), el('button', { class: 'btn primary', onclick: () => close('open') }, 'Open on GitHub')),
       );
     });
     try {

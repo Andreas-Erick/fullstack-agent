@@ -16,7 +16,8 @@ function applyFx() {
   const fx = fxLevel();
   document.body.classList.toggle('fx-hud', fx === 'hud');
   document.body.classList.toggle('fx-subtle', fx === 'subtle');
-  document.body.classList.toggle('fx-still', fx !== 'off' && reduceMotion.matches);
+  // At every level, "off" included: the plain look still has loops of its own (the typing cursor, blinking lights).
+  document.body.classList.toggle('fx-still', reduceMotion.matches);
   // Balanced: no backdrop blur (styles.css), and animations rest while nobody is looking.
   document.body.classList.toggle('perf-lite', balanced());
   rest();
@@ -58,8 +59,9 @@ export function initHud() {
     }).observe(toasts, { childList: true });
   }
 
-  // Views materialize smoothly when opened, with a quick card entrance; while resting (the window in
-  // the background, or the agent asleep) the view just appears.
+  // Views materialize smoothly when opened, with a beam, the title decoding and a quick card entrance;
+  // while resting (the window in the background, or the agent asleep) the view just appears, and under
+  // reduce motion only the materialize fade runs.
   on('view', ({ name }) => {
     const v = document.getElementById(`view-${name}`);
     if (!v || fxLevel() !== 'hud' || document.body.classList.contains('fx-rest')) return;
@@ -67,7 +69,10 @@ export function initHud() {
     void v.offsetWidth; // restart the animation
     v.classList.add('materialize');
     v.addEventListener('animationend', () => v.classList.remove('materialize'), { once: true });
-    if (reduceMotion.matches) return;
+    if (reduceMotion.matches || document.body.classList.contains('fx-still')) return;
+    beam(v);
+    const title = viewTitle(v);
+    if (title) decode(title);
     cascade(v);
   });
 
@@ -104,23 +109,39 @@ function beam(v) {
 
 // The title decodes: random glyphs lock into the real letters, left to right. Stops if the app changes
 // the text meanwhile (a conversation title, the vault's name).
-const decoding = new WeakMap();
+// Screen readers get the real title meanwhile (aria-label), and the window going to rest ends it at once.
+const decoding = new WeakMap(); // node → { raf, target, shown }
 function decode(node) {
-  const target = node.textContent;
+  const running = decoding.get(node);
+  // Opened again mid-decode: the real title is the one being decoded, not the glyphs on screen.
+  const target = running && node.textContent === running.shown ? running.target : node.textContent;
+  if (running) (cancelAnimationFrame(running.raf), finish(node, running, running.target));
   if (node.children.length || !target.trim() || target.length > 40) return;
-  cancelAnimationFrame(decoding.get(node));
   const start = performance.now();
   const ms = 450 + target.length * 22;
-  let shown = target;
+  const job = { raf: 0, target, shown: target };
+  node.setAttribute('aria-label', target);
   const tick = (now) => {
-    if (node.textContent !== shown) return;
-    const p = Math.min(1, (now - start) / ms);
+    if (node.textContent !== job.shown) return finish(node, job, null); // the app changed it: keep the app's text
+    const p = document.body.classList.contains('fx-rest') ? 1 : Math.min(1, (now - start) / ms);
     const locked = Math.floor(p * target.length);
-    shown = p >= 1 ? target : [...target].map((ch, i) => (i < locked || ch === ' ' ? ch : GLYPHS[Math.floor(Math.random() * GLYPHS.length)])).join('');
-    node.textContent = shown;
-    if (p < 1) decoding.set(node, requestAnimationFrame(tick));
+    job.shown = p >= 1 ? target : [...target].map((ch, i) => (i < locked || ch === ' ' ? ch : GLYPHS[Math.floor(Math.random() * GLYPHS.length)])).join('');
+    node.textContent = job.shown;
+    if (p < 1) job.raf = requestAnimationFrame(tick);
+    else finish(node, job, null);
   };
-  decoding.set(node, requestAnimationFrame(tick));
+  job.raf = requestAnimationFrame(tick);
+  decoding.set(node, job);
+  // Frames stop in a hidden or minimized window: the real title comes back regardless.
+  setTimeout(() => (cancelAnimationFrame(job.raf), finish(node, job, target)), ms + 150);
+}
+
+// Ends a decode: the real text back (when it was still showing glyphs) and the label off.
+function finish(node, job, text) {
+  if (decoding.get(node) !== job) return;
+  decoding.delete(node);
+  if (text != null && node.textContent === job.shown) node.textContent = text;
+  node.removeAttribute('aria-label');
 }
 
 // Cards and rows arrive one after another, including the ones a view renders a moment later.

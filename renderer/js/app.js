@@ -242,7 +242,7 @@ async function boot() {
   start('face controls', () => {
     $('#faceSelect').onchange = () => saveSettings({ ui: { face: $('#faceSelect').value } });
     $('#pillPractice').onclick = () => saveSettings({ learning: { practiceLanguage: '' } }).then(() => toast('Language practice ended'));
-    $('#personaSelect').onchange = async () => syncPersonaSelect((await switchPersona($('#personaSelect').value)).personas);
+    wirePersonaSelect();
     $('#faceDemo').onclick = () => runDemo();
     $('#faceFolder').onclick = async () => (await api.faces.openFolder(), setTimeout(refreshFaceList, 1500));
   });
@@ -335,6 +335,28 @@ function setupVoiceRouting() {
     if (want && !handsFree.running) setMicMode('open');
     if (!want && handsFree.running) setMicMode('ptt');
   });
+}
+
+// A pick with the mouse switches at once. The arrow keys on the closed list fire a change for every
+// persona they pass, and each switch speaks a greeting and restarts the session: from the keyboard the
+// choice counts on Enter or when the list loses the focus; Esc puts the active persona back.
+function wirePersonaSelect() {
+  const sel = $('#personaSelect');
+  let keyed = false;
+  let pending = false;
+  const commit = async () => {
+    pending = false;
+    syncPersonaSelect((await switchPersona(sel.value)).personas);
+  };
+  sel.addEventListener('pointerdown', () => (keyed = false));
+  sel.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && pending) (e.preventDefault(), commit());
+    else if (e.key === 'Escape' && pending) (e.preventDefault(), (pending = false), (sel.value = state.settings.personas?.active || ''));
+    else if (e.key !== 'Tab') keyed = true;
+  });
+  sel.addEventListener('keyup', (e) => e.key === 'Enter' && pending && commit()); // Enter in the open list: the change comes after the keydown
+  sel.addEventListener('change', () => (keyed ? (pending = true) : commit()));
+  sel.addEventListener('blur', () => pending && commit());
 }
 
 // The title-bar persona switcher, shown once there is more than one persona.
@@ -512,6 +534,9 @@ function setPill(id, cls, title) {
   const p = $(id);
   p.className = `pill ${cls}`;
   p.title = title;
+  // The light's name and its state, for screen readers (the light itself is only a colour); the visible
+  // word stays first, so a voice user can still say it.
+  p.setAttribute('aria-label', `${p.textContent.trim()}: ${title}`);
 }
 
 // Brains that answer on their own with their settings in their own section (main/braincore.js).
@@ -585,12 +610,12 @@ async function refreshStatus() {
 }
 
 // Clicking a light jumps to its settings (wired in boot's status lights).
-const pillTargets = { pillLlm: 'brain', pillVoice: 'voice', pillCal: 'calendar', pillKb: 'obsidian' };
+const pillTargets = { pillLlm: 'brain', pillVoice: 'voice', pillCal: 'calendar', pillKb: 'obsidian', pillUsage: 'brain' };
 
 boot().then(() => api.app.ready(performance.now()).catch(() => {}), (err) => {
   console.error(err);
   reportUiError('startup', err);
-  const bar = el('div', { style: { position: 'fixed', bottom: '0', left: '0', right: '0', padding: '12px', background: 'var(--glass)', color: 'rgb(var(--err))', zIndex: '99', display: 'flex', gap: '12px', alignItems: 'center' } }, `Startup error: ${err.message}`);
+  const bar = el('div', { class: 'startup-error', role: 'alert' }, `Startup error: ${err.message}`);
   bar.append(el('button', { class: 'btn', onclick: () => location.reload() }, 'Reload'));
   document.body.append(bar);
 });

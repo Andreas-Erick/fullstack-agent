@@ -40,11 +40,12 @@ function render() {
   const lowest = Math.min(...windows.map((w) => w.left));
   const tight = windows.find((w) => w.left === lowest);
   pill.querySelector('span').textContent = usage.limited && lowest === 0 ? `Claude: limit until ${when(tight.resetsAt)}` : `Claude ${lowest}%`;
-  pill.querySelector('.usage-bar b').style.width = `${lowest}%`;
+  pill.querySelector('.usage-bar b').style.setProperty('--p', String(lowest / 100)); // scaleX (styles.css): no layout per change
   pill.classList.toggle('low', lowest <= 20);
   pill.classList.toggle('mid', lowest > 20 && lowest <= 50);
   const lines = windows.map((w) => `${w.label[0].toUpperCase()}${w.label.slice(1)}: ${w.left}% left${w.resetsAt ? `, resets ${when(w.resetsAt)}` : ''}`);
   if (usage.overage) lines.push('Using extra usage (overage).');
   lines.push(`As of the last Claude reply (${new Date(usage.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}). Turn this off in Settings → AI brain.`);
   pill.title = `Claude plan\n${lines.join('\n')}`;
+  pill.setAttribute('aria-label', `${pill.querySelector('span').textContent}. ${lines.join(' ')} Opens Settings, AI brain.`);
 }
