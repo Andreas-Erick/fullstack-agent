@@ -1,5 +1,6 @@
 // Renderer entry point: wires views, the agent face, push-to-talk and status indicators together.
-import { $, $$, api, on, emit, el, toast, logEvent, dialogOpen, reportUiError, installErrorTrap } from './util.js';
+import { $, $$, api, on, emit, el, toast, logEvent, dialogOpen, reportUiError, installErrorTrap, ignore } from './util.js';
+import { tapHint, savedChip } from './composerhints.js';
 import { state, loadSettings, saveSettings, ttsActive, raiseAlert, noteActivity } from './state.js';
 import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
@@ -137,6 +138,18 @@ async function boot() {
     showAgentWin();
   });
   start('voice routing', setupVoiceRouting);
+  start('saved chip', () => {
+    let folder = null;
+    const check = () => {
+      const o = state.settings?.obsidian || {};
+      const key = `${o.enabled}|${o.vaultPath || ''}`;
+      if (key === folder) return;
+      folder = key;
+      refreshSavedChip();
+    };
+    on('settings', check);
+    check();
+  });
 
   // Settings-driven UI
   start('settings-driven UI', () => {
@@ -439,23 +452,52 @@ function setupPushToTalk() {
   });
 
   for (const btn of [$('#micBtn'), $('#faceMicBtn')]) {
-    let down = false;
+    let down = 0;
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       btn.setPointerCapture(e.pointerId);
-      down = true;
+      down = performance.now();
       startListening();
     });
-    const up = () => {
+    const up = (e) => {
       if (!down) return;
-      down = false;
+      const held = performance.now() - down;
+      down = 0;
       stopListening();
+      if (e.type === 'pointerup') showTapHint(held);
     };
     btn.addEventListener('pointerup', up);
     btn.addEventListener('pointercancel', up);
   }
 
   api.on('voice:toggle', () => toggleListening());
+}
+
+// A tap on the mic records nothing (push-to-talk): the first time, say to keep holding (composerhints.js).
+const TAP_HINT_KEY = 'siren.tapHintShown';
+function showTapHint(heldMs) {
+  let shown = false;
+  try {
+    shown = localStorage.getItem(TAP_HINT_KEY) === '1';
+  } catch {
+    // storage blocked: the hint may show again next session
+  }
+  const hint = tapHint(heldMs, shown);
+  if (!hint) return;
+  toast(hint);
+  try {
+    localStorage.setItem(TAP_HINT_KEY, '1');
+  } catch {
+    // storage blocked: remembered for nothing, which only means one more hint later
+  }
+}
+
+// "Saved on this PC" near the composer: its tooltip names the notes folder (refreshed when settings change).
+async function refreshSavedChip() {
+  const chip = $('#savedChip');
+  if (!chip) return;
+  const st = await api.obsidian.status().catch(ignore('saved chip: notes folder status failed', null));
+  chip.title = savedChip(st).title;
 }
 
 // --------------------------------------------------------------- shortcuts

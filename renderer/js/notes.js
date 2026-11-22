@@ -347,7 +347,7 @@ function renderEditor({ focus = '' } = {}) {
     pin,
     el('button', { class: 'btn small polish-btn', type: 'button', title: 'Let the assistant tidy this note up and link related notes (you see it before anything changes)', disabled: polishing === n.path || Boolean(review), onclick: () => polishNote() }, polishing === n.path ? '✨ Polishing…' : '✨ Polish'),
     el('button', { class: 'btn small', type: 'button', title: 'Ask the assistant about this note', onclick: () => askAbout() }, '💬 Ask'),
-    el('button', { class: 'btn small', type: 'button', title: 'Open in Obsidian', 'aria-label': 'Open in Obsidian', onclick: () => api.obsidian.openInObsidian(n.path).catch(toastError) }, '◆'),
+    el('button', { class: 'btn small', type: 'button', title: 'Open in Obsidian', 'aria-label': 'Open in Obsidian', onclick: () => api.obsidian.openInObsidian(n.path).catch(toastError) }, '◆ Obsidian'),
     el('button', { class: 'btn small danger', type: 'button', title: 'Move to Trash (you can undo)', 'aria-label': 'Delete note', onclick: () => removeNote() }, '🗑'),
   );
   const markSaving = () => {

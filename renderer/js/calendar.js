@@ -323,6 +323,8 @@ function monthView(from) {
       'div',
       { class: cls, tabindex: sameDay(day, cal.selected) ? '0' : '-1', 'aria-label': day.toDateString(), onclick: () => select(day), ondblclick: () => editor({ date: ymd(day) }), onkeydown: (e) => cellKey(e, day) },
       el('div', { class: 'cal-num' }, el('span', {}, day.getDate()), moreLabel(list.length, day)),
+      // ＋ on hover or focus: the double-click (and Enter) without knowing about it. Not a Tab stop of its own (roving focus).
+      el('button', { type: 'button', class: 'cal-add', tabindex: '-1', title: 'Add an entry on this day', 'aria-label': `Add an entry on ${day.toDateString()}`, onclick: (ev) => (ev.stopPropagation(), editor({ date: ymd(day) })) }, '＋'),
       el('div', { class: 'cal-pills' }, list.slice(0, 3).map((x) => (x.e ? pill(x.e) : taskPill(x.t)))),
     );
     cells.append(cell);

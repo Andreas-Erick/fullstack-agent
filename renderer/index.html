@@ -118,7 +118,7 @@
           <div class="conv-panel glass" id="convPanel" role="region" aria-labelledby="historyHeading">
             <div class="panel-head">
               <h3 id="historyHeading">History</h3>
-              <button class="icon-btn" id="newChatBtn" title="New conversation (Ctrl+N)">＋</button>
+              <button class="icon-btn" id="newChatBtn" title="New conversation (Ctrl+N)">＋ New chat</button>
               <button class="icon-btn" id="historyClose" aria-label="Close History" title="Close (Esc)">✕</button>
             </div>
             <input class="input search" id="convSearch" placeholder="Search titles and messages…" aria-label="Search conversations" aria-controls="convList" autocomplete="off" spellcheck="false" />
@@ -144,8 +144,9 @@
                 </div>
                 <button class="chip-btn" id="windowFull" title="Full screen (F11)">⛶</button>
                 <div class="dropdown">
-                  <button class="chip-btn" id="chatMore" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false" aria-controls="chatMenu">⋯</button>
+                  <button class="chip-btn" id="chatMore" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false" aria-controls="chatMenu">⋯ More</button>
                   <div class="dropdown-menu" id="chatMenu" role="menu" aria-label="More">
+                    <button data-act="rename" role="menuitem">Rename this chat…</button>
                     <button data-act="pdf" role="menuitem">Export this chat as PDF</button>
                     <button data-act="note" role="menuitem">Quick note… (Ctrl+Shift+N)</button>
                     <button data-act="skills" role="menuitem">Skills…</button>
@@ -184,9 +185,13 @@
               <button class="icon-btn attach-btn" id="attachBtn" aria-label="Attach images or files" title="Attach images or files (you can also paste or drop them on the chat)">📎</button>
               <input type="file" id="attachInput" multiple hidden aria-label="Attach files" />
               <img class="screen-thumb hidden" id="screenThumb" alt="Shared screen" title="This is what the assistant sees with your next message" />
-              <button class="mic-btn" id="micBtn" title="Hold to talk">
-                <svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8" /></svg>
-              </button>
+              <!-- "Hold to talk" under the mic, the chip at the composer's foot (both in its bottom padding; app.js setupComposerHints). -->
+              <span class="mic-wrap">
+                <button class="mic-btn" id="micBtn" title="Hold to talk" aria-label="Hold to talk">
+                  <svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8" /></svg>
+                </button>
+                <span class="mic-cap" aria-hidden="true">Hold to talk</span>
+              </span>
               <textarea id="input" rows="1" placeholder="Message Siren…  (Enter to send, Shift+Enter for a new line)"></textarea>
               <button class="send-btn" id="sendBtn" title="Send">
                 <svg viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-8z" /></svg>
@@ -194,6 +199,7 @@
               <button class="stop-btn hidden" id="stopBtn" title="Stop the reply (Esc, or say “cancel”)">■</button>
               <!-- ✎ Edit and resend (js/chat.js startEdit): last in the composer, shown first (styles.css order). -->
               <div class="edit-bar hidden" id="editBar" role="status"><span id="editText">✎ Editing your last message: Enter sends it in place of the old one.</span> <button class="chip-btn" id="editCancel" type="button">Cancel (Esc)</button></div>
+              <span class="saved-chip" id="savedChip" title="Your chats, memories and settings stay on this computer.">🔒 Saved on this PC</span>
             </div>
             <div class="voice-status hidden" id="voiceStatus"></div>
           </div>
@@ -237,7 +243,7 @@
               <select class="input" id="memCategory" aria-label="Category"><option value="">All categories</option></select>
               <button class="btn primary" id="memAdd">＋ Add memory</button>
               <div class="dropdown">
-                <button class="btn" id="memMore" aria-label="More memory actions" title="More memory actions" aria-haspopup="true" aria-expanded="false" aria-controls="memMenu">⋯</button>
+                <button class="btn" id="memMore" aria-label="More memory actions" title="More memory actions" aria-haspopup="true" aria-expanded="false" aria-controls="memMenu">⋯ More</button>
                 <div class="dropdown-menu" id="memMenu" role="group" aria-label="More memory actions">
                   <button data-act="export-md">Export as Markdown</button>
                   <button data-act="export-json">Export as JSON</button>

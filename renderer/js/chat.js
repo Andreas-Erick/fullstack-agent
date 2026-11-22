@@ -84,6 +84,7 @@ export function initChat() {
   $('#newChatBtn').onclick = () => newChat();
   $('#newChatTop').onclick = () => newChat(); // ＋ in the header: History (and its ＋) slides over the chat where there is no room
   $('#chatTitle').ondblclick = renameCurrent;
+  $('#chatMenu [data-act="rename"]').onclick = renameCurrent; // the ⋯ menu's Rename (layout.js closes the menu)
   // F2 renames too, from anywhere in the chat view that isn't a text field.
   window.addEventListener('keydown', (e) => {
     if (e.key !== 'F2' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.defaultPrevented) return;
@@ -156,7 +157,7 @@ const busy = () => chat.busy();
 // The list of them is History's (history.js); chat tells it when the list may have changed.
 async function renameCurrent() {
   const id = chat.convId;
-  if (!id) return;
+  if (!id) return toast('Send a message first: a new chat gets its name then.');
   const title = await promptDialog('Rename conversation', $('#chatTitle').textContent);
   if (!title) return;
   await api.conv.rename(id, title);
