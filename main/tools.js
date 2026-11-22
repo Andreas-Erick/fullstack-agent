@@ -9,6 +9,7 @@ const store = require('./store');
 const log = require('./logger');
 const github = require('./github');
 const braincore = require('./braincore');
+const braintable = require('../renderer/js/braintable.mjs');
 const { FACES, obj, str, UNTRUSTED_NOTICE, requireApproval } = require('./tools/common');
 
 // Settings the agent may change itself (to fix its own tools). Never safety, permissions, code
@@ -24,10 +25,9 @@ const SETTABLE = {
   stt: ['enabled', 'engine', 'localModel', 'language', 'pttKey', 'autoSend', 'micMode', 'micDevice', 'headphones', 'vadSensitivity'],
   calendar: ['daysAhead'],
   routing: ['smart', 'cooldownMin'],
-  gemini: ['model', 'fastModel', 'deepModel'],
-  deepseek: ['model', 'fastModel', 'deepModel'],
-  groq: ['model', 'fastModel', 'deepModel'],
-  perplexity: ['model', 'fastModel', 'deepModel'],
+  // The model keys (only those) of each brain with its own section, from the brain table: gemini, deepseek,
+  // groq, perplexity (not local: its model must be an installed one). test/brainrows.test.js holds the list.
+  ...braintable.agentSettable(),
   obsidian: ['injectIndex', 'maxIndexEntries'],
   journal: ['enabled', 'idleMinutes', 'handoffOnClose'],
   ui: ['showVisualizerInChat', 'captions', 'face', 'zoom', 'chatLayout', 'sleepAfterMin', 'sleepOnLaunch', 'fx'],
@@ -414,4 +414,4 @@ function stringifyResult(result) {
   return s.length > 60000 ? `${s.slice(0, 60000)}\n…[truncated]` : s;
 }
 
-module.exports = { TOOLS, activeTools, execute, stringifyResult, settingValueError };
+module.exports = { TOOLS, SETTABLE, activeTools, execute, stringifyResult, settingValueError };

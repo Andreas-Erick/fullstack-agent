@@ -174,7 +174,12 @@ function settingsDefaults(root) {
   // A value for any name, whose properties are that value again (brand.THEME.name…); not an object, so
   // its "keys" never count as settings.
   const nothing = new Proxy(function () {}, { get: (_t, k) => (k === Symbol.toPrimitive ? () => '' : nothing) });
-  const anyName = new Proxy({}, { has: () => true, get: (_t, k) => (k === Symbol.unscopables ? undefined : nothing) });
+  // braintable is the real (pure) brain table: the brains' own sections come from its rows.
+  let braintable = nothing;
+  try {
+    braintable = require(path.join(root, 'renderer/js/braintable.mjs'));
+  } catch {}
+  const anyName = new Proxy({}, { has: () => true, get: (_t, k) => (k === Symbol.unscopables ? undefined : k === 'braintable' ? braintable : nothing) });
   try {
     return new Function('scope', `with (scope) { return {${body}}; }`)(anyName);
   } catch {

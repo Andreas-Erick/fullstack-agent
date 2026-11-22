@@ -10,7 +10,7 @@
 // live(settings) gathers them with the calls that already exist (both cached), for the IPC and the tools.
 const table = require('../renderer/js/braintable.mjs');
 
-const { BRAINS, ROUTED, brain, name, ownEndpoint, missingFor } = table;
+const { BRAINS, ROUTED, brain, name, ownEndpoint, missingFor, preferFor } = table;
 const IDS = BRAINS.map((b) => b.id);
 
 /**
@@ -124,4 +124,4 @@ async function live(settings, { fresh = false, all = false } = {}) {
   return { current: current(settings, probes), brains: list(settings, probes), routing: probes.routing || null };
 }
 
-module.exports = { BRAINS, ROUTED, IDS, brain, name, ownEndpoint, missingFor, claudeState, configured, modelOf, entry, list, current, live };
+module.exports = { BRAINS, ROUTED, IDS, brain, name, ownEndpoint, missingFor, preferFor, claudeState, configured, modelOf, entry, list, current, live };
