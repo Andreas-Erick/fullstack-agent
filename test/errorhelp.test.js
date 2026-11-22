@@ -11,6 +11,7 @@ let c;
 test.before(async () => {
   const copy = path.join(tmpDir('nexus-errorhelp-'), 'chatcore.mjs');
   fs.copyFileSync(path.join(ROOT, 'renderer/js/chatcore.js'), copy);
+  fs.copyFileSync(path.join(ROOT, 'renderer/js/braintable.mjs'), path.join(path.dirname(copy), 'braintable.mjs')); // chatcore's one import
   c = await import(pathToFileURL(copy).href);
 });
 
@@ -167,7 +168,10 @@ test('a failed connection test in plain words, the raw text only when it adds so
   assert.strictEqual(toolsran.raw, '', 'the text already says it all');
 });
 
-test('the phone can load it: no imports', () => {
+test('the phone can load it: it imports only the brain table, which the phone is served too', () => {
   const src = fs.readFileSync(path.join(ROOT, 'renderer/js/chatcore.js'), 'utf8');
-  assert.ok(!/^import /m.test(src));
+  const imports = [...src.matchAll(/^import .* from '([^']+)';$/gm)].map((m) => m[1]);
+  assert.deepStrictEqual(imports, ['./braintable.mjs']);
+  assert.match(fs.readFileSync(path.join(ROOT, 'main/companion.js'), 'utf8'), /'\/js\/braintable\.mjs': 'renderer\/js\/braintable\.mjs'/);
+  assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'renderer/js/braintable.mjs'), 'utf8'), /^import /m, 'the table itself imports nothing');
 });
