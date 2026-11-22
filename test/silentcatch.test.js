@@ -51,7 +51,7 @@ test('a reason, a handled error or quoted code passes', () => {
   assert.deepStrictEqual(lines(src), []);
 });
 
-test('verify fails on a silent catch in main/ and renderer/, warns in renderer/remote/', () => {
+test('verify fails on a silent catch in main/, preload.js and renderer/ (the phone client included)', () => {
   const dir = tmpDir('nexus-catch-');
   const put = (rel, text) => {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
@@ -63,11 +63,9 @@ test('verify fails on a silent catch in main/ and renderer/, warns in renderer/r
   put('renderer/js/c.mjs', 'p.catch(() => undefined);\n');
   put('renderer/remote/d.js', 'p.catch(() => {});\n');
   assert.deepStrictEqual(catchFiles(dir).sort(), ['main/a.js', 'main/tools/b.js', 'preload.js', 'renderer/js/c.mjs', 'renderer/remote/d.js']);
-  const { errors, warnings } = verify(dir);
+  const { errors } = verify(dir);
   const silent = errors.filter((e) => e.includes('drops an error'));
-  assert.deepStrictEqual(silent.map((e) => e.split(' ')[0]).sort(), ['main/a.js:1', 'main/tools/b.js:1', 'preload.js:1', 'renderer/js/c.mjs:1']);
-  assert.ok(warnings.some((w) => w.startsWith('renderer/remote/d.js:1 drops an error')));
-  assert.ok(!errors.some((e) => e.startsWith('renderer/remote/')));
+  assert.deepStrictEqual(silent.map((e) => e.split(' ')[0]).sort(), ['main/a.js:1', 'main/tools/b.js:1', 'preload.js:1', 'renderer/js/c.mjs:1', 'renderer/remote/d.js:1']);
 });
 
 test('ignore(reason) logs at debug and yields the fallback', async () => {

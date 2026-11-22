@@ -233,7 +233,7 @@ async function memory() {
   api('/api/data/stream').then((s) => {
     if (s.off || !s.records.length) return;
     stream.replaceChildren(card('Memory stream', el('p', { class: 'muted' }, 'Small observations she noted, and the insights she drew from them.'), ...s.records.slice(0, 30).map((r) => el('div', { class: `stream ${r.kind === 'reflection' ? 'insight' : ''}` }, el('small', {}, `${new Date(r.at).toLocaleDateString()} · ★${r.importance}${r.kind === 'reflection' ? ' · insight' : ''}`), el('div', {}, r.text)))));
-  }).catch(() => {});
+  }).catch(() => {}); // a missed refresh is redone on the next show
   return [search, list, stream];
 }
 
@@ -340,7 +340,7 @@ async function world() {
   if (!d.vault) return empty('The Inner World needs the vault on the computer.', null, 'world');
   if (!d.enabled) return empty('The village is asleep. Wake it on the computer (World view) and your personas start living there.', null, 'world');
   const [{ buildMap, route, along }, { palette, W, HZ }, scene, { loadSprites, spritesReady }, { seasonOf }, room, where] = await Promise.all([import('/js/world/map.js'), import('/js/world/art.js'), import('/js/world/scene.js'), import('/js/world/sprites.js'), import('/js/world/season.js'), import('/js/world/room.js'), import('/js/world/whereabouts.js')]);
-  if (ctx.state.info?.art !== 'drawn') await loadSprites().catch(() => false);
+  if (ctx.state.info?.art !== 'drawn') await loadSprites().catch(() => false); // no sprites: the village is drawn in code
   const canvas = el('canvas', { class: 'world-canvas', 'aria-label': 'The village' });
   const info = el('div', { class: 'world-info' });
   const wrap = el('div', { class: 'world-wrap' }, canvas);

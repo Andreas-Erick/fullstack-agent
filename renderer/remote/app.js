@@ -110,7 +110,7 @@ initScreens({ api, el, icon, markdown, toast, send, prefill, showView, AuthError
 
 $('#pairInsecure').classList.toggle('hidden', !insecure);
 // Offline app shell (needs HTTPS or localhost; on the plain local network the browser doesn't allow it).
-if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
+if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {}); // offline cache is optional: the page works without it
 // Opened from the pairing QR code (…/#pair=<secret>): take the secret out of the address bar and
 // history at once, then pair with it.
 const qr = /^#pair=([A-Za-z0-9_-]{43})$/.exec(location.hash);

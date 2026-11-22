@@ -16,7 +16,7 @@ for (const a of [audio, plainAudio]) {
 
 async function player() {
   if (!voiceCtx) return audio;
-  if (voiceCtx.state !== 'running') await voiceCtx.resume().catch(() => {});
+  if (voiceCtx.state !== 'running') await voiceCtx.resume().catch(() => {}); // refused without a gesture: the reply is still on screen
   return voiceCtx.state === 'running' ? audio : plainAudio;
 }
 
@@ -60,6 +60,6 @@ $('#speakBtn').addEventListener('click', () => {
   // A tap unlocks audio playback on mobile browsers, and is the moment to set up the face's analyser.
   if (state.speak) {
     ensureAnalyser();
-    for (const a of [audio, plainAudio]) a.play().catch(() => {});
+    for (const a of [audio, plainAudio]) a.play().catch(() => {}); // autoplay refused: the reply is still on screen
   }
 });

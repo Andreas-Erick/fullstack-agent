@@ -4,7 +4,7 @@ import { toastMs, PHONE_PURIFY } from './sync.js';
 import { $, state } from './state.js';
 
 let mathtext = null;
-import('./js/mathtext.js').then((m) => (mathtext = m)).catch(() => {});
+import('./js/mathtext.js').then((m) => (mathtext = m)).catch(() => {}); // formulas then show as their source text
 // ------------------------------------------------------------------ helpers
 export function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
