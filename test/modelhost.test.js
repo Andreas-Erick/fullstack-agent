@@ -317,8 +317,11 @@ test('reply speech: spoken only while replies are spoken and the turn is not mut
 
 // voice.js needs the window, so its wiring onto the host is checked in its source.
 test('voice.js: the offline voice, the voice detector and speech-to-text run on the model host', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/voice.js'), 'utf8').replace(/\r\n/g, '\n');
-  assert.match(src, /import \{ createModelHost \} from '\.\/modelhost\.js';/);
+  // voice.js (speech-to-text), offlinevoice.js and handsfree.js (the voice detector) each own one host;
+  // the rest of the checks read every voice module together.
+  const read = (f) => fs.readFileSync(path.join(ROOT, 'renderer/js', f), 'utf8').replace(/\r\n/g, '\n');
+  for (const f of ['voice.js', 'offlinevoice.js', 'handsfree.js']) assert.match(read(f), /import \{ createModelHost \} from '\.\/modelhost\.js';/, f);
+  const src = ['voice.js', 'voicecommon.js', 'offlinevoice.js', 'speaker.js', 'mic.js', 'handsfree.js'].map(read).join('\n');
   assert.strictEqual(src.split('createModelHost({').length, 4, 'three hosts');
   assert.strictEqual(src.split('new Worker(').length, 4, 'each worker made by its host only');
   for (const gone of [/resetWorker/, /scheduleUnload/, /unloadTimer/, /workerReady/, /this\.idle = setTimeout/]) assert.doesNotMatch(src, gone);

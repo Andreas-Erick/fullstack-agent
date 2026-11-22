@@ -109,15 +109,18 @@ test('warmStep: done, stop, wait, warm', async () => {
 
 // voice.js needs the window (AudioContext, workers), so its wiring is checked in the source.
 test('voice.js keeps the filler wish and resumes it when the speaker goes quiet', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/voice.js'), 'utf8');
+  // The Speaker lives in speaker.js, the offline voice in offlinevoice.js, the launch wiring in voice.js.
+  const read = (f) => fs.readFileSync(path.join(ROOT, 'renderer/js', f), 'utf8');
+  const src = read('speaker.js');
+  const voice = read('voice.js');
   assert.match(src, /from '\.\/speechplan\.js'/);
-  assert.doesNotMatch(src, /function takeSentences/, 'one copy, in speechplan.js');
+  for (const f of ['voice.js', 'speaker.js', 'offlinevoice.js']) assert.doesNotMatch(read(f), /function takeSentences/, 'one copy, in speechplan.js');
   const pump = src.slice(src.indexOf('async pump()'), src.indexOf('playSystem(text)'));
   assert.match(pump, /emit\('speech-idle'\);\s*\n[\s\S]*this\.warmWant && !this\.warming\) this\.warmSoon\(/);
   const warm = src.slice(src.indexOf('async warmNext()'), src.indexOf('enqueue(text, override'));
   assert.match(warm, /warmStep\(/);
   assert.match(warm, /synthesize\(todo\[0\], undefined, this\.gen, \{ quiet: true \}\)/, 'quiet goes beside override, never into it');
-  assert.match(src, /localVoice\.start\(\)\.then\(\(\) => ttsActive\(\) && state\.settings\.voice\.filler && speaker\.warmFillers\(allFillers\(\)/, 'made once the voice is loaded, only when replies are spoken');
+  assert.match(voice, /localVoice\.start\(\)\.then\(\(\) => ttsActive\(\) && state\.settings\.voice\.filler && speaker\.warmFillers\(allFillers\(\)/, 'made once the voice is loaded, only when replies are spoken');
   assert.match(warm, /want\.idle\(\) && !state\.transcribing/, 'not while local Whisper writes a recording down');
   assert.match(warm, /away: this\.mainVoiceAway\(\)/);
   const chunk = src.slice(src.indexOf('  chunk(text, override)'), src.indexOf('  release()'));
@@ -127,14 +130,14 @@ test('voice.js keeps the filler wish and resumes it when the speaker goes quiet'
   const gate = src.slice(src.indexOf('  cutsFirst(text, override)'), src.indexOf('  release()'));
   assert.match(gate, /=== 'local'/, 'only the offline voice cuts');
   assert.match(gate, /cutWorth\(\{ chars: text\.length, msPerChar: localVoice\.msPerChar, device: localVoice\.device \}\)/);
-  assert.match(src, /this\.msPerChar = paceAfter\(this\.msPerChar, \{ chars: job\.chars, modelMs: msg\.timing\?\.modelMs \}\)/, 'every made sentence updates the pace');
+  assert.match(read('offlinevoice.js'), /this\.msPerChar = paceAfter\(this\.msPerChar, \{ chars: job\.chars, modelMs: msg\.timing\?\.modelMs \}\)/, 'every made sentence updates the pace');
 });
 
 // A filler is made in the main voice or not at all: made by the fallback (the offline voice while
 // VoiceStudio starts) it was kept under VoiceStudio's key and played in the wrong voice all session;
 // a failed warm-up request toasted, turned the face red and switched replies to the fallback.
 test('voice.js: a quiet synthesis never uses the fallback and fails silently', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/voice.js'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/speaker.js'), 'utf8');
   const synth = src.slice(src.indexOf('  async synthesize('), src.indexOf('  async fallback('));
   assert.ok(synth.length > 200, 'synthesize found');
   assert.match(synth, /\) return quiet \? null : this\.fallback\(text, gen\);/, 'while on the fallback: nothing for a quiet one');
@@ -251,7 +254,7 @@ const source = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\
 
 // voice.js needs the window, so the kept lines' wiring is checked in its source.
 test('voice.js: kept lines are read first, kept only when made, and fixed lines chunk the same way', () => {
-  const src = source('renderer/js/voice.js');
+  const src = source('renderer/js/speaker.js');
   // One method's text: from its header to the next method (two-space indent) or the end of its block.
   const method = (start) => {
     const from = src.indexOf(start);
@@ -285,16 +288,16 @@ test('voice.js: kept lines are read first, kept only when made, and fixed lines 
   assert.match(remembered, /this\.order\.lookup\(/);
   assert.match(method('  enqueue(text, override'), /this\.order\.after\(\(\) => this\.synthesize\(text, override, gen\)\)/, 'a line behind a lookup waits for it');
   assert.match(method('  stop() {'), /this\.order\.reset\(\)/);
-  assert.match(src, /buf\.madeBy = madeByOf\('local', \{ voice: v \}\);/, 'the offline voice says who made its audio');
+  assert.match(source('renderer/js/offlinevoice.js'), /buf\.madeBy = madeByOf\('local', \{ voice: v \}\);/, 'the offline voice says who made its audio');
   assert.match(src, /buf\.madeBy = madeBy;/, 'VoiceStudio and the cloud voice too');
   assert.match(src, /const fillerKey = \(text\) => `\$\{JSON\.stringify\(voiceIdentity\(state\.settings\)\)\}\|\$\{text\}`;/, 'the in-memory key holds no API key either');
   assert.match(method('function logFirstAudio('), /cached: t\.cached \|\| undefined/);
-  assert.match(src, /if \(ttsActive\(\) && v\.filler\) speaker\.loadKept\(allFillers\(\)\);\s*\n\s*if \(!v\?\.ttsEnabled \|\| v\.engine !== 'local'\) return;/, 'kept fillers load at launch, before the model');
+  assert.match(source('renderer/js/voice.js'), /if \(ttsActive\(\) && v\.filler\) speaker\.loadKept\(allFillers\(\)\);\s*\n\s*if \(!v\?\.ttsEnabled \|\| v\.engine !== 'local'\) return;/, 'kept fillers load at launch, before the model');
 });
 
 // The faces draw fewer frames while the offline voice works: state.voiceWorking must follow every change.
 test('voice.js: every change to the offline voice\'s jobs or load state updates voiceWorking', () => {
-  const src = source('renderer/js/voice.js');
+  const src = source('renderer/js/offlinevoice.js');
   const from = src.indexOf('const localVoice = {');
   const to = src.indexOf('\n};\n', from);
   assert.ok(from > 0 && to > from);

@@ -135,10 +135,12 @@ test('tts-worker.js: one task boundary before the warm-up decision', () => {
 });
 
 test('voice.js: a stop cancels the queued sentences; the phone WAVs are kept', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/voice.js'), 'utf8');
-  const stop = src.slice(src.indexOf('  stop() {'), src.indexOf('  get busy()'));
+  const read = (f) => fs.readFileSync(path.join(ROOT, 'renderer/js', f), 'utf8');
+  const speakerSrc = read('speaker.js');
+  const stop = speakerSrc.slice(speakerSrc.indexOf('  stop() {'), speakerSrc.indexOf('  get busy()'));
   assert.match(stop, /localVoice\.cancelQueued\(\)/);
-  assert.match(src, /offlineVoiceWav[\s\S]{0,200}keep: true/);
-  assert.match(src, /createJobs\(\)/);
-  assert.doesNotMatch(src, /setTimeout\([^\n]*the offline voice took too long[^\n]*30000\)/, 'no limit counted from the queueing');
+  assert.match(read('voice.js'), /offlineVoiceWav[\s\S]{0,200}keep: true/);
+  const offline = read('offlinevoice.js');
+  assert.match(offline, /createJobs\(\)/);
+  for (const src of [offline, speakerSrc, read('voice.js')]) assert.doesNotMatch(src, /setTimeout\([^\n]*the offline voice took too long[^\n]*30000\)/, 'no limit counted from the queueing');
 });
