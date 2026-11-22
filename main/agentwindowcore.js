@@ -29,6 +29,29 @@ function isGlobeUrl(u) {
   return u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname) && Number(u.port) === GLOBE_PORT;
 }
 
+/**
+ * Whether a request may reach the globe's local server. Only the globe itself and the app's own loads of
+ * it: a request whose page is already the globe (its scripts, its own links, a reload), or a top-level load
+ * the app started (`appNav`: browser_open / globe_open / the address bar, until it commits). A public page
+ * navigating the window there (`location = 'http://localhost:4173/…'`) is refused, so a website can't reach
+ * the user's dev server and have browser_read bring its answer into the model's context.
+ */
+function globeRequestAllowed({ url, resourceType, from, appNav = false }) {
+  let u;
+  try {
+    u = url instanceof URL ? url : new URL(String(url || ''));
+  } catch {
+    return false;
+  }
+  if (!(['localhost', '127.0.0.1'].includes(u.hostname) && Number(u.port) === GLOBE_PORT)) return false;
+  let page = null;
+  try {
+    page = from ? new URL(String(from)) : null;
+  } catch {}
+  const onGlobe = Boolean(page) && isGlobeUrl(page);
+  return resourceType === 'mainFrame' ? Boolean(appNav) || onGlobe : onGlobe;
+}
+
 /** { ok, url, globe } or { ok: false, reason } for an address the window is asked to show. */
 function checkUrl(raw) {
   let u;
@@ -115,4 +138,4 @@ const focusScript = (id) => `(() => {
 const scrollScript = (direction) =>
   ({ top: 'scrollTo(0, 0)', bottom: 'scrollTo(0, document.documentElement.scrollHeight)', up: 'scrollBy(0, -innerHeight * 0.8)' })[direction] || 'scrollBy(0, innerHeight * 0.8)';
 
-module.exports = { GLOBE_PORT, isPrivateHost, isIpLiteral, checkUrl, fromAddressBar, onlyHashDiffers, readScript, locateScript, focusScript, scrollScript };
+module.exports = { GLOBE_PORT, isPrivateHost, isIpLiteral, globeRequestAllowed, checkUrl, fromAddressBar, onlyHashDiffers, readScript, locateScript, focusScript, scrollScript };

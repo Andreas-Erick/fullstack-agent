@@ -503,7 +503,7 @@ test('§4.13 a Stop on the phone closes its approval card: approval.cancel with 
     const [req] = stream.events('approval.request');
     assert.strictEqual(req.kind, 'github_publish');
     assert.strictEqual(req.voice, 'key');
-    assert.strictEqual(req.desktopOnly, false);
+    assert.strictEqual(req.desktopOnly, true, 'publishing is answered on the computer (SEC-05)');
     assert.strictEqual((await post(`/api/chat/${requestId}/abort`, {}, auth)).status, 200, 'the phone’s Stop');
     assert.deepStrictEqual(await question, { allow: false, reason: 'The reply was stopped.' });
     await stream.until(/event: approval\.cancel\n/);
@@ -570,8 +570,13 @@ test('§4.13 a desktop-only approval gets no Allow or Deny on the Android notifi
   assert.ok(start > 0, 'ConnectionService has onApproval');
   const body = java.slice(start, java.indexOf('\n    }\n', start));
   assert.match(body, /optBoolean\("desktopOnly"/, 'onApproval offers Allow and Deny for every request: tapped on a self-change (or on the watch), the notification goes away, the POST gets a 403 that ApprovalReceiver ignores, and the computer waits out the time limit as a no');
-  const gated = body.indexOf('if (!desktopOnly) {');
+  const gated = body.indexOf('if (!desktopOnly && cut) {');
   assert.ok(gated > 0 && body.indexOf('.addAction(') > gated && body.indexOf('WearableExtender') > gated, 'every action, the watch’s too, only when the device may answer');
+  // SEC-05: a detail cut short gets Deny only (phone and watch); Allow waits for the app's full card.
+  const cutBranch = body.slice(gated, body.indexOf('} else if (!desktopOnly) {'));
+  assert.ok(cutBranch.includes('R.string.action_deny') && !cutBranch.includes('R.string.action_allow'), 'no Allow when the detail was cut');
+  assert.match(body, /boolean cut = detail\.length\(\) > DETAIL_MAX;/);
+  assert.match(read('android/app/src/main/res/values/strings.xml'), /<string name="approval_open_to_allow">/);
   assert.match(body, /if \(desktopOnly\) detail = getString\(R\.string\.approval_desktop_only\)/, 'it says where to answer');
   assert.match(read('android/app/src/main/res/values/strings.xml'), /<string name="approval_desktop_only">Approve or deny this one on your computer\.<\/string>/, 'the phone card’s words (renderer/remote/app.js)');
   assert.match(read('renderer/remote/app.js'), /Approve or deny this one on your computer\./);
