@@ -50,7 +50,7 @@ test('catches the cross-file mistakes a syntax check misses', () => {
     plant(dir, 'preload.js', "'cancelPair', ", ''); // handler without channel; renderer call breaks
     plant(dir, 'renderer/js/handoff.js', "import { api, el } from './util.js';", "import { api, el, nope } from './util.js';");
     plant(dir, 'main/handoff.js', "const log = require('./logger');", "const log = require('./logger');\nconst gone = require('./does-not-exist');");
-    plant(dir, 'renderer/js/settings.js', "toggle('journal.handoffOnClose'", "toggle('journal.handoffOnClos'");
+    plant(dir, 'renderer/js/settings/workspace.js', "toggle('journal.handoffOnClose'", "toggle('journal.handoffOnClos'");
     const errors = verify(dir).errors.join('\n');
     assert.match(errors, /calls api\.remote\.cancelPair\(\) but preload\.js doesn't expose/);
     assert.match(errors, /imports "nope" from renderer\/js\/util\.js/);

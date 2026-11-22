@@ -4,6 +4,7 @@
 // offers passes settings_update's check and reaches the CLI; a stopped turn's call never runs.
 const test = require('node:test');
 const assert = require('node:assert');
+const { settingsSource } = require('./helpers');
 const fx = require('./appfixture')('toolenums');
 const { store, approvals, read, escapeRe, allTools } = fx;
 const { checkArgs } = require('../main/toolargs');
@@ -75,7 +76,7 @@ test('the enums that mirror another module accept exactly what that module does'
 test('every model and effort Settings offers, and every default, passes settings_update’s check and reaches the CLI', () => {
   const { settingValueError } = allTools();
   const { cliValue } = require('../main/claudecode');
-  const src = read('renderer/js/settings.js');
+  const src = settingsSource();
   const pairs = (block) => [...block.matchAll(/\['([^']*)', '[^']*'\]/g)].map((m) => m[1]);
   const claudeModels = pairs(/const CLAUDE_MODELS = \[([\s\S]*?)\n\];/.exec(src)[1]);
   assert.ok(claudeModels.length >= 3);

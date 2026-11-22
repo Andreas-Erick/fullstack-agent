@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { stub, load, quietLog } = require('./helpers');
+const { stub, load, quietLog, settingsSource } = require('./helpers');
 
 stub({ './logger': quietLog });
 const brains = load('main/brains.js');
@@ -153,10 +153,11 @@ test('live(): a failed status check is "couldn\'t check", never "not installed"'
 test('the window and the phone read names and paths from the table, not their own lists', () => {
   const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
   assert.doesNotMatch(read('renderer/js/app.js'), /const SINGLE\b/);
-  assert.doesNotMatch(read('renderer/js/settings.js'), /SINGLE_BRAINS/);
+  assert.doesNotMatch(settingsSource(), /SINGLE_BRAINS/);
   assert.doesNotMatch(read('renderer/js/hud.js'), /const PROVIDERS/);
   assert.doesNotMatch(read('renderer/js/chatcore.js'), /OPENAI_PATH/);
-  for (const f of ['renderer/js/app.js', 'renderer/js/settings.js', 'renderer/js/hud.js', 'renderer/js/chatcore.js']) assert.match(read(f), /from '\.\/braintable\.mjs'/, f);
+  for (const f of ['renderer/js/app.js', 'renderer/js/hud.js', 'renderer/js/chatcore.js']) assert.match(read(f), /from '\.\/braintable\.mjs'/, f);
+  assert.match(read('renderer/js/settings/brain.js'), /from '\.\.\/braintable\.mjs'/, 'renderer/js/settings/brain.js');
   assert.match(read('main/companion.js'), /'\/js\/braintable\.mjs': 'renderer\/js\/braintable\.mjs'/);
   assert.match(read('renderer/remote/sw.js'), /'\/js\/braintable\.mjs'/);
   assert.match(read('preload.js'), /'brains'/);
