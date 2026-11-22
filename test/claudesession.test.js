@@ -72,7 +72,7 @@ test('sessions leave out the repo’s CLAUDE.md and Claude Code’s own memory',
   const spec = { connectors: false, builtins: ['Read', 'Grep'], allowed: ['mcp__nexus'], addDirs: ['C:/vault'], model: 'haiku', effort: 'default' };
   const args = claudecode.sessionArgs(spec, { sysFile: 's.md', mcpFile: 'm.json', settingsFile: 'set.json', resume: 'abc' });
   const value = (flag) => args[args.indexOf(flag) + 1];
-  // No "project" source (the developer's CLAUDE.md, ~22k tokens) and no "local" one; the user's own
+  // No "project" source (the repo's CLAUDE.md, which imports the developer map, ~50k tokens) and no "local" one; the user's own
   // settings (their permission rules, extra folders) only when they want their plugins: the claude.ai
   // connectors load without them, and the plugins' skills were ~4k tokens per message.
   assert.strictEqual(value('--setting-sources'), '');

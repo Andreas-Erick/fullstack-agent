@@ -1,20 +1,23 @@
 # Engineering playbook
 
 How to design, change, debug and verify this app the way a senior engineer would. Read it before a
-non-trivial change to the app (a feature, a refactor, a bug you don't understand yet). `CLAUDE.md` is
-the map of the code; this is the method. Both are kept current: when you learn something the hard
+non-trivial change to the app (a feature, a refactor, a bug you don't understand yet).
+`docs/agents/MAP.md` is the map of the code (the root `CLAUDE.md` imports it); `docs/adr/` records the
+decisions behind its shape; this is the method. All are kept current: when you learn something the hard
 way, add it here (or as a lesson in the vault Job "Changing my own code").
 
 ## 1. The loop
 
 1. **Understand the request.** What problem does the user have, not just what did they ask for? What
    does "done" look like for them? If two readings lead to different designs, ask one short question.
-2. **Understand the code.** `code_map` for the shape, `CLAUDE.md` for conventions, `code_outline` of
+2. **Understand the code.** `code_map` for the shape, `docs/agents/MAP.md` for conventions, `code_outline` of
    the files involved, then read what you will touch *and its callers* (`code_grep` for every use of a
    function, setting, IPC channel or event). Never edit a function you haven't read end to end.
 3. **Design.** Where does this belong (which process, which module)? What is the smallest change that
    solves the real problem and fits the existing architecture? Consider one alternative and say why
-   you rejected it. Name the risks. Decide how you'll verify it before you write it.
+   you rejected it. Name the risks. Decide how you'll verify it before you write it. A decision others
+   would question (a new pattern, a dependency, a boundary moved) gets an ADR in `docs/adr/` (next
+   number, the format in its `README.md`); read the existing ones before going against one.
 4. **Plan** with `self_change_plan` (summary, steps, files, design, risks, verification).
 5. **Implement** in small, reviewable steps, matching the surrounding style.
 6. **Verify.** `code_check` (syntax + integrity), add or update tests for new logic, `run_tests`.
@@ -36,7 +39,9 @@ way, add it here (or as a lesson in the vault Job "Changing my own code").
   HTTP requests (`companion.js`) and files read from disk are untrusted input: check types, ranges,
   lengths. Inside, trust your own types.
 - **Fail loudly in development, safely for the user.** Catch at the edge, log with the Error object,
-  tell the user something actionable; never swallow an error silently without a comment saying why.
+  tell the user something actionable; never swallow an error silently: say why it is safe with
+  `ignore('reason')` (main/ignore.js, util.js) or a comment on the same line, and log at warn when
+  it isn't. `npm run check` fails on a bare `.catch(() => {})` or empty `catch {}`.
 - **The main process must stay responsive.** No synchronous heavy work or unbounded loops there;
   long operations are async, have time limits and can be cancelled (see `handoff.js`, `claudecode.js`).
 - **Idempotent and restart-safe.** Writes go through `store.writeJsonAtomic`; anything that can run
@@ -56,7 +61,7 @@ way, add it here (or as a lesson in the vault Job "Changing my own code").
   setup conversation or a remote device can reach without approval.
 - **New IPC call:** `handle('ns:method')` in `main/main.js` + the method in `channels` in
   `preload.js` + `api.ns.method()` in the renderer.
-- **New setting:** default in `store.js` DEFAULTS (with a comment), control in `renderer/js/settings.js`,
+- **New setting:** default in `store.js` DEFAULTS (with a comment), control in its card's module in `renderer/js/settings/`,
   in `SETTABLE` (`main/tools.js`) only if it is harmless for the agent to change. Secrets go in
   `SECRET_FIELDS`.
 - **New view:** rail button + `<section>` in `index.html`, a module with `init*()`/`refresh()`, wired in
@@ -84,7 +89,7 @@ Read `code_diff` top to bottom and ask:
   cancelling, the app closing mid-way, two windows/devices at once?
 - Is every caller of anything you changed still correct (`code_grep`)?
 - Are errors logged with the Error object, and is the user told something useful?
-- Are the docs (`CLAUDE.md`, this file, `PRIVACY.md`, `CHANGELOG.md`) still true?
+- Are the docs (`docs/agents/MAP.md`, this file, `docs/adr/`, `PRIVACY.md`, `CHANGELOG.md`) still true?
 - Would you approve this from someone else?
 
 ## 6. Tests

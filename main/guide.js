@@ -1,6 +1,6 @@
 // The feature guide behind "how can I use you?" (tool app_guide, the /tour skill). One entry per area of
 // the app: what it does, things to say, where it lives in the app, and whether it is set up on this
-// computer right now. Keep it current when a feature is added or changed (CLAUDE.md says so).
+// computer right now. Keep it current when a feature is added or changed (docs/agents/MAP.md says so).
 const store = require('./store');
 
 const VOICE_NAMES = { local: 'offline voice', cloud: 'cloud voice', voicestudio: 'VoiceStudio' };

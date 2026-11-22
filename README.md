@@ -246,6 +246,8 @@ repository secrets (see the workflow's header). Locally:
 - [Using Siren](docs/FEATURES.md): features, voice, phone, safety
 - [Architecture decisions](docs/adr/): why it is built this way
 - [Engineering playbook](docs/ENGINEERING.md): how changes are made
+- [Code map](docs/agents/MAP.md): every module and its rules, the
+  file agents (and the root `CLAUDE.md`) read before a change
 - [Troubleshooting](TROUBLESHOOTING.md) ·
   [Changelog](CHANGELOG.md) · [Keyboard](docs/KEYBOARD.md)
 - [Phone and watch](android/README.md) ·

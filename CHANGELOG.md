@@ -1,6 +1,22 @@
 # Changelog
 
-## Unreleased
+## 2.7.30 — 2026-11-22
+
+- **Fewer silent failures**: seventeen failures that were swallowed now log a warning instead: damaged settings or routines copies not kept, settings not restored or backed up, the conversation index or remote device list not saved, a routine's status not saved, note history not saved, memories not copied from the old folder, an old Google sign-in not removed, a self-change revert not aborted, an approval answer or a Stop that didn't reach the main process.
+- **Self-changes record only their own files**: when Siren records a change to her own code, only the files her tools wrote in that turn go into it, never someone else's edits in the repository. If the change can't be marked for the check after it goes live, she now says so (and the log has a warning) instead of skipping the check silently.
+- **For developers**:
+  - The built-in faces are listed once (`renderer/js/faces/registry.mjs`): the desktop gallery, the phone, the watch's face recording, the companion server and the tools all read that list, so a new face is one entry instead of edits in seven files.
+  - The per-brain lists (settings defaults, encrypted keys, what the agent may change, smart routing's preferences, which brains see pictures, the Settings blurbs) now follow from the brain table's rows, so adding an OpenAI-compatible brain is one row; nothing changes for users.
+  - Every dropped error in main/ and renderer/ (the phone client included) now says why (`ignore(reason)` in `main/ignore.js` and `renderer/js/util.js`, which logs at debug, or a comment), and `npm run check` fails on a new silent catch.
+  - `test/round2.test.js` and `test/round3.test.js` are split into files named after what they check: `redoattachments`, `chatglue`, `companionstore`, `toolenums`, `routinestop`, `routinestatus`, `safetycopy`, `phoneapprovals`, `approvalvoice`, `approvaldialog`, `viewerrors`, `settingsreset` and `debugartifacts` (the 2.7.24 to 2.7.25 sweep for console calls, markers and new environment variables), sharing `test/appfixture.js` (the real store, approvals and companion server without a window); no test was dropped and none cites the work-round spec any more.
+  - Type checking without a build step: `npm run typecheck` checks the pure core modules from their JSDoc (`jsconfig.json`, TypeScript fetched by npx, not a dependency); shared shapes such as a routine, a schedule entry and the persona summary are typed in `main/types.d.ts`.
+  - `renderer/js/voice.js` is split into `voicecommon.js`, `offlinevoice.js`, `speaker.js`, `mic.js` and `handsfree.js`, and the Claude sign-in check moved from `main/claudecode.js` to `main/claudestatus.js`; no change in behaviour, importers unchanged.
+  - The Settings view is split into `renderer/js/settings/` (the view and its tabs, the shared saving state, the field builders, and one module per group of cards) instead of one 2,260-line file; nothing changes on screen. The settings-key check in `npm run check` reads the whole folder.
+  - The phone client is split into modules (`renderer/remote/`: state, ui, net, pairing, stream, offline, chatview, conversations, approvals, voiceout, talk, face, schedule, nav, hud, boot), with `app.js` keeping the wiring and the boot; no change in behaviour. Each is served and cached for offline use (service worker cache v16), and the syntax check and the code map now read every module of the phone client.
+  - CI: `.github/workflows/ci.yml` runs the check and the tests on every push to main and on pull requests (Windows and macOS, Node 22); `.gitattributes` fixes line endings.
+  - Architecture decision records in `docs/adr/` (no build step, the outside-content taint, gated self-change, the Claude Code CLI as a brain, the companion server's surface, pure core / I/O shell).
+  - The README is short and technical; the user guide moved to `docs/FEATURES.md`, the credits to `docs/CREDITS.md`, and the October audit to `docs/archive/`.
+  - The code map moved from `CLAUDE.md` to `docs/agents/MAP.md`; `CLAUDE.md` is a short index that imports it, so Claude Code sessions still load the whole map, and Siren reads the map there before changing her code.
 
 - **Architecture review: deeper modules** (one owner for each rule that had spread across files):
   - Settings the assistant saves now take effect like the Settings view's: switching brains by chat clears the old router cooldowns, and a helper app found during setup starts at once (`settingseffects.js`, one table behind every save).

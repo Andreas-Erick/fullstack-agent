@@ -3,7 +3,7 @@
 Ideas for the village that are agreed in principle but not built yet. Built so far: the memory stream,
 the daily narrator, rehearsals, live work at the buildings, the isometric floating island with
 interiors, seasons and the camera (pan with glide, pinch/wheel zoom, keyboard, minimap, follow).
-The code map is in `CLAUDE.md` (Inner World) and the art kit in `renderer/js/world/`.
+The code map is in `docs/agents/MAP.md` (Inner World) and the art kit in `renderer/js/world/`.
 
 Ordered by impact for the effort, as discussed on 2026-10-26.
 
