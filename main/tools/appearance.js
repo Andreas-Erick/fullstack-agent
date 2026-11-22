@@ -1,7 +1,7 @@
 // Agent tools: Personas and the agent's own look: theme, face, name.
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
 const store = require('../store');
-const { FACES, obj, str, bool, requireApproval } = require('./common');
+const { FACES, obj, str, bool, guardWrite } = require('./common');
 
 module.exports = [
   {
@@ -18,7 +18,7 @@ module.exports = [
     parameters: obj({ persona: str('The persona\'s name or id (persona_list)') }, ['persona']),
     run: async (a, ctx) => {
       const persona = require('../persona');
-      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', `Switch to the persona "${a.persona}"`, 'Asked after reading external content.', { taintAsks: true });
+      await guardWrite(ctx, `Switch to the persona "${a.persona}"`);
       const s = await persona.activate(a.persona);
       ctx.emit({ type: 'settings_changed' });
       // The new persona says hello in its own voice once this reply is done (renderer chat.js).
@@ -58,7 +58,7 @@ module.exports = [
       const persona = require('../persona');
       const s = await store.getSettings();
       const forPersona = s.personas?.active; // the look asked for is this persona's, whatever is switched to meanwhile
-      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', 'Change my look', 'Asked after reading external content.', { taintAsks: true });
+      await guardWrite(ctx, 'Change my look');
       const { face: _f, face_shape: faceShape, reset: _r, ...rest } = a;
       const changes = !a.reset && (Object.keys(rest).length || faceShape) ? { ...rest, face: faceShape } : null;
       if (changes) persona.themeChange(s.appearance.theme, changes); // checked now: a bad value is said before anything is saved
