@@ -121,7 +121,14 @@ let measure = null;
 function initTitlebarFit() {
   const bar = $('.titlebar');
   const refit = () => fitFrame || (fitFrame = requestAnimationFrame(fitTitlebar));
-  new ResizeObserver(refit).observe(bar);
+  // A resize fits at once, inside the observer's callback (after layout, before paint): waiting for the
+  // next animation frame showed the old fold for a frame, and in a hidden or background window, where
+  // frames come about once a second, the labels stayed cut off past the edge for up to a second.
+  const fitNow = () => {
+    if (fitFrame) cancelAnimationFrame(fitFrame);
+    fitTitlebar();
+  };
+  new ResizeObserver(fitNow).observe(bar);
   // Pills appear and change (alerts, the system meter, the persona's name).
   const watch = { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] };
   new MutationObserver(refit).observe($('.status-pills'), watch);
