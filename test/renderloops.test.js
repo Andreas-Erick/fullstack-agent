@@ -115,7 +115,7 @@ test('the window and main word a cut-off call as cut off, never as done', () => 
   // The notice's words (desktop and phone alike) are turnstate.noticeText: test/turnstate.test.js 'notices…'.
   const notice = slice(file, "case 'notice':", 'break;');
   assert.match(notice, /el\('div', \{ class: 'notice' \}, step\.text\)/);
-  assert.match(read('renderer/remote/app.js'), /el\('div', \{ class: 'notice' \}, step\.text\)/, 'the phone shows the same words');
+  assert.match(read('renderer/remote/chatview.js'), /el\('div', \{ class: 'notice' \}, step\.text\)/, 'the phone shows the same words');
   const again = slice(file, 'async function runAgain(', '\n}\n');
   assert.match(again, /ask\.filter\(\(t\) => !redo\.cutOff\(t\)\)/);
   assert.match(again, /ask\.filter\(redo\.cutOff\)/);
@@ -173,8 +173,8 @@ test('chat and phone: streamed renders are spaced by their own cost', () => {
   assert.ok(at(frame, 'scrollToBottom();') < at(frame, 'v.nextRenderAt = now + RENDER_SPACING * (now - started);'));
   assert.ok(!/nextRenderAt/.test(slice(file, "case 'done': {", "case 'failed':")), 'the final render never waits');
 
-  const phone = slice('renderer/remote/app.js', 'function renderTurn(turn) {', '\n}\n');
-  assert.match(read('renderer/remote/app.js'), /const RENDER_SPACING = 3;/);
+  const phone = slice('renderer/remote/chatview.js', 'function renderTurn(turn) {', '\n}\n');
+  assert.match(read('renderer/remote/chatview.js'), /const RENDER_SPACING = 3;/);
   assert.match(phone, /if \(v\.raf \|\| v\.renderWait\) return;/);
   assert.ok(at(phone, 'const started = performance.now();') < at(phone, 'v.bubble.innerHTML = markdown(turn.text);'));
   assert.match(phone, /v\.nextRenderAt = now \+ RENDER_SPACING \* \(now - started\);/);

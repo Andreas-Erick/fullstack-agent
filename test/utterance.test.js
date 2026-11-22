@@ -104,7 +104,7 @@ test('interrupting the agent while it speaks: real speech stops the reply, a cou
 
 test('the phone records as long as the computer accepts, and as long as the desktop listens', async () => {
   const { MAX_UTTERANCE_MS } = await load('utterance.js');
-  const client = Number(/const MAX_REC_MS = (\d+);/.exec(fs.readFileSync(path.join(ROOT, 'renderer/remote/app.js'), 'utf8'))[1]);
+  const client = Number(/const MAX_REC_MS = (\d+);/.exec(fs.readFileSync(path.join(ROOT, 'renderer/remote/talk.js'), 'utf8'))[1]);
   const server = Number(/const MAX_AUDIO_SEC = (\d+);/.exec(fs.readFileSync(path.join(ROOT, 'main/companion.js'), 'utf8'))[1]);
   assert.strictEqual(client, server * 1000);
   assert.strictEqual(client, MAX_UTTERANCE_MS);

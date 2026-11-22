@@ -9,7 +9,7 @@ const { store, approvals, companion, active, read, pairDevice, post, openStream 
 const kindsOf = (file, name) => new Set([...new RegExp(`const ${name} = \\{([\\s\\S]*?)\\};`).exec(read(file))[1].matchAll(/(\w+):\s*'/g)].map((m) => m[1]));
 
 test('the phone and the desktop have a heading for web_outbound and every always-asking kind', () => {
-  const phone = kindsOf('renderer/remote/app.js', 'KIND');
+  const phone = kindsOf('renderer/remote/approvals.js', 'KIND');
   const desktop = kindsOf('renderer/js/approval.js', 'KIND_LABEL');
   for (const kind of new Set([...approvals.ALWAYS_ASK, ...approvals.TAINT_ASKS, ...approvals.TAINT_EACH_TIME, 'web_outbound'])) {
     assert.ok(phone.has(kind), `the phone's card has no heading for ${kind}`);
@@ -41,7 +41,7 @@ test('a Stop on the phone closes its approval card: approval.cancel with its id,
     stream.close();
   }
   // The phone closes the card the event names, the one addApproval made.
-  const app = read('renderer/remote/app.js');
+  const app = read('renderer/remote/stream.js') + read('renderer/remote/approvals.js');
   assert.match(app, /else if \(event === 'approval\.cancel'\) removeApproval\(payload\.id\);/);
   assert.match(app, /el\('div', \{ class: 'approval', 'data-id': a\.id,/);
   assert.match(app, /document\.querySelector\(`\.approval\[data-id="\$\{CSS\.escape\(String\(id\)\)\}"\]`\)\?\.remove\(\);/);
@@ -68,7 +68,7 @@ test('a web_outbound approval reaches the phone with its warning and is answered
     assert.strictEqual(req.tainted, true);
     assert.deepStrictEqual(req.sources, ['web_fetch https://example.org/page']);
     assert.strictEqual(req.desktopOnly, false, 'answerable from the phone');
-    assert.ok(kindsOf('renderer/remote/app.js', 'KIND').has(req.kind), 'the card has a heading for it');
+    assert.ok(kindsOf('renderer/remote/approvals.js', 'KIND').has(req.kind), 'the card has a heading for it');
     assert.strictEqual((await post(`/api/approvals/${req.id}`, { allow: true }, auth)).status, 200);
     assert.strictEqual((await asking).allow, true);
     assert.ok(turn.outboundApproved.has('new-host.example.com'), 'the host is approved for the rest of the turn');
@@ -105,6 +105,6 @@ test('a desktop-only approval gets no Allow or Deny on the Android notification 
   assert.match(body, /boolean cut = detail\.length\(\) > DETAIL_MAX;/);
   assert.match(read('android/app/src/main/res/values/strings.xml'), /<string name="approval_open_to_allow">/);
   assert.match(body, /if \(desktopOnly\) detail = getString\(R\.string\.approval_desktop_only\)/, 'it says where to answer');
-  assert.match(read('android/app/src/main/res/values/strings.xml'), /<string name="approval_desktop_only">Approve or deny this one on your computer\.<\/string>/, 'the phone card’s words (renderer/remote/app.js)');
-  assert.match(read('renderer/remote/app.js'), /Approve or deny this one on your computer\./);
+  assert.match(read('android/app/src/main/res/values/strings.xml'), /<string name="approval_desktop_only">Approve or deny this one on your computer\.<\/string>/, 'the phone card’s words (renderer/remote/approvals.js)');
+  assert.match(read('renderer/remote/approvals.js'), /Approve or deny this one on your computer\./);
 });

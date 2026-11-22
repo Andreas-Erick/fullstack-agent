@@ -39,6 +39,23 @@ const ROOT = path.join(__dirname, '..');
 const STATIC = {
   '/': 'renderer/remote/index.html',
   '/app.js': 'renderer/remote/app.js',
+  // The phone client's modules (app.js wires them together).
+  '/state.js': 'renderer/remote/state.js',
+  '/ui.js': 'renderer/remote/ui.js',
+  '/net.js': 'renderer/remote/net.js',
+  '/pairing.js': 'renderer/remote/pairing.js',
+  '/stream.js': 'renderer/remote/stream.js',
+  '/offline.js': 'renderer/remote/offline.js',
+  '/chatview.js': 'renderer/remote/chatview.js',
+  '/conversations.js': 'renderer/remote/conversations.js',
+  '/approvals.js': 'renderer/remote/approvals.js',
+  '/voiceout.js': 'renderer/remote/voiceout.js',
+  '/talk.js': 'renderer/remote/talk.js',
+  '/face.js': 'renderer/remote/face.js',
+  '/schedule.js': 'renderer/remote/schedule.js',
+  '/nav.js': 'renderer/remote/nav.js',
+  '/hud.js': 'renderer/remote/hud.js',
+  '/boot.js': 'renderer/remote/boot.js',
   '/screens.js': 'renderer/remote/screens.js',
   '/sync.js': 'renderer/remote/sync.js',
   '/styles.css': 'renderer/remote/styles.css',
@@ -92,7 +109,7 @@ const HEADERS = {
 const HEX = /^#[0-9a-f]{6}$/i;
 
 const MAX_BODY = 64 * 1024;
-const MAX_AUDIO_SEC = 120; // as long as the client records (renderer/remote/app.js MAX_REC_MS)
+const MAX_AUDIO_SEC = 120; // as long as the client records (renderer/remote/talk.js MAX_REC_MS)
 const PAIR_TTL_MS = 5 * 60 * 1000;
 const PAIR_TRIES = 5;
 const MOVE_TTL_MS = 2 * 60 * 1000;

@@ -32,7 +32,7 @@ test('show() builds the approval card in order on its own layer: kind, title, ou
   }
   assert.doesNotMatch(body, /html:|renderMarkdown|innerHTML = req/, 'nothing from the request is HTML');
   assert.match(body, /req\.detail \? el\('pre', \{[^}]*\{[^}]*\} \}, req\.detail\)/, 'the detail is a text child');
-  assert.match(read('renderer/remote/app.js'), /a\.detail \? el\('pre', \{ class: 'detail' \}, String\(a\.detail\)\.slice\(0, 1500\)\)/, 'the phone too');
+  assert.match(read('renderer/remote/approvals.js'), /a\.detail \? el\('pre', \{ class: 'detail' \}, String\(a\.detail\)\.slice\(0, 1500\)\)/, 'the phone too');
 });
 
 test('content ids can’t take the approval layer: ids are prefixed, and the smoke payload covers the layer', () => {

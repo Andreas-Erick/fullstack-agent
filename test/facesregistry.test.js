@@ -46,7 +46,7 @@ test('the desktop, the phone and the watch page derive their face lists from the
   const sources = {
     'renderer/js/faces/host.js': /from '\.\/registry\.mjs'/,
     'renderer/js/facecapture.js': /from '\.\/faces\/registry\.mjs'/,
-    'renderer/remote/app.js': /from '\.\/js\/faces\/registry\.mjs'/,
+    'renderer/remote/face.js': /from '\.\/js\/faces\/registry\.mjs'/,
   };
   for (const [rel, imp] of Object.entries(sources)) {
     const src = read(rel);
