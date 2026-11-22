@@ -4,7 +4,7 @@
 import { api, el, emit, on, speakable, toastError, pushToast, logEvent } from './util.js';
 import { state, setFlag, setCaption, ttsActive } from './state.js';
 import { KOKORO_SAMPLE_RATE } from './kokorotext.js';
-import { takeSentences, splitSentences, firstCut, cutWorth, paceAfter, warmStep, sayChunks, offlineVoiceSpeaks, createLineOrder, LONE_CHARS } from './speechplan.js';
+import { takeSentences, splitSentences, firstCut, cutWorth, paceAfter, warmStep, sayChunks, offlineVoiceSpeaks, createLineOrder, createReplySpeech, LONE_CHARS } from './speechplan.js';
 import { voiceIdentity, madeByOf, launchGreeting } from './phrasecore.js';
 import { getPhrase, keepPhrase, forgetPhrases } from './phrases.js';
 import { env } from './faces/env.js';
@@ -15,6 +15,7 @@ import { BALANCED, profile, speechPlan, voiceOnGpu, preloadSpeech, effectsLevel 
 import { perfReady } from './perf.js';
 import { segmentEnd, endSilence, PTT_MAX_MS } from './utterance.js';
 import { createVoiceInput } from './voiceinput.js';
+import { createModelHost } from './modelhost.js';
 
 let audioCtx = null;
 export function ctx() {
@@ -33,10 +34,32 @@ export function ctx() {
 // Kokoro in tts-worker.js, used when VoiceStudio is unreachable (voice.fallback: local | system | off).
 export const fallbackMode = () => state.settings.voice.fallback || 'local';
 
+// The clock the model hosts run on (modelhost.js takes it injected, for the tests).
+const timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (t) => clearTimeout(t) };
+const byProfile = () => profile(state.settings);
+
 const localVoice = {
-  worker: null,
-  ready: null, // resolves when the model is loaded, rejects if it can't be
-  loaded: false,
+  // modelhost.js: load once (after the hardware check), Balanced's idle unload, the hang restart, and a
+  // failed load retried on the next sentence after a minute (e.g. it was offline on first use; also after
+  // a crash once loaded: until the retry, sentences go straight to the system voice).
+  host: createModelHost({
+    name: 'offline voice',
+    create: () => new Worker(new URL('./tts-worker.js', import.meta.url), { type: 'module' }),
+    // GPU or not is the profile's call, which on a first start is known only after the hardware check:
+    // asked earlier, a lighter computer would load the 310 MB GPU model instead of the 88 MB one.
+    gate: () => perfReady,
+    configure: (w) => w.postMessage({ type: 'load', gpu: voiceOnGpu(state.settings) }),
+    onStart: () => localVoice.onStart(),
+    onMessage: (msg) => localVoice.onMessage(msg),
+    onStop: (reason, kind) => localVoice.onStop(reason, kind),
+    failText: 'the offline voice failed to load',
+    idleMs: (p) => (p === 'balanced' ? BALANCED.voiceIdleMin * 60000 : 0),
+    profile: byProfile,
+    idleReason: 'the offline voice was unloaded',
+    retryAfterMs: 60000,
+    clock: timers,
+    log: logEvent,
+  }),
   device: '',
   msPerChar: 0, // the measured pace (speechplan.js paceAfter), for cutting a long first sentence
   seq: 0,
@@ -45,33 +68,40 @@ const localVoice = {
   timer: 0,
   lastWarn: 0,
 
+  get worker() {
+    return this.host.worker;
+  },
+  get loaded() {
+    return this.host.loaded;
+  },
+
+  // Resolves when the model is loaded, rejects if it can't be.
   start() {
-    if (this.ready) return this.ready;
+    return this.host.load();
+  },
+
+  onStart() {
     this.startedAt = performance.now();
-    this.worker = new Worker(new URL('./tts-worker.js', import.meta.url), { type: 'module' });
     this.syncBusy();
-    this.ready = new Promise((resolve, reject) => {
-      this.worker.onmessage = (e) => this.onMessage(e.data, resolve, reject);
-      this.worker.onerror = (e) => this.reset(e.message || 'the offline voice failed to load', reject);
-    });
-    this.ready.catch(() => {});
-    // GPU or not is the profile's call, which on a first start is known only after the hardware check:
-    // asked earlier, a lighter computer would load the 310 MB GPU model instead of the 88 MB one.
-    const worker = this.worker;
-    perfReady.then(() => this.worker === worker && worker.postMessage({ type: 'load', gpu: voiceOnGpu(state.settings) }));
-    return this.ready;
   },
 
-  onMessage(msg, resolve, reject) {
+  onMessage(msg) {
     if (msg.type === 'progress') emit('tts-progress', msg);
-    else if (msg.type === 'ready') this.onReady(msg, resolve);
+    else if (msg.type === 'ready') this.onReady(msg);
     else if (msg.id) this.onJob(msg);
-    else if (msg.type === 'error') this.reset(msg.message, reject);
+    else if (msg.type === 'error') this.host.fail(msg.message);
   },
 
-  onReady(msg, resolve) {
+  // The worker went (modelhost.js): unloaded, restarted after a hang, or failed (then the face says so).
+  onStop(reason, kind) {
+    if (kind !== 'failed') this.device = '';
+    this.dropJobs(reason);
+    if (kind === 'failed') emit('tts-progress', { status: 'error', message: reason });
+  },
+
+  onReady(msg) {
     const now = performance.now();
-    this.loaded = true;
+    this.host.ready();
     this.syncBusy();
     this.device = msg.device;
     for (const job of this.pending.values()) job.readyAt ||= now;
@@ -79,7 +109,6 @@ const localVoice = {
     logEvent('info', 'offline voice ready', { device: msg.device, ...msg.timing, sinceStartMs: Math.round(now - this.startedAt) });
     emit('tts-progress', { status: 'ready', device: msg.device });
     this.keepFor(); // Balanced: the idle clock starts at load, not only after the first sentence
-    resolve();
   },
 
   // A sentence's messages: begin (its run limit starts), then audio, error or skipped (cancelled).
@@ -120,18 +149,11 @@ const localVoice = {
 
   // Frees the model (the memory section's button, or Balanced performance after a while unused).
   unload(reason = 'the offline voice was unloaded') {
-    clearTimeout(this.idle);
-    if (!this.worker) return;
-    this.worker.terminate();
-    this.worker = null;
-    this.ready = null;
-    this.device = '';
-    this.dropJobs(reason);
+    this.host.unload(reason);
   },
 
   // Every sentence still waiting fails with `reason`.
   dropJobs(reason) {
-    this.loaded = false;
     this.msPerChar = 0; // the next load may run elsewhere (the GPU, the processor)
     for (const { fail } of this.pending.values()) fail(new Error(reason));
     this.pending.clear();
@@ -141,22 +163,9 @@ const localVoice = {
     this.syncBusy();
   },
 
+  // Balanced: the idle clock (re)starts; elsewhere it does nothing.
   keepFor() {
-    clearTimeout(this.idle);
-    if (profile(state.settings) === 'balanced') this.idle = setTimeout(() => this.unload(), BALANCED.voiceIdleMin * 60000);
-  },
-
-  // A failed load is retried on the next sentence after a minute (e.g. it was offline on first use).
-  reset(reason, reject) {
-    this.worker?.terminate();
-    this.worker = null;
-    this.dropJobs(reason);
-    emit('tts-progress', { status: 'error', message: reason });
-    reject?.(new Error(reason));
-    // Also after a crash once loaded: until the retry, sentences go straight to the system voice.
-    this.ready = Promise.reject(new Error(reason));
-    this.ready.catch(() => {});
-    setTimeout(() => (this.ready = null), 60000);
+    this.host.idle();
   },
 
   // Posted at once, also while the model still loads (the worker waits for it). Resolves null if it
@@ -202,10 +211,7 @@ const localVoice = {
         job.done(null);
       }
     }
-    if (this.jobs.stalled(now)) {
-      logEvent('warn', 'offline voice stopped responding; restarting it', { waiting: this.pending.size });
-      this.unload('the offline voice stopped responding');
-    }
+    if (this.jobs.stalled(now)) this.host.restart('the offline voice stopped responding', { warn: 'offline voice stopped responding; restarting it', data: { waiting: this.pending.size } });
     if (!this.jobs.size) {
       clearInterval(this.timer);
       this.timer = 0;
@@ -681,6 +687,9 @@ function quietFail(err) {
 
 export const speaker = new Speaker();
 
+// What chat.js speaks a reply through (speechplan.js createReplySpeech): spoken or not, fillers, the end.
+export const replySpeech = createReplySpeech({ speaker, active: ttsActive, fillersOn: () => state.settings.voice.filler, fillerLines: allFillers });
+
 // On any profile, an unloaded offline voice (Balanced frees it after a quiet while; the system
 // monitor's Unload frees it anywhere) loads again as soon as a reply is coming (a message went out),
 // or at a push-to-talk press when speech-to-text runs in the cloud (with local Whisper the press
@@ -874,49 +883,49 @@ const NEURAL_IDLE_MS = 60000; // how long the voice detector stays loaded after 
 // Neural voice detector (Silero VAD in a worker). Scores arrive about one frame behind the audio,
 // which the pre-roll absorbs. Until it is ready, or if it fails to load, the energy detector is used.
 const neural = {
-  worker: null,
-  ready: false,
   prob: 0,
-  idle: 0,
-  start() {
-    clearTimeout(this.idle);
-    if (this.worker) return;
-    this.worker = new Worker(new URL('./vad-worker.js', import.meta.url), { type: 'module' });
-    this.worker.onmessage = (e) => {
-      const msg = e.data;
-      if (msg.type === 'prob') this.prob = msg.prob;
+  // modelhost.js: loaded at a hands-free start, gone NEURAL_IDLE_MS after hands-free ends (stopSoon) on
+  // any profile; a failure falls back to the energy detector until the next start.
+  host: createModelHost({
+    name: 'voice detector',
+    create: () => new Worker(new URL('./vad-worker.js', import.meta.url), { type: 'module' }),
+    configure: (w) => w.postMessage({ type: 'load' }),
+    onMessage: (msg) => {
+      if (msg.type === 'prob') neural.prob = msg.prob;
       else if (msg.type === 'ready') {
-        this.ready = true;
+        neural.host.ready();
         logEvent('info', 'neural voice detection ready');
-      } else if (msg.type === 'error') this.fail(msg.error);
-    };
-    this.worker.onerror = (e) => this.fail(e.message || 'worker failed');
-    this.worker.postMessage({ type: 'load' });
+      } else if (msg.type === 'error') neural.host.fail(msg.error);
+    },
+    onStop: (reason, kind) => {
+      if (kind === 'failed') logEvent('warn', 'neural voice detection unavailable, using the energy detector', reason);
+      neural.prob = 0;
+    },
+    failText: 'worker failed',
+    idleMs: () => NEURAL_IDLE_MS,
+    profile: byProfile,
+    clock: timers,
+    log: logEvent,
+  }),
+  get ready() {
+    return this.host.loaded;
   },
-  fail(message) {
-    logEvent('warn', 'neural voice detection unavailable, using the energy detector', message);
-    this.worker?.terminate();
-    this.worker = null;
-    this.ready = false;
+  start() {
+    this.host.use(); // a pending stopSoon is off
+    this.host.load();
   },
   feed(samples, rate) {
     const copy = new Float32Array(samples);
-    this.worker.postMessage({ type: 'frame', samples: copy, rate }, [copy.buffer]);
+    this.host.worker.postMessage({ type: 'frame', samples: copy, rate }, [copy.buffer]);
   },
   reset() {
     this.prob = 0;
-    this.worker?.postMessage({ type: 'reset' });
+    this.host.worker?.postMessage({ type: 'reset' });
   },
   // Hands-free ended: the model and its ONNX runtime (tens of MB) go after a grace period, so a device
   // change's restart or a quick toggle doesn't reload them. A later start loads it again (energy meanwhile).
   stopSoon() {
-    clearTimeout(this.idle);
-    this.idle = setTimeout(() => {
-      this.worker?.terminate();
-      this.worker = null;
-      this.ready = false;
-      this.prob = 0;
-    }, NEURAL_IDLE_MS);
+    this.host.idle();
   },
 };
 
@@ -1069,77 +1078,69 @@ navigator.mediaDevices?.addEventListener?.('devicechange', () => {
 });
 
 // ------------------------------------------------------------ Transcriber
-let worker = null;
-let workerKey = ''; // the plan the worker loaded (perfcore.js speechPlan: model, fallback, gpu)
-let loaded = null; // { model, device } once the worker reports ready
-let unloadTimer = null;
+// modelhost.js: one worker per plan (perfcore.js speechPlan: model, fallback, gpu; another plan, another
+// worker), Balanced's idle unload after a while without voice input (it loads again, from the cache, with
+// the next sentence), and the restart of a run that hangs or fails. Whatever it was transcribing fails
+// with the reason, so the mic never waits on it forever.
+let sttLoaded = null; // { model, device } once the worker reports ready
 let reqId = 0;
 const pending = new Map();
 
-let workerReady = false;
+const stt = createModelHost({
+  name: 'speech model',
+  create: () => new Worker(new URL('./stt-worker.js', import.meta.url), { type: 'module' }),
+  configure: (w, key) => w.postMessage({ type: 'load', ...JSON.parse(key) }),
+  onMessage: onSttMessage,
+  onStop: (reason) => {
+    sttLoaded = null;
+    for (const { reject } of pending.values()) reject(new Error(reason));
+    pending.clear();
+  },
+  failText: 'Speech model failed to load',
+  idleMs: (p) => (p === 'balanced' ? BALANCED.speechIdleMin * 60000 : 0),
+  profile: byProfile,
+  idleLog: 'speech model unloaded after idle',
+  idleReason: 'The speech model was unloaded',
+  switchReason: 'The speech model was switched',
+  clock: timers,
+  log: logEvent,
+});
 
-// Stops the worker and fails whatever it was transcribing, so the mic never waits on it forever.
-function resetWorker(reason) {
-  worker?.terminate();
-  worker = null;
-  workerKey = '';
-  workerReady = false;
-  loaded = null;
-  clearTimeout(unloadTimer);
-  for (const { reject } of pending.values()) reject(new Error(reason));
-  pending.clear();
+function onSttMessage(msg) {
+  if (msg.type === 'progress') emit('stt-progress', msg);
+  else if (msg.type === 'ready') {
+    const model = msg.model || JSON.parse(stt.key).model;
+    stt.ready();
+    sttLoaded = { model, device: msg.device };
+    logEvent('info', 'speech-to-text ready', { model, device: msg.device });
+    emit('stt-progress', { status: 'ready' });
+  } else if (msg.id && pending.has(msg.id)) {
+    const { resolve, reject } = pending.get(msg.id);
+    pending.delete(msg.id);
+    if (!msg.error) return resolve(msg.text);
+    reject(new Error(msg.error));
+    // A failed run can leave the model unusable (e.g. the GPU was reset after sleep or a driver
+    // update); reload it for the next sentence instead of failing every time from now on.
+    stt.restart('Speech-to-text was restarted', { warn: 'speech-to-text failed; reloading the model', data: msg.error });
+  }
 }
 
 // The model for this computer and the language being spoken (practice mode switches it).
 const currentPlan = () => speechPlan(state.settings, practiceLanguage(state.settings) || state.settings.stt.language || 'en');
 
 function getWorker(plan) {
-  const key = JSON.stringify(plan);
-  if (worker && workerKey === key) return worker;
-  resetWorker('The speech model was switched');
-  worker = new Worker(new URL('./stt-worker.js', import.meta.url), { type: 'module' });
-  workerKey = key;
-  const model = plan.model;
-  worker.onmessage = (e) => {
-    const msg = e.data;
-    if (msg.type === 'progress') emit('stt-progress', msg);
-    else if (msg.type === 'ready') {
-      workerReady = true;
-      loaded = { model: msg.model || model, device: msg.device };
-      logEvent('info', 'speech-to-text ready', { model: msg.model || model, device: msg.device });
-      emit('stt-progress', { status: 'ready' });
-    } else if (msg.id && pending.has(msg.id)) {
-      const { resolve, reject } = pending.get(msg.id);
-      pending.delete(msg.id);
-      if (!msg.error) return resolve(msg.text);
-      reject(new Error(msg.error));
-      // A failed run can leave the model unusable (e.g. the GPU was reset after sleep or a driver
-      // update); reload it for the next sentence instead of failing every time from now on.
-      logEvent('warn', 'speech-to-text failed; reloading the model', msg.error);
-      resetWorker('Speech-to-text was restarted');
-    }
-  };
-  worker.onerror = (e) => resetWorker(e.message || 'Speech model failed to load');
-  worker.postMessage({ type: 'load', ...plan });
-  return worker;
-}
-
-// Balanced performance: the model leaves memory after a while without voice input (it loads again,
-// from the cache, with the next sentence).
-function scheduleUnload() {
-  clearTimeout(unloadTimer);
-  if (profile(state.settings) !== 'balanced') return;
-  unloadTimer = setTimeout(() => worker && (logEvent('info', 'speech model unloaded after idle'), resetWorker('The speech model was unloaded')), BALANCED.speechIdleMin * 60000);
+  stt.load(JSON.stringify(plan));
+  return stt.worker;
 }
 
 /** For the system monitor's memory section. */
 export function speechStatus() {
   const s = state.settings?.stt;
-  return { on: Boolean(s?.enabled && s.engine === 'local'), loaded: Boolean(worker), ready: workerReady, model: loaded?.model || (worker ? currentPlan().model : ''), device: loaded?.device || '' };
+  return { on: Boolean(s?.enabled && s.engine === 'local'), loaded: Boolean(stt.worker), ready: stt.loaded, model: sttLoaded?.model || (stt.worker ? currentPlan().model : ''), device: sttLoaded?.device || '' };
 }
 
 export function unloadSpeech() {
-  if (worker) resetWorker('The speech model was unloaded to free memory');
+  stt.unload('The speech model was unloaded to free memory');
 }
 
 export function preloadLocalModel() {
@@ -1199,7 +1200,7 @@ export async function transcribe(samples, { raw = false } = {}) {
   // minutes after a start or after it was unloaded), or if it fails, the cloud answers instead; the
   // local model keeps loading for next time.
   if (s.cloudFallback && !raw) {
-    if (!workerReady) {
+    if (!stt.loaded) {
       getWorker(currentPlan());
       return cleanTranscript(await api.stt.transcribe(encodeWav(samples), { provider: 'groq' }));
     }
@@ -1216,18 +1217,19 @@ export async function transcribe(samples, { raw = false } = {}) {
 async function transcribeLocal(samples, { raw = false } = {}) {
   const s = state.settings.stt;
   const w = getWorker(currentPlan());
+  stt.use(); // never unloaded for idleness while it writes this down
   const id = ++reqId;
   const copy = new Float32Array(samples);
   // A loaded model answers in seconds; if it hangs, restart it rather than leave the mic waiting.
   // (No limit while the model is still downloading or loading.)
-  const limitMs = workerReady ? 20000 + (samples.length / 16000) * 3000 : 0;
+  const limitMs = stt.loaded ? 20000 + (samples.length / 16000) * 3000 : 0;
   const text = await new Promise((resolve, reject) => {
-    const timer = limitMs && setTimeout(() => (logEvent('warn', 'speech-to-text timed out; restarting it'), resetWorker('Speech-to-text took too long and was restarted')), limitMs);
-    const done = (fn) => (v) => (clearTimeout(timer), fn(v));
+    const cancel = stt.deadline(limitMs, { warn: 'speech-to-text timed out; restarting it', reason: 'Speech-to-text took too long and was restarted' });
+    const done = (fn) => (v) => (cancel(), fn(v));
     pending.set(id, { resolve: done(resolve), reject: done(reject) });
     w.postMessage({ type: 'transcribe', id, audio: copy, language: practiceLanguage(state.settings) || s.language || 'en' }, [copy.buffer]);
   });
-  scheduleUnload();
+  stt.idle(); // Balanced: the idle clock starts after each sentence
   return cleanTranscript(text, { raw });
 }
 
