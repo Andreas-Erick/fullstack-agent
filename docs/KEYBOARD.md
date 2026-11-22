@@ -19,6 +19,7 @@ entry `keyboard` points here).
 | F11 | Full screen (on the Face view: the face alone) |
 | Esc | Stop speaking; then stop a reply that is still being written (chat and face); leave the face's full screen; close a dialog (on a form you've changed it asks first: Keep editing / Discard); say no to an approval; close History |
 | End | Jump to the latest message (chat) |
+| F2 | Rename the open chat (chat, when you're not typing in a field) |
 | Push-to-talk key (Settings → Voice input) | Hold to speak |
 
 Say “cancel”, “never mind” or “stop working” to stop a reply; “stop” or “quiet” only stops the voice.
@@ -27,6 +28,11 @@ for its files).
 
 **The rail:** Tab into it, then ↑ / ↓ (Home / End) move between views and Enter or Space opens one.
 The open view is marked as the current page for screen readers.
+
+**More places:** the chat's splitter (Split layout): Tab to it, ← / → resize the face panel, Home / End go to the limits.
+The ⋯ menus: ↑ / ↓ move between items, Esc closes the menu. The calendar month: only the selected day is a Tab stop; the
+arrow keys move between days (past the edge, to the next or previous month), Enter on a day starts a new entry. The system
+panel (the title bar's meter): Esc closes it.
 
 ## Per view
 

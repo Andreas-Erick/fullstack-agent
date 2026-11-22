@@ -13,6 +13,15 @@
     - An Android approval notification whose text is too long to show offers only Deny, so you open the app to read it all.
     - Other apps on the phone can no longer start push-to-talk.
   - A website in the agent window can no longer open the globe's local server.
+- **UI polish across every view** (an audit of all 69 screens, dialogs and states, desktop and phone):
+  - Nothing covers what you need to press. Notices no longer sit on the Send and mic buttons, and on the phone they move away from an approval's Allow/Deny. The Architecture replay bar is no longer under the minimap or the side panel. "↓ Latest" and the Face layout's caption stay above a tall draft.
+  - More works from the keyboard: the title-bar lights, the Vault list, Documents' recent list, the Evolution list, the world's scenes, the calendar's days (arrow keys) and the chat splitter (← →). The ⋯ menus, the system panel and the setup wizard keep the focus where you are, and Esc closes them.
+  - Arrowing through the persona list no longer switches persona at every step; it switches when you press Enter or leave the list.
+  - Long text holds: tool chips, folder paths, stream entries, connector rows and the message actions wrap or shorten instead of spilling out of their box. A busy calendar day shows "+N more" instead of a half-cut entry. Wide PDF pages scroll instead of being squashed.
+  - Resetting the theme, removing the scene, forgetting what voice calibration learned and restarting the app ask first. Delete buttons sit further from the others.
+  - A list that can't load (History, Skills, Routines, Notes, Vault, the world) says so with a Try again, instead of looking empty.
+  - With "Reduce motion" on in Windows, every animation stops, whatever the effects level. The phone's 3D village and map stop drawing when you leave them, which saves battery.
+  - The calendar shows English day names to match the rest of the app, in your region's date and time format.
 
 ## 2.7.29 — 2026-11-22
 
