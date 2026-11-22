@@ -178,6 +178,7 @@ export function newChat({ focus = true } = {}) {
   messagesEl().append(emptyStateNode());
   drawList(); // no row is marked open now
   if (focus) $('#input').focus();
+  emit('chat-replaced', { setup: false }); // setup.js: a scripted setup left on screen ends
 }
 
 let emptyTemplate = null;
@@ -211,6 +212,7 @@ export async function openConversation(id, { at = null, card = false, quiet = fa
   hideCard();
   outbox.cancelEdit();
   chat.open({ id: conv.id, messages: conv.messages, setup: conv.setup }); // replies followed in the old list go with it
+  emit('chat-replaced', { setup: Boolean(conv.setup) }); // setup.js: a scripted setup left on screen ends
   $('#chatTitle').textContent = conv.title;
   const box = messagesEl();
   box.innerHTML = '';

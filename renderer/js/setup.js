@@ -10,9 +10,32 @@ import { switchView } from './nav.js';
 import { newChat, continueIn, send, refreshList, openConversation } from './chat.js';
 import { shrinkImage } from './settings.js';
 
-let pending = null; // { choices, input, resolve } — the scripted question waiting for an answer
+let pending = null; // { choices, input, done, leave } — the scripted question waiting for an answer
+let scripted = null; // the scripted part running now: { left } (left: the user opened another chat meanwhile)
+let own = false; // the flow's own New chat, which must not end it
+
+// The scripted chat was replaced (New chat, History, another conversation): its question goes, the flow
+// ends quietly, and setup mode goes off unless the setup conversation itself was opened.
+function left(info) {
+  if (own) return;
+  if (scripted) scripted.left = true;
+  pending?.leave();
+  if (!info?.setup) state.setupMode = false;
+}
+
+const leftError = () => Object.assign(new Error('The setup chat was left.'), { left: true });
+
+function freshChat() {
+  own = true;
+  try {
+    newChat();
+  } finally {
+    own = false;
+  }
+}
 
 export function initSetup() {
+  on('chat-replaced', left);
   on('setup-complete', async (summary) => {
     state.setupMode = false;
     await loadSettings();
@@ -29,42 +52,50 @@ export function initSetup() {
 }
 
 export async function startSetup() {
+  pending?.leave(); // a scripted question from an earlier run goes with its chat
   state.setupMode = true;
   switchView('chat');
-  newChat();
+  freshChat();
   $('#chatTitle').textContent = 'First-run setup';
   const box = $('#messages');
   box.innerHTML = '';
+  const flow = (scripted = { left: false });
   try {
     const ok = await bootstrapBrain();
-    if (!ok) return;
+    if (!ok || flow.left) return;
     const id = await api.setup.start();
     continueIn(id, 'First-run setup');
     send('Hi! You have just been installed on my computer. Please set yourself up with me.', { hidden: true });
   } catch (err) {
-    toastError(err);
+    if (!err?.left) toastError(err); // left: left() already ended setup mode
+  } finally {
+    if (scripted === flow) scripted = null;
   }
 }
 
 // "Set one up now" on a reply that failed because no brain is set up (chatcore.errorHelp `setup`): only the
 // scripted brain part, in the chat, then back to the conversation that failed (back: its id) for Try again.
 export async function setupBrain({ back = null } = {}) {
-  if (pending) return switchView('chat'); // the scripted questions are already on screen
+  if (pending) return switchView('chat'); // the scripted questions are already on screen (leaving them ends them)
   state.setupMode = true;
   switchView('chat');
-  newChat();
+  freshChat();
   $('#chatTitle').textContent = 'Set up a brain';
   $('#messages').innerHTML = '';
+  const flow = (scripted = { left: false });
   try {
     const ok = await bootstrapBrain({ brainOnly: true });
     state.setupMode = false;
-    if (!ok) return;
+    if (!ok || flow.left) return;
     const next = await ask('I can answer now.', { choices: [back ? { label: 'Back to my message', value: 'back', yes: true } : { label: 'Start chatting', value: 'new', yes: true }] });
+    scripted = null;
     if (next === 'back') await openConversation(back);
     else newChat();
   } catch (err) {
     state.setupMode = false;
-    toastError(err);
+    if (!err?.left) toastError(err);
+  } finally {
+    if (scripted === flow) scripted = null;
   }
 }
 
@@ -89,6 +120,7 @@ function bubble(text) {
   const avatar = el('div', { class: 'avatar' }, (state.settings.agent.name || 'N')[0].toUpperCase());
   const body = el('div', { class: 'msg-body' }, el('div', { class: 'bubble', html: renderMarkdown(text) }));
   wrap.append(avatar, body);
+  if (scripted?.left) return body; // the chat was left: nothing more goes into the one opened since
   $('#messages').append(wrap);
   $('#messages').scrollTop = $('#messages').scrollHeight;
   if (state.settings.voice.ttsEnabled) speaker.say(text.replace(/\*\*/g, ''));
@@ -104,8 +136,9 @@ const say = (text) => bubble(text);
 
 // Ask a scripted question with quick replies and/or a text input. Resolves with the chosen value.
 function ask(text, { choices = [], input = null } = {}) {
+  if (scripted?.left) return Promise.reject(leftError()); // the chat was left while the flow was busy
   const body = bubble(text);
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const row = el('div', { class: 'suggestions', style: { justifyContent: 'flex-start', marginTop: '8px' } });
     const done = (value, label) => {
       row.remove();
@@ -121,7 +154,12 @@ function ask(text, { choices = [], input = null } = {}) {
       setTimeout(() => field.focus(), 50);
     }
     body.append(row);
-    pending = { choices, input, done };
+    const leave = () => {
+      row.remove();
+      pending = null;
+      reject(leftError());
+    };
+    pending = { choices, input, done, leave };
   });
 }
 

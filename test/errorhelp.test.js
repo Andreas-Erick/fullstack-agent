@@ -78,6 +78,25 @@ test('the desktop draws “Set one up now” and starts the conversational brain
   assert.doesNotMatch(fn, /api\.setup\.(start|skip)/, 'no interview, and "Not now" never marks setup as skipped');
 });
 
+// Review of spec #17: leaving the scripted chat (History, New chat) left `pending` and setupMode set, so
+// "Set one up now" did nothing, attachments stayed blocked and a spoken "yes" answered the old question.
+test('leaving the scripted setup chat ends it: no stale question, setup mode off', () => {
+  const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+  const chatSrc = read('renderer/js/chat.js');
+  const fnOf = (src, re) => re.exec(src)?.[0] || '';
+  assert.match(fnOf(chatSrc, /export function newChat\([\s\S]*?\n}\n/), /emit\('chat-replaced', \{ setup: false \}\)/);
+  assert.match(fnOf(chatSrc, /export async function openConversation\([\s\S]*?\n}\n/), /emit\('chat-replaced', \{ setup: Boolean\(conv\.setup\) \}\)/);
+  const setupSrc = read('renderer/js/setup.js');
+  const init = fnOf(setupSrc, /export function initSetup\([\s\S]*?\n}\n/);
+  assert.match(init, /on\('chat-replaced', left\)/);
+  const left = fnOf(setupSrc, /function left\([\s\S]*?\n}\n/);
+  assert.match(left, /if \(own\) return;/, 'the flow\'s own New chat doesn\'t end it');
+  assert.match(left, /pending\?\.leave\(\)/);
+  assert.match(left, /state\.setupMode = false/);
+  // A question left behind ends the flow quietly (no error toast) and setup mode goes off.
+  assert.match(setupSrc, /if \(!err\?\.left\) toastError\(err\)/);
+});
+
 // The phone shares errorHelp but can't run the desktop's setup: it draws no action of errorHelp's at all.
 test('the phone client ignores errorHelp’s actions: no setup button it can’t run', () => {
   const { phoneClientSource } = require('./helpers');
