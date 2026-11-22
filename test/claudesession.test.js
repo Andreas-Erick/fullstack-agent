@@ -380,16 +380,16 @@ test('a session reads its own conversation’s attachments (tainted), not anothe
   const p = require('path');
   const userData = p.join(require('os').tmpdir(), 'siren-userdata-test');
   const attachedRoot = p.join(userData, 'attachments');
-  const tainted = [];
-  stub({ './datadir': { attachmentsFolder: () => attachedRoot }, './approvals': { gate: async () => ({ allow: true }), markTainted: (_turn, source) => tainted.push(source) } });
-  const cc = load('main/claudecode.js'); // again, with the stand-in that records the taint
+  stub({ './datadir': { attachmentsFolder: () => attachedRoot }, './approvals': { gate: async () => ({ allow: true }) } });
+  const cc = load('main/claudecode.js'); // again, with the attachments folder above
   const sess = new cc.Session('cabc123');
   sess.spec = { cwd: '/app', readRoots: ['/app'] };
   sess.turn = { ctx: { turn: { taintSources: [] } } };
   const ask = (tool_name, input, s = sess) => s.approve({ tool_name, input }).then((r) => r.behavior);
   const own = p.join(attachedRoot, 'cabc123', 'lecture-03.pdf');
   assert.strictEqual(await ask('Read', { file_path: own }), 'allow');
-  assert.deepStrictEqual(tainted, [`Read ${own}`]);
+  assert.deepStrictEqual(sess.turn.ctx.turn.taintSources, [`Read ${own}`], 'marked at approval (turnguard.noteApprovedRead)');
+  assert.strictEqual(sess.turn.ctx.turn.tainted, true);
   assert.strictEqual(await ask('Grep', { pattern: 'x', path: p.join(attachedRoot, 'cabc123') }), 'allow');
   assert.strictEqual(await ask('Read', { file_path: p.join(attachedRoot, 'cother', 'secret.pdf') }), 'deny', 'another conversation’s copies');
   assert.strictEqual(await ask('Read', { file_path: p.join(attachedRoot, 'cabc123', '..', 'cother', 'x.pdf') }), 'deny', 'no escaping with ..');

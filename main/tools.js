@@ -4,6 +4,7 @@
 // agent's own settings tools and the setup conversation's tools, and decides which are active.
 const obsidian = require('./obsidian');
 const approvals = require('./approvals');
+const turnguard = require('./turnguard');
 const store = require('./store');
 const log = require('./logger');
 const github = require('./github');
@@ -387,10 +388,8 @@ async function executeTool(name, args, ctx) {
     // Images (look_at_screen) travel next to the result, never inside its text.
     const image = result?.__image;
     if (image) delete result.__image;
-    if (tool.untrusted) {
-      approvals.markTainted(ctx.turn, `${name} ${args?.url || args?.path || args?.query || ''}`);
-      result = { notice: UNTRUSTED_NOTICE, content: result };
-    }
+    // Outside content (turnguard: the tool is marked `untrusted`) taints the turn and goes to the model as data.
+    if (turnguard.noteResult(ctx.turn, { tool: name, input: args, untrusted: Boolean(tool.untrusted) })) result = { notice: UNTRUSTED_NOTICE, content: result };
     log.info('tool', { name, ok: true, ms: Date.now() - started, args: JSON.stringify(args || {}).slice(0, 300) });
     return { ok: true, result, ...(image ? { image } : {}) };
   } catch (err) {

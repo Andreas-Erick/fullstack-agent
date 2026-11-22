@@ -1,16 +1,12 @@
 // Agent tools: Long-term memory facts (memory.js): what is true about the user.
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
 const memory = require('../memory');
-const { obj, str, requireApproval } = require('./common');
+const { obj, str, requireApproval, guardWrite } = require('./common');
 
 // Memories go into every later prompt, and a later turn reads them as the user's own data, untainted. So
 // after outside content (a web page, an email, a file) a save asks first, in auto mode too, and what is
 // saved is marked `source: outside` (memory.OUTSIDE), which the prompt shows as data. True when marked.
-async function outsideWrite(ctx, title, detail) {
-  if (!ctx?.turn?.tainted) return false;
-  await requireApproval(ctx, 'settings', title, String(detail || '').slice(0, 600), { taintAsks: true });
-  return true;
-}
+const outsideWrite = (ctx, title, detail) => guardWrite(ctx, title, String(detail || '').slice(0, 600));
 
 module.exports = [
   {

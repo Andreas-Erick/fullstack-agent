@@ -15,7 +15,7 @@ const github = require('./github');
 const approvals = require('./approvals');
 const log = require('./logger');
 const connectors = require('./connectors');
-const outbound = require('./outboundcore');
+const turnguard = require('./turnguard');
 const { safeCommand } = require('./commandsafety');
 const claudeUsage = require('./claudeusage');
 const perf = require('./perfcore');
@@ -314,10 +314,9 @@ function forget(convId, ...ids) {
   endSession(convId);
 }
 const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
-const WEB_TOOLS = ['WebFetch', 'WebSearch'];
-const READ_TOOLS = ['Read', 'Glob', 'Grep'];
-// Our own refusals (approve()) as the CLI hands them back (an error result): nothing from outside in them.
-const DENIED = /^(User did not approve|Not approved by the user|Connectors are turned off|This is an automatic warm-up|The reply was stopped|Tool \S+ is not available)/;
+// Which results are outside content (WebFetch/WebSearch, connectors, reads in the user's folders) and our
+// own refusals that never are: turnguard.js, shared with tools.js and redo.js.
+const { readTarget } = turnguard;
 
 // Where a path really is: the nearest part that exists, resolved (a Windows short name such as GIT~1, a
 // link or a junction becomes what it names), plus the parts that don't exist yet.
@@ -357,14 +356,6 @@ function inside(root, file) {
   if (!root || !file) return false;
   const rel = path.relative(path.resolve(root), path.resolve(file));
   return !rel.startsWith('..') && !path.isAbsolute(rel);
-}
-
-// The folder a Read, Glob or Grep call looks in (relative to the session's folder); a glob pattern's
-// fixed part counts when it is absolute.
-function readTarget(input, cwd) {
-  let target = input.file_path || input.notebook_path || input.path || '';
-  if (!target && path.isAbsolute(String(input.pattern || ''))) target = String(input.pattern).split(/[*?[{]/)[0] || String(input.pattern);
-  return path.resolve(cwd || '.', String(target || '.'));
 }
 
 // Claude Code keeps long tool results for this session under ~/.claude/projects/<folder name>/ and
@@ -607,9 +598,9 @@ class Session {
         // Priorities, Jobs) or a package manifest a command would run asks, each one: else a page's
         // words would come back as the user's own data in a clean turn.
         const guarded = vaultGuarded(rel);
-        if (guarded && turnState?.tainted) {
+        if (guarded) {
           const preview = String(input.new_string ?? input.content ?? '').slice(0, 600);
-          const r = await approvals.gate(turnState, 'settings', guarded === 'prompt' ? `Write a note your assistant reads every time (${rel.split(path.sep).join('/')})` : `Write a package file (${rel.split(path.sep).join('/')})`, `${tool} ${rel.split(path.sep).join('/')}${preview ? `\n\n${preview}` : ''}`, { taintAsks: true });
+          const r = await turnguard.guardWrite(turnState, guarded === 'prompt' ? `Write a note your assistant reads every time (${rel.split(path.sep).join('/')})` : `Write a package file (${rel.split(path.sep).join('/')})`, `${tool} ${rel.split(path.sep).join('/')}${preview ? `\n\n${preview}` : ''}`, { gate: approvals.gate });
           if (!r.allow) return { behavior: 'deny', message: `User did not approve: ${r.reason}` };
         }
         return { behavior: 'allow', updatedInput: input };
@@ -642,7 +633,7 @@ class Session {
       const server = connectors.toolServer(tool);
       const s = await store.getSettings();
       const level = connectors.levelOf(s.claudeCode, server);
-      const tainted = Boolean(turnState?.tainted) && Boolean(s.safety?.taintGuard); // ?.: test stand-ins carry only claudeCode
+      const tainted = turnguard.guarded(turnState, s); // with the taint guard on
       // After outside content (a calendar invitation's or a shared task's text can ask for anything),
       // deleting or reaching other people needs a yes given after it: neither the level nor an earlier yes
       // in the turn covers it. One dialog per service for deleting and one for reaching people, with the
@@ -691,14 +682,15 @@ class Session {
       // Files the user attached in this conversation (main/attachments.js): its own copies only, read as outside content.
       const attached = /^[a-z0-9_-]+$/i.test(this.convId || '') && path.join(require('./datadir').attachmentsFolder(), this.convId);
       if (attached && inside(attached, target)) {
-        approvals.markTainted(turnState, `${tool} ${input.file_path || input.path || ''}`);
+        turnguard.noteApprovedRead(turnState, tool, input);
         return { behavior: 'allow', updatedInput: input };
       }
       if (!(this.spec.readRoots || []).some((r) => inside(r, target))) {
         log.info('read outside allowed folders denied', { tool, target });
         return { behavior: 'deny', message: `${target} is outside the folders you may use (${(this.spec.readRoots || []).join(', ')}). Only the user can allow another folder (Settings → Documents → Add folder); ask them instead of looking elsewhere.` };
       }
-      approvals.markTainted(turnState, `${tool} ${input.file_path || input.path || ''}`);
+      // Only reads outside the session's own folders come here (the CLI allows those itself): marked now.
+      turnguard.noteApprovedRead(turnState, tool, input);
       return { behavior: 'allow', updatedInput: input };
     }
     // Only when the session was given it (web search on): a new host after outside content asks.
@@ -729,31 +721,6 @@ class Session {
     const preview = String(input.new_string ?? input.content ?? '').slice(0, 600);
     const r = await approvals.gate(turnState, 'repo_change', `Change files in ${repo} (branch ${branch})`, `${tool} ${rel}${preview ? `\n\n${preview}` : ''}`);
     return r.allow ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: `User did not approve: ${r.reason}` };
-  }
-
-  noteResult(t, info, content) {
-    const turn = t.ctx?.turn;
-    if (!turn) return;
-    const input = info.input || {};
-    // The result links of a search made before the turn read anything outside may be opened later
-    // without asking (its own links only: a snippet's text is the page's own words).
-    if (info.name === 'WebSearch') outbound.noteHosts(turn, outbound.resultLinkHosts(content));
-    if (connectors.isConnectorTool(info.name)) {
-      const { service, action } = connectors.describeTool(info.name);
-      approvals.markTainted(turn, `${service}: ${action}`); // as the dialogs name it, not the tool id
-    } else if (WEB_TOOLS.includes(info.name) || this.readsOutside(info.name, input)) {
-      approvals.markTainted(turn, `${info.name} ${input.url || input.query || input.file_path || input.path || ''}`.trim());
-    }
-  }
-
-  // Read/Glob/Grep in the user's folders or a cloned repo (the CLI allows them there without asking
-  // approve()). The vault and the app's own code stay the user's own, as vault_read_note and code_read_file.
-  readsOutside(name, input) {
-    if (!READ_TOOLS.includes(name)) return false;
-    const { cwd, vault, codeRoot, repos, userFolders = [] } = this.spec || {};
-    const target = readTarget(input, cwd);
-    if ((vault && inside(vault, target)) || (codeRoot && inside(codeRoot, target))) return false;
-    return [repos, ...userFolders].some((r) => r && inside(r, target));
   }
 
   send(content, { emit, signal, ctx }) {
@@ -892,7 +859,8 @@ class Session {
         // user's folders or a cloned repo): marked when it arrives, not when the call is made, so a call
         // never counts as having read itself (its own approve() runs before its result). Only an error
         // result can be our refusal: a page or an email that starts with those words still taints.
-        if (!(block.is_error && DENIED.test(preview))) this.noteResult(t, info, block.content);
+        // The app's own tools were classified by tools.js when they ran (turnguard `own`).
+        turnguard.noteResult(t.ctx?.turn, { tool: info.name, input: info.input || {}, content: block.content, error: Boolean(block.is_error), text: preview, spec: this.spec, own: info.own, untrusted: false });
         t.emit({ type: 'tool_end', id: block.tool_use_id, name: info.name, ok: !block.is_error, preview });
         t.records.push({ name: info.name, input: info.input, ok: !block.is_error, preview });
         const ms = Date.now() - info.started;

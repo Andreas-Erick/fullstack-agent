@@ -1,6 +1,7 @@
 // Agent tools: The feature guide and which skills, connectors and extensions fit a task.
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
 const store = require('../store');
+const turnguard = require('../turnguard');
 const { obj, str, bool } = require('./common');
 
 module.exports = [
@@ -100,7 +101,7 @@ module.exports = [
       const raising = connectors.LEVELS.indexOf(a.level) > connectors.LEVELS.indexOf(before);
       if (raising) {
         // Text from outside (a page, an email, a connector's result) must never grant itself access.
-        if (ctx.turn?.tainted) return { error: 'Not in a turn that read external content. Ask the user to say it again in a new message, or to use Settings → AI brain.' };
+        if (turnguard.isTainted(ctx.turn)) return { error: 'Not in a turn that read external content. Ask the user to say it again in a new message, or to use Settings → AI brain.' };
         const r = await approvals.gate(ctx.turn, 'connector_trust', `${name}: ${connectors.LEVEL_LABEL[a.level]}`, `From now on ${name} will ${a.level === 'read' ? 'read (list, get, search…) without asking; anything that changes something still asks' : a.level === 'write' ? 'create and change things without asking; deleting still asks' : 'do anything without asking, deleting included'}. Was: ${connectors.LEVEL_LABEL[before]}. Changeable any time in Settings → AI brain.`);
         if (!r.allow) return { ok: false, error: `The user did not confirm: ${r.reason}` };
       }

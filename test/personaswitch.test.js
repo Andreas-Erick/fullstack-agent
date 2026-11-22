@@ -15,6 +15,13 @@ stub({
   electron: { app: { getPath: () => dir, getVersion: () => '0.0.0' }, safeStorage: { isEncryptionAvailable: () => false } },
   './llm': llmStub,
 });
+// tools/common.js with its approval replaced: requireApproval, and guardWrite (the writes asked after
+// outside content, turnguard.guardWrite) through the same stand-in.
+function commonWith(requireApproval) {
+  const turnguard = require(path.join(ROOT, 'main/turnguard.js'));
+  const guardWrite = async (ctx, title, detail, kind = 'settings') => (await turnguard.guardWrite(ctx?.turn, title, detail, { kind, gate: async (_t, k, ti, d, extra) => (await requireApproval(ctx, k, ti, d, extra), { allow: true }) })).asked;
+  return { ...require(path.join(ROOT, 'main/tools/common.js')), requireApproval, guardWrite };
+}
 const core = load('main/personacore.js');
 const store = load('main/store.js');
 const persona = load('main/persona.js');
@@ -219,7 +226,7 @@ test('every switch reaches paired devices: what a switch changes is all in what 
 });
 
 test('the switch tool: by name, asks first after outside content, says who is live now, refuses an unknown one', async () => {
-  stub({ './common': { ...require(path.join(ROOT, 'main/tools/common.js')), requireApproval: async (ctx, kind, title) => approvals.push({ kind, title }) } });
+  stub({ './common': commonWith(async (ctx, kind, title) => approvals.push({ kind, title })) });
   const tools = load('main/tools/appearance.js');
   const tool = (Array.isArray(tools) ? tools : tools.tools || Object.values(tools).flat()).find((t) => t?.name === 'persona_switch');
   assert.ok(tool, 'persona_switch exists');
@@ -326,7 +333,7 @@ const waitPoint = async () => {
 let toolsMod = null;
 function agentTools() {
   if (toolsMod) return toolsMod;
-  const common = { ...require(path.join(ROOT, 'main/tools/common.js')), requireApproval: waitPoint };
+  const common = commonWith(waitPoint);
   stub({
     './common': common,
     './tools/common': common,

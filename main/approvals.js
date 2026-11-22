@@ -7,13 +7,15 @@
 //  - With the taint guard on, a turn that read outside content (web pages, documents, a connector's
 //    data) shows the warning on every dialog and asks for the TAINT_ASKS kinds and for calls marked
 //    `taintAsks`, in auto mode too, and for each command (TAINT_EACH_TIME): outside content is data,
-//    never instructions.
+//    never instructions. What counts as outside content, the turn's ledger and the guard's definition
+//    (turnguard.guarded) live in turnguard.js; this file keeps the dialog mechanics.
 // Approval is remembered per turn and kind, so one "yes" covers a whole multi-file change. Stop ends
 // every open question of its turn (newTurn's `signal`).
 const crypto = require('crypto');
 const store = require('./store');
 const log = require('./logger');
 const outbound = require('./outboundcore');
+const turnguard = require('./turnguard');
 
 const pending = new Map(); // id -> resolve
 
@@ -50,11 +52,8 @@ function newTurn({ signal = null, userText = '' } = {}) {
   return { tainted: false, taintSources: [], approved: new Set(), approvedTainted: new Set(), plan: null, signal, userHosts: outbound.hostsIn(userText), knownHosts: new Set(), outboundApproved: new Set() };
 }
 
-function markTainted(turn, source) {
-  if (!turn) return;
-  turn.tainted = true;
-  if (turn.taintSources.length < 5) turn.taintSources.push(source);
-}
+// The ledger is turnguard.js's; the name stays for the callers that seed a turn (llm.js runOn).
+const markTainted = turnguard.mark;
 
 /**
  * How a spoken answer may approve this request (renderer commandcore.approvalAnswer): 'click' = not by
@@ -81,7 +80,7 @@ async function gate(turn, kind, title, detail = '', extra = {}) {
   if (turn?.signal?.aborted) return STOPPED;
   const { taintAsks = false, ...shown } = extra;
   // The dialog says so whenever the turn read outside content; only some kinds ask because of it.
-  const tainted = Boolean(turn?.tainted) && Boolean(s.safety.taintGuard);
+  const tainted = turnguard.guarded(turn, s);
   const askEach = taintAsks || TAINT_EACH_TIME.has(kind);
   const taintBlocks = tainted && (TAINT_ASKS.has(kind) || askEach);
   // One yes covers the kind for the rest of the turn, except EACH_TIME kinds, a `taintAsks` call or a
@@ -152,7 +151,7 @@ function ask(payload, signal = null) {
  */
 async function askOutbound(turn, url) {
   const s = await store.getSettings();
-  const d = outbound.check(turn, url, { tainted: Boolean(turn?.tainted) && Boolean(s.safety.taintGuard) });
+  const d = outbound.check(turn, url, { tainted: turnguard.guarded(turn, s) });
   if (d.decision === 'allow') {
     outbound.noteHosts(turn, [d.host]); // only while the turn is still untainted
     return { allow: true };

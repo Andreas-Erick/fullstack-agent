@@ -1,7 +1,7 @@
 // Agent tools: GitHub through the gh CLI and git (github.js): read, clone, branch, commit, push, PRs.
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
 const github = require('../github');
-const { obj, str, int, bool, requireApproval } = require('./common');
+const { obj, str, int, bool, requireApproval, guardWrite } = require('./common');
 
 const isCloned = (repo) => require('fs').promises.access(require('path').join(github.localPath(repo), '.git')).then(() => true, () => false);
 
@@ -66,7 +66,7 @@ module.exports = [
     parameters: obj({ repo: str('owner/name') }, ['repo']),
     run: async (a, ctx) => {
       // After outside content a page may be choosing the repo whose files a later command would run.
-      if (ctx?.turn?.tainted) await requireApproval(ctx, 'repo_change', `Clone ${a.repo} from GitHub`, `Download ${a.repo} into your repos folder.`, { taintAsks: true });
+      await guardWrite(ctx, `Clone ${a.repo} from GitHub`, `Download ${a.repo} into your repos folder.`, 'repo_change');
       return github.clone(a.repo);
     },
   },
