@@ -267,3 +267,90 @@ test('a brain card writes only the provider and its own key or detected model', 
   assert.deepStrictEqual(brainPatch('claude-code', { key: 'x' }), { llm: { provider: 'claude-code' } }, 'no key for the Claude plan');
   assert.deepStrictEqual(brainPatch('anthropic', { key: 'sk-ant-1' }), { llm: { provider: 'anthropic' }, anthropic: { apiKey: 'sk-ant-1' } });
 });
+
+// Wizard copy and reassurance (#19): the progress in three phases, the privacy step in short lines, the
+// Obsidian option only for Obsidian users, and the plain words a newcomer reads.
+test('the progress reads "about 3 minutes" in three phases; Quick start says one step after privacy', async () => {
+  const { wizardProgress } = await loadCore();
+  const at = (id) => wizardProgress('full', id);
+  assert.strictEqual(at('welcome').label, 'Setup · about 3 minutes');
+  assert.deepStrictEqual(at('welcome').phases.map((p) => p.name), ['Basics', 'Brain & voice', 'You']);
+  assert.deepStrictEqual(at('privacy').phases.map((p) => p.state), ['current', 'todo', 'todo']);
+  assert.deepStrictEqual(at('vault').phases.map((p) => p.state), ['done', 'current', 'todo']);
+  assert.deepStrictEqual(at('hello').phases.map((p) => p.state), ['done', 'done', 'current']);
+  assert.strictEqual(wizardProgress('quick', 'brain').label, 'Start now (1 step after privacy)');
+  assert.strictEqual(wizardProgress('missed', 'privacy').label, 'Before you go on');
+  assert.deepStrictEqual(wizardProgress('missed', 'privacy').phases, []);
+  assert.ok(!/Step \d+ of/.test(JSON.stringify(['welcome', 'brain', 'hello'].map(at))), 'no "Step N of 11"');
+});
+
+test('every step of the full setup belongs to exactly one phase, in order', async () => {
+  const { PHASES, STEPS } = await loadCore();
+  assert.deepStrictEqual(PHASES.flatMap((p) => p.steps), STEPS);
+});
+
+test('the privacy step is five one-line points, each with its details folded away', async () => {
+  const { PRIVACY_POINTS } = await loadCore();
+  assert.strictEqual(PRIVACY_POINTS.length, 5);
+  for (const p of PRIVACY_POINTS) {
+    assert.ok(p.ico && p.line && p.more, `${p.line}: icon, line and details`);
+    assert.ok(p.line.length <= 70, `one short line: ${p.line}`);
+    assert.ok(!/[.:;]\s+\S/.test(p.line), `one sentence: ${p.line}`);
+    assert.ok(p.more.length > p.line.length, 'the details say more than the line');
+  }
+  const text = JSON.stringify(PRIVACY_POINTS);
+  for (const must of ['no account', 'MIT License', 'ask you first', 'leaves', 'charges']) assert.ok(text.includes(must), `still says: ${must}`);
+  const src = read('renderer/js/onboarding.js');
+  assert.match(src, /PRIVACY_POINTS\.map\(/);
+  assert.match(src, /el\('details', \{ class: 'ob-point'/);
+});
+
+test('the Obsidian vault-list option shows only when Obsidian is found, and is off unless turned on', async () => {
+  const { registerOffer } = await loadCore();
+  assert.deepStrictEqual(registerOffer(false), { show: false, checked: false });
+  assert.deepStrictEqual(registerOffer(false, true), { show: false, checked: false }, 'never ticked out of sight');
+  assert.deepStrictEqual(registerOffer(true), { show: true, checked: false });
+  assert.deepStrictEqual(registerOffer(true, true), { show: true, checked: true });
+});
+
+test('the wizard says once that changes save as you go and stay on this PC', async () => {
+  const { SAVES_LINE } = await loadCore();
+  assert.strictEqual(SAVES_LINE, 'Changes save as you go · everything stays on this PC · you can run this again from Settings → System.');
+  assert.match(read('renderer/js/onboarding.js'), /el\('p', \{ class: 'ob-saves' \}, SAVES_LINE\)/);
+  // Settings → System really holds the way back into setup.
+  assert.match(read('renderer/js/settingstabs.js'), /id: 'system'[^\n]*'health'/);
+  assert.match(read('renderer/js/settings/system.js'), /startOnboarding\(\)/);
+});
+
+test('the wizard speaks plainly: product names only as small print', () => {
+  const src = read('renderer/js/onboarding.js');
+  for (const plain of ['Speak replies out loud', 'How ${name} hears you', 'Where ${name} keeps your notes and memories', 'A folder of ordinary text files on this PC', 'Describe her personality', 'Link Gmail, Calendar and more (optional, later)']) assert.ok(src.includes(plain), `says: ${plain}`);
+  for (const jargon of ['Memory vault', "'Master prompt'", "'VoiceStudio URL'", 'Groq (Orpheus)', 'Who writes down what you say?', 'Step ${step + 1} of', 'labelled Config']) assert.ok(!src.includes(jargon), `no longer says: ${jargon}`);
+  // The vault-list option: only when Obsidian is found (registerOffer), never ticked by default.
+  assert.ok(!/draft\.register \?\?= true/.test(src));
+  assert.match(src, /registerOffer\(/);
+  assert.match(src, /api\.obsidian\.installed\(\)/);
+});
+
+test('Obsidian counts as found when its vault list exists', async () => {
+  const reg = path.join(dir, 'obsidian.json');
+  process.env.NEXUS_OBSIDIAN_REGISTRY = reg;
+  stub({
+    electron: { app: { getPath: () => dir } },
+    './logger': quietLog,
+    './vaultgit': { commitSoon() {}, ensure: async () => {} },
+    './store': { getSettings: async () => ({ obsidian: { enabled: false } }) },
+  });
+  try {
+    const obsidian = load('main/obsidian.js');
+    assert.strictEqual(await obsidian.obsidianInstalled(), false);
+    fs.writeFileSync(reg, JSON.stringify({ vaults: {} }));
+    assert.strictEqual(await obsidian.obsidianInstalled(), true);
+  } finally {
+    delete process.env.NEXUS_OBSIDIAN_REGISTRY;
+  }
+});
+
+test('the smoke check never touches the real Obsidian vault list', () => {
+  assert.match(read('main/smoke.js'), /process\.env\.NEXUS_OBSIDIAN_REGISTRY \|\|= path\.join\(dir, 'obsidian\.json'\)/);
+});

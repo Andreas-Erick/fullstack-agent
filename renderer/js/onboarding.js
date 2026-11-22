@@ -17,9 +17,9 @@ import { scanInto } from './hwscan.js';
 import { KOKORO_VOICES } from './kokorotext.js';
 import { connectClaude, testOutcome, showResult, showFailure } from './settings.js';
 import { speechPlan } from './perfcore.js';
-import { faceChoices, stepsFor, finishPatch, launchMode, accepted, brainPlan, brainPatch, detectionFrom, FREE_KEY_URL, FREE_KEY_STEPS, CLAUDE_CODE_URL, CLAUDE_CODE_LINE, HELLO_BRAIN_FAILED } from './onboardcore.js';
+import { faceChoices, stepsFor, finishPatch, launchMode, accepted, brainPlan, brainPatch, detectionFrom, FREE_KEY_URL, FREE_KEY_STEPS, CLAUDE_CODE_URL, CLAUDE_CODE_LINE, HELLO_BRAIN_FAILED, wizardProgress, PRIVACY_POINTS, SAVES_LINE, registerOffer } from './onboardcore.js';
 
-const STEP_NAMES = { welcome: 'Welcome', privacy: 'Privacy & safety', hardware: 'Your computer', brain: 'Brain', voice: 'Voice', vault: 'Memory & files', goals: 'What you want', connect: 'Connectors & extras', persona: 'Personality & face', tour: 'What I can do', hello: 'First hello' };
+const STEP_NAMES = { welcome: 'Welcome', privacy: 'Privacy & safety', hardware: 'Your computer', brain: 'Brain', voice: 'Voice', vault: 'Notes & files', goals: 'What you want', connect: 'Link services', persona: 'Personality & face', tour: 'What I can do', hello: 'First hello' };
 const PRIVACY_URL = 'https://github.com/Andreas-Erick/fullstack-agent/blob/main/PRIVACY.md';
 const CONNECTORS_URL = 'https://claude.ai/settings/connectors';
 
@@ -37,9 +37,9 @@ const TOUR_ICONS = { talk: '🎙', personas: '🎭', memory: '🧠', learning: '
 
 // How the privacy step opens, by the way through the wizard (onboardcore stepsFor).
 const PRIVACY_LEAD = {
-  full: 'Please read this once. It is the short version of the full privacy policy.',
-  quick: 'Please read this once (the short version of the full privacy policy). Then she finds a brain to think with, and you can start. Everything else can be set up later in Settings.',
-  missed: 'One thing we missed: you haven’t accepted the privacy and safety notice yet. Please read it once (the short version of the full privacy policy); everything else stays as you set it up.',
+  full: 'Five points, the short version of the full privacy policy. Open any of them for the details.',
+  quick: 'Five points, the short version of the full privacy policy. Then she finds a brain to think with, and you can start. Everything else can wait for Settings.',
+  missed: 'One thing we missed: you haven’t accepted the privacy and safety notice yet. Five points, the short version of the full privacy policy; everything else stays as you set it up.',
 };
 
 let step = 0; // the index in stepsFor(mode)
@@ -166,10 +166,11 @@ async function render() {
   const card = el('div', { class: 'ob-card glass' });
   const steps = stepsFor(mode);
   const id = steps[step];
-  card.append(
-    el('div', { class: 'ob-head' }, el('span', {}, mode === 'missed' ? 'Before you go on' : `Step ${step + 1} of ${steps.length}`), el('b', { id: 'obTitle' }, STEP_NAMES[id])),
-    el('div', { class: 'ob-steps' }, steps.map((_, i) => el('span', { class: i <= step ? 'on' : '' }))),
-  );
+  // The progress: the whole setup in three phases ("about 3 minutes"), Quick start as one step after privacy.
+  const progress = wizardProgress(mode, id);
+  card.append(el('div', { class: 'ob-head' }, el('span', {}, progress.label), el('b', { id: 'obTitle' }, STEP_NAMES[id])));
+  if (progress.phases.length) card.append(el('ol', { class: 'ob-steps ob-phases', 'aria-label': 'Setup progress' }, progress.phases.map((p) => el('li', { class: p.state === 'todo' ? '' : 'on', 'aria-current': p.state === 'current' ? 'step' : null }, p.name))));
+  else if (mode === 'quick') card.append(el('div', { class: 'ob-steps' }, steps.map((_, i) => el('span', { class: i <= step ? 'on' : '' }))));
   const body = el('div', { class: 'field', style: { gap: '12px' } });
   card.append(body);
   let beforeNext = async () => {}; // returns false to stay on the step
@@ -181,7 +182,7 @@ async function render() {
     draft.name = draft.name || s.agent.name;
     const stage = el('div', { class: 'ob-face' });
     body.append(
-      el('div', { class: 'ob-hero' }, stage, el('div', {}, el('h2', {}, `Meet ${s.agent.name || 'Siren'}`), el('p', { class: 'muted' }, 'Your personal assistant on this computer: she talks and listens, remembers what matters to you, keeps your notes and schedule, teaches, coaches you toward your goals, works on the web and in your documents, and comes along on your phone.'), el('p', { class: 'muted' }, 'This setup takes a few minutes, one topic at a time. You can change everything later in Settings (the gear at the bottom of the left rail, labelled Config), and nothing you already have is overwritten.'))),
+      el('div', { class: 'ob-hero' }, stage, el('div', {}, el('h2', {}, `Meet ${s.agent.name || 'Siren'}`), el('p', { class: 'muted' }, 'Your personal assistant on this computer: she talks and listens, remembers what matters to you, keeps your notes and schedule, teaches, coaches you toward your goals, works on the web and in your documents, and comes along on your phone.'), el('p', { class: 'muted' }, 'This setup takes about 3 minutes, one topic at a time. You can change everything later in Settings (the gear at the bottom of the left rail), and nothing you already have is overwritten.'))),
       field('What should your assistant be called?', input(draft.name, 'Siren', (v) => (draft.name = v)), 'The name she answers to and uses for herself. Every persona can have its own.'),
     );
     faceHost = new FaceHost(stage, { compact: true });
@@ -195,15 +196,8 @@ async function render() {
     body.append(
       el('h2', {}, 'Privacy and safety'),
       el('p', { class: 'muted' }, PRIVACY_LEAD[mode] || PRIVACY_LEAD.full),
-      el(
-        'div',
-        { class: 'ob-points' },
-        point('🏠', 'Your data stays on this computer', 'Settings, memories, notes and your schedule live in your data folder and your vault, as plain files you own. Conversations and keys are encrypted with your system’s keychain. There is no account, no server of ours, no analytics.'),
-        point('☁', 'What goes to your AI provider', 'Your messages, the conversation, relevant memories and notes, your schedule for the next days, tool results, and screenshots while you share your screen go to the AI brain you choose (for example Anthropic). Their privacy terms apply to it. With a model on this computer, none of it leaves.'),
-        point('🛡', 'You stay in control', 'Consequential actions ask you first: changing her own code, settings, deleting, commands, pushing to GitHub, anything in your connected services. Screen sharing only starts from your click. Pages, documents and tool results are treated as data, never as instructions.'),
-        point('⚠', 'AI can be wrong', 'Language models make mistakes and can sound sure about false things. Check what matters (medical, legal, financial, safety) with a qualified source. Siren is not a professional adviser, and the app is provided as is, without warranty (MIT License): no software is perfectly secure, and the authors are not liable for damage from its use.'),
-        point('💳', 'Services and costs are yours', 'You are responsible for the terms and charges of every service you connect (AI providers, connectors) and for what you approve.'),
-      ),
+      // One line per point; its details fold out (a native <details>: keyboard and screen readers included).
+      el('div', { class: 'ob-points' }, PRIVACY_POINTS.map((p) => el('details', { class: 'ob-point' }, el('summary', {}, el('span', { class: 'ico', 'aria-hidden': 'true' }, p.ico), el('b', {}, p.line)), el('p', {}, p.more)))),
       el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => api.shell.openExternal(PRIVACY_URL) }, '📄 Read the full privacy policy')),
       el('div', {}, el('b', {}, 'How careful should she be?')),
       choices(
@@ -215,9 +209,9 @@ async function render() {
         (v) => saveSettings({ safety: { permissionMode: v } }),
       ),
       // The one request the app makes on its own (main/updates.js; PRIVACY.md "Update check").
-      checkbox(s.updates?.check !== false, 'Tell me about new versions: once a day, ask GitHub whether a newer Siren is out (nothing is downloaded until you click Download; change it in Settings → Memory & history)', (v) => saveSettings({ updates: { check: v } })),
+      checkbox(s.updates?.check !== false, 'Tell me about new versions (a daily check with GitHub; nothing downloads by itself)', (v) => saveSettings({ updates: { check: v } })),
       // Off unless ticked: nothing is ever sent by the app (main/issues.js; PRIVACY.md "Problem reports").
-      checkbox(s.privacy?.reportIssues === true, 'Help fix bugs: when something breaks, offer me an anonymized problem report for the Siren project on GitHub. I see exactly what it says and send it myself, or not', (v) => saveSettings({ privacy: { reportIssues: v } })),
+      checkbox(s.privacy?.reportIssues === true, 'Help fix bugs: offer me an anonymized problem report that I read and send myself, or not', (v) => saveSettings({ privacy: { reportIssues: v } })),
       checkbox(draft.accepted, 'I have read this and agree to the privacy policy and disclaimers', (v) => {
         draft.accepted = v;
         next()?.toggleAttribute('disabled', !v);
@@ -416,7 +410,7 @@ async function render() {
       } else if (now.stt.engine === 'remote') {
         sttArea.append(el('div', { class: 'hint' }, 'You use your own transcription address (Settings → Voice input).'));
       } else {
-        sttArea.append(el('div', { class: 'hint' }, `On this computer: ${speechPlan(now).model.split('/').pop()}, chosen to fit it. Downloaded the first time you talk. Change it in Settings → Voice input.`));
+        sttArea.append(el('div', { class: 'hint' }, `Runs on this computer with a speech model chosen to fit it, downloaded the first time you talk (${speechPlan(now).model.split('/').pop()}). Change it in Settings → Voice input.`));
       }
     };
     const progress = el('div', { class: 'hint' });
@@ -445,8 +439,8 @@ async function render() {
             'Service',
             choices(
               [
-                { value: 'groq', title: 'Groq (Orpheus)', desc: 'English. Uses a Groq API key, the same one as for Groq speech recognition.' },
-                { value: 'openai', title: 'OpenAI', desc: 'Many languages. Uses an OpenAI API key.' },
+                { value: 'groq', title: 'Groq', desc: 'English. Free key, the same one that can write down what you say. (Voice model: Orpheus)' },
+                { value: 'openai', title: 'OpenAI', desc: 'Many languages. Needs an OpenAI key (paid per use).' },
               ],
               cv.provider || 'groq',
               async (v) => (await saveSettings({ cloudVoice: { provider: v, voice: '' } }), drawEngine()),
@@ -454,26 +448,29 @@ async function render() {
           ),
           openai
             ? field('OpenAI API key', input(cv.apiKey, 'sk-…', (v) => saveSettings({ cloudVoice: { apiKey: v } }), 'password'))
-            : field('Groq API key', input(state.settings.groq.apiKey, 'gsk_…', (v) => saveSettings({ groq: { apiKey: v } }), 'password'), 'Get one at <a href="https://console.groq.com/keys">console.groq.com</a>, and accept Orpheus’s terms once in its Playground.'),
+            : field('Groq key', input(state.settings.groq.apiKey, 'gsk_…', (v) => saveSettings({ groq: { apiKey: v } }), 'password'), 'Free, no card: get one at <a href="https://console.groq.com/keys">console.groq.com</a>. The first time, accept the voice’s terms once in Groq’s Playground.'),
           el('div', { class: 'hint' }, 'Every reply that is spoken is sent to that service and costs a little (about 1–2 cents a minute). If it fails, the offline voice speaks instead.'),
           el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => speaker.say(`Hello, I'm ${state.settings.agent.name}.`) }, '🔊 Test voice')),
         );
       } else {
         engineArea.append(
-          field('VoiceStudio URL', input(s.voice.baseUrl, 'http://localhost:3900', (v) => saveSettings({ voice: { baseUrl: v } })), 'VoiceStudio is a separate app with more natural voices and voice cloning. If it isn’t reachable, the offline voice speaks instead.'),
+          field('Address of the voice app', input(s.voice.baseUrl, 'http://localhost:3900', (v) => saveSettings({ voice: { baseUrl: v } })), 'VoiceStudio, a separate app with more natural voices and voice cloning. If it isn’t reachable, the voice on this computer speaks instead.'),
           el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => speaker.say(`Hello, I'm ${state.settings.agent.name}.`) }, '🔊 Test voice')),
         );
       }
       drawStt();
     };
+    const name = s.agent.name || 'Siren';
     body.append(
       el('h2', {}, 'Voice'),
-      checkbox(s.voice.ttsEnabled, 'Speak replies aloud', (v) => saveSettings({ voice: { ttsEnabled: v } })),
+      checkbox(s.voice.ttsEnabled, 'Speak replies out loud', (v) => saveSettings({ voice: { ttsEnabled: v } })),
+      el('div', {}, el('b', {}, 'Where her voice comes from')),
+      // Plain choices first; the product names only as small print.
       choices(
         [
-          { value: 'local', ico: '🌊', title: 'Offline voice', desc: 'Recommended. Runs in the app: free, private, no internet once downloaded.' },
-          { value: 'cloud', ico: '☁', title: 'Cloud voice', desc: 'Natural and quick with nothing to install, on slower computers too. Spoken replies go to Groq or OpenAI.' },
-          { value: 'voicestudio', ico: '🎚', title: 'VoiceStudio', desc: 'A separate app with more natural and cloneable voices.' },
+          { value: 'local', ico: '🌊', title: 'A voice on this computer', desc: 'Recommended. Free and private, and works without internet once downloaded. (Kokoro)' },
+          { value: 'cloud', ico: '☁', title: 'A voice from the internet', desc: 'Natural and quick with nothing to install, on slower computers too. Spoken replies go to Groq or OpenAI.' },
+          { value: 'voicestudio', ico: '🎚', title: 'A separate voice app (advanced)', desc: 'More natural voices and voice cloning. (VoiceStudio)' },
         ],
         draft.engine,
         async (v) => ((draft.engine = v), await saveSettings({ voice: { engine: v } }), drawEngine()),
@@ -490,11 +487,11 @@ async function render() {
         s.stt.micMode,
         (v) => saveSettings({ stt: { micMode: v } }),
       ),
-      el('div', {}, el('b', {}, 'Who writes down what you say?')),
+      el('div', {}, el('b', {}, `How ${name} hears you`)),
       choices(
         [
-          { value: 'local', ico: '🔒', title: 'This computer', desc: 'Recommended. Private and free; needs over 1 GB of memory while loaded.' },
-          { value: 'groq', ico: '☁', title: 'Groq, in the cloud', desc: 'Light and fast, on slower computers too. Your speech goes to Groq.' },
+          { value: 'local', ico: '🔒', title: 'On this computer', desc: 'Recommended. Private and free; uses over 1 GB of memory while it listens. (Whisper)' },
+          { value: 'groq', ico: '☁', title: 'Over the internet', desc: 'Light and fast, on slower computers too. What you say goes to Groq to be written down.' },
         ],
         s.stt.engine,
         async (v) => (await saveSettings({ stt: { engine: v } }), drawStt()),
@@ -513,18 +510,22 @@ async function render() {
   }
 
   if (id === 'vault') {
-    const known = await api.obsidian.vaults().catch(() => []);
+    const known = await api.obsidian.vaults().catch(ignore('no Obsidian vault list', []));
     const def = await api.obsidian.defaultPath();
+    // The "Obsidian's vault list" option only for someone who has Obsidian, and off unless ticked.
+    const offer = registerOffer(await api.obsidian.installed().catch(ignore('Obsidian check failed', false)), draft.register);
+    draft.register = offer.checked;
     draft.vault ??= s.obsidian.vaultPath || '';
-    const opts = [{ value: '', title: 'Create her own vault', desc: def }, ...known.filter((v) => v.exists).map((v) => ({ value: v.path, title: `Use “${v.name}”`, desc: `${v.path} — structure is added, nothing is overwritten` }))];
+    const name = s.agent.name || 'Siren';
+    const opts = [{ value: '', title: 'A new folder for her', desc: def }, ...known.filter((v) => v.exists).map((v) => ({ value: v.path, title: `Use your Obsidian vault “${v.name}”`, desc: `${v.path} — her folders are added, nothing is overwritten` }))];
     body.append(
-      el('h2', {}, 'Memory vault'),
-      el('p', { class: 'muted' }, 'She keeps her long-term memory, your notes, a daily journal, your priorities, your schedule and what you learn in an Obsidian vault: plain Markdown files you own, with a version history so any change can be undone. Obsidian itself is optional.'),
+      el('h2', {}, `Where ${name} keeps your notes and memories`),
+      el('p', { class: 'muted' }, 'A folder of ordinary text files on this PC. You own them, and every change can be undone. Her memory, your notes, a daily journal, your priorities, your schedule and what you learn all go there.'),
+      el('p', { class: 'hint' }, 'The files are Markdown, so apps such as Obsidian can open them too. You don’t need any of them.'),
       choices(opts, draft.vault, (v) => (draft.vault = v)),
-      el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => { const d = await api.dialog.pickFolder('Vault folder'); if (d) { draft.vault = d; render(); } } }, 'Choose another folder…')),
+      el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => { const d = await api.dialog.pickFolder('Notes folder'); if (d) { draft.vault = d; render(); } } }, 'Choose another folder…')),
     );
-    draft.register ??= true;
-    body.append(checkbox(draft.register, 'Also add it to Obsidian’s vault list (Obsidian must be closed; a backup of its list is kept)', (v) => (draft.register = v)));
+    if (offer.show) body.append(checkbox(draft.register, 'Also add it to Obsidian’s vault list (Obsidian must be closed; a backup of its list is kept)', (v) => (draft.register = v)));
     // The one folder of the user's she may use by default (documents.userFolders).
     const workspace = state.settings.documents?.workspace;
     body.append(
@@ -586,13 +587,13 @@ async function render() {
     const prompt = el('textarea', { class: 'input', rows: 6, placeholder: 'Who is your assistant? How does she talk, what does she care about, how should she treat you?' });
     prompt.value = s.agent.personality;
     const aesthetic = input(s.agent.aesthetic, 'e.g. 90s cyberpunk terminal, warm solarpunk greenhouse, minimal Scandinavian', () => {});
-    custom.append(field('Master prompt', prompt), field('Aesthetic / style (optional)', aesthetic, 'Later, “Generate look & feel” in Settings restyles the whole app to match.'));
+    custom.append(field('Describe her personality', prompt, 'Write it as you would describe a person: who she is, how she talks, what she cares about.'), field('Her style (optional)', aesthetic, 'Later, “Generate look & feel” in Settings restyles the whole app to match.'));
     body.append(
       el('h2', {}, 'Personality and face'),
       choices(
         [
-          { value: 'keep', ico: '🧜', title: `Keep ${s.agent.name || 'Siren'} as she is`, desc: 'Warm, candid and capable: a chief of staff, tutor and good friend in one. You can edit her master prompt any time.' },
-          { value: 'custom', ico: '✍', title: 'Write my own', desc: 'Your own master prompt and aesthetic.' },
+          { value: 'keep', ico: '🧜', title: `Keep ${s.agent.name || 'Siren'} as she is`, desc: 'Warm, candid and capable: a chief of staff, tutor and good friend in one. You can change her personality any time in Settings.' },
+          { value: 'custom', ico: '✍', title: 'Describe my own', desc: 'Her personality and style, in your own words.' },
         ],
         draft.persona,
         (v) => ((draft.persona = v), (custom.style.display = v === 'custom' ? '' : 'none')),
@@ -677,6 +678,8 @@ async function render() {
     { class: 'ob-nav' },
     step > 0 ? el('button', { class: 'btn', onclick: back }, '‹ Back') : first,
     !last ? el('button', { class: 'btn primary', disabled: !canNext(), onclick: then(() => go(1)) }, 'Next ›') : lastButtons(),
+    // Reassurance under the buttons: every control saves at once, nothing leaves this PC, setup can run again.
+    el('p', { class: 'ob-saves' }, SAVES_LINE),
   );
   let nav = buildNav();
   redrawNav = () => {
@@ -716,14 +719,15 @@ async function connectStep(s) {
   const out = el('div', { class: 'test-result hidden' });
   const skills = await api.skills.list().catch(() => []);
   const parts = [
-    el('h2', {}, 'Connectors and extras'),
+    el('h2', {}, 'Link Gmail, Calendar and more (optional, later)'),
+    el('p', { class: 'muted' }, 'All of this is optional. Skip it with Next; you can link services any time later.'),
     point('✅', 'Built in, nothing to set up', 'Your schedule, notes, memory, learning tracker, vocabulary decks, web search, documents and PDFs, diagrams, routines and the Inner World all run inside the app. GitHub works once the GitHub CLI is signed in.'),
     point('✨', `${skills.length} skills included`, 'Ready-made workflows such as /explain, /proof-coach, /study-session, /weekly-review and /tour. Add your own, or import more from GitHub, in the Skills view.'),
   ];
   if (claudeBrain) {
     parts.push(
-      point('🔌', 'Your Claude connectors and plugins (optional)', 'With your Claude account, she can use the services you connected on claude.ai (Gmail, Google Calendar, Todoist, Notion, Canva…) and your Claude Code plugins. None come with the app: you choose them on claude.ai. Every call asks you first unless you allow a service in Settings → AI brain, and what they return is treated as data.'),
-      checkbox(s.claudeCode.connectors, 'Use my Claude connectors and plugins', (v) => saveSettings({ claudeCode: { connectors: v } })),
+      point('🔌', 'Gmail, Calendar, Notion and more, through your Claude plan', 'With your Claude account, she can use the services you connected on claude.ai (Gmail, Google Calendar, Todoist, Notion, Canva…) and your Claude Code plugins. None come with the app: you choose them on claude.ai. Every call asks you first unless you allow a service in Settings → AI brain, and what they return is treated as data.'),
+      checkbox(s.claudeCode.connectors, 'Use the services I linked on claude.ai (connectors and plugins)', (v) => saveSettings({ claudeCode: { connectors: v } })),
       el('div', { class: 'hint' }, `Worth connecting for what you picked: ${ideas.join(', ')}.`),
       el(
         'div',
@@ -752,7 +756,7 @@ async function connectStep(s) {
       out,
     );
   } else {
-    parts.push(point('🔌', 'Claude connectors and plugins', 'Services like Gmail, Todoist or Notion work through the Claude account brain. If you switch to it later, turn them on in Settings → AI brain.'));
+    parts.push(point('🔌', 'Gmail, Calendar, Notion and more', 'Services like Gmail, Todoist or Notion work through the Claude account brain. If you switch to it later, turn them on in Settings → AI brain.'));
   }
   parts.push(
     point('🧩', 'Extensions (optional, off)', 'REA explains how apps and websites work; God’s Eye View is a live globe of public world data. Turn them on in Settings → Extensions when you want them.'),
@@ -838,9 +842,9 @@ async function firstHello(list, { onBrain = () => {}, fix = () => {} } = {}) {
     finder.helloFailed = true;
   }
   onBrain();
-  const vault = row('Vault is writable');
-  const st = await api.obsidian.status().catch(() => ({}));
-  vault(Boolean(st.ok), st.ok ? `${st.path} · ${st.count} notes` : 'Vault unavailable — choose a folder in Settings → Vault.');
+  const vault = row('Her notes folder can be saved to');
+  const st = await api.obsidian.status().catch(ignore('notes folder status failed', {}));
+  vault(Boolean(st.ok), st.ok ? `${st.path} · ${st.count} notes` : 'Her notes folder isn’t available. Choose one in Settings → Knowledge.');
   const mic = row('Microphone available');
   try {
     if (!(await api.mic.request())) throw new Error('access was not granted');

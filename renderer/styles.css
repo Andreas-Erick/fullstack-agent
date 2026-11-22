@@ -725,6 +725,14 @@ body.perf-lite .face-scene svg g { will-change: auto; }
 .ob-steps { display: flex; gap: 6px; }
 .ob-steps span { flex: 1; height: 4px; border-radius: 4px; background: rgba(var(--text-rgb), 0.12); }
 .ob-steps span.on { background: rgb(var(--c1)); box-shadow: 0 0 8px rgba(var(--c1), 0.6); }
+/* The whole setup's progress: three phases, each a bar with its name under it (onboardcore wizardProgress). */
+.ob-phases { list-style: none; margin: 0; padding: 0; gap: 10px; }
+.ob-phases li { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--muted); }
+.ob-phases li::before { content: ''; height: 4px; border-radius: 4px; background: rgba(var(--text-rgb), 0.12); transition: background 0.3s, box-shadow 0.3s; }
+.ob-phases li.on::before { background: rgb(var(--c1)); box-shadow: 0 0 8px rgba(var(--c1), 0.6); }
+.ob-phases li[aria-current] { color: var(--text); font-weight: 600; }
+/* "Changes save as you go…": one quiet line under the wizard's buttons, the whole width. */
+.ob-saves { flex: 1 0 100%; margin: 0; font-size: 12px; color: var(--muted); text-align: center; }
 .ob-card h2 { margin: 0; font-family: var(--font-display); letter-spacing: var(--display-spacing); text-transform: var(--display-transform); color: rgb(var(--c1-soft)); }
 .ob-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .ob-choice { text-align: left; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: rgba(var(--well), 0.4); cursor: pointer; }
@@ -749,6 +757,15 @@ body.perf-lite .face-scene svg g { will-change: auto; }
 .ob-point .ico { font-size: 20px; line-height: 1.3; flex: none; width: 26px; text-align: center; }
 .ob-point b { display: block; }
 .ob-point p { margin: 2px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+/* The privacy step's points: one line each, the details folded out on a click (a native <details>). */
+details.ob-point { display: block; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(var(--well), 0.3); }
+details.ob-point summary { display: flex; gap: 12px; align-items: center; padding: 9px 12px; cursor: pointer; list-style: none; }
+details.ob-point summary::-webkit-details-marker { display: none; }
+details.ob-point summary::after { content: '▸'; margin-left: auto; color: var(--muted); transition: transform 0.15s; }
+details.ob-point[open] summary::after { transform: rotate(90deg); }
+body.fx-still details.ob-point summary::after { transition: none; }
+details.ob-point summary:focus-visible { outline: 2px solid rgb(var(--c1)); outline-offset: 2px; border-radius: var(--radius); }
+details.ob-point p { margin: 0; padding: 0 12px 11px 50px; }
 .ob-tour { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
 .ob-feature { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: rgba(var(--well), 0.4); color: var(--text); font: inherit; cursor: pointer; transition: border-color 0.15s, background-color 0.15s, transform 0.15s; }
 .ob-feature:hover { border-color: var(--line-strong); transform: translateY(-1px); }

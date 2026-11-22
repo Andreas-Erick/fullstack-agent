@@ -868,6 +868,7 @@ function registerIpc() {
 
   // Vault system
   handle('obsidian:vaults', () => obsidian.knownVaults());
+  handle('obsidian:installed', () => obsidian.obsidianInstalled());
   handle('obsidian:register', () => obsidian.registerVault());
   handle('obsidian:history', async (rel) => vaultgit.history(await obsidian.vaultPath(), rel));
   handle('obsidian:showVersion', async (rel, version) => vaultgit.showVersion(await obsidian.vaultPath(), rel, version));

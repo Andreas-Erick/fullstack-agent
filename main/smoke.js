@@ -42,6 +42,9 @@ function prepare() {
   if (!process.env.NEXUS_USER_DATA && MEM) seedSettings(path.join(dir, 'data'));
   process.env.NEXUS_USER_DATA ||= path.join(dir, 'data');
   process.env.NEXUS_DOCUMENTS ||= path.join(dir, 'documents');
+  // Obsidian's vault list too (main/obsidian.js registryFile): a scene that walks the setup wizard never
+  // writes the user's real obsidian.json, and the wizard sees no Obsidian (its vault-list option hidden).
+  process.env.NEXUS_OBSIDIAN_REGISTRY ||= path.join(dir, 'obsidian.json');
   // The clock starts now, not when the window opens: a main module that fails to load (Electron then
   // shows its error box and waits) still ends the check.
   app = require('electron').app;
@@ -376,6 +379,67 @@ const FAILED_CARD_JS = (label) => `(async () => {
   for (const [what, sel] of Object.entries(parts)) if (!document.querySelector(sel)) found.push(${JSON.stringify(label)} + ': the chat shows no ' + what);
   return found;
 })()`;
+// The setup wizard's Quick start with the brain finder (onboarding.js, onboardcore brainPlan): the welcome's
+// Quick start, the privacy step (its progress label, the five folded points, the "saves as you go" line), then
+// the brain step. The detection is stubbed through the settings: a saved Gemini key on the Gemini brain is
+// kept whatever else this computer has (a Claude sign-in, an Ollama model), so the Gemini card is chosen, its
+// guided key shows, and Start waits for a test that never runs (no model is called). Nothing cut off, every
+// control named. The settings it changed go back, and the wizard is left on its welcome page as it was.
+const BRAIN_FINDER_JS = (label) => `(async () => {
+  const L = ${JSON.stringify(label)};
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const found = [];
+  const { state, saveSettings } = await import('./js/state.js');
+  const ob = await import('./js/onboarding.js');
+  const s0 = state.settings;
+  const before = { llm: { provider: s0.llm.provider }, gemini: { apiKey: s0.gemini?.apiKey || '' }, privacy: { acceptedAt: s0.privacy?.acceptedAt || 0 } };
+  const wiz = document.querySelector('#onboarding');
+  const navButton = (text) => [...wiz.querySelectorAll('.ob-nav .btn')].find((b) => b.textContent.trim().startsWith(text));
+  const clip = await import('./js/cliptest.js');
+  const a11y = await import('./js/a11ytest.js');
+  const scan = (where) => {
+    for (const c of clip.findClippedText()) found.push(L + ' ' + where + ': text cut off (' + c.how + ') at ' + c.where + ': "' + c.text + '"');
+    for (const c of a11y.findUnnamed(wiz)) found.push(L + ' ' + where + ': a control without a name for screen readers: ' + c.where + ' ' + c.html);
+    for (const c of a11y.findHiddenInLabels(wiz)) found.push(L + ' ' + where + ': a control hidden from the keyboard: ' + c.where);
+  };
+  try {
+    await saveSettings({ llm: { provider: 'gemini' }, gemini: { apiKey: 'smoke-not-a-real-key' }, privacy: { acceptedAt: 0 } });
+    ob.startOnboarding('full');
+    await wait(300);
+    const quick = navButton('Quick start');
+    if (!quick) return [L + ': the welcome page offers no Quick start'];
+    quick.click();
+    for (let i = 0; i < 30 && !wiz.querySelector('details.ob-point'); i++) await wait(100);
+    const head = wiz.querySelector('.ob-head span')?.textContent || '';
+    if (head !== 'Start now (1 step after privacy)') found.push(L + ': Quick start’s progress reads "' + head + '"');
+    if (wiz.querySelectorAll('details.ob-point').length !== 5) found.push(L + ': the privacy step has no five folded points');
+    if (!/Changes save as you go/.test(wiz.querySelector('.ob-saves')?.textContent || '')) found.push(L + ': no "Changes save as you go" line under the buttons');
+    wiz.querySelector('details.ob-point').open = true;
+    await wait(100);
+    scan('privacy');
+    const agree = [...wiz.querySelectorAll('label.toggle')].find((l) => /I have read this/.test(l.textContent))?.querySelector('input');
+    if (!agree) return found.concat(L + ': the privacy step has no acceptance');
+    if (!agree.checked) agree.click();
+    navButton('Next')?.click();
+    // The finder checks this computer (the Claude sign-in, local servers), then draws its cards.
+    const onBrain = () => wiz.querySelector('#obTitle')?.textContent === 'Brain' && wiz.querySelector('.ob-choice.sel');
+    for (let i = 0; i < 200 && !onBrain(); i++) await wait(100);
+    if (!onBrain()) return found.concat(L + ': Next on the privacy step did not reach the brain finder');
+    const chosen = wiz.querySelector('.ob-choice.sel')?.textContent || '';
+    if (!/Google Gemini/.test(chosen)) found.push(L + ': the brain finder did not keep the Gemini brain set up (chose "' + chosen.slice(0, 60) + '")');
+    if (![...wiz.querySelectorAll('.btn')].some((b) => /Get my free key/.test(b.textContent))) found.push(L + ': the Gemini card shows no "Get my free key"');
+    const start = navButton('Start');
+    if (!start || !start.disabled) found.push(L + ': Start is ' + (start ? 'enabled before a test answered' : 'missing'));
+    if (!navButton('Do this later')) found.push(L + ': the brain step has no "Do this later"');
+    scan('brain');
+  } finally {
+    await saveSettings(before);
+    ob.startOnboarding('full');
+    await wait(300);
+  }
+  return found;
+})()`;
+
 // Rendered Markdown in the real window (util.js renderMarkdown with the real marked, DOMPurify and KaTeX):
 // hostile HTML in a reply comes out harmless (no styles, forms, frames, handlers, javascript: links, page
 // classes, labels for the app's controls, formulas typeset into SVG, formula placeholders in attributes),
@@ -877,6 +941,8 @@ async function scanText() {
     // controls: it is scanned on its own, then hidden while the views are walked.
     const hadWizard = await wc.executeJavaScript(`!document.querySelector('#onboarding').classList.contains('hidden')`);
     if (hadWizard) for (const p of await wc.executeJavaScript(scanJs(`wizard @${w}`), true)) found.add(p);
+    // Quick start's brain finder, at the largest and the smallest size (it leaves the wizard on its welcome page).
+    if (hadWizard && w !== 1100) for (const p of await wc.executeJavaScript(BRAIN_FINDER_JS(`brain finder @${w}`), true)) found.add(p);
     await wc.executeJavaScript(`document.querySelector('#onboarding').classList.add('hidden')`);
     await wait(100);
     for (const v of views) {

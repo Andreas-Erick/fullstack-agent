@@ -667,6 +667,12 @@ async function knownVaults() {
   }
 }
 
+// Obsidian is on this computer once it has its vault list (it writes it on first start). The setup wizard
+// offers "add it to Obsidian's vault list" only then.
+async function obsidianInstalled() {
+  return fsp.access(registryFile()).then(() => true, () => false); // missing = not installed
+}
+
 async function isRegistered(dir) {
   const norm = (p) => path.resolve(p).toLowerCase();
   return (await knownVaults()).some((v) => norm(v.path) === norm(dir));
@@ -737,6 +743,7 @@ module.exports = {
   addJobLesson,
   startupContext,
   knownVaults,
+  obsidianInstalled,
   registerVault,
   setChangeListener,
   afterChange,

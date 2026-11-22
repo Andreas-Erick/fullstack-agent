@@ -20,6 +20,40 @@ export const STEPS = ['welcome', 'privacy', 'hardware', 'brain', 'voice', 'vault
 const PATHS = { full: STEPS, quick: ['welcome', 'privacy', 'brain'], missed: ['privacy'] };
 export const stepsFor = (mode) => PATHS[mode] || STEPS;
 
+// The whole setup in three phases, so eleven steps read as "about 3 minutes", never "Step 1 of 11".
+export const PHASES = [
+  { name: 'Basics', steps: ['welcome', 'privacy', 'hardware'] },
+  { name: 'Brain & voice', steps: ['brain', 'voice', 'vault'] },
+  { name: 'You', steps: ['goals', 'connect', 'persona', 'tour', 'hello'] },
+];
+const PATH_LABELS = { full: 'Setup · about 3 minutes', quick: 'Start now (1 step after privacy)', missed: 'Before you go on' };
+
+/** The wizard's progress at step `id`: { label, phases: [{ name, state: done|current|todo }] } (the whole setup only). */
+export function wizardProgress(mode, id) {
+  const how = PATH_LABELS[mode] ? mode : 'full';
+  if (how !== 'full') return { label: PATH_LABELS[how], phases: [] };
+  const at = Math.max(0, PHASES.findIndex((p) => p.steps.includes(id)));
+  return { label: PATH_LABELS.full, phases: PHASES.map((p, i) => ({ name: p.name, state: i < at ? 'done' : i === at ? 'current' : 'todo' })) };
+}
+
+/** The privacy step: one short line per point, its details folded away (PRIVACY.md is the full version). */
+export const PRIVACY_POINTS = [
+  { ico: '🏠', line: 'Your data stays on this computer', more: 'Settings, memories, notes and your schedule live in your data folder and your notes folder, as plain files you own. Conversations and keys are encrypted with your system’s keychain. There is no account, no server of ours, no analytics.' },
+  { ico: '☁', line: 'Your messages go to the AI brain you choose', more: 'Your messages, the conversation, relevant memories and notes, your schedule for the next days, tool results, and screenshots while you share your screen go to the AI brain you pick (for example Anthropic or Google). Their privacy terms apply to it. With a model on this computer, nothing leaves.' },
+  { ico: '🛡', line: 'She asks before anything that matters', more: 'Consequential actions ask you first: changing her own code, settings, deleting, commands, pushing to GitHub, anything in your connected services. Screen sharing only starts from your click. Pages, documents and tool results are treated as data, never as instructions.' },
+  { ico: '⚠', line: 'AI can be wrong, so check what matters', more: 'Language models make mistakes and can sound sure about false things. Check what matters (medical, legal, financial, safety) with a qualified source. Siren is not a professional adviser, and the app is provided as is, without warranty (MIT License): no software is perfectly secure, and the authors are not liable for damage from its use.' },
+  { ico: '💳', line: 'The services you connect are yours to manage', more: 'You are responsible for the terms and charges of every service you connect (AI providers, connectors) and for what you approve.' },
+];
+
+/** Said once, under the wizard's buttons: nothing is lost by leaving, nothing leaves the computer. */
+export const SAVES_LINE = 'Changes save as you go · everything stays on this PC · you can run this again from Settings → System.';
+
+/** The "add it to Obsidian's vault list" option: only for someone who has Obsidian, and off unless ticked. */
+export function registerOffer(obsidianFound, ticked = false) {
+  const show = Boolean(obsidianFound);
+  return { show, checked: show && ticked === true };
+}
+
 // The brain finder: the wizard's brain step. Its cards, in words a newcomer can follow (product names only
 // in the small print). 'openai' (FreeLLMAPI or another OpenAI-compatible server) stays for those who use it.
 const BRAIN_CARDS = {
