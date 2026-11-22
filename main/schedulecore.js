@@ -363,15 +363,21 @@ function weekStart(d) {
   return addDays(startOfDay(d), -((d.getDay() + 6) % 7));
 }
 
-// Does a repeating entry happen on this day?
+/** @typedef {import('./types').ScheduleEntry} ScheduleEntry */
+
+/**
+ * Does a repeating entry happen on this day?
+ * @param {ScheduleEntry} e
+ * @param {Date} day
+ */
 function happensOn(e, day) {
   const key = ymd(day);
   if ((e.from && key < e.from) || (e.until && key > e.until) || e.except?.includes(key)) return false;
   const r = e.repeat;
   const anchor = parseDate(e.from) || new Date(1970, 0, 5); // a Monday
   const n = r.interval || 1;
-  if (r.freq === 'daily') return Math.round((startOfDay(day) - startOfDay(anchor)) / DAY_MS) % n === 0;
-  if (r.freq === 'weekly') return r.days.includes(day.getDay()) && Math.round((weekStart(day) - weekStart(anchor)) / (7 * DAY_MS)) % n === 0;
+  if (r.freq === 'daily') return Math.round((Number(startOfDay(day)) - Number(startOfDay(anchor))) / DAY_MS) % n === 0;
+  if (r.freq === 'weekly') return r.days.includes(day.getDay()) && Math.round((Number(weekStart(day)) - Number(weekStart(anchor))) / (7 * DAY_MS)) % n === 0;
   if (r.freq === 'monthly') return day.getDate() === r.monthDay && monthsBetween(anchor, day) % n === 0;
   return day.getMonth() === r.month - 1 && day.getDate() === r.monthDay;
 }
@@ -386,13 +392,18 @@ function occurrence(e, day) {
   return { ...base, allDay: false, start: stamp(start), end: stamp(end), openEnd: !e.end };
 }
 
-/** Every occurrence overlapping [from, to) (Dates), sorted by start. */
+/**
+ * Every occurrence overlapping [from, to) (Dates), sorted by start.
+ * @param {ScheduleEntry[]} entries
+ * @param {Date} from
+ * @param {Date} to
+ */
 function occurrences(entries, from, to) {
   const lo = stamp(from);
   const hi = stamp(to);
   const first = startOfDay(from);
   let lastDay = startOfDay(new Date(to.getTime() - 1));
-  if (lastDay - first > MAX_RANGE_DAYS * DAY_MS) lastDay = addDays(first, MAX_RANGE_DAYS);
+  if (Number(lastDay) - Number(first) > MAX_RANGE_DAYS * DAY_MS) lastDay = addDays(first, MAX_RANGE_DAYS);
   const out = [];
   for (const e of entries) {
     if (!e.repeat) {

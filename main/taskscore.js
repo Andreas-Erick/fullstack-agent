@@ -129,6 +129,9 @@ const list = (tasks) => (tasks.length ? `${tasks.slice(0, PER_DAY).map(line).joi
  * tomorrow's and how many are overdue, with when they were fetched. Reading questions are answered
  * from it without a connector call; it says when the copy is too old for that. '' when nothing was
  * ever synced. state = tasks.read(); today/tomorrow = YYYY-MM-DD.
+ * @param {object} state
+ * @param {{ today?: string, tomorrow?: string, now?: number, canFetch?: boolean }} [opts]
+ * @returns {string}
  */
 function promptBlock(state, { today, tomorrow, now = Date.now(), canFetch = true } = {}) {
   const sources = Object.entries(state?.sources || {}).filter(([id, s]) => Object.hasOwn(SOURCES, id) && Number.isFinite(s?.at));
