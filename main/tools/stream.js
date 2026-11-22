@@ -21,7 +21,8 @@ module.exports = [
       ['observations'],
     ),
     run: async (a, ctx) => {
-      const saved = await require('../stream').observe((a.observations || []).slice(0, 5));
+      // Small notes the agent keeps without asking; after outside content they're marked, not gated.
+      const saved = await require('../stream').observe((a.observations || []).slice(0, 5), { outside: Boolean(ctx?.turn?.tainted) });
       ctx.emit({ type: 'memory_changed' });
       return { recorded: saved.length };
     },

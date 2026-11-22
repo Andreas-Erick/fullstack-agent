@@ -197,6 +197,12 @@ async function remove(ref) {
   return { deleted: s.name };
 }
 
+/**
+ * Someone else's skill: a folder skill (imported from GitHub, its .source.json naming the repository).
+ * Its steps are outside content, as its files are (skill_file): running it taints the turn.
+ */
+const imported = (s) => Boolean(s && (s.folder || s.source));
+
 /** "/slug rest of the line" → { skill, args } (null when the text is not a skill command). */
 async function fromSlash(text) {
   const m = String(text || '').match(/^\/([\w-]+)(?:\s+([\s\S]*))?$/);
@@ -224,4 +230,4 @@ async function promptBlock() {
   return `## Skills (the user's saved workflows)\nWhen the user asks for one of these (by name, slash command or a phrase like those shown), load it with skill_run and follow its steps; when a request might fit one without naming it, skill_list has their descriptions.\n${lines.join('\n')}`;
 }
 
-module.exports = { dir, list, get, save, remove, readFile, fromSlash, instructions, promptBlock, slugify, frontmatter, SHIPPED };
+module.exports = { dir, list, get, save, remove, readFile, fromSlash, instructions, promptBlock, slugify, frontmatter, imported, SHIPPED };
