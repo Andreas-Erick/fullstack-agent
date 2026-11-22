@@ -5,7 +5,7 @@ import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
 import { initMoreMenu } from './moremenu.js';
 import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
-import { startListening, stopListening, toggleListening, speaker, preloadSpeechIfUsed, preloadOfflineVoice, setMicMode, handsFree, warmMic, offlineVoiceStatus } from './voice.js';
+import { startListening, stopListening, toggleListening, speaker, preloadSpeechIfUsed, preloadOfflineVoice, setMicMode, handsFree, warmMic } from './voice.js';
 import { initChat, newChat, sendVoice, currentConversationId, cancelReply, retryLatest, canRetryLatest } from './chat.js';
 import { initApprovals, handleSpokenAnswer } from './approval.js';
 import { initRemote } from './remote.js';
@@ -38,6 +38,7 @@ import { practiceLanguage, languageName } from './practice.js';
 import { initPerf, perfReady } from './perf.js';
 import { launchGreeting, HANDOFF_LATE_MS } from './phrasecore.js';
 import { ownEndpoint } from './braintable.mjs';
+import { pillText } from './statuscore.js';
 
 // Safety net: an unexpected error anywhere in the UI is logged instead of disappearing (util.js).
 installErrorTrap();
@@ -194,7 +195,7 @@ async function boot() {
       if (p.status === 'error') voiceError = p.message || 'unknown error';
       else if (p.status === 'ready') voiceError = '';
       else return;
-      if (state.settings.voice.engine === 'local' && state.settings.voice.ttsEnabled) offlineVoicePill(p.device);
+      if (state.settings.voice.engine === 'local' && state.settings.voice.ttsEnabled) offlineVoicePill();
     });
     refreshStatus();
     on('status-refresh', refreshStatus);
@@ -539,13 +540,16 @@ function exitFullscreen() {
 }
 
 // ---------------------------------------------------------- status pills
-function setPill(id, cls, title) {
+// The words come from statuscore.js pillText: plain, "Click to fix." on a problem, never a raw error,
+// address or product name (those are in Settings → Health).
+function setPill(id, pill, status, detail) {
   const p = $(id);
-  p.className = `pill ${cls}`;
-  p.title = title;
+  const { level, text, aria } = pillText(pill, status, detail);
+  p.className = `pill ${level}`;
+  p.title = text;
   // The light's name and its state, for screen readers (the light itself is only a colour); the visible
-  // word stays first, so a voice user can still say it.
-  p.setAttribute('aria-label', `${p.textContent.trim()}: ${title}`);
+  // name stays first, so a voice user can still say it.
+  p.setAttribute('aria-label', aria);
 }
 
 const STATUS_EVERY_MS = 5 * 60000;
@@ -553,9 +557,9 @@ let lastStatusAt = 0;
 let voiceError = ''; // why the offline voice failed to load ('' once it loads); voice.js tries again a minute later
 
 // The light of the offline voice (the main voice, running in the app).
-function offlineVoicePill(device = '') {
-  if (voiceError) setPill('#pillVoice', 'err', `The offline voice failed: ${voiceError} (it tries again with the first reply after a minute)`);
-  else setPill('#pillVoice', 'ok', `The offline voice (Kokoro, in the app${device ? ` · ${device}` : ''})`);
+function offlineVoicePill() {
+  // voiceError and the device are in Settings → Health and the log; the light only says whether it works.
+  setPill('#pillVoice', 'voice', voiceError ? 'failed' : 'ready');
 }
 
 // The brain's light: b is the current brain's catalogue entry (main/brains.js entry()).
@@ -563,25 +567,18 @@ function brainPill(s, b, routing) {
   if (b.id === 'auto') {
     const on_ = (routing || []).filter((p) => p.enabled && p.configured);
     const ready = on_.filter((p) => !p.resting);
-    const detail = on_.map((p) => `${p.name}${p.resting ? ` (skipped ${p.resting.minutes} min: ${p.resting.reason})` : ''}`).join(' > ');
-    setPill('#pillLlm', !ready.length ? 'err' : ready.length < on_.length || ready.length === 1 ? 'warn' : 'ok', ready.length ? `Multi-provider · ${detail}` : 'Multi-provider: no provider is ready');
+    setPill('#pillLlm', 'brain', !ready.length ? 'unreachable' : ready.length < on_.length || ready.length === 1 ? 'partial' : 'ready');
   } else if (b.id === 'claude-code') {
-    const c = b.claude || {};
-    if (b.state === 'unchecked') setPill('#pillLlm', 'warn', `Couldn’t check the Claude account: ${c.error}`);
-    else setPill('#pillLlm', b.ready ? 'ok' : 'err', b.state === 'missing' ? 'Claude Code not installed' : b.ready ? `Claude account · ${c.email || ''} (${c.subscription || c.authMethod})` : 'Claude account not connected');
+    setPill('#pillLlm', 'brain', b.state === 'unchecked' ? 'unchecked' : b.state === 'missing' ? 'missing' : b.ready ? 'ready' : 'signedOut');
   } else if (b.id === 'anthropic') {
-    setPill('#pillLlm', b.ready ? 'ok' : 'err', b.ready ? `Claude · ${s.anthropic.model}` : 'Claude: API key missing');
-  } else if (ownEndpoint(b.id)) {
-    // One multi-provider brain on its own (switched in the chat): its model is in its own section.
-    api.llm
-      .models()
-      .then(() => setPill('#pillLlm', b.model ? 'ok' : 'warn', `${b.name} · ${b.model || 'no model picked'}`))
-      .catch((e) => setPill('#pillLlm', 'err', `${b.name} unreachable: ${e.message}`));
+    setPill('#pillLlm', 'brain', b.ready ? 'ready' : 'noKey');
   } else {
+    // A brain on the OpenAI path (FreeLLMAPI, or one multi-provider brain on its own, switched in the
+    // chat, whose model is in its own section): ready when its server answers.
     api.llm
       .models()
-      .then((m) => setPill('#pillLlm', 'ok', `FreeLLMAPI · ${s.llm.model || m[0]?.id || 'default model'} (${m.length} models)`))
-      .catch((e) => setPill('#pillLlm', 'err', `FreeLLMAPI unreachable: ${e.message}`));
+      .then(() => setPill('#pillLlm', 'brain', ownEndpoint(b.id) && !b.model ? 'noModel' : 'ready'))
+      .catch(() => setPill('#pillLlm', 'brain', 'unreachable')); // the error is in Settings → Health
   }
 }
 
@@ -592,27 +589,27 @@ async function refreshStatus() {
   api.llm
     .brains()
     .then(({ current, routing }) => brainPill(s, current, routing))
-    .catch((e) => setPill('#pillLlm', 'err', e.message));
+    .catch(() => setPill('#pillLlm', 'brain', 'error')); // the error is in Settings → Health
   // The offline voice runs in the app, so there is no server to check: red only while it failed to load.
   if (s.voice.engine === 'local') {
-    if (s.voice.ttsEnabled) offlineVoicePill(offlineVoiceStatus().device);
-    else setPill('#pillVoice', '', 'Voice disabled');
+    if (s.voice.ttsEnabled) offlineVoicePill();
+    else setPill('#pillVoice', 'voice', 'off');
   } else if (s.voice.engine === 'cloud') {
     const openai = s.cloudVoice?.provider === 'openai';
     const keyed = openai ? Boolean(s.cloudVoice?.apiKey) : Boolean(s.groq?.apiKey);
-    setPill('#pillVoice', !s.voice.ttsEnabled ? '' : keyed ? 'ok' : 'err', !s.voice.ttsEnabled ? 'Voice disabled' : keyed ? `Cloud voice · ${openai ? 'OpenAI' : 'Groq'}` : `Cloud voice: add a ${openai ? 'OpenAI' : 'Groq'} key in Settings → Voice`);
+    setPill('#pillVoice', 'voice', !s.voice.ttsEnabled ? 'off' : keyed ? 'ready' : 'noKey');
   } else api.tts
     .ping()
-    .then((r) => setPill('#pillVoice', !r.enabled ? '' : r.ok ? 'ok' : 'err', !r.enabled ? 'Voice disabled' : r.ok ? `VoiceStudio · ${s.voice.baseUrl}` : `VoiceStudio unreachable at ${s.voice.baseUrl}`))
-    .catch(() => setPill('#pillVoice', 'err', 'VoiceStudio error'));
+    .then((r) => setPill('#pillVoice', 'voice', !r.enabled ? 'off' : r.ok ? 'ready' : 'unreachable'))
+    .catch(() => setPill('#pillVoice', 'voice', 'unreachable')); // the address and error are in Settings → Health
   api.calendar
     .status()
-    .then((c) => (c.enabled && c.unreadable ? setPill('#pillCal', 'warn', `Schedule.md couldn’t be read: ${c.unreadable}`) : setPill('#pillCal', !c.enabled ? '' : c.connected ? (c.problems ? 'warn' : 'ok') : 'warn', !c.enabled ? 'Calendar disabled' : c.connected ? `Schedule in the vault: ${c.recurring} repeating, ${c.events} single${c.problems ? ` · ${c.problems} unreadable line(s)` : ''}` : 'Calendar needs the vault')))
-    .catch(() => setPill('#pillCal', 'err', 'Calendar error'));
+    .then((c) => setPill('#pillCal', 'calendar', !c.enabled ? 'off' : c.unreadable ? 'unreadable' : !c.connected ? 'needsNotes' : c.problems ? 'problems' : 'ready'))
+    .catch(() => setPill('#pillCal', 'calendar', 'error')); // why is in Settings → Health
   api.obsidian
     .status()
-    .then((o) => setPill('#pillKb', !o.enabled ? '' : o.ok ? 'ok' : 'warn', !o.enabled ? 'Vault disabled' : o.ok ? `Obsidian vault · ${o.count} notes · ${o.path}` : 'Vault folder unavailable'))
-    .catch(() => setPill('#pillKb', 'err', 'Vault error'));
+    .then((o) => setPill('#pillKb', 'notes', !o.enabled ? 'off' : o.ok ? 'ready' : 'missing', { count: o.count }))
+    .catch(() => setPill('#pillKb', 'notes', 'error')); // why is in Settings → Health
 }
 
 // Clicking a light jumps to its settings (wired in boot's status lights).

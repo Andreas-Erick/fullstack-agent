@@ -7,7 +7,7 @@ import { $, api, el, renderMarkdown, toast, toastError, on, logEvent } from './u
 import { state, saveSettings, loadSettings } from './state.js';
 import { speaker } from './voice.js';
 import { switchView } from './nav.js';
-import { newChat, continueIn, send, refreshList } from './chat.js';
+import { newChat, continueIn, send, refreshList, openConversation } from './chat.js';
 import { shrinkImage } from './settings.js';
 
 let pending = null; // { choices, input, resolve } — the scripted question waiting for an answer
@@ -42,6 +42,28 @@ export async function startSetup() {
     continueIn(id, 'First-run setup');
     send('Hi! You have just been installed on my computer. Please set yourself up with me.', { hidden: true });
   } catch (err) {
+    toastError(err);
+  }
+}
+
+// "Set one up now" on a reply that failed because no brain is set up (chatcore.errorHelp `setup`): only the
+// scripted brain part, in the chat, then back to the conversation that failed (back: its id) for Try again.
+export async function setupBrain({ back = null } = {}) {
+  if (pending) return switchView('chat'); // the scripted questions are already on screen
+  state.setupMode = true;
+  switchView('chat');
+  newChat();
+  $('#chatTitle').textContent = 'Set up a brain';
+  $('#messages').innerHTML = '';
+  try {
+    const ok = await bootstrapBrain({ brainOnly: true });
+    state.setupMode = false;
+    if (!ok) return;
+    const next = await ask('I can answer now.', { choices: [back ? { label: 'Back to my message', value: 'back', yes: true } : { label: 'Start chatting', value: 'new', yes: true }] });
+    if (next === 'back') await openConversation(back);
+    else newChat();
+  } catch (err) {
+    state.setupMode = false;
     toastError(err);
   }
 }
@@ -188,13 +210,23 @@ async function testBrain() {
   }
 }
 
-async function bootstrapBrain() {
-  const first = await ask(
-    `Hi! I'm your new assistant. I'll set myself up by asking you a few questions — one at a time. You can type or hold **${state.settings.stt.pttKey}** to answer by voice.\n\nFirst I need a *brain* — the language model I think with. Shall I look for one?`,
-    { choices: [{ label: 'Yes, let’s start', value: 'go', yes: true }, { label: 'I prefer a settings form', value: 'form' }, { label: 'Skip setup', value: 'skip' }] },
-  );
+// brainOnly: from a failed reply (setupBrain), not first-run setup: its own greeting, and "Not now" only
+// leaves (it never marks setup as skipped).
+async function bootstrapBrain({ brainOnly = false } = {}) {
+  const first = brainOnly
+    ? await ask(`I can’t answer yet: no AI is connected. I need a *brain*, the language model I think with. Shall I look for one on this computer? You can type or hold **${state.settings.stt.pttKey}** to answer by voice.`, {
+      choices: [{ label: 'Yes, look for one', value: 'go', yes: true }, { label: 'I prefer a settings form', value: 'form' }, { label: 'Not now', value: 'later' }],
+    })
+    : await ask(
+      `Hi! I'm your new assistant. I'll set myself up by asking you a few questions — one at a time. You can type or hold **${state.settings.stt.pttKey}** to answer by voice.\n\nFirst I need a *brain* — the language model I think with. Shall I look for one?`,
+      { choices: [{ label: 'Yes, let’s start', value: 'go', yes: true }, { label: 'I prefer a settings form', value: 'form' }, { label: 'Skip setup', value: 'skip' }] },
+    );
   if (first === 'form') {
     await openForm();
+    return false;
+  }
+  if (first === 'later') {
+    say('Okay. You can set one up any time in **Settings → AI brain**.');
     return false;
   }
   if (first === 'skip') {
