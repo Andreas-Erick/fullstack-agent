@@ -102,22 +102,22 @@ Diagnose from the log rather than guessing.
 
 ## A self-change broke something
 
-- **Evolution** (Ctrl+7) lists every change. Use **Revert this change**, or **Restore to this version** on an earlier entry. Then reload the window (UI changes) or restart the app (main-process changes).
+- **Changes Siren made to itself** (rail → More; formerly Evolution) lists every change. Use **Revert this change**, or **Restore to this version** on an earlier entry. Then reload the window (UI changes) or restart the app (main-process changes).
 - If the app won't start at all, run from the app folder:
   - `npm run recover` lists recent changes.
   - `npm run recover -- undo` reverts the latest one.
   - `npm run recover -- <id>` restores a version.
-- **A view shows "couldn't start"** (with Reload and Open Evolution): that part of the window failed to start and the rest works. Open Evolution to revert the last self-change, then Reload.
+- **A view shows "couldn't start"** (with Reload and Open Evolution): that part of the window failed to start and the rest works. Open Evolution (the Changes Siren made to itself view) to revert the last self-change, then Reload.
 - **Tests time out** after 2 minutes per test and 9 minutes in all (`test timed out after 120000ms`, `# fail tests timed out after 9 minutes`); a test stuck in a loop is ended by the 9-minute limit. The app's own check and test runs stop after 2 and 10 minutes (`Tests timed out after 10 minutes`); on Windows the processes they started end with them.
-- "Failed its checks or tests": the change was not recorded. A change is recorded only when every file parses, the cross-file integrity checks pass (`scripts/verify.js`: IPC ↔ preload ↔ renderer, imports, settings keys, tool names) and the tests pass (`npm test`). Evolution offers **Record** (after fixing) or **Discard**.
-- **After a change goes live** (restart or reload) the app waits 45 s and checks its log. If the change logged problems, a notice appears, Evolution shows them with **Revert**, and the agent sees them in its next turn so it can fix them. Settings → Health → "Last self-change" shows the result too.
+- "Failed its checks or tests": the change was not recorded. A change is recorded only when every file parses, the cross-file integrity checks pass (`scripts/verify.js`: IPC ↔ preload ↔ renderer, imports, settings keys, tool names) and the tests pass (`npm test`). Changes Siren made to itself offers **Record** (after fixing) or **Discard**.
+- **After a change goes live** (restart or reload) the app waits 45 s and checks its log. If the change logged problems, a notice appears, Changes Siren made to itself shows them with **Revert**, and the agent sees them in its next turn so it can fix them. Settings → Health → "Last self-change" shows the result too.
 - The agent can't install npm packages. Run `npm install <pkg>` yourself if it asks.
 
 ## Vault and memory
 
-- **Vault location:** Settings → Vault. The default is `Documents/Siren Vault` (`Documents/Nexus Vault` for installs from before 2.0). To move it, set the new folder there, then move the files.
+- **Vault location:** Settings → Knowledge → the Obsidian vault card. The default is `Documents/Siren Vault` (`Documents/Nexus Vault` for installs from before 2.0). To move it, set the new folder there, then move the files.
 - **Obsidian shows a welcome screen:** the vault isn't in Obsidian's vault list. Close Obsidian, then click **Register in Obsidian**, or use Obsidian's "Open folder as vault".
-- **A note was overwritten or deleted by mistake:** open it in the Vault view, then **History** → pick a version → **Restore**. Deleted notes are in the vault's `.trash`; right after you delete one in the Notes view, **Undo** on the notice brings the file back as it was (tags and properties included; if another note took its name meanwhile, it comes back as `<name> 2`).
+- **A note was overwritten or deleted by mistake:** open it in the Library (rail → More), then **History** → pick a version → **Restore**. Deleted notes are in the vault's `.trash`; right after you delete one in the Notes view, **Undo** on the notice brings the file back as it was (tags and properties included; if another note took its name meanwhile, it comes back as `<name> 2`).
 - **Backups:** the vault's version history is local. For real backups, use File History, Time Machine or a private git remote. Don't run two sync services on one vault.
 - **Daily notes are missing entries:**
   - Auto-journal writes a session entry after a conversation has been quiet for 15 minutes (`journaled` in the log).

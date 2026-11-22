@@ -100,7 +100,7 @@ flowchart TD
   HTTP + SSE API with trimmed copies of chats and data: never
   settings, secrets or tools.
 
-The Architecture view inside the app (rail "Arch") draws the full
+The How Siren works view inside the app (rail → More) draws the full
 module map from the code.
 
 <details>

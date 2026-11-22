@@ -26,7 +26,7 @@ Serve stays set up across restarts; you do this once per computer.
 
 7. Install **Tailscale** from the Play Store (or App Store) and sign in with the **same account** as the computer. Switch it on. Android shows a key icon / "VPN": that is Tailscale's private network. Your other apps keep using the internet normally; only connections to your own devices go through Tailscale.
 8. Connect Siren:
-   - **New phone:** on the computer, click **Pair a device**. In the QR code, choose the **🔒 secure address** and scan it with the phone's camera (or the Siren app's setup screen: paste the link). Or open the Siren app, type `https://my-pc.tail1234.ts.net` (your computer's name from step 3) and enter the six-digit code shown on the computer.
+   - **New phone:** on the computer, click **📱 Connect my phone** (Settings → Remote access). In the QR code, choose the **🔒 secure address** and scan it with the phone's camera (or the Siren app's setup screen: paste the link). Or open the Siren app, type `https://my-pc.tail1234.ts.net` (your computer's name from step 3) and enter the six-digit code shown on the computer.
    - **Already paired over Wi-Fi:** open the Siren app at home and tap **Switch to the secure address** (in the banner or the ☰ menu). It moves there and keeps its pairing.
 
 From then on the app works anywhere, as long as Tailscale is on on both devices and Siren is running on the computer.
