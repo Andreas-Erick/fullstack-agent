@@ -7,16 +7,13 @@
 // path with their own URL, key and model.
 const log = require('./logger');
 
-const PROVIDERS = {
-  'claude-code': { name: 'Claude (account)', tools: true, vision: true },
-  anthropic: { name: 'Claude (API key)', tools: true, vision: true },
-  gemini: { name: 'Gemini', openai: true, tools: true, vision: true, keyUrl: 'https://aistudio.google.com/apikey' },
-  deepseek: { name: 'DeepSeek', openai: true, tools: true, vision: false, keyUrl: 'https://platform.deepseek.com/api_keys' },
-  groq: { name: 'Groq', openai: true, tools: true, vision: false, keyUrl: 'https://console.groq.com/keys' },
-  perplexity: { name: 'Perplexity', openai: true, tools: false, vision: false, plain: true, keyUrl: 'https://www.perplexity.ai/account/api/keys', models: ['sonar', 'sonar-pro', 'sonar-reasoning', 'sonar-reasoning-pro'] },
-  openai: { name: 'FreeLLMAPI', tools: true, vision: false },
-  local: { name: 'Local model (Ollama / LM Studio)', openai: true, tools: true, vision: false, local: true },
-};
+const brains = require('./brains');
+
+// The routable brains as the router reads them (names and abilities live once, in brains.js's table):
+// openai = on the OpenAI path with its own section (concrete() narrows to it).
+const PROVIDERS = Object.fromEntries(
+  brains.ROUTED.map((b) => [b.id, { name: b.name, openai: brains.ownEndpoint(b.id), tools: b.tools, vision: b.vision, ...(b.plain ? { plain: true } : {}), ...(b.keyUrl ? { keyUrl: b.keyUrl } : {}), ...(b.models ? { models: b.models } : {}), ...(b.local ? { local: true } : {}) }]),
+);
 const IDS = Object.keys(PROVIDERS);
 
 // Which providers suit which kind of task, best first. Only providers the user enabled are used,
@@ -31,7 +28,7 @@ const PREFER = {
 const TASK_LABEL = { code: 'code', search: 'a web question', quick: 'a quick spoken reply', long: 'a long input', deep: 'deep mode' };
 
 const limits = new Map(); // provider id -> { until, reason }
-let claudeStatus = { at: 0, ok: false };
+let claudeStatus = { at: 0, st: null };
 
 const label = (id) => PROVIDERS[id]?.name || id;
 
@@ -44,17 +41,11 @@ function order(settings) {
 
 // Can this provider be used at all (signed in / has a key)? Not about limits.
 async function configured(settings, id) {
-  if (id === 'claude-code') {
-    if (Date.now() - claudeStatus.at > 60000) {
-      const st = await require('./claudecode').status().catch(() => ({}));
-      claudeStatus = { at: Date.now(), ok: Boolean(st.installed && st.loggedIn) };
-    }
-    return claudeStatus.ok;
+  if (id === 'claude-code' && Date.now() - claudeStatus.at > 60000) {
+    const st = await require('./claudecode').status().catch(() => null);
+    claudeStatus = { at: Date.now(), st };
   }
-  if (id === 'anthropic') return Boolean(settings.anthropic.apiKey);
-  if (id === 'openai') return Boolean(settings.llm.baseUrl);
-  if (id === 'local') return Boolean(settings.local?.baseUrl && settings.local?.model); // no key: a model picked
-  return Boolean(settings[id]?.apiKey);
+  return brains.configured(settings, id, { claude: claudeStatus.st });
 }
 
 function cooling(id) {

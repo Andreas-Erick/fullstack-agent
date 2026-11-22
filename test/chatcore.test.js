@@ -10,6 +10,7 @@ let c;
 test.before(async () => {
   const copy = path.join(tmpDir('nexus-chatcore-'), 'chatcore.mjs');
   fs.copyFileSync(path.join(ROOT, 'renderer/js/chatcore.js'), copy);
+  fs.copyFileSync(path.join(ROOT, 'renderer/js/braintable.mjs'), path.join(path.dirname(copy), 'braintable.mjs')); // chatcore's one import
   c = await import(pathToFileURL(copy).href);
 });
 

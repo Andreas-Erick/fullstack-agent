@@ -1,6 +1,8 @@
 // The pure part of the chat (js/chat.js): what a message shows, as data: tool chips (label, a short
 // summary of the input, state, details), the tags, the HUD's telemetry stamp, the spoken filler for a
 // tool. chat.js turns it into nodes. No DOM and no app state here, so test/chatcore.test.js covers it.
+// Its one import is the brain table (pure data), which the phone gets too (companion STATIC).
+import { ownEndpoint } from './braintable.mjs';
 
 // Connector tools (mcp__<server>__<tool>, see main/connectors.js): "🔌 Todoist · find tasks".
 export function connectorLabel(n) {
@@ -274,13 +276,12 @@ function hhmm(ms, now = Date.now()) {
 
 const BRAIN = { label: 'Open AI brain settings', go: 'settings', section: 'brain' };
 const NETWORK = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|socket hang up|connection error|network|ENETUNREACH|ENETDOWN|EHOSTDOWN|connection dropped|no internet route|can['’]t reach the API server|unable to connect to API(?!:)/i;
-const OPENAI_PATH = ['local', 'gemini', 'deepseek', 'groq', 'perplexity']; // providers with their own base URL (main/router.js concrete)
 const LOCAL_HOST = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i;
 
 // The address the chosen brain talks to, when it is on the OpenAI path (FreeLLMAPI, a local model…).
 function brainAddress(settings) {
   const id = settings?.llm?.provider || '';
-  const base = id === 'openai' ? settings.llm.baseUrl : OPENAI_PATH.includes(id) ? settings?.[id]?.baseUrl : '';
+  const base = id === 'openai' ? settings.llm.baseUrl : ownEndpoint(id) ? settings?.[id]?.baseUrl : ''; // braintable: own section
   return { id, base: String(base || '') };
 }
 

@@ -21,7 +21,6 @@ async function check(id, label, fn) {
 async function run() {
   const s = await store.getSettings();
   const llm = require('./llm');
-  const claudecode = require('./claudecode');
   const voice = require('./voice');
   const obsidian = require('./obsidian');
   const calendar = require('./calendar');
@@ -29,28 +28,32 @@ async function run() {
 
   const checks = [
     check('brain', 'AI brain', async () => {
-      if (s.llm.provider === 'auto') {
-        const list = (await require('./router').status(s)).filter((p) => p.enabled);
+      // Which brain, whether it is ready and what fixes it: the catalogue (brains.js), with a fresh
+      // look at the Claude sign-in.
+      const brains = require('./brains');
+      const live = await brains.live(s, { fresh: true });
+      const b = live.current;
+      if (b.id === 'auto') {
+        const list = live.routing.filter((p) => p.enabled);
         const ready = list.filter((p) => p.configured && !p.resting);
         const resting = list.filter((p) => p.resting);
         const line = list.map((p) => `${p.name}: ${!p.configured ? 'not set up' : p.resting ? `skipped ${p.resting.minutes} min (${p.resting.reason})` : 'ready'}`).join(' · ');
-        if (!ready.length) return { status: 'fail', detail: `Multi-provider mode, but no provider is ready. ${line}`, fix: resting.length ? 'Wait for the limits to reset, or add another provider in Settings → AI brain.' : 'Connect your Claude account or add an API key in Settings → AI brain.' };
+        if (!ready.length) return { status: 'fail', detail: `Multi-provider mode, but no provider is ready. ${line}`, fix: resting.length ? 'Wait for the limits to reset, or add another provider in Settings → AI brain.' : b.fix || 'Connect your Claude account or add an API key in Settings → AI brain.' };
         return { status: ready.length === 1 ? 'warn' : 'ok', detail: `Multi-provider: ${line}`, fix: ready.length === 1 ? 'Only one provider is ready, so there is nothing to fall back to. Add another key in Settings → AI brain.' : '' };
       }
-      if (s.llm.provider === 'claude-code') {
-        const st = await claudecode.status({ fresh: true });
-        if (!st.installed) return { status: 'fail', detail: 'Claude Code CLI not found.', fix: `Install: ${claudecode.installHint()}, or set its path in Settings → AI brain.` };
-        if (st.checked === false) return { status: 'warn', detail: `Couldn't check the Claude sign-in: ${st.error}`, fix: 'Try again in a moment (Settings → AI brain → Refresh).' };
-        if (!st.loggedIn) return { status: 'fail', detail: `Claude Code ${st.version} is not signed in.`, fix: 'Settings → AI brain → Connect Claude account.' };
+      if (b.id === 'claude-code') {
+        const st = b.claude || {};
+        if (b.state === 'missing') return { status: 'fail', detail: 'Claude Code CLI not found.', fix: b.fix };
+        if (b.state === 'unchecked') return { status: 'warn', detail: `Couldn't check the Claude sign-in: ${st.error}`, fix: b.fix };
+        if (!b.ready) return { status: 'fail', detail: `Claude Code ${st.version} is not signed in.`, fix: b.fix };
         return { detail: `Claude account ${st.email || ''} (${st.subscription || st.authMethod}), Claude Code ${st.version}` };
       }
-      if (s.llm.provider === 'anthropic') {
-        if (!s.anthropic.apiKey) return { status: 'fail', detail: 'No Anthropic API key.', fix: 'Add it in Settings → AI brain.' };
+      if (b.id === 'anthropic') {
+        if (!b.ready) return { status: 'fail', detail: 'No Anthropic API key.', fix: b.fix };
         return { detail: `API key set · model ${s.anthropic.model}` };
       }
       // A single cloud or local provider (gemini, local…) keeps its address and model in its own section.
-      const router = require('./router');
-      const n = router.PROVIDERS[s.llm.provider]?.openai ? router.concrete(s, s.llm.provider) : s;
+      const n = brains.ownEndpoint(b.id) ? require('./router').concrete(s, b.id) : s;
       const models = await llm.listModels(s);
       if (n.llm.model && !models.some((m) => m.id === n.llm.model)) return { status: 'warn', detail: `Model "${n.llm.model}" is not offered by ${n.llm.baseUrl} (${models.length} models available).`, fix: 'Pick an available model in Settings → AI brain.' };
       return { detail: `${n.llm.baseUrl} · ${models.length} models · using ${n.llm.model || models[0]?.id}` };

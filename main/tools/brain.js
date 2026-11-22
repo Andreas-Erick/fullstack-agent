@@ -1,27 +1,24 @@
 // Agent tools: Which brain answers. The user switches by asking ("switch to a local model");
-// the choices and the settings a switch writes are in the pure ../braincore.js.
+// the choices and the settings a switch writes are in the pure ../braincore.js, whether each brain is
+// ready in ../brains.js.
 // Registered in ../tools.js (TOOLS).
 const store = require('../store');
 const log = require('../logger');
 const core = require('../braincore');
 const { obj, str, requireApproval } = require('./common');
 
-// Every choice with whether it can answer now; local models from Ollama / LM Studio.
+// Every choice with whether it can answer now (the catalogue: ../brains.js); local models from Ollama / LM Studio.
 async function options(settings) {
-  const router = require('../router');
-  const [status, servers] = await Promise.all([router.status(settings), require('../localmodels').detect().catch(() => [])]);
-  const byId = Object.fromEntries(status.map((p) => [p.id, p]));
-  const autoReady = status.some((p) => p.enabled && p.configured && !p.resting);
+  const [live, servers] = await Promise.all([require('../brains').live(settings, { all: true }), require('../localmodels').detect().catch(() => [])]);
+  const resting = Object.fromEntries((live.routing || []).filter((p) => p.resting).map((p) => [p.id, p.resting]));
   const localModels = servers.filter((s) => s.running).flatMap((s) => s.models.map((m) => ({ id: m.id, server: s.name, small: m.small })));
   return {
-    current: { id: settings.llm.provider, name: core.choice(settings.llm.provider)?.name || settings.llm.provider, model: core.modelOf(settings, settings.llm.provider) || 'default' },
-    options: core.CHOICES.map((c) => {
-      const p = byId[c.id];
-      const ready = c.id === 'auto' ? autoReady : Boolean(p?.configured);
-      const out = { id: c.id, name: c.name, ready, model: core.modelOf(settings, c.id) || undefined };
-      if (!ready && !(c.id === 'local' && localModels.length)) out.missing = core.missing(c.id);
-      if (c.id === 'local' && localModels.length) out.installedModels = localModels.slice(0, 30);
-      if (p?.resting) out.resting = `hit a limit; skipped for ${p.resting.minutes} more min`;
+    current: { id: live.current.id, name: live.current.offer, model: live.current.model || 'default' },
+    options: live.brains.map((b) => {
+      const out = { id: b.id, name: b.offer, ready: b.ready, model: b.model || undefined };
+      if (!b.ready && !(b.id === 'local' && localModels.length)) out.missing = b.missing;
+      if (b.id === 'local' && localModels.length) out.installedModels = localModels.slice(0, 30);
+      if (resting[b.id]) out.resting = `hit a limit; skipped for ${resting[b.id].minutes} more min`;
       return out;
     }),
   };

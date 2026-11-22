@@ -9,7 +9,7 @@ const { ROOT, tmpDir } = require('./helpers');
 
 const ESM = tmpDir('nexus-replycard-');
 fs.writeFileSync(path.join(ESM, 'package.json'), '{"type":"module"}');
-for (const f of ['replycard.js', 'chatcore.js']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(ESM, f));
+for (const f of ['replycard.js', 'chatcore.js', 'braintable.mjs']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(ESM, f));
 test.after(() => fs.rmSync(ESM, { recursive: true, force: true }));
 
 let rc;

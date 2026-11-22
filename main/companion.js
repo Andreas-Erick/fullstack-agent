@@ -48,7 +48,8 @@ const STATIC = {
   '/vendor/purify.js': 'node_modules/dompurify/dist/purify.min.js',
   '/vendor/katex.js': 'node_modules/katex/dist/katex.min.js',
   '/js/mathtext.js': 'renderer/js/mathtext.js',
-  '/js/chatcore.js': 'renderer/js/chatcore.js', // a failed reply in plain words (errorHelp); pure, no imports
+  '/js/chatcore.js': 'renderer/js/chatcore.js', // a failed reply in plain words (errorHelp); pure, imports only the brain table
+  '/js/braintable.mjs': 'renderer/js/braintable.mjs', // the brains' names and paths (chatcore's brainAddress); pure data
   '/js/turnstate.js': 'renderer/js/turnstate.js', // the conversation's turns from the events, shared with the desktop; pure
   // The desktop's built-in faces (app code, no data), so the phone shows the same one.
   '/js/themecore.js': 'renderer/js/themecore.js',
@@ -78,7 +79,7 @@ const WORLD_ART = /^\/assets\/world\/([\w.-]+\.(webp|json))$/;
 const FACES = ['siren', 'circuit', 'radial', 'rain', 'neural', 'companion'];
 // What a custom face folder may serve (no executables, no documents of other kinds).
 const FACE_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.webm': 'video/webm' };
-const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json' };
+const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json' };
 // frame-src 'self': only a custom face's short-lived link (/f/…, see facelinks.js), in a sandboxed frame.
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const FACE_LINK = /^\/f\/([A-Za-z0-9_-]{32})\/(.*)$/;
