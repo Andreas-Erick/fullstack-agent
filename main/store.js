@@ -262,6 +262,7 @@ const DEFAULTS = {
     fx: 'hud', // visual effects (renderer/hud.css): hud = futuristic, with motion | subtle = static | off
     showClaudeUsage: true, // title-bar meter: how much of the Claude plan is left (main/claudeusage.js)
     showSystemStats: true, // title-bar system monitor: CPU, RAM, GPU, disk (main/sysmon.js; never sent to the AI)
+    settingsAdvanced: false, // Settings shows the advanced fields (renderer/js/settingsmode.js); user-only, never SETTABLE
   },
   // New versions (main/updates.js): one request a day to GitHub's releases API. User-only (never SETTABLE).
   updates: {

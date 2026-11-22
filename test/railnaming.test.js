@@ -84,8 +84,8 @@ test('the Library browses: notes are written in Notes, so it has no New-note but
 });
 
 // Strings people read in the window: the page, the views' scripts and the phone client. Comments don't count.
-// renderer/js/settings/ (ticket #23) and the wizard (ticket #19) reword their own cards and steps.
-const LATER = new Set(['renderer/js/onboarding.js', 'renderer/js/settings']);
+// The wizard (ticket #19) rewords its own steps: drop it from LATER once that lands.
+const LATER = new Set(['renderer/js/onboarding.js']);
 const files = (dir) => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((d) => {
   const rel = `${dir}/${d.name}`;
   if (LATER.has(rel)) return [];

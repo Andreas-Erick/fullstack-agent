@@ -4,7 +4,7 @@ import { testFailure } from '../chatcore.js';
 import { ownEndpoint, brain, name as brainName } from '../braintable.mjs';
 import { state } from '../state.js';
 import { save, render } from './core.js';
-import { text, toggle, select, fillSelect, field, card, result, showResult, showFailure, debounceAfter } from './fields.js';
+import { text, toggle, select, fillSelect, field, card, result, showResult, showFailure, debounceAfter, markAdvanced } from './fields.js';
 import { connectorsSection } from './connectors.js';
 
 const CLAUDE_MODELS = [
@@ -19,7 +19,7 @@ export function brainCard() {
   const seg = el(
     'div',
     { class: 'seg' },
-    [['auto', 'Multi-provider'], ['claude-code', 'Claude account'], ['openai', 'FreeLLMAPI / local'], ['anthropic', 'Claude API key']].map(([v, l]) =>
+    [['auto', 'Multi-provider'], ['claude-code', 'Claude account'], ['openai', 'On this PC / own server'], ['anthropic', 'Claude API key']].map(([v, l]) =>
       el('button', { class: provider === v ? 'active' : '', onclick: async () => (await save('llm.provider', v), render(), emit('status-refresh')) }, l),
     ),
   );
@@ -67,7 +67,7 @@ export function brainCard() {
       if (b.state === 'missing') {
         const hint = await api.claude.installHint();
         line.className = 'test-result err';
-        line.textContent = `✕ Claude Code is not installed (or not found on PATH).\nInstall it with:\n  ${hint}\nthen click Refresh — or set the path to the claude executable below.`;
+        line.textContent = `✕ Claude Code isn’t installed on this PC. It is Anthropic’s app that lets Siren use your paid Claude plan.\nInstall it with:\n  ${hint}\nthen click Refresh. Installed somewhere unusual? Turn on Show advanced and set where it is.`;
       } else if (b.state === 'unchecked') {
         line.className = 'test-result err';
         line.textContent = `Couldn’t check your Claude account: ${st.error}`;
@@ -93,10 +93,11 @@ export function brainCard() {
         'div',
         { class: 'grid2' },
         select('claudeCode.model', 'Model', [['default', 'Account default'], ['opus', 'Opus (latest)'], ['sonnet', 'Sonnet (latest)'], ['haiku', 'Haiku (fastest)'], ['fable', 'Fable (most capable)']]),
-        select('claudeCode.effort', 'Effort', [['default', 'Default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']]),
+        select('claudeCode.effort', 'How hard it thinks', [['default', 'Default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']], { advanced: true }),
       ),
-      text('claudeCode.cliPath', 'Path to the claude executable', { path: true, placeholder: 'auto-detect', hint: 'Uses your Claude subscription through Claude Code — no API key. Claude Code’s own web search and file tools are available to the agent; usage counts toward your plan’s limits.' }),
-      el('div', { class: 'grid2' }, text('claudeCode.fastModel', 'Fast model', { placeholder: 'haiku' }), text('claudeCode.deepModel', 'Deep model', { placeholder: 'opus' })),
+      el('div', { class: 'hint' }, 'Uses your Claude subscription through Claude Code — no API key. Claude Code’s own web search and file tools are available to the agent; usage counts toward your plan’s limits.'),
+      text('claudeCode.cliPath', 'Where Claude Code is installed', { path: true, placeholder: 'found automatically', hint: 'The claude program file. Leave empty to find it automatically.', advanced: true }),
+      el('div', { class: 'grid2' }, text('claudeCode.fastModel', 'Model for quick answers', { placeholder: 'haiku', advanced: true }), text('claudeCode.deepModel', 'Model for careful answers', { placeholder: 'opus', advanced: true })),
       text('claudeCode.normalModel', 'Model for everyday messages', { placeholder: 'same as Model', hint: 'Quick lookups use the fast model, explanations and plans the deep one, everything else this one. Sonnet starts a reply that uses tools in a few seconds; Opus often takes 15. Empty = the model above.' }),
       el('div', { class: 'grid2' }, toggle('claudeCode.warmOnLaunch', 'Keep a warm session (faster replies)'), text('claudeCode.idleMinutes', 'Close idle session after (min)', { type: 'number' })),
       toggle('claudeCode.warmCache', 'Get the first reply ready ahead of time'),
@@ -142,14 +143,14 @@ export function brainCard() {
     loadModels(true);
     body.push(
       localFinder('llm', () => (render(), loadModels(true))),
-      text('llm.baseUrl', 'FreeLLMAPI base URL', { placeholder: 'http://localhost:3001/v1', hint: 'OpenAI-compatible endpoint. Uses <code>/chat/completions</code> (streaming) and <code>/models</code>.' }),
-      text('llm.apiKey', 'Bearer token', { type: 'password', placeholder: 'optional' }),
+      text('llm.baseUrl', 'Server address', { placeholder: 'http://localhost:3001/v1', hint: 'FreeLLMAPI or any OpenAI-compatible server. Uses <code>/chat/completions</code> (streaming) and <code>/models</code>.', advanced: true }),
+      text('llm.apiKey', 'Access key', { type: 'password', placeholder: 'optional', hint: 'Only if the server asks for one.', advanced: true }),
       field('Model', el('div', { class: 'row' }, modelSel, el('button', { class: 'btn', onclick: () => loadModels(false) }, '⟳ Load models'))),
       modelNote,
-      el('div', { class: 'grid2' }, text('llm.temperature', 'Temperature', { type: 'number', decimal: true }), text('llm.maxTokens', 'Max output tokens', { type: 'number' })),
+      el('div', { class: 'grid2' }, text('llm.temperature', 'Creativity', { type: 'number', decimal: true, hint: 'Temperature: 0 is the most predictable, 1 the most varied.', advanced: true }), text('llm.maxTokens', 'Longest answer', { type: 'number', hint: 'In tokens (about ¾ of a word each).', advanced: true })),
       text('llm.historyLimit', 'Messages of history sent per request', { type: 'number', hint: 'Keeps prompts within the context window of free models.' }),
       toggle('llm.compaction', 'Summarize older messages instead of dropping them'),
-      el('div', { class: 'grid2' }, text('llm.fastModel', 'Fast model', { placeholder: 'same as above' }), text('llm.deepModel', 'Deep model', { placeholder: 'same as above' })),
+      el('div', { class: 'grid2' }, text('llm.fastModel', 'Model for quick answers', { placeholder: 'same as above', advanced: true }), text('llm.deepModel', 'Model for careful answers', { placeholder: 'same as above', advanced: true })),
       compactSelect(),
       handOverToggle(),
     );
@@ -167,10 +168,10 @@ export function brainCard() {
         'div',
         { class: 'grid2' },
         select('anthropic.model', 'Model', CLAUDE_MODELS),
-        select('anthropic.effort', 'Effort', [['low', 'Low (fastest)'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']], { hint: 'Higher effort = deeper thinking, slower & pricier.' }),
+        select('anthropic.effort', 'How hard it thinks', [['low', 'Low (fastest)'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']], { hint: 'Harder thinking is slower and costs more.', advanced: true }),
       ),
-      toggle('anthropic.fallbacks', 'Server-side fallback when a request is declined by safety classifiers'),
-      el('div', { class: 'grid2' }, select('anthropic.fastModel', 'Fast model', CLAUDE_MODELS), select('anthropic.deepModel', 'Deep model', CLAUDE_MODELS)),
+      toggle('anthropic.fallbacks', 'Server-side fallback when a request is declined by safety classifiers', { advanced: true }),
+      el('div', { class: 'grid2' }, select('anthropic.fastModel', 'Model for quick answers', CLAUDE_MODELS, { advanced: true }), select('anthropic.deepModel', 'Model for careful answers', CLAUDE_MODELS, { advanced: true })),
       select('anthropic.normalModel', 'Model for everyday messages', [['', 'Same as Model'], ...CLAUDE_MODELS], { hint: 'Quick lookups use the fast model, explanations and plans the deep one, everything else this one.' }),
     );
   }
@@ -178,7 +179,7 @@ export function brainCard() {
     el(
       'div',
       { class: 'grid2' },
-      select('llm.modelMode', 'Model mode', [['default', 'Default'], ['fast', 'Fast'], ['deep', 'Deep']], { hint: 'Also by voice: “switch to the fast / deep model”.' }),
+      select('llm.modelMode', 'Model mode', [['default', 'Automatic'], ['fast', 'Quick answers (fast model)'], ['deep', 'Careful answers (deep model)']], { hint: 'Also by voice: “switch to the fast / deep model”.' }),
       el('div', { style: { alignSelf: 'center' } }, toggle('llm.voiceUsesFast', 'Use the fast model for spoken turns')),
     ),
     toggle('llm.autoPace', 'Match thinking to the message: quick lookups (“what’s on tomorrow?”) get the fast model, explanations get more thought'),
@@ -188,7 +189,7 @@ export function brainCard() {
     el('div', { class: 'row' }, test),
     out,
   );
-  return card('brain', 'AI brain', 'Pick the model provider: several at once with automatic fallback (Multi-provider), your Claude account (via Claude Code), a local FreeLLMAPI server, or an Anthropic API key.', seg, ...body);
+  return card('brain', 'AI brain', 'Which AI Siren thinks with: several providers with free keys, one taking over when another hits a limit (Multi-provider), your Claude plan (Claude account), a model on this PC or your own server, or an Anthropic API key.', seg, ...body);
 }
 
 // ------------------------------------------------------- multi-provider
@@ -209,7 +210,7 @@ const handOverToggle = () =>
 
 // Small local models: a short prompt and the everyday tools (main/localcore.js compactWanted).
 const compactSelect = () =>
-  select('llm.compactPrompt', 'Prompt for local models', [['auto', 'Automatic (compact for every local model)'], ['on', 'Always compact'], ['off', 'Always the full prompt']], {
+  select('llm.compactPrompt', 'Prompt for local models', [['auto', 'Automatic (compact for every local model)'], ['on', 'Always compact'], ['off', 'Always the full prompt']], { advanced: true,
     hint: 'A local model re-reads the whole prompt with every message. The compact one (the everyday tools, a few hundred words) answers in a second or two; the full one has every tool and is slow on most computers, and can overflow a local model’s memory. Quick and normal messages are answered without hidden thinking; deep questions may think.',
   });
 
@@ -345,12 +346,12 @@ function providerConfig(p) {
     return [
       hint,
       el('div', { class: 'row' }, el('button', { class: 'btn small', onclick: async () => (await api.claude.login(), toast('Finish signing in in the terminal/browser window, then reopen this list.', 'info', 8000)) }, 'Connect Claude account')),
-      el('div', { class: 'grid2' }, select('claudeCode.model', 'Model', [['default', 'Account default'], ['opus', 'Opus (latest)'], ['sonnet', 'Sonnet (latest)'], ['haiku', 'Haiku (fastest)'], ['fable', 'Fable (most capable)']]), text('claudeCode.fastModel', 'Fast model', { placeholder: 'haiku' })),
+      el('div', { class: 'grid2' }, select('claudeCode.model', 'Model', [['default', 'Account default'], ['opus', 'Opus (latest)'], ['sonnet', 'Sonnet (latest)'], ['haiku', 'Haiku (fastest)'], ['fable', 'Fable (most capable)']]), text('claudeCode.fastModel', 'Model for quick answers', { placeholder: 'haiku', advanced: true })),
       connectorsSection(),
     ];
   }
   if (p.id === 'anthropic') {
-    return [hint, text('anthropic.apiKey', 'Anthropic API key', { type: 'password', placeholder: 'sk-ant-…', onChange: debounceAfter(after) }), el('div', { class: 'grid2' }, select('anthropic.model', 'Model', CLAUDE_MODELS), select('anthropic.fastModel', 'Fast model', CLAUDE_MODELS))];
+    return [hint, text('anthropic.apiKey', 'Anthropic API key', { type: 'password', placeholder: 'sk-ant-…', onChange: debounceAfter(after) }), el('div', { class: 'grid2' }, select('anthropic.model', 'Model', CLAUDE_MODELS), select('anthropic.fastModel', 'Model for quick answers', CLAUDE_MODELS, { advanced: true }))];
   }
   const section = p.id === 'openai' ? 'llm' : p.id;
   const modelSel = el('select', { class: 'input' });
@@ -367,12 +368,12 @@ function providerConfig(p) {
   };
   return [
     hint,
-    p.id === 'openai' ? text('llm.baseUrl', 'Server URL', { placeholder: 'http://localhost:3001/v1' }) : '',
+    p.id === 'openai' ? text('llm.baseUrl', 'Server address', { placeholder: 'http://localhost:3001/v1', advanced: true }) : '',
     p.id === 'local' ? localFinder('local', after) : '',
-    p.id === 'local' ? text('local.baseUrl', 'Server URL', { placeholder: 'http://localhost:11434/v1', hint: 'Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1', onChange: debounceAfter(after) }) : '',
-    el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, text(`${section}.apiKey`, p.id === 'openai' ? 'Bearer token (optional)' : 'API key', { type: 'password', onChange: debounceAfter(after) })), p.keyUrl ? el('button', { class: 'btn small', style: { alignSelf: 'flex-end' }, onclick: () => api.shell.openExternal(p.keyUrl) }, 'Get a key ↗') : ''),
+    p.id === 'local' ? text('local.baseUrl', 'Server address', { placeholder: 'http://localhost:11434/v1', hint: 'Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1', onChange: debounceAfter(after), advanced: true }) : '',
+    markAdvanced(el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, text(`${section}.apiKey`, p.id === 'openai' ? 'Access key (optional)' : 'API key', { type: 'password', onChange: debounceAfter(after) })), p.keyUrl ? el('button', { class: 'btn small', style: { alignSelf: 'flex-end' }, onclick: () => api.shell.openExternal(p.keyUrl) }, 'Get a key ↗') : ''), p.id === 'openai'),
     field('Model', el('div', { class: 'row' }, modelSel, el('button', { class: 'btn small', onclick: load }, '⟳ Load models'))),
-    el('div', { class: 'grid2' }, text(`${section}.fastModel`, 'Fast model (voice)', { placeholder: 'same as above' }), text(`${section}.deepModel`, 'Deep model', { placeholder: 'same as above' })),
+    el('div', { class: 'grid2' }, text(`${section}.fastModel`, 'Model for quick answers (voice)', { placeholder: 'same as above', advanced: true }), text(`${section}.deepModel`, 'Model for careful answers', { placeholder: 'same as above', advanced: true })),
     p.id === 'local' ? compactSelect() : '',
   ];
 }

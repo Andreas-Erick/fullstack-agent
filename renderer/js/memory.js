@@ -1,5 +1,5 @@
 // Memory vault view: browse, search, add, edit, delete, import/export.
-import { $, api, el, escapeHtml, timeAgo, toast, toastActions, toastError, modal, confirmDialog, plainError, debounce, on } from './util.js';
+import { $, api, el, escapeHtml, timeAgo, toast, toastActions, toastError, modal, confirmDialog, confirmExportFirst, plainError, debounce, on } from './util.js';
 
 let entries = [];
 
@@ -34,7 +34,7 @@ export function initMemory() {
         refresh();
       } else if (act === 'open-dir') await api.memory.openDir();
       else if (act === 'clear') {
-        if (await confirmDialog('Delete all memories', 'This permanently deletes every memory in the vault.', 'Delete all')) {
+        if (await confirmExportFirst('Delete all memories', 'This permanently deletes every memory in the vault.', 'Delete all', () => api.memory.export('md'))) {
           await api.memory.clear();
           refresh();
         }

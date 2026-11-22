@@ -6,7 +6,8 @@ import { state, loadSettings } from '../state.js';
 import { currentView } from '../nav.js';
 import { setBeforeSwitch } from '../personas.js';
 import { TABS, tabFor, validTab, stepTab, matches } from '../settingstabs.js';
-import { renderedPersona, setRenderedPersona, setRenderer, flushSaves } from './core.js';
+import { advancedShown, advancedNote } from '../settingsmode.js';
+import { renderedPersona, setRenderedPersona, setRenderer, flushSaves, save } from './core.js';
 import { card } from './fields.js';
 import { agentCard } from './persona.js';
 import { extensionProgress, extensionsCard } from './connectors.js';
@@ -114,8 +115,21 @@ function drawTabs() {
     if (e.key === 'Escape' && search.value) (e.preventDefault(), (search.value = ''), (query = ''), drawTabsKeepingSearch(), showCards());
   });
   const saved = $('#saveState') || el('span', { class: 'save-state', id: 'saveState' }, '✓ Saved');
-  bar.replaceChildren(list, saved, search);
+  bar.replaceChildren(list, saved, advancedSwitch(), search);
 }
+
+// Simple / Advanced (settingsmode.js): the switch at the top of Settings, remembered in ui.settingsAdvanced.
+// Changing it only shows or hides the marked fields; nothing is drawn again.
+function advancedSwitch() {
+  const input = el('input', { type: 'checkbox', 'data-setting': 'ui.settingsAdvanced' });
+  input.checked = advancedMode();
+  input.addEventListener('change', async () => {
+    if (!(await save('ui.settingsAdvanced', input.checked))) input.checked = advancedMode();
+    showCards();
+  });
+  return el('label', { class: 'toggle settings-mode', title: 'Server addresses, keys, models, sampling and paths' }, input, el('span', { class: 'sw' }), el('span', {}, 'Show advanced'));
+}
+const advancedMode = () => Boolean(state.settings?.ui?.settingsAdvanced);
 
 // Redraws the tabs' state while the search field keeps its focus and caret.
 function drawTabsKeepingSearch() {
@@ -145,11 +159,13 @@ function showCards() {
   if (!root) return;
   const searching = Boolean(query.trim());
   let shown = 0;
+  for (const note of root.querySelectorAll('.adv-note')) note.remove(); // not part of what the search reads
   for (const card of root.querySelectorAll(':scope > .card')) {
     const show = searching ? matches(cardText(card), query) : tabFor(card.id.replace(/^set-/, '')) === activeTab;
     card.classList.toggle('tab-hidden', !show);
     if (show) shown++;
   }
+  showAdvanced(root, searching);
   if (searching) root.removeAttribute('aria-labelledby');
   else root.setAttribute('aria-labelledby', `settings-tab-${activeTab}`);
   let empty = root.querySelector(':scope > .settings-empty');
@@ -157,6 +173,24 @@ function showCards() {
     if (!empty) root.append((empty = el('p', { class: 'settings-empty muted' })));
     empty.textContent = `No setting matches “${query.trim()}”.`;
   } else empty?.remove();
+}
+
+// The fields marked advanced (fields.js markAdvanced): shown in Advanced mode; in Simple mode only those a
+// search matches, with the note "Advanced setting" by their label. Inside a revealed advanced block everything
+// shows, with one note on the block. A row of two hidden fields hides too (no empty gap).
+function showAdvanced(root, searching) {
+  const on = advancedMode();
+  for (const node of root.querySelectorAll('[data-advanced]')) {
+    const inShown = node.parentElement?.closest('[data-advanced]')?.classList.contains('adv-shown');
+    const s = { advancedMode: on, searching, matched: Boolean(inShown) || (searching && matches(cardText(node), query)) };
+    node.classList.toggle('adv-shown', advancedShown(s));
+    const note = inShown ? '' : advancedNote(s);
+    if (note) (node.matches('label') ? node : node.querySelector(':scope > label, :scope > .toggle') || node).append(el('span', { class: 'adv-note' }, note));
+  }
+  for (const row of root.querySelectorAll('.grid2, .row')) {
+    const kids = [...row.children];
+    row.classList.toggle('adv-empty', kids.length > 0 && kids.every((k) => k.matches('[data-advanced]:not(.adv-shown)')));
+  }
 }
 
 // Every card, in order: [id as passed to card() (settingstabs.js tabs), title for its error card, builder].

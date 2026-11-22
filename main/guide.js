@@ -147,7 +147,7 @@ const FEATURES = [
     title: 'A brain on your own computer',
     what: 'A model running on this computer with Ollama or LM Studio: free, private, and quick. It gets a compact prompt and the everyday tools, and asks for more (learning, documents, routines…) when a task needs them; they stay for the rest of the conversation. With "Hand hard messages to Claude" on, what it can’t do well (code, a connected service, several steps) goes to your Claude brain instead, and the chat says so. Everyday messages are answered without hidden thinking, so the first word comes in well under a second once the model is loaded. In multi-provider mode it answers quick spoken replies first and the cloud brains take the rest.',
     say: ['"Which local model should I use?"'],
-    where: 'Settings → AI brain → FreeLLMAPI / local → Find local models, or Multi-provider → Local model.',
+    where: 'Settings → AI brain → On this PC / own server → Find local models, or Multi-provider → Local model.',
     status: (s) => (s.local?.model ? `local model: ${s.local.model}` : s.llm?.provider === 'openai' && s.llm?.model ? `model: ${s.llm.model}` : 'not set up'),
   },
   {
