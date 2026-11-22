@@ -106,7 +106,7 @@
       </div>
 
       <!-- The screens beyond the chat (screens.js) -->
-      <div id="panel" class="panel hidden" aria-live="polite"></div>
+      <div id="panel" class="panel hidden"></div>
 
       <div class="face-wrap">
         <div class="face-scene" id="faceScene" aria-hidden="true"></div>
@@ -116,7 +116,7 @@
       </div>
 
       <div class="messages-wrap">
-        <div id="messages" class="messages" aria-live="polite"></div>
+        <div id="messages" class="messages"></div>
         <div id="empty" class="empty hidden">
           <p>Ask anything. Replies stream here, and approvals for things the assistant wants to do on your computer show up below.</p>
           <div id="suggest" class="suggest"></div>
@@ -158,5 +158,7 @@
     </aside>
     <div id="scrim" class="scrim hidden"></div>
     <div id="toast" class="toast hidden" role="status"></div>
+    <!-- Each finished reply, read once by a screen reader (app.js announce); the streaming list is not live. -->
+    <div id="chatLive" class="offscreen" aria-live="polite"></div>
   </body>
 </html>

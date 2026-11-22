@@ -78,6 +78,14 @@ export async function render(view, box, { quiet = false } = {}) {
 
 const SCREENS = { today, learn, memory, notes, world, arch, skills, more };
 
+// The panel was left (the chat or the schedule shown): the village, its room and the architecture map
+// stop drawing. Their canvases stay in the hidden panel, so their own isConnected check never fires;
+// showing the screen again renders it afresh, which starts them again.
+export function stopLive() {
+  stopWorld();
+  stopArch();
+}
+
 /**
  * The user is in the middle of something on `view`, so a change on the computer must not redraw it:
  * reading a note, or typing (a search with text in it counts: its results would go).
@@ -115,7 +123,7 @@ const chip = (text, cls = '') => ctx.el('span', { class: `chip ${cls}` }, text);
 const details = (err) => ctx.el('details', { class: 'err-details' }, ctx.el('summary', {}, 'Details'), ctx.el('pre', {}, String(err?.message || err || 'Error')));
 const ask = (label, message) => ctx.el('button', { class: 'btn ghost small', type: 'button', onclick: () => (ctx.showView('chat'), ctx.send(message)) }, label);
 const pct = (node, v) => (node.style.setProperty('--p', `${Math.round(Math.max(0, Math.min(1, v)) * 100)}%`), node);
-const timeOf = (s) => new Date(s).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const timeOf = (s) => new Date(s).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 // --------------------------------------------------------------- Today
 async function today() {
@@ -126,12 +134,14 @@ async function today() {
   const upcoming = d.events.filter((e) => e.allDay || new Date(e.end) > now);
   const vocab = (d.decks || []).map((x) => ({ language: x.language, due: (x.dueCount || 0) + (x.newCount || 0) })).filter((x) => x.due);
   const words = vocab.reduce((n, x) => n + x.due, 0);
-  // At a glance: three tiles, each opening where that number lives.
-  const glance = (ico, value, label, view, cls) => el('button', { class: `glance ${cls}`, type: 'button', onclick: () => ctx.showView(view) }, ctx.icon(ico), el('b', {}, value), el('small', {}, label));
+  // At a glance: three tiles, each opening where that number lives (one with nowhere to go is only a number).
+  const glance = (ico, value, label, view, cls) => (view
+    ? el('button', { class: `glance ${cls}`, type: 'button', onclick: () => ctx.showView(view) }, ctx.icon(ico), el('b', {}, value), el('small', {}, label))
+    : el('div', { class: `glance ${cls}` }, ctx.icon(ico), el('b', {}, value), el('small', {}, label)));
   const out = [
     el('div', { class: 'today-head' }, el('small', {}, now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })), el('h2', {}, hello)),
     el('div', { class: 'glance-row' },
-      glance('calendar', String(upcoming.length), upcoming.length === 1 ? 'event left' : 'events left', ctx.state.calendar ? 'sched' : 'today', 't1'),
+      glance('calendar', String(upcoming.length), upcoming.length === 1 ? 'event left' : 'events left', ctx.state.calendar ? 'sched' : null, 't1'),
       glance('note', String(d.notesToday || 0), d.notesToday === 1 ? 'note today' : 'notes today', 'notes', 't2'),
       glance('learn', String(words), words === 1 ? 'word to review' : 'words to review', 'learn', 't3'),
     ),
@@ -236,7 +246,7 @@ async function notes() {
     const q = search.value.trim();
     const { notes: items } = await api(`/api/data/notes${q ? `?q=${encodeURIComponent(q)}` : ''}`);
     const meta = (n) => [n.modified ? new Date(n.modified).toLocaleDateString() : '', n.folder && n.folder !== '/' && n.folder !== 'Notes' ? n.folder : '', ...(n.tags || []).map((t) => `#${t}`)].filter(Boolean).join(' · ');
-    list.replaceChildren(...(items.length ? items.map((n) => el('button', { class: 'note-row', type: 'button', onclick: () => openNote(n.path) }, el('b', {}, n.pinned ? '📌 ' : '', n.title), n.snippet ? el('span', { class: 'note-snip' }, n.snippet) : null, el('small', {}, meta(n)))) : [el('p', { class: 'muted' }, q ? 'No match.' : 'No notes yet. Write one in the Notes view on your computer.')]));
+    list.replaceChildren(...(items.length ? items.map((n) => el('button', { class: 'note-row', type: 'button', onclick: () => openNote(n.path) }, el('b', {}, n.pinned ? '📌 ' : '', n.title), n.snippet ? el('span', { class: 'note-snip' }, n.snippet) : null, el('small', {}, meta(n)))) : [q ? el('p', { class: 'muted center' }, 'No match.') : empty('No notes yet. Write one in the Notes view on your computer.', null, 'note')]));
   };
   let t;
   search.addEventListener('input', () => (clearTimeout(t), (t = setTimeout(load, 300))));
@@ -283,7 +293,7 @@ async function skills() {
   const { el, api } = ctx;
   const [{ skills: list }, { routines }] = await Promise.all([api('/api/data/skills'), api('/api/data/routines')]);
   return [
-    card('Skills', el('p', { class: 'muted' }, 'Tap one to start it in the chat.'), ...list.map((s) => el('button', { class: 'note-row', type: 'button', onclick: () => (ctx.showView('chat'), ctx.prefill(`/${s.slug} `)) }, el('b', {}, `/${s.slug}`), el('small', {}, s.description || s.name)))),
+    card('Skills', el('p', { class: 'muted' }, list.length ? 'Tap one to start it in the chat.' : 'No skills yet. Add or import them in the Skills view on your computer.'), ...list.map((s) => el('button', { class: 'note-row', type: 'button', onclick: () => (ctx.showView('chat'), ctx.prefill(`/${s.slug} `)) }, el('b', {}, `/${s.slug}`), el('small', {}, s.description || s.name)))),
     routines.length ? card('Routines', ...routines.map((r) => el('div', { class: 'li' }, el('b', {}, r.name), el('small', { class: 'muted' }, ` · ${r.enabled ? r.when || '' : 'paused'}${r.lastRun ? ` · last ${new Date(r.lastRun).toLocaleString()}` : ''} `), ROUTINE_CHIP.has(r.lastStatus) ? chip(...ROUTINE_CHIP.get(r.lastStatus)) : null))) : '',
   ];
 }
@@ -305,7 +315,7 @@ function appUpdate() {
     return false;
   };
   if (!u?.android || !mine || !/^\d+\.\d+\.\d+$/.test(mine) || !newer(u.version, mine)) return null;
-  return el('section', { class: 'card app-update' }, el('h3', {}, `Siren ${u.version} for Android`), el('p', { class: 'muted' }, `You have ${mine}. Download the new app and install it over this one (your pairing stays).${u.wear ? ' The watch app is on the same release page.' : ''}`), el('a', { class: 'btn', href: u.android, target: '_blank', rel: 'noopener' }, '⬇ Download'), u.page ? el('a', { class: 'btn ghost', href: u.page, target: '_blank', rel: 'noopener' }, 'Release page') : null);
+  return el('section', { class: 'card app-update' }, el('h3', {}, `Siren ${u.version} for Android`), el('p', { class: 'muted' }, `You have ${mine}. Download the new app and install it over this one (your pairing stays).${u.wear ? ' The watch app is on the same release page.' : ''}`), el('a', { class: 'btn primary', href: u.android, target: '_blank', rel: 'noopener' }, '⬇ Download'), u.page ? el('a', { class: 'btn ghost', href: u.page, target: '_blank', rel: 'noopener' }, 'Release page') : null);
 }
 
 async function more() {
@@ -599,7 +609,7 @@ async function world() {
     ro = new ResizeObserver(onResize);
     ro.observe(wrap);
   } else window.addEventListener('resize', onResize);
-  worldLoop = { raf: 0, off: () => (ro ? ro.disconnect() : window.removeEventListener('resize', onResize), scene.release(island)) };
+  worldLoop = { raf: 0, off: () => (cancelAnimationFrame(roomRaf), ro ? ro.disconnect() : window.removeEventListener('resize', onResize), scene.release(island)) };
   worldLoop.raf = requestAnimationFrame(tick);
 
   showPlace(info, d, null, nav);

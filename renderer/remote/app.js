@@ -1,6 +1,6 @@
 // Phone client for the companion server (main/companion.js, docs/ROADMAP-mobile.md step 2).
 // Talks only to the server it was loaded from. The device token lives in this browser's storage.
-import { initScreens, render as renderScreen, busy as screenBusy, TITLES, screenBack, hasScreenBack } from './screens.js';
+import { initScreens, render as renderScreen, busy as screenBusy, TITLES, screenBack, hasScreenBack, stopLive } from './screens.js';
 import { streamStale, refreshPlan, convCheck, batcher, backPlan, unsentPlan, priorUsersFor, DEADLINES, transcribeDeadline, retryAction, plainStatus, networkFailure, micError, toastMs, keyboardState, releasePlan, PHONE_PURIFY } from './sync.js';
 // Served by the desktop from renderer/js/ (companion.js STATIC), so loaded by URL, not by file.
 // The conversation's turns from the events, the face's state (turnstate.js), and what a message shows (the
@@ -650,6 +650,7 @@ function onChat(ev) {
       v.bubble.innerHTML = markdown(m.content || '');
       v.bubble.dataset.stamp = chatcore.replyStamp(m, state.name);
       v.wrap.append(actions(m.content || ''));
+      announce(v.bubble.textContent);
       state.happyUntil = Date.now() + 1800; // the face's short "done" glow, as on the desktop
       sched.cache.clear(); // the reply may have changed the schedule
       endTurn(turn);
@@ -670,6 +671,16 @@ function onChat(ev) {
       endTurn(turn);
       return;
   }
+}
+
+// A finished reply for a screen reader, once (#chatLive, as the desktop's): emptied first, so the same
+// words twice are read twice.
+function announce(text) {
+  const live = $('#chatLive');
+  const said = String(text || '').trim().slice(0, 2000);
+  if (!live || !said) return;
+  live.textContent = '';
+  setTimeout(() => (live.textContent = said), 50);
 }
 
 // A failed reply: what was written, then the reason in plain words (the raw text under Details).
@@ -999,9 +1010,12 @@ async function openDrawer() {
     convs = await api('/api/conversations');
     renderConvs();
   } catch (err) {
-    if (!(err instanceof AuthError)) list.replaceChildren(el('li', { class: 'muted' }, err.message));
+    if (!(err instanceof AuthError)) list.replaceChildren(el('li', { class: 'muted load-failed' }, el('span', {}, plainLoadError(err, 'Your conversations didn’t load.')), el('button', { class: 'btn small', type: 'button', onclick: openDrawer }, 'Try again')));
   }
 }
+
+// A list that didn't load, in words: the computer's own or "out of reach" as they are, a script error as `fallback`.
+const plainLoadError = (err, fallback) => (err instanceof NetError || err?.fromServer ? err.message : fallback);
 
 function renderConvs() {
   const q = $('#convSearch').value.trim().toLowerCase();
@@ -1639,7 +1653,7 @@ const dayOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const plusDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const weekOf = (d) => plusDays(dayOf(d), -((d.getDay() - FIRST_DAY + 7) % 7));
-const clock = (s) => new Date(s).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const clock = (s) => new Date(s).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 // One theme color per entry (CSSOM, since the page's CSP allows no inline styles).
 function tint(node, id) {
@@ -1684,6 +1698,7 @@ function showView(v) {
   document.body.classList.toggle('view-panel', panel);
   $('#sched').classList.toggle('hidden', v !== 'sched');
   $('#panel').classList.toggle('hidden', !panel);
+  if (!panel) stopLive(); // the village and the map stop drawing behind the chat or the schedule
   const tab = TABS.includes(v) ? v : 'more';
   for (const b of document.querySelectorAll('#tabs button')) {
     b.classList.toggle('on', b.dataset.tab === tab);
@@ -1734,7 +1749,8 @@ async function renderSchedule(fresh = false) {
     list = await weekEvents(week, fresh);
   } catch (err) {
     if (err instanceof AuthError) return;
-    return $('#schedList').replaceChildren(el('div', { class: 'sched-empty' }, el('p', {}, err.message)));
+    if (week !== sched.week || state.view !== 'sched') return;
+    return $('#schedList').replaceChildren(el('div', { class: 'sched-empty load-failed' }, el('p', {}, plainLoadError(err, 'The schedule didn’t load.')), el('button', { class: 'btn small', type: 'button', onclick: () => renderSchedule(true) }, 'Try again')));
   }
   if (week !== sched.week || state.view !== 'sched') return; // moved on meanwhile
   const items = drawWeek(week, today, list);
