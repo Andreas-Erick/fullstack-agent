@@ -3,6 +3,7 @@
 // and `ui.showClaudeUsage` is on; it fills in after the first Claude reply.
 import { $, api, on, ignore } from './util.js';
 import { state } from './state.js';
+import { pillText } from './statuscore.js';
 
 let usage = null;
 
@@ -46,6 +47,8 @@ function render() {
   const lines = windows.map((w) => `${w.label[0].toUpperCase()}${w.label.slice(1)}: ${w.left}% left${w.resetsAt ? `, resets ${when(w.resetsAt)}` : ''}`);
   if (usage.overage) lines.push('Using extra usage (overage).');
   lines.push(`As of the last Claude reply (${new Date(usage.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}). Turn this off in Settings → AI brain.`);
-  pill.title = `Claude plan\n${lines.join('\n')}`;
-  pill.setAttribute('aria-label', `${pill.querySelector('span').textContent}. ${lines.join(' ')} Opens Settings, AI brain.`);
+  // The first line in plain words (statuscore.js), then every window with its reset time.
+  const words = pillText('usage', usage.limited && lowest === 0 ? 'limited' : lowest <= 20 ? 'low' : 'ok', { left: lowest });
+  pill.title = `${words.text}\n${lines.join('\n')}`;
+  pill.setAttribute('aria-label', `${words.aria} ${lines.join(' ')}`);
 }
