@@ -3,7 +3,7 @@
 // "Saved ✓"), a new note lands in the list with a little pop, [[ suggests your other notes, Ctrl+E shows
 // the rendered note, and Dump is a blank page for getting everything out of your head (Ctrl+Enter: saved,
 // a fresh page; Esc: saved and closed). The assistant reads them like any vault note.
-import { $, api, el, renderMarkdown, timeAgo, toast, toastError, pushToast, on } from './util.js';
+import { $, api, el, renderMarkdown, timeAgo, toast, toastError, pushToast, on, plainError } from './util.js';
 import { switchView, currentView } from './nav.js';
 import * as fmt from './notesedit.js';
 
@@ -117,7 +117,10 @@ async function loadList() {
     ({ notes, today } = await api.notebook.list());
   } catch (err) {
     notes = [];
-    $('#notesList').replaceChildren(el('p', { class: 'muted notes-msg' }, err.message));
+    const hadFocus = $('#notesList').contains(document.activeElement);
+    const again = el('button', { class: 'btn small', type: 'button', onclick: (ev) => ((ev.currentTarget.disabled = true), refresh()) }, 'Try again');
+    $('#notesList').replaceChildren(el('div', { class: 'test-result err notes-msg', role: 'alert' }, `Couldn’t read your notes: ${plainError(err)} `, again));
+    if (hadFocus) again.focus();
     return;
   }
   renderChips();
@@ -468,9 +471,20 @@ function renderEditor({ focus = '' } = {}) {
     }
   }
   $('#notesEditor').replaceChildren(tools, page);
+  watchTools(tools);
   if (focus === 'title') (title.focus(), title.select());
   else if (focus === 'body') body.focus();
   lightUp();
+}
+
+// The formatting bar sticks just below the tool row, however many lines that row wraps to (styles.css --tools-h).
+let toolsObserver = null;
+function watchTools(tools) {
+  toolsObserver?.disconnect();
+  toolsObserver = new ResizeObserver(() => {
+    if (tools.isConnected) $('#notesEditor').style.setProperty('--tools-h', `${tools.offsetHeight}px`);
+  });
+  toolsObserver.observe(tools);
 }
 
 // Saves run one after the other; a rename waits for the text before it.
@@ -733,6 +747,7 @@ export function openDump(prefill = '') {
     try {
       const path = await keep();
       layer.classList.add('leaving');
+      setUnder(false);
       setTimeout(() => layer.remove(), 180);
       await loadList();
       if (path) openNote(path, { keepFocus: true });
@@ -760,11 +775,16 @@ export function openDump(prefill = '') {
   });
   const layer = el(
     'div',
-    { class: 'dump-layer', id: 'notesDumpLayer', role: 'dialog', 'aria-label': 'Brain dump' },
+    { class: 'dump-layer', id: 'notesDumpLayer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Brain dump' },
     el('div', { class: 'dump-top' }, el('span', { class: 'dump-label' }, '⚡ Brain dump'), saved, el('span', { class: 'spacer' }), counter, el('button', { class: 'btn small', type: 'button', onclick: () => close() }, 'Done (Esc)')),
     area,
   );
+  // The notes under the page are out of reach (keyboard and screen reader) until it closes.
+  const setUnder = (off) => {
+    for (const child of $('#view-notes').children) if (child !== layer) child.inert = off;
+  };
   $('#view-notes').append(layer);
+  setUnder(true);
   update();
   area.focus();
   area.setSelectionRange(area.value.length, area.value.length);

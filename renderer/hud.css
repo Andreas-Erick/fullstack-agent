@@ -401,8 +401,9 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 :is(.fx-hud, .fx-subtle) .cal-next { border-radius: 3px; border-left: 3px solid var(--ev-c, rgb(var(--c1))); }
 .fx-hud .cal-next.live { animation: hud-cal-pulse 1.6s ease-in-out infinite; }
 :is(.fx-hud, .fx-subtle) .cal-big b::after { content: ''; display: block; height: 2px; margin-top: 4px; background: linear-gradient(90deg, rgb(var(--c1)), transparent); }
-/* Today's column in the week: a slow sweep of light, and a glowing "now" line. */
-.fx-hud .cal-wk-col.today { overflow: hidden; }
+/* Today's column in the week: a slow sweep of light, and a glowing "now" line. The column isn't clipped
+   (the now line's dot and glow reach past its edge); the sweep stops at the column's foot instead, so it
+   never lengthens the scroll, and above the top the week's scroller hides it. */
 .fx-hud .cal-wk-col.today::before {
   content: '';
   position: absolute;
@@ -414,7 +415,7 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
   pointer-events: none;
   animation: hud-cal-sweep 9s linear infinite;
 }
-@keyframes hud-cal-sweep { from { transform: translateY(-120px); } to { transform: translateY(1104px); } }
+@keyframes hud-cal-sweep { from { transform: translateY(-120px); } to { transform: translateY(984px); } }
 :is(.fx-hud, .fx-subtle) .cal-now { box-shadow: 0 0 10px rgba(var(--err), 0.9), 0 0 22px rgba(var(--err), 0.4); }
 :is(.fx-hud, .fx-subtle) .cal-daypick button { border-radius: 3px; }
 

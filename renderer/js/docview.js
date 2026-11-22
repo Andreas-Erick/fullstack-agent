@@ -3,7 +3,7 @@
 // number to jump). Ctrl + mouse wheel over the document zooms it. Shared by the Documents view and
 // the pop-up document window. One document per viewer element: showing the next one lets go of the
 // last (its listeners, page observer, page draws and pdf.js document with its worker).
-import { el, renderMarkdown, sanitizeHtml, logEvent } from './util.js';
+import { el, renderMarkdown, sanitizeHtml, logEvent, plainError } from './util.js';
 
 let pdfjs = null;
 const ZOOMS = [0.5, 0.67, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
@@ -65,7 +65,7 @@ export async function renderDocument(doc, viewer, ctl) {
     }
   } catch (err) {
     if (signal.aborted) return null; // replaced meanwhile (its loading task was destroyed)
-    viewer.append(el('p', { class: 'muted', style: { padding: '20px' } }, `Could not display this document: ${err.message}`));
+    viewer.append(el('p', { class: 'muted', style: { padding: '20px' } }, `Could not display this document: ${plainError(err)}`));
   }
   if (signal.aborted) return null;
   if (controller) {
@@ -99,7 +99,7 @@ async function htmlNode(doc) {
 }
 
 function zoomButtons(tools, { onZoom, onFit, fitLabel = 'Fit width' }) {
-  const label = el('button', { class: 'tb zoom-val', title: 'Reset to 100%' }, '100%');
+  const label = el('button', { class: 'tb zoom-val', title: 'Reset to 100%', 'aria-label': 'Zoom level, reset to 100%' }, '100%');
   tools.append(
     el('button', { class: 'tb', title: 'Zoom out (Ctrl −, Ctrl + wheel)', onclick: () => onZoom(-1) }, '−'),
     label,

@@ -110,12 +110,12 @@ export function createReplay(commits, { keep = () => true } = {}) {
 export function replayBar(replay, { onChange, onClose, noun = 'file', count: countText } = {}) {
   const play = el('button', { class: 'btn replay-play', title: 'Play / pause (Space)' }, '▶');
   const slider = el('input', { type: 'range', class: 'replay-slider', min: -1, max: Math.max(-1, replay.commits.length - 1), value: replay.state.index, step: 1, 'aria-label': 'Moment in the history' });
-  const speed = el('select', { class: 'input replay-speed', title: 'Speed' }, ...[0.5, 1, 2, 4].map((s) => el('option', { value: String(s) }, `${s}×`)));
+  const speed = el('select', { class: 'input replay-speed', title: 'Speed', 'aria-label': 'Speed' }, ...[0.5, 1, 2, 4].map((s) => el('option', { value: String(s) }, `${s}×`)));
   speed.value = String(replay.state.speed);
   const when = el('div', { class: 'replay-when' });
   const what = el('div', { class: 'replay-what' });
   const count = el('div', { class: 'replay-count' });
-  const bar = el('div', { class: 'replay-bar glass' }, play, slider, speed, el('div', { class: 'replay-text' }, when, what), count, onClose ? el('button', { class: 'btn replay-close', title: 'Leave the replay (Esc)', onclick: onClose }, '✕') : '');
+  const bar = el('div', { class: 'replay-bar glass' }, play, slider, speed, el('div', { class: 'replay-text' }, when, what), count, onClose ? el('button', { class: 'btn replay-close', title: 'Leave the replay (Esc)', 'aria-label': 'Leave the replay', onclick: onClose }, '✕') : '');
   play.onclick = () => (replay.state.playing ? replay.pause() : replay.play(), onChange?.());
   slider.oninput = () => (replay.pause(), replay.seek(Number(slider.value)), onChange?.());
   speed.onchange = () => (replay.setSpeed(Number(speed.value)), onChange?.());
@@ -123,6 +123,8 @@ export function replayBar(replay, { onChange, onClose, noun = 'file', count: cou
     const c = replay.current;
     const s = replay.state;
     play.textContent = s.playing ? '❚❚' : replay.done ? '↻' : '▶';
+    // Named by what it does, not by its glyph.
+    play.setAttribute('aria-label', s.playing ? 'Pause' : replay.done ? 'Replay from the start' : 'Play');
     if (Number(slider.value) !== s.index) slider.value = s.index;
     const n = s.index + 1;
     const total = replay.commits.length;

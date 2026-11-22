@@ -31,7 +31,7 @@ test.before(async () => {
   fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}');
   fs.writeFileSync(
     path.join(dir, 'util.js'),
-    `const node = () => ({ disabled: false, innerHTML: '', children: [], append(...n) { this.children.push(...n); } });
+    `const node = () => ({ disabled: false, innerHTML: '', children: [], isConnected: true, offsetHeight: 0, style: { setProperty() {} }, remove() {}, append(...n) { this.children.push(...n); } });
 const nodes = new Map();
 export const $ = (sel) => (nodes.has(sel) || nodes.set(sel, node()), nodes.get(sel));
 export const api = globalThis.__docs.api;
@@ -40,6 +40,8 @@ export const toast = () => {};
 export const toastError = (e) => globalThis.__docs.seen.errors.push(String(e?.message || e));
 export const timeAgo = () => '';
 export const on = (ev, fn) => (globalThis.__docs.seen.on[ev] = fn);
+export const confirmDialog = async () => true;
+export const plainError = (e) => String(e?.message || e);
 `,
   );
   fs.writeFileSync(path.join(dir, 'nav.js'), 'export const switchView = (v) => globalThis.__docs.seen.views.push(v);\n');
