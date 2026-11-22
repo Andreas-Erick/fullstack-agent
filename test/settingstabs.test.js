@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { ROOT, tmpDir } = require('./helpers');
+const { ROOT, tmpDir, settingsSource } = require('./helpers');
 
 let t;
 test.before(async () => {
@@ -15,7 +15,7 @@ test.before(async () => {
 });
 
 // The ids settings.js gives its cards: card('brain', …) or card(\n    'agent', …).
-const cardIds = () => [...fs.readFileSync(path.join(ROOT, 'renderer/js/settings.js'), 'utf8').matchAll(/\bcard\(\s*'([a-z-]+)'/g)].map((m) => m[1]);
+const cardIds = () => [...settingsSource().matchAll(/\bcard\(\s*'([a-z-]+)'/g)].map((m) => m[1]);
 
 test('every Settings card is in exactly one tab, and every tab has cards', () => {
   const ids = cardIds();

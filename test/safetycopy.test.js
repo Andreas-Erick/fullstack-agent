@@ -5,15 +5,16 @@
 // user named.
 const test = require('node:test');
 const assert = require('node:assert');
+const { settingsSource } = require('./helpers');
 const fx = require('./appfixture')('safetycopy');
 const { store, approvals, routines, read, load, answering, decide, allTools } = fx;
 
 const STILL_ASKS = ['self_modify', 'command', 'github_publish', 'invite', 'connector'];
 const COPY = [
-  { file: 'renderer/js/settings.js', text: 'Just do it — still asks before code changes, commands, publishing to GitHub, invitations and services you haven’t allowed', mode: 'auto', kinds: STILL_ASKS },
+  { file: 'renderer/js/settings/system.js', text: 'Just do it — still asks before code changes, commands, publishing to GitHub, invitations and services you haven’t allowed', mode: 'auto', kinds: STILL_ASKS },
   { file: 'renderer/js/onboarding.js', text: 'Still asks before code changes, commands, publishing to GitHub, invitations and services you haven’t allowed.', mode: 'auto', kinds: STILL_ASKS },
   { file: 'renderer/js/commands.js', text: 'I still ask before changing my code, running commands, publishing, sending invitations and using services you haven’t allowed', mode: 'auto', kinds: STILL_ASKS },
-  { file: 'renderer/js/settings.js', text: 'Ask me first — self-changes, settings changes, deletions', mode: 'ask', kinds: ['self_modify', 'settings', 'delete'] },
+  { file: 'renderer/js/settings/system.js', text: 'Ask me first — self-changes, settings changes, deletions', mode: 'ask', kinds: ['self_modify', 'settings', 'delete'] },
 ];
 
 test('every kind the Safety copy says still asks really asks; what it leaves out runs in “Just do it”', async (t) => {
@@ -28,7 +29,7 @@ test('every kind the Safety copy says still asks really asks; what it leaves out
 
 test('after outside content: changing my code, a website nobody named, saving a routine or a skill ask in “Just do it”; every approval warns', async (t) => {
   t.after(() => store.setSettings({ safety: { permissionMode: 'ask', taintGuard: true } }));
-  const settings = read('renderer/js/settings.js');
+  const settings = settingsSource();
   for (const phrase of ['ask before changing my code', 'opening a website nobody named', 'saving a routine or skill', 'warn on every approval', 'also in “Just do it” mode']) assert.ok(settings.includes(phrase), `the taint guard’s copy lacks “${phrase}”`);
 
   // Changing my code: a yes from before the outside content doesn't cover it (TAINT_ASKS).
@@ -76,7 +77,7 @@ test('after outside content: changing my code, a website nobody named, saving a 
 
 test('“Allow everything”: no questions, except deleting or inviting people after outside content', () => {
   const connectors = require('../main/connectors');
-  const settings = read('renderer/js/settings.js');
+  const settings = settingsSource();
   assert.ok(settings.includes('Allow everything: no questions, except that deleting or inviting people asks once a turn has read outside content (Settings → Safety), so only for services where nothing can go wrong.'));
   const del = 'mcp__claude_ai_Google_Calendar__delete_event';
   const invite = 'mcp__claude_ai_Google_Calendar__create_event';
@@ -93,6 +94,7 @@ test('“Allow everything”: no questions, except deleting or inviting people a
 test('no window still promises “no questions at all”', () => {
   const files = ['renderer/js/settings.js', 'renderer/js/onboarding.js', 'renderer/js/commands.js', 'renderer/js/approval.js', 'renderer/remote/app.js', 'renderer/remote/screens.js', 'main/guide.js', 'main/prompt.js'];
   for (const f of files) assert.doesNotMatch(read(f), /no questions at all/i, f);
+  assert.doesNotMatch(settingsSource(), /no questions at all/i, 'renderer/js/settings/');
 });
 
 // The outbound check counts the hosts the user named (approvals.newTurn userText); llm.runOn passes the

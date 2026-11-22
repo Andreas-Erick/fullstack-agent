@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { ROOT, stub, load, tmpDir, quietLog, fileStore } = require('./helpers');
+const { ROOT, stub, load, tmpDir, quietLog, fileStore, settingsSource } = require('./helpers');
 
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
@@ -75,7 +75,7 @@ test('styles: hover-only actions show on touch screens and to the keyboard; dang
   assert.match(css, /\.skill-card \.acts \.danger \{ margin-left: auto; \}/);
   assert.match(css, /\.dropdown-menu :not\(\.danger\) \+ \.danger::before/);
   assert.match(read('renderer/js/calendar.js'), /class: 'btn danger', style: \{ marginRight: 'auto' \}, onclick: \(\) => \(close\(\), removeEntry\(entry \|\|/);
-  assert.match(read('renderer/js/settings.js'), /class: 'btn small danger',\s*onclick: async \(\) => \{\s*if \(!\(await confirmDialog\('Remove device'/);
+  assert.match(settingsSource(), /class: 'btn small danger',\s*onclick: async \(\) => \{\s*if \(!\(await confirmDialog\('Remove device'/);
 });
 
 test('keys: Ctrl+N in the Notes view is a new note wherever the focus is; W A S D with Shift or Caps Lock', () => {

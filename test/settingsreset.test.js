@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const fx = require('./appfixture')('settingsreset', { server: true });
 const { dir, store, read, load, esm, pairDevice } = fx;
-const { quietLog } = require('./helpers');
+const { quietLog, settingsSource } = require('./helpers');
 
 // main.js wires store.onChange to the companion (a persona or look change → info.changed, the phone and the
 // watch fetch /api/info again) and to the window's connector levels. resetSettings runs "inside the save
@@ -49,7 +49,7 @@ test('Reset settings: the store’s { settings, kept } is what Settings’ notic
   assert.strictEqual(backupName(), 'Juniper', 'the reset (an empty load) writes no backup');
 
   // Settings' Reset action, evaluated on that result (and on a reset with no file to keep).
-  const src = read('renderer/js/settings.js');
+  const src = settingsSource();
   const m = /const r = await api\.settings\.reset\(\);\s*await loadSettings\(\);\s*return (r\?\.kept \? `[^`]*` : '[^']*');/.exec(src);
   assert.ok(m, 'settings.js reads the reset’s { settings, kept } result');
   const notice = new Function('r', `return ${m[1]};`);

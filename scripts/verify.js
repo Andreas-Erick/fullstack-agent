@@ -57,9 +57,12 @@ function verify(root) {
   const defaults = codemap.settingsDefaults(root);
   if (!defaults) warnings.push('Could not read DEFAULTS in main/store.js; settings keys not checked.');
   else {
-    const settingsJs = texts['renderer/js/settings.js'] || '';
-    for (const m of settingsJs.matchAll(/\b(?:toggle|text|select|range|slider|number)\('([a-zA-Z]+\.[\w.]+)'/g)) {
-      if (!codemap.hasPath(defaults, m[1])) errors.push(`renderer/js/settings.js binds "${m[1]}", which has no default in main/store.js DEFAULTS.`);
+    // The Settings view: renderer/js/settings.js and its modules in renderer/js/settings/.
+    const settingsFiles = files.filter((f) => f === 'renderer/js/settings.js' || f.startsWith('renderer/js/settings/'));
+    for (const f of settingsFiles) {
+      for (const m of (texts[f] || '').matchAll(/\b(?:toggle|text|select|range|slider|number)\('([a-zA-Z]+\.[\w.]+)'/g)) {
+        if (!codemap.hasPath(defaults, m[1])) errors.push(`${f} binds "${m[1]}", which has no default in main/store.js DEFAULTS.`);
+      }
     }
     const settable = /const SETTABLE = \{([\s\S]*?)\n\};/.exec(texts['main/tools.js'] || '');
     if (settable) {
