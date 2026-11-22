@@ -300,6 +300,43 @@ test('Clear all aborts every turn, forgets every session and removes every folde
   assert.strictEqual(h.turns.pendingDeletes(), 0);
 });
 
+// Review of spec #17: a chat deleted from History waits on its Undo in the window, but closing hid the
+// window and wrote the "where we left off" note at once, so the note could summarise the chat being deleted
+// (and with the note off, the window's delete could be cut by the quit). Main holds the waiting delete and
+// settles it before the note and the close.
+test('a delete waiting on its Undo is held in main and settled once, before closing', async () => {
+  const h = harness({ convs: [{ id: 'h1', title: 'a', messages: [] }, { id: 'h2', title: 'b', messages: [] }] });
+  h.turns.holdDelete('h1');
+  assert.ok(h.files.has('h1'), 'held, not deleted: Undo still works');
+  h.turns.holdDelete(null); // Undo
+  await h.turns.settleHeldDelete();
+  assert.ok(h.files.has('h1'), 'an Undo leaves nothing to settle');
+  h.turns.holdDelete('h2');
+  await h.turns.settleHeldDelete();
+  assert.ok(!h.files.has('h2'), 'closing deletes the one still waiting');
+  h.trace.length = 0;
+  await h.turns.settleHeldDelete();
+  assert.deepStrictEqual(h.trace.filter((e) => e[0] === 'delete'), [], 'once');
+  // The window's own delete at the notice's end clears the hold.
+  h.turns.holdDelete('h1');
+  await h.turns.deleteConversation('h1');
+  h.trace.length = 0;
+  await h.turns.settleHeldDelete();
+  assert.deepStrictEqual(h.trace.filter((e) => e[0] === 'delete'), []);
+});
+
+test('closing settles the held delete before the note picks its conversation and before the window goes', () => {
+  const fs = require('fs');
+  const src = fs.readFileSync(require('path').join(__dirname, '..', 'main', 'main.js'), 'utf8').replace(/\r\n/g, '\n');
+  const close = src.slice(src.indexOf('async function closeWithHandoff'));
+  const body = close.slice(0, close.indexOf('\n}'));
+  const settle = body.indexOf('await turns.settleHeldDelete()');
+  assert.ok(settle > 0, 'settled in closeWithHandoff');
+  assert.ok(settle < body.indexOf('handoff.write('), 'before the note');
+  assert.ok(settle < body.indexOf('win.close()'), 'before the close, also with the note off');
+  assert.match(src, /handle\('conv:holdDelete', \(id\) => turns\.holdDelete\(id\)\)/);
+});
+
 test('Try again after a stop names the cut-off call as cut off, never as done', async () => {
   const attempt = { outcome: 'stopped', at: 1, output: true, tools: [{ name: 'calendar_add_event', ok: true, brief: 'Dentist' }, { name: 'github_push', ok: null, brief: 'main' }] };
   const h = harness({ convs: [{ id: 'cn', title: 'Push', messages: [userMsg('u1', 'push and add', { attempt })] }] });

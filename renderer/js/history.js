@@ -7,7 +7,7 @@
 // Docked, the same button and key go to its search. What the list shows is historycore.listModel (pure).
 // A leaf: chat.js hands in what it owns (initHistory: which chat is open, open one, start a new one), so
 // this never imports chat.js; chat.js tells it when the list may have changed (refreshList, drawList).
-import { $, api, el, on, timeAgo, undoToast, toastError, dialogOpen } from './util.js';
+import { $, api, el, on, timeAgo, undoToast, toastError, dialogOpen, ignore } from './util.js';
 import { state } from './state.js';
 import * as chatcore from './chatcore.js';
 import * as core from './historycore.mjs';
@@ -44,10 +44,9 @@ export function initHistory(handlers) {
   on('layout', settle);
   on('view', ({ name }) => name !== 'chat' && closeHistory({ focus: false }));
   on('files-added', () => closeHistory({ focus: false })); // a file dropped into the chat (attach.js)
-  // Closing deletes a chat still waiting on its Undo. The window hides first while the handoff note is
-  // written (main.js closeWithHandoff), so hidden counts too (also a minimized window: Undo is a moment's).
+  // Closing deletes a chat still waiting on its Undo: main holds it (conv:holdDelete) and settles it before
+  // the handoff note and the close (main.js closeWithHandoff). A minimize keeps Undo; a reload settles here.
   window.addEventListener('beforeunload', () => settleDelete());
-  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && settleDelete());
 }
 
 // ------------------------------------------------------------------ the list
@@ -138,6 +137,7 @@ function deleteConversation(c, kind) {
   const gone = { conv: c, kind };
   pending = gone;
   gone.settle = undoToast(`Deleted “${c.title || 'Untitled'}”`, { ms: UNDO_MS, undo: () => undoDelete(gone), expire: () => commitDelete(gone) });
+  api.conv.holdDelete(c.id).catch(ignore('not held: the window still deletes it when the notice goes'));
   if (c.id === chat.current()) chat.newChat();
   drawList();
   if (inPanel || historyOpen()) {
@@ -165,6 +165,7 @@ async function commitDelete(gone) {
 // Undo: the row is back (nothing was asked of main) and, where History shows, it has the focus.
 function undoDelete(gone) {
   if (pending === gone) pending = null;
+  api.conv.holdDelete(null).catch(ignore('hold not released: only a close would delete it'));
   drawList();
   const list = $('#convList');
   if (!(historyOpen() || historyDocked()) || !$('#convPanel').getClientRects().length) return;

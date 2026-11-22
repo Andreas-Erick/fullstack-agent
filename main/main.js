@@ -549,6 +549,8 @@ function registerIpc() {
       .then((r) => (historysearch().forget(id), r)) // a scan running meanwhile can't keep it
       .then(convsChanged);
   });
+  // History's delete waiting on its Undo (id, or null once undone): closing settles it (closeWithHandoff).
+  handle('conv:holdDelete', (id) => turns.holdDelete(id));
   handle('conv:rename', (id, title) => store.renameConversation(id, title).then(convsChanged));
   // History: ids, titles and snippets, never conversations (main/historysearch.js).
   handle('conv:search', (query, opts) => historysearch().search(String(query ?? ''), { cursor: opts?.cursor ?? null, limit: Number(opts?.limit) || undefined }));
@@ -1053,6 +1055,10 @@ async function closeWithHandoff() {
   if (closing) return;
   closing = true;
   try {
+    // A chat deleted from History still waiting on its Undo goes now: before the note picks its
+    // conversation, and before the window closes (with the note off, the window's own delete could be cut).
+    const gone = await turns.settleHeldDelete().catch((error) => (log.warn('held delete not settled', { error }), null));
+    if (gone) (require('./historysearch').forget(gone), companion.dataChanged(['conversations']));
     const s = await store.getSettings();
     if (reopenRequested) return; // asked for again while the settings were read: no note, never hidden
     if (s.onboarded && s.journal.handoffOnClose !== false) {

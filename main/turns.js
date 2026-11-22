@@ -48,6 +48,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
   // History ✕: its reply stops, its session ends (and a warm-up queued by opening it a moment ago doesn't
   // run), the file and the attachments folder go; a turn still being set up stores nothing.
   async function deleteConversation(id) {
+    if (held === id) held = null;
     marked([id]);
     for (const c of active.values()) if (c.conversationId === id) c.abort();
     claudesession.deleted(id);
@@ -60,8 +61,25 @@ function create({ send = () => {}, toWindow = send } = {}) {
     }
   }
 
+  // History's delete waits 6 s on its Undo in the window (renderer/js/history.js); the window tells main
+  // which one waits (null: undone or done), so closing deletes it before the handoff note picks its
+  // conversation and before the window goes (main.js closeWithHandoff). A minimize changes nothing.
+  let held = null;
+  const holdDelete = (id) => {
+    held = typeof id === 'string' && id ? id : null;
+  };
+  // Resolves to the id it deleted (null: nothing waited).
+  async function settleHeldDelete() {
+    const id = held;
+    if (!id) return null;
+    held = null;
+    await deleteConversation(id);
+    return id;
+  }
+
   // Clear all: the same for every conversation.
   async function clearConversations() {
+    held = null;
     const ids = (await store.listConversations()).map((c) => c.id);
     marked(ids);
     for (const id of ids) claudesession.deleted(id);
@@ -323,6 +341,8 @@ function create({ send = () => {}, toWindow = send } = {}) {
     replying: () => new Set([...active.values()].map((c) => c.conversationId)),
     deleteConversation,
     clearConversations,
+    holdDelete,
+    settleHeldDelete,
     // For tests: how many deletes are still remembered.
     pendingDeletes: () => deletions.size,
   };

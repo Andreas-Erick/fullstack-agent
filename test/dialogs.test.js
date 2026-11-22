@@ -1087,7 +1087,8 @@ test('History: a deleted chat hides with Undo; Undo deletes nothing in main and 
   const now = Date.now();
   let convs = ['a', 'b', 'c'].map((id, i) => ({ id, title: id.toUpperCase(), count: 2, updatedAt: now - i * 1000 }));
   const deleted = [];
-  API.conv = { list: async () => convs, delete: async (id) => (deleted.push(id), (convs = convs.filter((c) => c.id !== id))), search: async () => ({ items: [] }) };
+  const held = [];
+  API.conv = { list: async () => convs, delete: async (id) => (deleted.push(id), (convs = convs.filter((c) => c.id !== id))), holdDelete: async (id) => held.push(id), search: async () => ({ items: [] }) };
   API.on = () => {}; // routine:event
   let open = 'b';
   const opened = [];
@@ -1112,7 +1113,15 @@ test('History: a deleted chat hides with Undo; Undo deletes nothing in main and 
   assert.match(notices(), /Deleted “B”/);
   assert.strictEqual(newChats, 1, 'the open chat gave way to a new one');
   assert.deepStrictEqual(deleted, []);
+  assert.deepStrictEqual(held, ['b'], 'main holds it, so closing settles it before the handoff note');
   assert.strictEqual(doc.activeElement, row('c').querySelector('.conv-open'), 'the focus is on the next row');
+  // A minimize hides the page: Undo still works (only a real close deletes, through main).
+  Object.defineProperty(doc, 'visibilityState', { value: 'hidden', configurable: true });
+  doc.dispatchEvent(new Event('visibilitychange'));
+  await tick();
+  assert.deepStrictEqual(deleted, [], 'a minimize deletes nothing');
+  assert.strictEqual(undos().length, 1, 'Undo is still offered');
+  delete doc.visibilityState;
   await h.refreshList(); // a reply elsewhere redraws the list: still hidden
   assert.deepStrictEqual(ids(), ['a', 'c']);
 
@@ -1122,6 +1131,7 @@ test('History: a deleted chat hides with Undo; Undo deletes nothing in main and 
   assert.deepStrictEqual(ids(), ['a', 'b', 'c']);
   assert.strictEqual(doc.activeElement, row('b').querySelector('.conv-open'), 'the focus is on the chat that came back');
   assert.deepStrictEqual(opened, [], 'Undo does not reopen it');
+  assert.deepStrictEqual(held, ['b', null], 'main lets go of it');
   assert.strictEqual(undos().length, 0, 'the notice is gone');
   t.mock.timers.tick(60000);
   await tick();
