@@ -1,6 +1,6 @@
-// Vault view: the agent's own Obsidian vault — browse, search, read, create and edit notes.
-import { $, api, el, renderMarkdown, timeAgo, debounce, toast, toastError, confirmDialog, promptDialog, modal, on, plainError } from './util.js';
-import { state } from './state.js';
+// Library view (data-view 'knowledge'): every file the assistant keeps in its vault, to browse, search, read
+// and edit. New notes are written in the Notes view, the one place for that (spec #17).
+import { $, api, el, renderMarkdown, timeAgo, debounce, toast, toastError, confirmDialog, modal, on, plainError } from './util.js';
 import { switchView, currentView } from './nav.js';
 import { openDocument } from './docs.js';
 
@@ -12,8 +12,8 @@ const dirty = () => Boolean(editing?.ta.isConnected) && editing.ta.value !== edi
 
 /**
  * Before the note pane is replaced: true when nothing is unsaved, or the user chose to discard it. It leaves
- * `editing` alone: replacing the pane disconnects the editor, and when nothing replaces it (New note
- * cancelled, a note that can't be read) the editor stays as it was, its Save working and its text guarded.
+ * `editing` alone: replacing the pane disconnects the editor, and when nothing replaces it (a note that
+ * can't be read) the editor stays as it was, its Save working and its text guarded.
  */
 async function leaveEditor() {
   return !dirty() || Boolean(await confirmDialog('Discard your changes?', `Your edits to ${editing.path} aren’t saved.`, 'Discard'));
@@ -30,7 +30,6 @@ export function initKnowledge() {
   };
   $('#kbNote').addEventListener('click', follow);
   $('#kbNote').addEventListener('keydown', follow);
-  $('#kbNew').onclick = newNote;
   $('#kbObsidian').onclick = () => api.obsidian.openInObsidian(selected || null).catch(toastError);
   $('#kbGrowth').onclick = () => import('./growth.js').then((m) => m.openGrowth()).catch(toastError);
   $('#kbFolder').onclick = () => api.obsidian.openFolder().catch(toastError);
@@ -48,7 +47,6 @@ export function initKnowledge() {
 }
 
 export async function refresh() {
-  $('#kbTitle').textContent = `${state.settings.agent.name}'s Vault`;
   const list = $('#kbList');
   const st = await api.obsidian.status().catch(() => ({}));
   if (!st.ok) {
@@ -142,12 +140,12 @@ async function openNote(ref) {
             class: 'btn small danger',
             style: { marginLeft: '14px' }, // apart from the everyday buttons: a slip doesn't land on it
             onclick: async () => {
-              if (!(await confirmDialog('Delete note', `Move “${n.title}” to the vault’s trash?`, 'Delete'))) return;
+              if (!(await confirmDialog('Delete note', `Move “${n.title}” to the Trash?`, 'Delete'))) return;
               // A delete that failed leaves the note open (it is still there).
               const ok = await api.obsidian.delete(n.path).then(() => true, (err) => (toastError(plainError(err)), false));
               if (!ok) return;
               selected = null;
-              toast(`Moved “${n.title}” to the vault’s trash (.trash).`);
+              toast(`Moved “${n.title}” to the Trash.`);
               refresh();
             },
           }, 'Delete'),
@@ -195,7 +193,7 @@ function editNote(n) {
     saveBtn.disabled = true;
     try {
       const fresh = await api.obsidian.read(n.path).catch(() => null); // unreadable: handled as null below
-      if (fresh && fresh.content !== mine.read && !(await confirmDialog('Overwrite the newer version?', 'This note changed since you opened it (the assistant or another app wrote it). Your text replaces that version; the vault’s history keeps it.', 'Overwrite'))) return;
+      if (fresh && fresh.content !== mine.read && !(await confirmDialog('Overwrite the newer version?', 'This note changed since you opened it (the assistant or another app wrote it). Your text replaces that version; the Library’s history keeps it.', 'Overwrite'))) return;
       editing = null; // the save's own vault-changed reloads the pane as usual
       await api.obsidian.write(n.path, ta.value, 'overwrite');
       toast('Saved');
@@ -259,19 +257,4 @@ async function showHistory(n) {
     }
     card.append(el('h3', {}, `History · ${n.title}`), list, preview, el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close() }, 'Close'), restoreBtn));
   });
-}
-
-async function newNote() {
-  if (!(await leaveEditor())) return;
-  const name = await promptDialog('New note (path inside the vault)', 'Notes/Untitled.md');
-  if (!name) return;
-  try {
-    const title = name.split('/').pop().replace(/\.md$/i, '');
-    const r = await api.obsidian.write(name, `# ${title}\n\n`, 'create');
-    await refresh();
-    const n = await api.obsidian.read(r.path);
-    editNote(n);
-  } catch (err) {
-    toastError(err);
-  }
 }

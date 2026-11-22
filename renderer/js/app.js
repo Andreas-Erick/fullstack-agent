@@ -3,6 +3,7 @@ import { $, $$, api, on, emit, el, toast, logEvent, dialogOpen, reportUiError, i
 import { state, loadSettings, saveSettings, ttsActive, raiseAlert, noteActivity } from './state.js';
 import { applyScene } from './scene.js';
 import { switchView, currentView } from './nav.js';
+import { initMoreMenu } from './moremenu.js';
 import { FaceHost, BUILT_IN, runDemo } from './faces/host.js';
 import { startListening, stopListening, toggleListening, speaker, preloadSpeechIfUsed, preloadOfflineVoice, setMicMode, handsFree, warmMic } from './voice.js';
 import { initChat, newChat, sendVoice, currentConversationId, cancelReply, retryLatest, canRetryLatest } from './chat.js';
@@ -74,10 +75,12 @@ async function boot() {
   // and the rest still starts. First what gets you out of a broken start: the rail, the app's notices,
   // approvals and Evolution (where a bad self-change is reverted).
   start('rail', () => {
-    $$('.rail-btn').forEach((b) => (b.onclick = () => switchView(b.dataset.view)));
-    // Arrow keys move along the rail (Tab enters and leaves it; Enter or Space opens the view).
+    // The rail's places and the More menu's (moremenu.js): each opens its view.
+    $$('.rail-btn[data-view]').forEach((b) => (b.onclick = () => switchView(b.dataset.view)));
+    initMoreMenu();
+    // Arrow keys move along the rail (Tab enters and leaves it; Enter or Space opens the view or More).
     $('#rail').addEventListener('keydown', (e) => {
-      const btns = $$('.rail-btn').filter((b) => b.offsetParent);
+      const btns = $$('#rail .rail-btn').filter((b) => b.offsetParent);
       const i = btns.indexOf(document.activeElement);
       const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: btns.length - 1 }[e.key];
       if (i < 0 || to === undefined) return;
@@ -457,16 +460,21 @@ function setupPushToTalk() {
 
 // --------------------------------------------------------------- shortcuts
 function setupShortcuts() {
-  const views = ['chat', 'face', 'memory', 'calendar', 'knowledge', 'docs', 'evolution', 'skills', 'notes'];
+  // Ctrl+1-5 follow the rail, top to bottom; the places under More have no number (spec #17).
+  const views = ['chat', 'notes', 'calendar', 'memory', 'docs'];
   window.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.shiftKey && /^Digit[1-3]$/.test(e.code)) {
       e.preventDefault();
       switchView('chat');
       setLayout(['chat', 'split', 'face'][Number(e.code.slice(5)) - 1]);
-    } else if (mod && /^Digit[1-9]$/.test(e.code)) {
+    } else if (mod && /^Digit[1-5]$/.test(e.code)) {
       e.preventDefault();
       switchView(views[Number(e.code.slice(5)) - 1]);
+    } else if (mod && !e.shiftKey && e.code === 'Digit9') {
+      // Notes' old number, kept for habits from before the everyday rail.
+      e.preventDefault();
+      switchView('notes');
     } else if (mod && (e.key === '=' || e.key === '+')) {
       e.preventDefault();
       zoomBy(1);
@@ -490,7 +498,7 @@ function setupShortcuts() {
       toggleHistory();
     } else if (mod && e.key.toLowerCase() === 'n') {
       e.preventDefault();
-      // In the Notes view a new note, also when the focus is outside the view (Ctrl+9 moves none); a chat elsewhere.
+      // In the Notes view a new note, also when the focus is outside the view (Ctrl+2 moves none); a chat elsewhere.
       if (currentView === 'notes') {
         if (!dialogOpen() && !$('#notesDumpLayer')) newNote();
         return;

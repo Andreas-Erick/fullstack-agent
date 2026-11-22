@@ -247,7 +247,7 @@ export async function dataCard() {
     'data',
     'Memory & history',
     `Data folder: <code>${escapeHtml(info.dataDir)}</code>`,
-    folder('memory.vaultPath', 'Memory vault folder', { placeholder: memDir, hint: 'One Markdown file per memory — editable in any text editor or even inside your Obsidian vault.' }),
+    folder('memory.vaultPath', 'Memories folder', { placeholder: memDir, hint: 'One Markdown file per memory — editable in any text editor or even inside your Obsidian vault.' }),
     toggle('memory.stream', 'Memory stream: the assistant notes small observations (Stream/ in the vault) and recalls the most relevant ones with each message'),
     toggle('memory.reflect', 'Reflect on the stream: once enough has happened, draw a few insights from it in the background (one model call)'),
     toggle('privacy.encryptConversations', 'Encrypt conversations on this computer (with your system keychain: only your user account on this computer can read them; existing ones are converted in the background)'),
@@ -263,7 +263,7 @@ export async function dataCard() {
       'div',
       { class: 'row', style: { flexWrap: 'wrap' } },
       danger('Clear history', 'Clear all conversations', 'Delete every conversation? This cannot be undone.', async () => (settleDelete(), await api.conv.clear(), newChat(), refreshList(), 'All conversations deleted.'), () => api.conv.export()),
-      danger('Clear memory', 'Clear memory vault', 'Delete every memory? This cannot be undone.', async () => (await api.memory.clear(), emit('memory-changed'), 'Memory cleared.'), () => api.memory.export('md')),
+      danger('Clear memory', 'Delete all memories', 'Delete every memory? This cannot be undone.', async () => (await api.memory.clear(), emit('memory-changed'), 'Memory cleared.'), () => api.memory.export('md')),
       danger(
         'Reset settings',
         'Reset settings',

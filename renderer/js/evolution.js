@@ -49,7 +49,7 @@ export async function refresh() {
     $('#evoList').innerHTML = '';
     return;
   }
-  if (!status.enabled) box.append(el('div', { class: 'evo-banner' }, 'Self-modification is turned off in Configuration → Self-improvement. History is still shown.'));
+  if (!status.enabled) box.append(el('div', { class: 'evo-banner' }, 'Self-modification is turned off in Settings → Self-improvement. History is still shown.'));
   if (!status.isRepo) {
     box.append(el('div', { class: 'evo-banner' }, 'No history yet.', el('button', { class: 'btn small', onclick: async () => (await api.self.ensure(), refresh()) }, 'Start tracking changes')));
     return;
