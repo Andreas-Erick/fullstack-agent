@@ -6,7 +6,7 @@ const obsidian = require('../obsidian');
 const store = require('../store');
 const vaultgit = require('../vaultgit');
 const attachcore = require('../attachcore');
-const { arr, obj, str, int, requireApproval } = require('./common');
+const { arr, obj, str, int, requireApproval, guardWrite } = require('./common');
 
 const DAY_MS = 86400000;
 // Can a conversation (an index entry) hold messages from this local day (YYYY-MM-DD)? Its messages fall
@@ -36,9 +36,7 @@ function steersLater(ref) {
   p = path.posix.normalize(p).replace(/^(\.\/|\/)+/, '').toLowerCase();
   return STEERING_NOTES.has(p) || STEERING_FOLDERS.some((f) => p.startsWith(f));
 }
-async function askIfOutside(ctx, title, detail) {
-  if (ctx?.turn?.tainted) await requireApproval(ctx, 'settings', title, String(detail || '').slice(0, 600), { taintAsks: true });
-}
+const askIfOutside = (ctx, title, detail) => guardWrite(ctx, title, String(detail || '').slice(0, 600));
 
 module.exports = [
   {

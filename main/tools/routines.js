@@ -1,6 +1,6 @@
 // Agent tools: Routines (routines.js): scheduled runs of the agent.
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
-const { obj, str, bool, requireApproval } = require('./common');
+const { obj, str, bool, requireApproval, guardWrite } = require('./common');
 
 module.exports = [
   {
@@ -54,7 +54,7 @@ module.exports = [
     description: 'Run a routine now, when the user asks ("check my Plaud now"). It runs in its own conversation; you get its report.',
     parameters: obj({ id: str('The routine id (routine_list)') }, ['id']),
     run: async (a, ctx) => {
-      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', 'Run a routine now', 'Asked after reading external content.', { taintAsks: true });
+      await guardWrite(ctx, 'Run a routine now');
       return require('../routines').runNow(a.id, { signal: ctx.signal });
     },
   },

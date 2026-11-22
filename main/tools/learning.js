@@ -1,7 +1,7 @@
 // Agent tools: Learning: the understanding tracker, vocabulary decks, language practice.
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
 const store = require('../store');
-const { arr, obj, str, requireApproval } = require('./common');
+const { arr, obj, str, guardWrite } = require('./common');
 
 module.exports = [
   {
@@ -85,7 +85,7 @@ module.exports = [
     run: async (a, ctx) => {
       const code = String(a.language || '').trim().toLowerCase();
       if (code !== 'off' && !/^[a-z]{2,3}(-[a-z]{2})?$/.test(code)) throw new Error('Use an ISO language code like "es" or "ja", or "off".');
-      if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', code === 'off' ? 'End language practice' : `Start language practice (${code})`, 'Asked after reading external content.', { taintAsks: true });
+      await guardWrite(ctx, code === 'off' ? 'End language practice' : `Start language practice (${code})`);
       await store.setSettings({ learning: { practiceLanguage: code === 'off' ? '' : code } });
       ctx.emit({ type: 'settings_changed' });
       return code === 'off' ? { practice: 'off' } : { practice: code, note: 'Speech recognition and your voice switch to this language from your next reply.' };

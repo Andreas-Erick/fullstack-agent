@@ -2,7 +2,8 @@
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
 const github = require('../github');
 const skills = require('../skills');
-const { arr, obj, str, requireApproval } = require('./common');
+const turnguard = require('../turnguard');
+const { arr, obj, str, requireApproval, guardWrite } = require('./common');
 
 module.exports = [
   {
@@ -25,7 +26,7 @@ module.exports = [
       if (!s) throw new Error(`No skill called "${a.name}". Saved skills: ${(await skills.list()).map((x) => x.name).join(', ') || 'none'}.`);
       // Someone else's skill (skills.imported: a folder from GitHub): its steps are outside content, like
       // its files (skill_file), so what they ask to save or change asks as after any outside content.
-      if (s.folder || s.source) require('../approvals').markTainted(ctx?.turn, `skill_run ${s.slug}`);
+      if (s.folder || s.source) turnguard.mark(ctx?.turn, `skill_run ${s.slug}`);
       return { skill: s.name, purpose: s.description, input: a.input || '(none given)', steps: s.steps, ...(s.folder ? { files: s.files.slice(0, 120), howToUseFiles: `When a step names a file (e.g. "references/…"), load it with skill_file (skill "${s.slug}"). Scripts are reference only; you can't run them here.` } : {}), next: 'Carry out these steps now, in order, then report briefly what you did.' };
     },
   },
@@ -39,7 +40,7 @@ module.exports = [
       // A folder skill comes from someone else (imported from GitHub): what its files say is outside
       // content for the rest of the turn (saving a routine or skill asks then). Not marked as data to
       // ignore: the skill the user ran points to these files for guidance.
-      require('../approvals').markTainted(ctx.turn, `skill_file ${r.skill}/${String(a.path).slice(0, 120)}`);
+      turnguard.mark(ctx.turn, `skill_file ${r.skill}/${String(a.path).slice(0, 120)}`);
       return r;
     },
   },
@@ -72,7 +73,7 @@ module.exports = [
       const existing = await skills.get(a.name);
       const replace = Boolean(existing && existing.slug === skills.slugify(a.name));
       if (replace) await requireApproval(ctx, 'settings', `Replace the skill "${existing.name}"`, String(a.steps).slice(0, 600), { taintAsks: true });
-      else if (ctx.turn?.tainted) await requireApproval(ctx, 'settings', `Save the new skill "${String(a.name).slice(0, 80)}"`, String(a.steps).slice(0, 600), { taintAsks: true });
+      else await guardWrite(ctx, `Save the new skill "${String(a.name).slice(0, 80)}"`, String(a.steps).slice(0, 600));
       const s = await skills.save(a, { replace });
       ctx.emit({ type: 'skills_changed' });
       return { saved: s.name, command: `/${s.slug}`, replaced: s.replaced };
