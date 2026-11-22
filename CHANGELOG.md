@@ -22,6 +22,11 @@
   - A list that can't load (History, Skills, Routines, Notes, Vault, the world) says so with a Try again, instead of looking empty.
   - With "Reduce motion" on in Windows, every animation stops, whatever the effects level. The phone's 3D village and map stop drawing when you leave them, which saves battery.
   - The calendar shows English day names to match the rest of the app, in your region's date and time format.
+- **Lighter and smoother** (a performance audit):
+  - Turning hands-free off now frees its voice detector (tens of MB) a minute later, instead of keeping it until the app closes.
+  - Typing in Notes no longer makes the app re-read every note at each pause. The note you're writing updates its own row, and changes made while Notes is closed are picked up when you open it.
+  - The Inner World keeps village roofs only in the current accent colour, instead of a copy (about 14 MB) for every persona's colour it has shown.
+  - Long replies stream without making the face stutter: when re-rendering a reply gets expensive, the text updates a little less often (on the phone too). Short replies look the same.
 
 ## 2.7.29 — 2026-11-22
 

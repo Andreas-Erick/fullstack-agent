@@ -77,9 +77,13 @@ export function initNotes() {
   });
   // Changes from elsewhere (the assistant wrote a note, Obsidian edited one): the list, and the open note
   // when nothing typed here is waiting to be saved.
+  // Our own autosave is skipped (saveBody already updated its list item; re-listing read every note),
+  // and so is any change while the view is hidden: refresh() lists again when it shows.
   let reload = 0;
   on('vault-changed', (rel) => {
     if (!/^(Notes|Inbox)\//.test(String(rel || ''))) return;
+    if (isOwnSave(rel)) return;
+    if (currentView !== 'notes') return;
     clearTimeout(reload);
     reload = setTimeout(async () => {
       await loadList();
@@ -176,7 +180,7 @@ function renderList() {
   for (const n of list) {
     const g = groupOf(n);
     if (g !== group) out.push(el('div', { class: 'notes-group', role: 'presentation' }, (group = g)));
-    const meta = [timeAgo(n.mtime), n.folder && n.folder !== 'Notes' ? n.folder : '', ...n.tags.slice(0, 3).map((t) => `#${t}`)].filter(Boolean).join(' · ');
+    const meta = metaOf(n);
     const item = el(
       'button',
       { class: `note-item${current?.path === n.path ? ' active' : ''}${landed === n.path ? ' landed' : ''}`, type: 'button', role: 'option', 'aria-selected': String(current?.path === n.path), 'data-path': n.path, onclick: () => openNote(n.path) },
@@ -188,6 +192,28 @@ function renderList() {
   }
   box.replaceChildren(...out);
   landed = null;
+}
+
+// A row's line under the snippet: when, the notebook, up to three tags.
+const metaOf = (n) => [timeAgo(n.mtime), n.folder && n.folder !== 'Notes' ? n.folder : '', ...n.tags.slice(0, 3).map((t) => `#${t}`)].filter(Boolean).join(' · ');
+
+// As notebookcore.words counts them (the footer's words in today's notes).
+const countWords = (body) => (String(body || '').match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
+
+// One row after our own autosave: its snippet and time, without listing every note again. The row keeps
+// its place until the next full list (it doesn't jump to the top while the user types).
+function redrawItem(n) {
+  const row = [...$('#notesList').querySelectorAll('.note-item')].find((r) => r.dataset.path === n.path);
+  if (row) {
+    const snip = row.querySelector('.note-snippet');
+    if (snip) {
+      snip.textContent = n.snippet || 'Empty';
+      snip.classList.toggle('muted', !n.snippet);
+    }
+    const meta = row.querySelector('.note-meta');
+    if (meta) meta.textContent = metaOf(n);
+  }
+  renderFoot();
 }
 
 function renderFoot() {
@@ -493,6 +519,15 @@ function queue(fn) {
   return saving;
 }
 
+// The note this view's last autosave wrote: its own vault:changed is answered once, within OWN_SAVE_MS.
+const OWN_SAVE_MS = 3000;
+let ownSave = { path: '', at: 0 };
+function isOwnSave(rel) {
+  if (rel !== ownSave.path || Date.now() - ownSave.at > OWN_SAVE_MS) return false;
+  ownSave = { path: '', at: 0 };
+  return true;
+}
+
 function saveBody(done) {
   clearTimeout(bodyTimer);
   bodyTimer = 0;
@@ -501,10 +536,14 @@ function saveBody(done) {
   const text = note.body;
   return queue(async () => {
     try {
+      ownSave = { path: note.path, at: Date.now() };
       await api.notebook.save(note.path, { body: text });
       if (current === note && note.body === text) dirty = Boolean(titleTimer);
       const item = notes.find((x) => x.path === note.path);
-      if (item) Object.assign(item, { mtime: Date.now(), day: today, snippet: text.replace(/\s+/g, ' ').slice(0, 180) });
+      if (item) {
+        Object.assign(item, { mtime: Date.now(), day: today, snippet: text.replace(/\s+/g, ' ').slice(0, 180), text: text.slice(0, 4000), words: countWords(text) });
+        redrawItem(item);
+      }
       done?.();
     } catch (err) {
       toastError(err);

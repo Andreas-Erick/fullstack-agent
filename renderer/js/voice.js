@@ -869,13 +869,17 @@ export const recorder = new Recorder();
 
 const engineName = () => (state.settings?.voice?.engine === 'cloud' ? 'The cloud voice' : 'VoiceStudio');
 
+const NEURAL_IDLE_MS = 60000; // how long the voice detector stays loaded after hands-free ends
+
 // Neural voice detector (Silero VAD in a worker). Scores arrive about one frame behind the audio,
 // which the pre-roll absorbs. Until it is ready, or if it fails to load, the energy detector is used.
 const neural = {
   worker: null,
   ready: false,
   prob: 0,
+  idle: 0,
   start() {
+    clearTimeout(this.idle);
     if (this.worker) return;
     this.worker = new Worker(new URL('./vad-worker.js', import.meta.url), { type: 'module' });
     this.worker.onmessage = (e) => {
@@ -902,6 +906,17 @@ const neural = {
   reset() {
     this.prob = 0;
     this.worker?.postMessage({ type: 'reset' });
+  },
+  // Hands-free ended: the model and its ONNX runtime (tens of MB) go after a grace period, so a device
+  // change's restart or a quick toggle doesn't reload them. A later start loads it again (energy meanwhile).
+  stopSoon() {
+    clearTimeout(this.idle);
+    this.idle = setTimeout(() => {
+      this.worker?.terminate();
+      this.worker = null;
+      this.ready = false;
+      this.prob = 0;
+    }, NEURAL_IDLE_MS);
   },
 };
 
@@ -963,6 +978,7 @@ class HandsFree {
     this.seg = null;
     input.openStopped(); // only the open microphone's segment: a talk-key recording goes on
     state.micLevel = 0;
+    neural.stopSoon();
     emit('handsfree', false);
   }
 

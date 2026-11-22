@@ -53,10 +53,17 @@ export function sprite(name, season = 'summer') {
 // Listed and its picture loaded (a picture can fail, e.g. over a phone's flaky connection).
 export const has = (name) => Boolean(sprite(name));
 
-// Tinted roof masks, made once per mask and colour.
+// Tinted roof masks, made once per mask for the current colour (~14 MB a colour at full size): a new
+// accent (persona switch, theme edit) lets the last colour's canvases go.
 const tints = new Map();
+let tintColour = '';
 function tinted(mask, rgb) {
-  const key = `${mask.src}|${rgb.join(',')}`;
+  const colour = rgb.join(',');
+  if (colour !== tintColour) {
+    tints.clear();
+    tintColour = colour;
+  }
+  const key = mask.src;
   if (!tints.has(key)) {
     const cv = document.createElement('canvas');
     cv.width = mask.naturalWidth;
