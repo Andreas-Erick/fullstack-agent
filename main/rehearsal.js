@@ -4,6 +4,7 @@
 // call and for the whole scene; a rehearsal stopped early still keeps what was said.
 const store = require('./store');
 const log = require('./logger');
+const { ignore } = require('./ignore');
 const obsidian = require('./obsidian');
 const core = require('./rehearsalcore');
 
@@ -88,16 +89,16 @@ async function run(args, { onTurn = () => {}, signal = null } = {}) {
 
   const at = Date.now();
   let note = '';
-  if (await obsidian.vaultPath().catch(() => null)) {
+  if (await obsidian.vaultPath().catch(() => null)) { // no vault: nothing saved there
     note = `Inner World/Rehearsals/${obsidian.ymd()} ${fileName(spec.title)}.md`;
     await obsidian.writeNote(note, core.markdown(spec, lines, debrief, at), 'overwrite', { source: 'rehearsal' }).catch((err) => {
       log.warn('rehearsal note failed', { error: err });
       note = '';
     });
   }
-  await require('./innerworld').recordRehearsal({ at, title: spec.title, outcome: debrief?.outcome || '', note, turns: lines.length, cast: spec.characters.map((c) => c.name) }).catch(() => {});
+  await require('./innerworld').recordRehearsal({ at, title: spec.title, outcome: debrief?.outcome || '', note, turns: lines.length, cast: spec.characters.map((c) => c.name) }).catch(ignore('rehearsal not counted in the Inner World'));
   const st = require('./stream');
-  if (await st.enabled()) await st.add(st.USER, [{ text: `Rehearsed "${spec.title}" (${spec.userRole}): ${debrief?.outcome || `${lines.length} turns`}`, importance: 5 }]).catch(() => {});
+  if (await st.enabled()) await st.add(st.USER, [{ text: `Rehearsed "${spec.title}" (${spec.userRole}): ${debrief?.outcome || `${lines.length} turns`}`, importance: 5 }]).catch(ignore('rehearsal not added to the memory stream'));
   log.info('rehearsal', { turns: lines.length, characters: spec.characters.length, ms: at - started, debrief: Boolean(debrief), stopped: stopped || undefined });
   return { title: spec.title, transcript: lines, debrief, note, stopped: stopped || undefined, hiddenGoals: spec.characters.map((c) => ({ name: c.name, goal: c.goal })) };
 }

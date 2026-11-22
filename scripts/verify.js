@@ -2,6 +2,8 @@
 // runtime. Run by scripts/check.js (and so by code_check and every self-change commit).
 //  errors   – IPC handler ↔ preload channel ↔ renderer call, relative imports/requires and the names
 //             they import, settings keys the UI binds or the agent may set, duplicate tool names.
+//             An error dropped without a reason (`.catch(() => {})`, an empty `catch {}`) with no
+//             comment saying why; only a warning in renderer/remote/ for now.
 //  warnings – conventions (a tool without a chat label).
 // Usage: node scripts/verify.js [root]   (exit code 1 on errors)
 const fs = require('fs');
@@ -81,7 +83,40 @@ function verify(root) {
   }
   if (unlabeled.length) warnings.push(`Tools without a label in TOOL_LABELS (renderer/js/chatcore.js): ${unlabeled.join(', ')}.`);
 
+  // Silent catches: every dropped error says why (docs/ENGINEERING.md §2), with `ignore(reason)` or a comment.
+  for (const f of catchFiles(root)) {
+    const hits = codemap.silentCatches(fs.readFileSync(path.join(root, f), 'utf8'));
+    for (const h of hits) {
+      const msg = `${f}:${h.line} drops an error without saying why (${h.code}): use ignore('reason') (main/ignore.js, util.js) or add a comment on that line.`;
+      (SILENT_CATCH_WARN_ONLY.some((p) => f.startsWith(p)) ? warnings : errors).push(msg);
+    }
+  }
+
   return { errors, warnings };
+}
+
+// Folders whose silent catches are only warned about for now (the phone client is being split up).
+const SILENT_CATCH_WARN_ONLY = ['renderer/remote/'];
+
+// The code the silent-catch rule covers: preload.js, main/ (tools included) and renderer/ (.js and .mjs).
+function catchFiles(root) {
+  const out = ['preload.js'];
+  const walk = (dir) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(path.join(root, dir), { withFileTypes: true });
+    } catch {
+      return; // a folder this checkout doesn't have
+    }
+    for (const e of entries) {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) {
+        if (e.name !== 'node_modules') walk(rel);
+      } else if (/\.m?js$/.test(e.name)) out.push(rel);
+    }
+  };
+  ['main', 'renderer'].forEach(walk);
+  return out.filter((f) => fs.existsSync(path.join(root, f)));
 }
 
 if (require.main === module) {
@@ -93,4 +128,4 @@ if (require.main === module) {
   process.exit(errors.length ? 1 : 0);
 }
 
-module.exports = { verify };
+module.exports = { verify, catchFiles };

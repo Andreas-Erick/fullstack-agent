@@ -175,7 +175,7 @@ const VOICE_USED_KEY = 'siren.voiceInputAt';
 function noteVoiceInput() {
   try {
     localStorage.setItem(VOICE_USED_KEY, String(Date.now()));
-  } catch {}
+  } catch {} // storage unavailable: one launch without the preload
 }
 function voiceInputAt() {
   try {
@@ -392,7 +392,7 @@ const untilIdle = (ms) => new Promise((resolve) => {
 /** Opens the microphone ahead of the first press (at launch, when the window gets focus). */
 export function warmMic() {
   const s = state.settings?.stt;
-  if (s?.enabled && s.micMode !== 'open') recorder.warm().catch(() => {});
+  if (s?.enabled && s.micMode !== 'open') recorder.warm().catch(() => {}); // warming only; the press starts the microphone again
 }
 
 export async function startListening() {
@@ -430,7 +430,7 @@ let pttLimit = 0;
 export async function stopListening() {
   clearTimeout(pttLimit);
   input.release(); // a press still waiting to start is over
-  if (recorder.starting) await recorder.starting.catch(() => {});
+  if (recorder.starting) await recorder.starting.catch(() => {}); // the earlier start failed for its own caller
   if (!recorder.active) return;
   emit('listening', false);
   // The talk key's source and start, unless another piece is still being written down: its words keep

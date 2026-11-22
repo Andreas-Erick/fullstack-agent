@@ -24,7 +24,7 @@ export async function initPerf() {
 
 /** Checks the hardware (also Settings → Interface → "Check this computer again"). */
 export async function detect({ first = false } = {}) {
-  const webgpu = 'gpu' in navigator ? Boolean(await navigator.gpu.requestAdapter().catch(() => null)) : false;
+  const webgpu = 'gpu' in navigator ? Boolean(await navigator.gpu.requestAdapter().catch(() => null)) : false; // no adapter: no WebGPU
   const { hardware, recommendations } = await api.hardware.scan({ webgpu });
   const { detected, hw } = classify(hardware, recommendations);
   const patch = { perf: { detected, hw, detectedAt: Date.now() } };

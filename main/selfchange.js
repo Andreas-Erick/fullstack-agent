@@ -285,7 +285,7 @@ async function revert(sha) {
   try {
     await git(['revert', '--no-edit', sha]);
   } catch (err) {
-    await git(['revert', '--abort']).catch(() => {});
+    await git(['revert', '--abort']).catch((e) => log.warn('revert not aborted', { error: e }));
     throw new Error(`Could not revert automatically (later changes touch the same code). Try "Restore to this version" on an earlier entry instead.\n${err.message}`);
   }
   const head = (await git(['rev-parse', '--short', 'HEAD'])).trim();

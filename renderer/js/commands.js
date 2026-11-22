@@ -17,7 +17,7 @@ const COMMANDS = [
   { re: /^start asking( again)?( for permission)?$/, run: async () => (await saveSettings({ safety: { permissionMode: 'ask' } }), 'I’ll ask before changing my code, settings or deleting things.') },
   // "New chat", "start a new conversation", "let's start a fresh chat please", "clear the chat".
   { re: NEW_CHAT, run: async (ctx) => (ctx.newChat(), 'New chat.') },
-  { re: /^(please )?close (the |this )?(document|pdf|image|picture|file|window)( please)?$/, run: async () => ((await api.docs.closePopup().catch(() => null)) ? 'Closed.' : 'No document is open.') },
+  { re: /^(please )?close (the |this )?(document|pdf|image|picture|file|window)( please)?$/, run: async () => ((await api.docs.closePopup().catch(() => null)) ? 'Closed.' : 'No document is open.') }, // no viewer answered: said as none open
   // Instant window controls for the latest document window ("make it full screen", "minimize the PDF").
   ...[
     [/^(make (it|the (document|pdf|image|file)) |go |show (it )?)?full ?screen( please)?$/, 'fullscreen', 'Full screen.'],

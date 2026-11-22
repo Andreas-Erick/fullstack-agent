@@ -42,7 +42,7 @@ function load() {
     const t1 = performance.now();
     const tokenizer = await AutoTokenizer.from_pretrained(KOKORO_MODEL, { progress_callback });
     const t2 = performance.now();
-    const adapter = allowGpu && 'gpu' in navigator ? await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null) : null;
+    const adapter = allowGpu && 'gpu' in navigator ? await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null) : null; // no adapter: runs on the processor
     let model;
     // Kokoro needs fp32 on WebGPU (fp16 garbles the audio); on the CPU the 8-bit model is fast enough.
     try {
@@ -64,7 +64,7 @@ function load() {
     // The first run compiles the GPU kernels: done now so the first spoken sentence isn't slow, unless
     // a sentence already waits (the launch greeting): then that sentence is the first run.
     const warmupSkipped = waiting > 0;
-    if (!warmupSkipped) await generate(engine, 'Ready.', 'af_heart', 1).catch(() => {});
+    if (!warmupSkipped) await generate(engine, 'Ready.', 'af_heart', 1).catch(() => {}); // warm-up only
     const ms = (a, b) => Math.round(b - a);
     const timing = { importMs, phonemizerMs: ms(t0, t1), tokenizerMs: ms(t1, t2), sessionMs: ms(t2, t3), warmupMs: ms(t3, performance.now()), warmupSkipped };
     self.postMessage({ type: 'ready', device, timing });
@@ -79,12 +79,12 @@ function load() {
 async function style(voice) {
   if (styles.has(voice)) return styles.get(voice);
   const url = voiceUrl(voice);
-  const cache = await caches.open('kokoro-voices').catch(() => null);
+  const cache = await caches.open('kokoro-voices').catch(() => null); // no Cache Storage: voices load from the network each time
   let res = await cache?.match(url);
   if (!res) {
     res = await fetch(url);
     if (!res.ok) throw new Error(`voice "${voice}" download failed (${res.status})`);
-    await cache?.put(url, res.clone()).catch(() => {});
+    await cache?.put(url, res.clone()).catch(() => {}); // not cached: loaded again next time
   }
   const data = new Float32Array(await res.arrayBuffer());
   styles.set(voice, data);

@@ -43,5 +43,5 @@ export function handoffSlot(onContinue) {
 function dismiss(slot) {
   note = null;
   slot.replaceChildren();
-  api.handoff.dismiss().catch(() => {});
+  api.handoff.dismiss().catch(() => {}); // the card is gone either way; the note is replaced at the next close
 }

@@ -76,7 +76,7 @@ function tailscaleGuide() {
           } else if (r.error) showResult(note, false, `✕ ${r.error}`);
           else {
             showResult(note, true, '✓ Serve is set up. Checking the address end to end…');
-            await api.remote.checkSecure().catch(() => {});
+            await api.remote.checkSecure().catch(() => {}); // the status below shows how the check ended
             refreshRemoteStatus?.();
           }
           draw();
@@ -235,7 +235,7 @@ export function remoteCard() {
         el('div', { class: 'row' }, el('button', {
           class: 'btn small',
           onclick: async () => {
-            await api.remote.cancelPair().catch(() => {});
+            await api.remote.cancelPair().catch(() => {}); // the pairing code expires by itself
             refreshRemote();
           },
         }, 'Cancel')),

@@ -64,7 +64,7 @@ function setMenu(open, { refocus = false } = {}) {
 let stream = null;
 
 async function refreshStream() {
-  stream = await api.stream.recent().catch(() => null);
+  stream = await api.stream.recent().catch(() => null); // no stream: that section stays empty
   const panel = $('#streamPanel');
   panel.classList.toggle('hidden', !stream);
   if (!stream) return;

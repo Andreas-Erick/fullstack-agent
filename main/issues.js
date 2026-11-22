@@ -12,7 +12,7 @@ const file = () => path.join(store.dataDir(), 'issue-reports.json');
 const KEEP = 200;
 
 async function known(settings) {
-  const vault = await require('./obsidian').vaultPath().catch(() => null);
+  const vault = await require('./obsidian').vaultPath().catch(() => null); // no vault: null
   const names = [settings.agent?.name, ...(settings.personas?.list || []).map((p) => p?.agent?.name || p?.name)].filter(Boolean);
   return { home: os.homedir(), user: os.userInfo().username, root: path.join(__dirname, '..'), vault, names };
 }

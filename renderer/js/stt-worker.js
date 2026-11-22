@@ -36,7 +36,7 @@ function decodeOptions(name, language) {
 function load() {
   loading ||= (async () => {
     const progress_callback = (p) => self.postMessage({ type: 'progress', ...p });
-    const adapter = allowGpu && 'gpu' in navigator ? await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null) : null;
+    const adapter = allowGpu && 'gpu' in navigator ? await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null) : null; // no adapter: runs on the processor
     const info = adapter?.info || {};
     device = adapter ? `WebGPU · ${[info.vendor, info.architecture, info.description].filter(Boolean).join(' ') || 'GPU'}` : allowGpu ? 'CPU (WASM)' : 'CPU (WASM, Balanced performance)';
     let asr;
@@ -52,7 +52,7 @@ function load() {
       asr = await pipeline('automatic-speech-recognition', running, { dtype: 'q8', progress_callback });
     }
     // The first run compiles the GPU kernels; do it now so the user's first sentence isn't slow.
-    await asr(new Float32Array(16000), decodeOptions(running, 'en')).catch(() => {});
+    await asr(new Float32Array(16000), decodeOptions(running, 'en')).catch(() => {}); // warm-up only
     self.postMessage({ type: 'ready', device, model: running });
     return asr;
   })().catch((err) => {

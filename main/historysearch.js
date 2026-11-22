@@ -96,7 +96,7 @@ async function search(query, { cursor = null, limit = LIMIT, budgetMs = BUDGET_M
       break;
     }
     const c = list[i];
-    const entry = await textOf(c).catch(() => null);
+    const entry = await textOf(c).catch(() => null); // an unreadable conversation is skipped (the store logs it)
     scanned++;
     last = { updatedAt: Number(c.updatedAt) || 0, id: c.id }; // as byRecency sorts it, or the cursor is refused
     if (!entry) {

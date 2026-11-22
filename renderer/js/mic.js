@@ -57,7 +57,7 @@ export class Recorder {
   /** The mic stream and the worklet, ready; reopened when the chosen microphone changed. */
   async warm() {
     const ac = ctx();
-    this.module ||= ac.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url)).catch(() => {});
+    this.module ||= ac.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url)).catch(() => {}); // a worklet that did not load makes the node fail with its own error
     await this.module;
     const device = state.settings?.stt?.micDevice || '';
     if (this.stream && (device !== this.device || !this.stream.getTracks().some((t) => t.readyState === 'live'))) this.release();
@@ -103,7 +103,7 @@ export class Recorder {
   }
 
   async stop() {
-    if (this.starting) await this.starting.catch(() => {});
+    if (this.starting) await this.starting.catch(() => {}); // the earlier start failed for its own caller
     if (!this.active) return null;
     this.active = false;
     state.micLevel = 0;

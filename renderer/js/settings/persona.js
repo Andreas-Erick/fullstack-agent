@@ -1,6 +1,6 @@
 // Persona studio: the saved personas, master prompt, image, face, voice, the scene behind the face and the
 // theme editor. Every change is saved for the persona whose cards were on screen (core.js renderedPersona).
-import { api, el, toast, toastError, confirmDialog, modal } from '../util.js';
+import { api, el, toast, toastError, confirmDialog, modal, ignore } from '../util.js';
 import { state, loadSettings } from '../state.js';
 import { speaker } from '../voice.js';
 import { KOKORO_VOICES } from '../kokorotext.js';
@@ -115,7 +115,7 @@ function summaryRow() {
           const r = await api.persona.setSummary(textBox.value, persona); // main checks the persona inside its save queue
           if (r?.dropped) {
             toast(PERSONA_CHANGED, 'error');
-            return void loadSettings().catch(() => {});
+            return void loadSettings().catch(() => {}); // a failed reload keeps the drawn settings
           }
           show(r);
           toast(textBox.value.trim() ? 'Saved: local models read your version.' : 'Back to the written version.');
@@ -223,7 +223,7 @@ function personaVoice() {
   const sel = el('select', { class: 'input' });
   fillSelect(sel, [['', '(VoiceStudio default)']], state.settings.voice.voice);
   sel.addEventListener('change', () => save('voice.voice', sel.value));
-  api.tts.voices().then((list) => fillSelect(sel, [['', '(VoiceStudio default)'], ...list.map((v) => [v.id, v.name])], state.settings.voice.voice)).catch(() => {});
+  api.tts.voices().then((list) => fillSelect(sel, [['', '(VoiceStudio default)'], ...list.map((v) => [v.id, v.name])], state.settings.voice.voice)).catch(ignore('VoiceStudio voices not listed'));
   const hear = el('button', {
     class: 'btn',
     title: 'Hear this persona',
@@ -243,7 +243,7 @@ function faceSelect() {
   api.faces.list().then((custom) => {
     const s = box.querySelector('select');
     fillSelect(s, [...BUILT_IN.map((f) => [f.id, `${f.title} — ${f.tagline}`]), ...custom.map((c) => [c.id, `${c.title} (custom)`])], state.settings.ui.face);
-  }).catch(() => {});
+  }).catch(ignore('custom faces not listed'));
   return box;
 }
 

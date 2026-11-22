@@ -48,7 +48,7 @@ function syncTheme() {
   appliedTheme = json;
   const t = applyTheme(state.settings.appearance?.theme);
   // The OS window buttons (drawn over the title bar) follow the theme too.
-  api.win.overlay({ color: t.colors.bg, symbolColor: t.colors.accent }).catch(() => {});
+  api.win.overlay({ color: t.colors.bg, symbolColor: t.colors.accent }).catch(() => {}); // the overlay colours are cosmetic; the window works without them
 }
 
 let miniFace;
@@ -610,7 +610,7 @@ async function refreshStatus() {
 // Clicking a light jumps to its settings (wired in boot's status lights).
 const pillTargets = { pillLlm: 'brain', pillVoice: 'voice', pillCal: 'calendar', pillKb: 'obsidian', pillUsage: 'brain' };
 
-boot().then(() => api.app.ready(performance.now()).catch(() => {}), (err) => {
+boot().then(() => api.app.ready(performance.now()).catch(() => {}), (err) => { // the main process only times the launch
   console.error(err);
   reportUiError('startup', err);
   const bar = el('div', { class: 'startup-error', role: 'alert' }, `Startup error: ${err.message}`);

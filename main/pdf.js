@@ -24,7 +24,7 @@ function safeName(title) {
 async function freePath(dir, base) {
   for (let i = 1; ; i++) {
     const file = path.join(dir, `${base}${i > 1 ? ` (${i})` : ''}.pdf`);
-    if (!(await fsp.stat(file).catch(() => null))) return file;
+    if (!(await fsp.stat(file).catch(() => null))) return file; // nothing there: the name is free
   }
 }
 

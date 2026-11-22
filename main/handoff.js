@@ -102,7 +102,7 @@ ${transcript}`;
 function write(opts = {}) {
   const skipsBefore = skipCount;
   const job = running.then(() => writeNow(opts, skipsBefore));
-  running = job.catch(() => null);
+  running = job.catch(() => null); // the queue only orders the work; each caller gets its own error
   return job;
 }
 

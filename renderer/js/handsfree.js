@@ -90,7 +90,7 @@ class HandsFree {
   async open() {
     this.stream = await openMic();
     const ac = ctx();
-    await ac.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url)).catch(() => {});
+    await ac.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url)).catch(() => {}); // a worklet that did not load makes the node below fail with its own error
     this.src = ac.createMediaStreamSource(this.stream);
     this.node = new AudioWorkletNode(ac, 'pcm-capture');
     this.rate = ac.sampleRate;

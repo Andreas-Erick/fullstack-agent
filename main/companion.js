@@ -199,7 +199,7 @@ function updateDevices(change) {
     const out = await change(list);
     if (out !== false) await writeDevices(Array.isArray(out) ? out : list);
   });
-  devicesQueue = run.catch(() => {});
+  devicesQueue = run.catch(() => {}); // the queue only orders the work; each caller gets its own error
   return run;
 }
 // Removed in this run of the app: refused at once, whatever a file read a moment ago said.
@@ -263,7 +263,7 @@ async function noteWatchFace(id, at) {
     const d = list.find((x) => x.id === id);
     if (!d) return false;
     Object.assign(d, { watch: true, faceAt: at || d.faceAt || null, faceSentAt: Date.now() });
-  }).catch(() => {});
+  }).catch((err) => log.warn('remote devices not saved', { why: 'watch face', error: err }));
 }
 
 async function warmFace() {
@@ -569,7 +569,7 @@ async function authenticate(req, kind) {
       }
       Object.assign(d, { lastSeen: Date.now(), lastVia: from.via, lastIp: from.ip });
     })
-      .catch(() => {})
+      .catch((err) => log.warn('remote devices not saved', { why: 'last seen', error: err }))
       .finally(() => seenPending.delete(device.id));
   }
   return device;
@@ -647,7 +647,7 @@ async function serveFace(res, key, rel) {
   const base = path.join(await faces.dir(), folder);
   let file = path.join(base, safe);
   if (!file.startsWith(base + path.sep)) return fail(res, 404, 'Not found');
-  if (safe === 'core.js' && !(await fsp.stat(file).catch(() => null))) file = path.join(ROOT, 'renderer', 'faces', 'core.js');
+  if (safe === 'core.js' && !(await fsp.stat(file).catch(() => null))) file = path.join(ROOT, 'renderer', 'faces', 'core.js'); // not in the face folder: the shared core.js is served
   const type = FACE_TYPES[path.extname(file).toLowerCase()];
   if (!type) return fail(res, 404, 'Not found');
   try {
@@ -685,7 +685,7 @@ async function info() {
   const secureUrl = t.connected && /^https:\/\//.test(t.url) ? t.url : '';
   // The scene behind the face: only its key here; the device fetches /api/scene when the key changes.
   const scene = s.appearance?.scene?.svg ? { key: sceneKey(`${s.appearance.scene.svg}\n${s.appearance.scene.portrait || ''}`), caption: String(s.appearance.scene.caption || '').slice(0, 80) } : null;
-  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, scene, sleepOnLaunch: s.ui?.sleepOnLaunch !== false, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.engine === 'cloud' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, client: await clientVersion().catch(() => ''), update: await Promise.resolve().then(() => require('./updates').forDevices()).catch(() => null) };
+  return { name: String(s.agent.name || 'Siren').slice(0, 40), colors, scene, sleepOnLaunch: s.ui?.sleepOnLaunch !== false, voice: Boolean(s.voice?.ttsEnabled && (s.voice.engine === 'local' || s.voice.engine === 'cloud' || s.voice.baseUrl)), fx, face, sleepAfterMin, secureUrl, calendar: Boolean(s.calendar?.enabled), share: s.remote?.shareData !== false, world: Boolean(s.innerWorld?.enabled), season: s.innerWorld?.season || 'auto', art: s.innerWorld?.art || 'rendered', worldFps: [15, 30, 60, 120].includes(Number(s.innerWorld?.fps)) ? Number(s.innerWorld.fps) : 30, client: await clientVersion().catch(() => ''), update: await Promise.resolve().then(() => require('./updates').forDevices()).catch(() => null) }; // a version or update that cannot be read is left out of the info
 }
 
 async function speak(req, res) {
@@ -793,12 +793,12 @@ async function route(req, res) {
     // The watch has this pack already: answered from a stat of the cache, before the pack is read.
     const known = await facecapture.cached(settings);
     if (known && req.headers['if-none-match'] === `"${known.key}"`) {
-      noteWatchFace(device.id, known.at).catch(() => {});
+      noteWatchFace(device.id, known.at).catch(() => {}); // noteWatchFace logs its own failure
       res.writeHead(304, { ETag: `"${known.key}"`, 'Cache-Control': 'no-cache' });
       return res.end();
     }
     const { key, data, at } = await facecapture.frames(settings);
-    noteWatchFace(device.id, at).catch(() => {});
+    noteWatchFace(device.id, at).catch(() => {}); // noteWatchFace logs its own failure
     if (req.headers['if-none-match'] === `"${key}"`) {
       res.writeHead(304, { ETag: `"${key}"`, 'Cache-Control': 'no-cache' });
       return res.end();

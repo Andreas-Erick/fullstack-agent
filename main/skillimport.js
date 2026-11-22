@@ -8,6 +8,7 @@ const fsp = require('fs').promises;
 const path = require('path');
 const skills = require('./skills');
 const log = require('./logger');
+const { ignore } = require('./ignore');
 
 const TEXT_FILE = /\.(md|markdown|mdx|txt|json|ya?ml|toml|html?|css|svg|csv|tsv|xml|py|sh|ps1|js|mjs|cjs|ts|tsx|jsx|rb|go|rs|java|sql|ini|cfg)$/i;
 const MAX_FILE_BYTES = 400000;
@@ -99,7 +100,7 @@ async function install(input, paths) {
   const root = skills.dir();
   await fsp.mkdir(root, { recursive: true });
   const existing = await skills.list();
-  const licenseText = s.licensePath ? (await get(raw(r, s.sha, s.licensePath), { json: false }).catch(() => null))?.toString('utf8') : null;
+  const licenseText = s.licensePath ? (await get(raw(r, s.sha, s.licensePath), { json: false }).catch(() => null))?.toString('utf8') : null; // no license file: none kept
   const done = [];
   for (const k of chosen) {
     // A skill of the user's own (or from another repository) with that name is never replaced.
@@ -128,7 +129,7 @@ async function install(input, paths) {
       done.push({ slug, name: k.name, files: files.length, skipped, ...(clash ? { renamed: `/${k.slug} already exists, so this one is /${slug}` } : {}) });
       log.info('skill imported', { repo: s.repo, skill: k.path, slug, files: files.length });
     } catch (err) {
-      await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+      await fsp.rm(tmp, { recursive: true, force: true }).catch(ignore('temporary skill folder not removed'));
       throw new Error(`Importing ${k.name} failed: ${err.message}`);
     }
   }

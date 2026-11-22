@@ -14,6 +14,7 @@ const bridge = require('./bridge');
 const github = require('./github');
 const approvals = require('./approvals');
 const log = require('./logger');
+const { ignore } = require('./ignore');
 const connectors = require('./connectors');
 const turnguard = require('./turnguard');
 const { safeCommand } = require('./commandsafety');
@@ -434,7 +435,7 @@ class Session {
     });
     const exited = (code, err) => {
       unregister();
-      fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+      fsp.rm(tmp, { recursive: true, force: true }).catch(ignore('temporary MCP config not removed (swept at the next start)'));
       if (current()) this.inTurn(() => this.onExit(code, err));
     };
     child.on('error', (err) => exited(null, err));
@@ -959,7 +960,7 @@ async function ensureSession(conv, opts) {
     session = new Session(conv.id);
     sessions.set(conv.id, session);
   }
-  const run = (session.ensuring || Promise.resolve()).catch(() => {}).then(() => startOrReuse(session, conv, opts));
+  const run = (session.ensuring || Promise.resolve()).catch(() => {}).then(() => startOrReuse(session, conv, opts)); // a failed earlier start reached its own caller; this one starts afresh
   session.ensuring = run;
   try {
     return await run;
@@ -1058,7 +1059,7 @@ function raceAbort(p, signal) {
     signal.addEventListener('abort', on, { once: true });
     off = () => signal.removeEventListener('abort', on);
   });
-  stopped.catch(() => {});
+  stopped.catch(() => {}); // only raced below; without this a turn that ends first leaves an unhandled rejection
   return Promise.race([p, stopped]).finally(off);
 }
 
@@ -1104,7 +1105,7 @@ async function runTurn({ conv, history, buildContext, emit, signal, ctx, images 
     }
   };
   const p = session0.chain.then(run, run);
-  session0.chain = p.catch(() => {});
+  session0.chain = p.catch(() => {}); // the queue only orders the work; each caller gets its own error
   return raceAbort(p, signal); // Stop ends a turn waiting behind a warm-up or another reply at once
 }
 
@@ -1163,7 +1164,7 @@ async function warmCache(conv, opts, { model, effort, history = [], epoch } = {}
     }
   };
   const p = session0.chain.then(run, run);
-  session0.chain = p.catch(() => {});
+  session0.chain = p.catch(() => {}); // the queue only orders the work; each caller gets its own error
   return p;
 }
 
@@ -1220,8 +1221,8 @@ async function sweepStaleTemp() {
   const names = await fsp.readdir(root).catch(() => []);
   for (const name of names.filter((n) => n.startsWith('nexus-cc-'))) {
     const dir = path.join(root, name);
-    const st = await fsp.stat(dir).catch(() => null);
-    if (st?.isDirectory() && Date.now() - st.mtimeMs > 86400000) await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+    const st = await fsp.stat(dir).catch(() => null); // gone meanwhile: nothing to sweep
+    if (st?.isDirectory() && Date.now() - st.mtimeMs > 86400000) await fsp.rm(dir, { recursive: true, force: true }).catch(ignore('stale temp folder not removed (tried again at the next start)'));
   }
 }
 

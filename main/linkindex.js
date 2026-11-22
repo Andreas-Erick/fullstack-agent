@@ -36,7 +36,7 @@ async function refresh(root) {
   let read = 0;
   for (let i = 0; i < files.length; i += BATCH) {
     const batch = files.slice(i, i + BATCH).map((full) => ({ full, rel: toPosix(path.relative(root, full)) }));
-    const stats = await Promise.all(batch.map((f) => fsp.stat(f.full).catch(() => null)));
+    const stats = await Promise.all(batch.map((f) => fsp.stat(f.full).catch(() => null))); // a note removed meanwhile is skipped
     const reads = batch.map(async ({ full, rel }, j) => {
       seen.add(rel);
       const st = stats[j];
@@ -75,7 +75,7 @@ async function refresh(root) {
 /** The current index for the vault at `root` (one refresh at a time). */
 async function get(root) {
   if (!root) return { links: {}, backlinks: {}, unresolved: 0, notes: 0 };
-  while (building) await building.catch(() => {});
+  while (building) await building.catch(() => {}); // the earlier refresh failed for its own caller; this one builds afresh
   building = refresh(root);
   try {
     return await building;

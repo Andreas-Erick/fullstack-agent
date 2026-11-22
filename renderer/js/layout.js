@@ -1,6 +1,6 @@
 // Window-level UI: zoom, the chat view's layout (chat only · split · face), the resizable face panel,
 // full screen, screen sharing (picker, live preview, stop) and the quick-note box.
-import { $, $$, api, el, toast, toastError, modal, on, emit, debounce } from './util.js';
+import { $, $$, api, el, toast, toastError, modal, on, emit, debounce, ignore } from './util.js';
 import { state, saveSettings, noteActivity } from './state.js';
 import { switchView } from './nav.js';
 import { currentConversationId } from './chat.js';
@@ -325,7 +325,7 @@ function initScreenShare() {
   $('#shareBtn').onclick = async () => ((await api.screen.state()).active ? api.screen.stop() : pickScreen());
   $('#pillScreen').onclick = () => api.screen.stop();
   api.on('screen:state', showShareState);
-  api.screen.state().then(showShareState).catch(() => {});
+  api.screen.state().then(showShareState).catch(ignore('screen share state not read'));
   // A hidden window shows no thumbnail: the capture waits, and runs once when the window is back.
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) previewTick?.();
@@ -346,7 +346,7 @@ function showShareState(st) {
   if (st.active) {
     const tick = () => {
       if (document.hidden) return; // each capture grabs every window's thumbnail
-      api.screen.preview().then((url) => url && (thumb.src = url)).catch(() => {});
+      api.screen.preview().then((url) => url && (thumb.src = url)).catch(() => {}); // a missed preview frame; the next one follows
     };
     previewTick = tick;
     tick();

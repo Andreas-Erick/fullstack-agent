@@ -14,7 +14,7 @@ const PROMPT_TOPICS = 6; // topics in the agent's context
 const RECENT_DAYS = 45;
 
 async function listNames(folder) {
-  const root = await obsidian.vaultPath().catch(() => null);
+  const root = await obsidian.vaultPath().catch(() => null); // no vault: null
   if (!root) return [];
   const names = await fsp.readdir(path.join(root, folder)).catch(() => []);
   // Not the folder's own index note (<Folder>/<Folder>.md, kept by obsidian.js).
@@ -22,8 +22,8 @@ async function listNames(folder) {
 }
 
 async function stat(rel) {
-  const root = await obsidian.vaultPath().catch(() => null);
-  return root ? fsp.stat(path.join(root, rel)).catch(() => null) : null;
+  const root = await obsidian.vaultPath().catch(() => null); // no vault: null
+  return root ? fsp.stat(path.join(root, rel)).catch(() => null) : null; // no such note yet
 }
 
 // ------------------------------------------------------- understanding tracker

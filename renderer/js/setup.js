@@ -21,7 +21,7 @@ export function initSetup() {
     logEvent('info', 'setup complete', summary);
   });
   on('setup-pick-image', async () => {
-    const img = await api.dialog.pickImage().catch(() => null);
+    const img = await api.dialog.pickImage().catch(() => null); // no picture chosen
     if (!img) return toast('No image chosen.');
     await saveSettings({ agent: { avatar: await shrinkImage(img, 384) } });
     toast('Image set.');

@@ -121,14 +121,14 @@ function wear(s) {
   document.body.classList.toggle('fx-hud', fx === 'hud');
   document.body.classList.toggle('fx-subtle', fx === 'subtle');
   document.body.classList.toggle('fx-still', reduceMotion.matches); // at every effects level, as hud.js
-  api.win.overlay({ color: t.colors.bg, symbolColor: t.colors.accent }).catch(() => {});
+  api.win.overlay({ color: t.colors.bg, symbolColor: t.colors.accent }).catch(() => {}); // the overlay colours are cosmetic; the window works without them
 }
-const rewear = () => api.settings.get().then(wear).catch(() => {});
+const rewear = () => api.settings.get().then(wear).catch(() => {}); // the window keeps its last look
 
 api.on('agentWindow:state', render);
 window.addEventListener('focus', rewear);
 reduceMotion.addEventListener?.('change', rewear);
-api.app.info().then((i) => i.platform === 'darwin' && document.body.classList.add('mac')).catch(() => {});
+api.app.info().then((i) => i.platform === 'darwin' && document.body.classList.add('mac')).catch(() => {}); // the platform class is cosmetic
 showAddress('');
 rewear();
-api.agentWindow.state().then(render).catch(() => {});
+api.agentWindow.state().then(render).catch(() => {}); // the toolbar draws again on the next state event
