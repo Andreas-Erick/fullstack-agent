@@ -343,14 +343,15 @@ test('chat.js: the stored message (its files, its id) replaces the pending one; 
 // ------------------------------------------------------------------ §4.9 voice × actions
 test('chat.js done: the new persona’s greeting follows the reply, next to actions’ bookkeeping', () => {
   const done = slice('renderer/js/chat.js', "case 'done': {", "case 'failed':");
-  assert.match(done, /loadSettings\(\)\.then\(\(\) => ttsActive\(\) && speaker\.follow\(greeting, \{ remember: true, firstAlone: true \}\)\)/);
-  assert.ok(at(done, 'speaker.flush()') < at(done, 'speaker.follow(greeting'), 'after the reply has gone to the voice');
+  // replySpeech.follow: only when replies are spoken, kept, first chunk alone (test/modelhost.test.js).
+  assert.match(done, /loadSettings\(\)\.then\(\(\) => replySpeech\.follow\(greeting\)\)/);
+  assert.ok(at(done, 'replySpeech.flush(t)') < at(done, 'replySpeech.follow(greeting'), 'after the reply has gone to the voice');
   // actions: the reply is known (and the turn ended) before the buttons are set: turnstate.apply stores it
   // before the window draws (test/turnstate.test.js 'own reply…').
   assert.ok(at(done, 'finish(t);') < at(done, 'syncActions();'));
   // The card's part (a reply with words on it, none for tools only): test/replycard.test.js.
   assert.match(done, /paintCard\(cardState\.ended\(t, \{ outcome: 'done', text: t\.text, message: m \}\)\.decision\);/);
-  assert.strictEqual(done.split('speaker.follow(').length, 2, 'one greeting');
+  assert.strictEqual(done.split('replySpeech.follow(').length, 2, 'one greeting');
 });
 
 // ------------------------------------------------------------------ attach × actions: a send waiting for its files
