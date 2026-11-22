@@ -1,5 +1,5 @@
 // Every kind of approval the app can ask for has a readable heading in the desktop dialog
-// (renderer/js/approval.js KIND_LABEL) and on the phone's approval card (renderer/remote/app.js KIND),
+// (renderer/js/approval.js KIND_LABEL) and on the phone's approval card (renderer/remote/approvals.js KIND),
 // so nobody sees a raw id like "connector" (regression: the phone showed it).
 const test = require('node:test');
 const assert = require('node:assert');
@@ -41,7 +41,7 @@ test('the desktop dialog has a heading for every kind', () => {
 });
 
 test('the phone\'s approval card has a heading for every kind', () => {
-  const have = labels('renderer/remote/app.js', 'KIND');
+  const have = labels('renderer/remote/approvals.js', 'KIND');
   const missing = [...kindsUsed()].filter((k) => !have.has(k));
   assert.deepStrictEqual(missing, []);
 });

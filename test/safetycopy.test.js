@@ -92,7 +92,7 @@ test('“Allow everything”: no questions, except deleting or inviting people a
 });
 
 test('no window still promises “no questions at all”', () => {
-  const files = ['renderer/js/settings.js', 'renderer/js/onboarding.js', 'renderer/js/commands.js', 'renderer/js/approval.js', 'renderer/remote/app.js', 'renderer/remote/screens.js', 'main/guide.js', 'main/prompt.js'];
+  const files = ['renderer/js/settings.js', 'renderer/js/onboarding.js', 'renderer/js/commands.js', 'renderer/js/approval.js', ...require('./helpers').phoneClientFiles(), 'renderer/remote/screens.js', 'main/guide.js', 'main/prompt.js'];
   for (const f of files) assert.doesNotMatch(read(f), /no questions at all/i, f);
   assert.doesNotMatch(settingsSource(), /no questions at all/i, 'renderer/js/settings/');
 });
