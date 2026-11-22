@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const { app, safeStorage } = require('electron');
 const personas = require('./personacore');
 const brand = require('./brand');
+const braintable = require('../renderer/js/braintable.mjs'); // the brains' own sections, keys and default order (pure data)
 const log = require('./logger');
 
 // The master prompt of installs from before 2.0 that never edited theirs (see brand.LEGACY).
@@ -97,20 +98,16 @@ const DEFAULTS = {
   // rate limit, a usage cap or runs out of credits, the next one takes over and the limited one is
   // skipped for a while.
   routing: {
-    order: ['claude-code', 'anthropic', 'gemini', 'deepseek', 'groq', 'perplexity', 'openai'],
+    order: [...braintable.DEFAULT_ORDER], // the routed brains by their rows' `route`; a local model joins at the end (router.order)
     disabled: [], // providers in the list that are switched off
     smart: true, // pick the best provider for each task (code, web questions, quick spoken replies…)
     cooldownMin: 15, // how long a provider that hit a limit is skipped
   },
-  // OpenAI-compatible cloud providers (used in multi-provider mode).
-  gemini: { apiKey: '', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash', fastModel: '', deepModel: 'gemini-2.5-pro' },
-  deepseek: { apiKey: '', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', fastModel: '', deepModel: 'deepseek-reasoner' },
-  groq: { apiKey: '', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', fastModel: '', deepModel: '' },
-  perplexity: { apiKey: '', baseUrl: 'https://api.perplexity.ai', model: 'sonar', fastModel: '', deepModel: 'sonar-pro' },
+  // The brains with their own section on the OpenAI path (gemini, deepseek, groq, perplexity and the local
+  // model on this computer: address, key, models), from their rows' `defaults` in renderer/js/braintable.mjs.
+  ...braintable.sectionDefaults(),
   // The cloud voice (voice.engine 'cloud'): Groq's Orpheus (with groq.apiKey) or OpenAI (its own key).
   cloudVoice: { provider: 'groq', apiKey: '', model: '', voice: '' },
-  // A local brain on this computer (Ollama's address; LM Studio's is http://localhost:1234/v1), in multi-provider mode.
-  local: { apiKey: '', baseUrl: 'http://localhost:11434/v1', model: '', fastModel: '', deepModel: '' },
   voice: {
     ttsEnabled: true,
     autoSpeak: true,
@@ -284,11 +281,7 @@ const SECRET_FIELDS = [
   ['anthropic', 'apiKey'],
   ['voice', 'apiKey'],
   ['stt', 'remoteKey'],
-  ['gemini', 'apiKey'],
-  ['deepseek', 'apiKey'],
-  ['groq', 'apiKey'],
-  ['perplexity', 'apiKey'],
-  ['local', 'apiKey'],
+  ...braintable.SECRET_KEYS, // the apiKey of every brain with its own section (gemini, deepseek, groq, perplexity, local)
   ['cloudVoice', 'apiKey'],
   ['web', 'braveKey'],
   ['web', 'tavilyKey'],
@@ -890,6 +883,7 @@ async function exportConversations() {
 module.exports = {
   resealConversations,
   DEFAULTS,
+  SECRET_FIELDS,
   dataDir,
   getSettings,
   setSettings,

@@ -12,7 +12,7 @@ const { ROOT, tmpDir } = require('./helpers');
 
 const ESM = tmpDir('nexus-outbox-');
 fs.writeFileSync(path.join(ESM, 'package.json'), '{"type":"module"}');
-for (const f of ['outbox.js', 'attachcore.mjs']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(ESM, f));
+for (const f of ['outbox.js', 'attachcore.mjs', 'braintable.mjs']) fs.copyFileSync(path.join(ROOT, 'renderer/js', f), path.join(ESM, f));
 test.after(() => fs.rmSync(ESM, { recursive: true, force: true }));
 
 let createOutbox;
