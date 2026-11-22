@@ -7,10 +7,19 @@ import { parseNumber, cleanPath } from '../settingsave.js';
 import { get, save, queueSave } from './core.js';
 
 // ---------------------------------------------------------- field builders
+// advanced: true (every builder) marks the field as an advanced setting: hidden in Simple mode
+// (ui.settingsAdvanced off), still in the page, so the search finds it and shows it with a note
+// (index.js showCards, settingsmode.js). markAdvanced does the same for any other element (a hint, a
+// row, a whole block such as the Remote card's away-from-home fields).
+export function markAdvanced(node, on = true) {
+  if (on && node?.setAttribute) node.setAttribute('data-advanced', '');
+  return node;
+}
+
 // type 'number': a text box with a numeric keyboard (so "1,000" can be read, settingsave.parseNumber); an
 // empty or half-typed value saves nothing and the box gets the last good value back when it loses focus.
 // decimal: a fraction is allowed (temperature). path: Explorer's "Copy as path" quotes are dropped.
-export function text(p, label, { type = 'text', placeholder = '', hint = '', onChange, decimal = false, path = false } = {}) {
+export function text(p, label, { type = 'text', placeholder = '', hint = '', onChange, decimal = false, path = false, advanced = false } = {}) {
   const number = type === 'number';
   const input = el('input', { class: 'input', type: number ? 'text' : type, inputmode: number ? (decimal ? 'decimal' : 'numeric') : null, value: get(p) ?? '', placeholder, spellcheck: 'false', 'data-setting': p });
   let good = get(p) ?? '';
@@ -30,34 +39,41 @@ export function text(p, label, { type = 'text', placeholder = '', hint = '', onC
     if (number && parseNumber(input.value, { decimal }) === null) (input.value = good), input.removeAttribute('aria-invalid');
     else if (path && input.value !== cleanPath(input.value)) input.value = cleanPath(input.value);
   });
-  return field(label, input, hint);
+  return markAdvanced(field(label, input, hint), advanced);
 }
 
-export function area(p, label, { rows = 6, hint = '' } = {}) {
+export function area(p, label, { rows = 6, hint = '', advanced = false } = {}) {
   const t = el('textarea', { class: 'input', rows, 'data-setting': p });
   t.value = get(p) ?? '';
   t.addEventListener('input', () => queueSave(p, t.value));
-  return field(label, t, hint);
+  return markAdvanced(field(label, t, hint), advanced);
 }
 
-export function toggle(p, label, onChange) {
+// The third argument is onChange, or { onChange, hint, advanced }. A hint goes under the switch and
+// describes it (a short label, the detail here: the safety switches).
+export function toggle(p, label, opts) {
+  const { onChange, hint = '', advanced = false } = typeof opts === 'function' ? { onChange: opts } : opts || {};
   const input = el('input', { type: 'checkbox', 'data-setting': p });
   input.checked = Boolean(get(p));
   input.addEventListener('change', async () => {
     if (!(await save(p, input.checked))) return void (input.checked = Boolean(get(p)));
     onChange?.(input.checked);
   });
-  return el('label', { class: 'toggle' }, input, el('span', { class: 'sw' }), el('span', {}, label));
+  const sw = el('label', { class: 'toggle' }, input, el('span', { class: 'sw' }), el('span', {}, label));
+  if (!hint) return markAdvanced(sw, advanced);
+  input.id = `set-field-${++fieldSeq}`;
+  input.setAttribute('aria-describedby', `${input.id}-hint`);
+  return markAdvanced(el('div', { class: 'toggle-field' }, sw, el('div', { class: 'hint', html: hint, id: `${input.id}-hint` })), advanced);
 }
 
-export function select(p, label, options, { hint = '', onChange } = {}) {
+export function select(p, label, options, { hint = '', onChange, advanced = false } = {}) {
   const s = el('select', { class: 'input', 'data-setting': p });
   fillSelect(s, options, get(p));
   s.addEventListener('change', async () => {
     if (!(await save(p, s.value))) return void (s.value = get(p) ?? '');
     onChange?.(s.value);
   });
-  return field(label, s, hint);
+  return markAdvanced(field(label, s, hint), advanced);
 }
 
 export function fillSelect(s, options, value) {
@@ -79,7 +95,7 @@ export function field(label, control, hint) {
   return el('div', { class: 'field' }, el('label', id ? { for: id } : {}, label), control, hintEl);
 }
 
-export function folder(p, label, { hint = '', placeholder = '', onChange } = {}) {
+export function folder(p, label, { hint = '', placeholder = '', onChange, advanced = false } = {}) {
   const input = el('input', { class: 'input', value: get(p) || '', placeholder, spellcheck: 'false', 'data-setting': p });
   input.addEventListener('change', async () => {
     const dir = cleanPath(input.value); // a pasted "C:\…\Vault" (Copy as path) keeps no quotes
@@ -98,7 +114,7 @@ export function folder(p, label, { hint = '', placeholder = '', onChange } = {})
       }
     },
   }, 'Browse…');
-  return field(label, el('div', { class: 'row' }, input, browse), hint);
+  return markAdvanced(field(label, el('div', { class: 'row' }, input, browse), hint), advanced);
 }
 
 export function card(id, title, desc, ...children) {

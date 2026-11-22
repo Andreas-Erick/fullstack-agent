@@ -6,6 +6,8 @@ import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice, forget
 import { KOKORO_VOICES } from '../kokorotext.js';
 import { previewThinkingSound, thinkingStyle } from '../sounds.js';
 import { speechPlan } from '../perfcore.js';
+import { LANGUAGE_NAMES } from '../practice.js';
+import { voiceStudioShown, accelerator, acceleratorLabel } from '../settingsmode.js';
 import { save, queueSave, render } from './core.js';
 import { text, toggle, select, fillSelect, field, card, result, showResult } from './fields.js';
 
@@ -57,7 +59,7 @@ export function voiceCard() {
       if (!quiet) toastError(err);
     }
   };
-  loadVoices(true);
+  if (voiceStudioShown(state.settings.voice.engine)) loadVoices(true);
   const sample = el('input', { class: 'input', value: `Hello, I'm ${state.settings.agent.name}. All systems are online.` });
   const out = result();
   // "Test voice" asks the voice service in use (VoiceStudio or the cloud); the offline voice has its own test.
@@ -100,16 +102,19 @@ export function voiceCard() {
   return card(
     'voice',
     'Voice output',
-    'Replies are spoken sentence by sentence while they stream. The offline voice (Kokoro) runs in the app: free, private and without internet once downloaded. VoiceStudio is a separate app with more natural, cloneable voices (a local OpenAI-compatible <code>/v1/audio/speech</code> server).',
+    'Replies are spoken sentence by sentence while they stream. The offline voice runs in the app: free, private and without internet once downloaded. A cloud voice sounds natural with nothing to install; VoiceStudio is a separate app with voices you can clone.',
     el('div', { class: 'grid2' }, toggle('voice.ttsEnabled', 'Enable voice', () => emit('status-refresh')), toggle('voice.autoSpeak', 'Speak replies automatically')),
     text('voice.speakLimit', 'Read aloud at most (characters of a reply; 0 = everything)', { type: 'number', hint: 'A long result (a report, a list of papers) is read up to here, then she says the rest is on screen. 1500 is about a minute and a half.' }),
-    el('div', { class: 'grid2' }, select('voice.engine', 'Voice', [['local', 'Offline voice (Kokoro, in the app)'], ['voicestudio', 'VoiceStudio (separate app)'], ['cloud', 'Cloud voice (Groq or OpenAI)']], { onChange: () => (emit('status-refresh'), render()) }), select('voice.localVoice', 'Offline voice', KOKORO_VOICES)),
+    el('div', { class: 'grid2' }, select('voice.engine', 'Which voice speaks', [['local', 'Offline voice (Kokoro, in the app)'],['voicestudio', 'VoiceStudio (separate app)'], ['cloud', 'Cloud voice (Groq or OpenAI)']], { onChange: () => (emit('status-refresh'), render()) }), select('voice.localVoice', 'Offline voice', KOKORO_VOICES)),
     state.settings.voice.engine === 'cloud' ? cloudVoiceFields() : '',
-    text('voice.baseUrl', 'VoiceStudio URL', { placeholder: 'http://localhost:3900' }),
-    text('voice.apiKey', 'API key', { type: 'password', placeholder: 'optional' }),
-    field('Voice', el('div', { class: 'row' }, voiceSel, el('button', { class: 'btn', onclick: () => loadVoices(false) }, '⟳ Load voices')), 'Saved with the current persona, like the offline voice.'),
-    el('div', { class: 'grid2' }, text('voice.voice', 'Voice id (manual)', { placeholder: 'e.g. af_heart', onChange: (v) => fillSelect(voiceSel, [['', '(server default)'], ...[...voiceSel.options].slice(1).map((o) => [o.value, o.textContent])], v) }), text('voice.model', 'TTS model', { placeholder: 'tts-1' })),
-    el('div', { class: 'grid2' }, field('Speed', el('div', { class: 'row' }, speed, speedLabel)), select('voice.format', 'Audio format', ['mp3', 'wav', 'opus', 'flac'])),
+    // VoiceStudio's own fields, only when it is the voice (in either mode); its address and keys are advanced.
+    ...(voiceStudioShown(engine) ? [
+      text('voice.baseUrl', 'VoiceStudio address', { placeholder: 'http://localhost:3900', advanced: true }),
+      text('voice.apiKey', 'VoiceStudio access key', { type: 'password', placeholder: 'optional', advanced: true }),
+      field('VoiceStudio voice', el('div', { class: 'row' }, voiceSel, el('button', { class: 'btn', onclick: () => loadVoices(false) }, '⟳ Load voices')), 'Saved with the current persona, like the offline voice.'),
+      el('div', { class: 'grid2' }, text('voice.voice', 'Voice id (manual)', { placeholder: 'e.g. af_heart', advanced: true, onChange: (v) => fillSelect(voiceSel, [['', '(server default)'], ...[...voiceSel.options].slice(1).map((o) => [o.value, o.textContent])], v) }), text('voice.model', 'Speech model', { placeholder: 'tts-1', advanced: true })),
+    ] : []),
+    el('div', { class: 'grid2' }, field('Speed', el('div', { class: 'row' }, speed, speedLabel)), select('voice.format', 'Audio format', ['mp3', 'wav', 'opus', 'flac'], { advanced: true })),
     field('Sample text', sample),
     el('div', { class: 'grid2' }, toggle('voice.greetOnLaunch', 'Speak a greeting on launch'), toggle('voice.filler', 'Short spoken lines while tools run')),
     el(
@@ -180,7 +185,7 @@ export function sttCard() {
   const cloudNote = el('div', { class: 'hint' }, 'With the cloud, what you say is sent to Groq to be written down (not your conversations or files). Local Whisper keeps your voice on this computer.');
   if (engine === 'local') {
     children.push(
-      select('stt.localModel', 'Whisper model', WHISPER_MODELS, { hint: `Downloaded once from Hugging Face, then cached. Runs on GPU (WebGPU) when available. On this computer it uses <b>${speechPlan(state.settings).model.split('/').pop()}</b>. It loads at launch only if you used voice input this week, otherwise when you first press the talk key.`, onChange: () => render() }),
+      select('stt.localModel', 'Speech recognition model (Whisper)', WHISPER_MODELS, { advanced: true, hint: `Downloaded once from Hugging Face, then cached. Runs on GPU (WebGPU) when available. On this computer it uses <b>${speechPlan(state.settings).model.split('/').pop()}</b>. It loads at launch only if you used voice input this week, otherwise when you first press the talk key.`, onChange: () => render() }),
       el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => (progress.textContent = 'Loading…', preloadLocalModel()) }, '⬇ Download / load model now')),
       progress,
       toggle('stt.cloudFallback', 'Use Groq in the cloud while local Whisper is loading or if it fails', () => render()),
@@ -190,13 +195,14 @@ export function sttCard() {
     children.push(groqKey(), groqModel(), cloudNote);
   } else {
     children.push(
-      text('stt.remoteUrl', 'Transcription base URL', { placeholder: 'defaults to the FreeLLMAPI URL', hint: 'POSTs to <code>{url}/audio/transcriptions</code>.' }),
-      el('div', { class: 'grid2' }, text('stt.remoteKey', 'API key', { type: 'password', placeholder: 'defaults to the FreeLLMAPI token' }), text('stt.remoteModel', 'Model', { placeholder: 'whisper-1' })),
+      el('div', { class: 'hint' }, 'Your own speech-to-text server: its address, key and model are under Show advanced.'),
+      text('stt.remoteUrl', 'Speech-to-text server address', { placeholder: 'defaults to the FreeLLMAPI URL', hint: 'POSTs to <code>{url}/audio/transcriptions</code>.', advanced: true }),
+      el('div', { class: 'grid2' }, text('stt.remoteKey', 'Access key', { type: 'password', placeholder: 'defaults to the FreeLLMAPI token', advanced: true }), text('stt.remoteModel', 'Model', { placeholder: 'whisper-1', advanced: true })),
     );
   }
   children.push(
-    el('div', { class: 'grid2' }, text('stt.language', 'Language code', { placeholder: 'en' }), field('Push-to-talk key (hold)', keyBtn, 'Works anywhere in the app.')),
-    text('stt.globalShortcut', 'Global toggle shortcut', { placeholder: 'CommandOrControl+Alt+Space', hint: 'Press once to start listening from anywhere (even when the app is in the background), again to stop.' }),
+    el('div', { class: 'grid2' }, select('stt.language', 'Language you speak', LANGUAGES, { hint: 'What speech is written down in. Language practice listens for its own language.' }), field('Push-to-talk key (hold)', keyBtn, 'Works anywhere in the app.')),
+    shortcutField(),
     select('stt.micMode', 'Microphone mode', [['ptt', 'Push to talk (mic closed between presses)'], ['open', 'Hands-free (always listening, voice detection)']], { hint: 'Also by voice: “go hands free” / “push to talk”.' }),
     micField(),
     el('div', { class: 'grid2' }, toggle('stt.headphones', 'I use headphones (lets me talk over the agent hands-free)'), field('Voice detection sensitivity', sensitivity())),
@@ -213,6 +219,53 @@ export function sttCard() {
     el('div', { class: 'hint' }, 'Voice commands (spoken on their own): “go hands free”, “push to talk”, “switch to the fast/deep model”, “stop asking for permission”, “start asking again”, “clear the session”, “stop”, “mute” / “unmute”.'),
   );
   return card('stt', 'Voice input · speech-to-text', 'Hold the push-to-talk key or the mic button, speak, release.', ...children);
+}
+
+// The languages speech can be written down in, by name (the setting keeps the code, 'en').
+const LANGUAGES = Object.entries(LANGUAGE_NAMES).sort((a, b) => a[1].localeCompare(b[1]));
+
+// The voice shortcut (stt.globalShortcut), recorded by pressing the keys (settingsmode.js accelerator) and
+// saved as the Electron accelerator main registers; a refusal (keys another app holds) is main's log line.
+function shortcutField() {
+  const mac = /Mac/.test(navigator.platform || navigator.userAgent || '');
+  const label = (a) => acceleratorLabel(a, { mac });
+  const btn = el('button', { class: 'btn', type: 'button', 'data-setting': 'stt.globalShortcut' }, label(state.settings.stt.globalShortcut));
+  const note = el('div', { class: 'hint', role: 'status' }, 'Press once to start listening from anywhere (even when the app is in the background), again to stop.');
+  const field_ = field('Shortcut to start listening from anywhere', btn);
+  const title = field_.querySelector('label');
+  title.id = `set-shortcut-${Math.random().toString(36).slice(2, 8)}`;
+  btn.id = `${title.id}-btn`;
+  btn.setAttribute('aria-labelledby', `${title.id} ${btn.id}`);
+  let handler = null;
+  const stop = (text) => {
+    window.removeEventListener('keydown', handler, true);
+    btn.removeEventListener('blur', cancel);
+    handler = null;
+    btn.textContent = text;
+    btn.removeAttribute('aria-pressed');
+  };
+  const cancel = () => handler && stop(label(state.settings.stt.globalShortcut));
+  btn.addEventListener('click', () => {
+    if (handler) return;
+    btn.textContent = 'Press the keys…';
+    btn.setAttribute('aria-pressed', 'true');
+    note.textContent = 'Hold Ctrl or Alt and press a key (a function key works alone). Esc keeps the old one; Backspace turns it off.';
+    handler = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const r = accelerator(e, { mac });
+      if (r.waiting) return void (r.why && (note.textContent = `${r.why} to that key: alone it would fire while you type.`));
+      if (r.cancel) return cancel();
+      stop('Saving…');
+      const ok = await save('stt.globalShortcut', r.accel);
+      btn.textContent = label(ok ? r.accel : state.settings.stt.globalShortcut);
+      note.textContent = ok ? (r.accel ? `Saved: ${label(r.accel)}. If another app already uses these keys, the shortcut won’t work; pick others.` : 'The shortcut is off.') : 'Not saved.';
+    };
+    window.addEventListener('keydown', handler, true);
+    btn.addEventListener('blur', cancel);
+  });
+  field_.append(note);
+  return field_;
 }
 
 function micField() {

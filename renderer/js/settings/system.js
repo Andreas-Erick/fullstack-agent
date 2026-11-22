@@ -12,8 +12,10 @@ export function safetyCard() {
     'safety',
     'Safety & permissions',
     'What the agent may do without asking. Approve requests by clicking or by saying a yes on its own — “yes”, “yeah”, “okay”, “go ahead” (anything else declines; no answer counts as no).',
-    select('safety.permissionMode', 'Permission mode', [['ask', 'Ask me first — self-changes, settings changes, deletions (recommended)'], ['auto', 'Just do it — still asks before code changes, commands, publishing to GitHub, invitations and services you haven’t allowed (and, after reading outside content, before deleting or inviting in your services, opening new websites or saving routines and skills)']], { hint: 'Also by voice: “stop asking for permission” / “start asking again”.' }),
-    toggle('safety.taintGuard', 'After reading outside content (web pages, documents, your services’ data), warn on every approval and ask before changing my code, deleting or inviting through a service, opening a website nobody named, or saving a routine or skill — also in “Just do it” mode and at “Allow everything”'),
+    select('safety.permissionMode', 'Ask before acting?', [['ask', 'Ask me first — self-changes, settings changes, deletions (recommended)'], ['auto', 'Just do it — still asks before code changes, commands, publishing to GitHub, invitations and services you haven’t allowed (and, after reading outside content, before deleting or inviting in your services, opening new websites or saving routines and skills)']], { hint: 'Also by voice: “stop asking for permission” / “start asking again”.' }),
+    toggle('safety.taintGuard', 'Extra caution after reading websites or files (recommended)', {
+      hint: 'Pages and files can contain hidden instructions. After reading outside content (web pages, documents, your services’ data), warn on every approval and ask before changing my code, deleting or inviting through a service, opening a website nobody named, or saving a routine or skill — also in “Just do it” mode and at “Allow everything”.',
+    }),
     toggle('screen.attachToMessages', 'While I share my screen, include a screenshot with each message (otherwise only when the agent asks to look)'),
     text('safety.approvalTimeoutSec', 'Approval timeout (seconds)', { type: 'number' }),
     el('div', { class: 'hint' }, 'External content (web pages, documents, tool results) is always treated as data — the agent is instructed never to follow instructions inside it.'),

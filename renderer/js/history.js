@@ -3,10 +3,11 @@
 // chats (conv:search in main), deletes a chat and puts the focus on its neighbour. Where the panel has no
 // room of its own (the Face layout, windows ≤ 980 px) it slides over the chat as a drawer, opened by
 // 🕘 History or Ctrl+H: a dialog, the rest of the chat inert, Tab inside, Esc back to the message box.
+// A delete hides the row with a 6-second Undo notice; main deletes only once the notice goes.
 // Docked, the same button and key go to its search. What the list shows is historycore.listModel (pure).
 // A leaf: chat.js hands in what it owns (initHistory: which chat is open, open one, start a new one), so
 // this never imports chat.js; chat.js tells it when the list may have changed (refreshList, drawList).
-import { $, api, el, on, timeAgo, confirmDialog, toastError, dialogOpen } from './util.js';
+import { $, api, el, on, timeAgo, undoToast, toastError, dialogOpen } from './util.js';
 import { state } from './state.js';
 import * as chatcore from './chatcore.js';
 import * as core from './historycore.mjs';
@@ -15,6 +16,7 @@ const narrow = matchMedia('(max-width: 980px)');
 const DEBOUNCE_MS = 250;
 const INERT = ':scope > :is(.chat-main, .splitter, #facePanel)'; // not the scrim, not #chatLive
 const FOCUSABLE = ':is(button, input, [tabindex]):not([tabindex="-1"]):not(:disabled)';
+const UNDO_MS = 6000;
 
 let conversations = []; // the index, newest first
 let listLimit = core.LIST_PAGE;
@@ -22,6 +24,7 @@ let hits = core.HITS;
 let timer = null;
 let loadFailed = false; // the last conv:list failed: the list shown is the one before
 let chat = { current: () => null, open: () => {}, newChat: () => {} };
+let pending = null; // { conv, kind, settle }: deleted from History, hidden until its Undo notice goes
 
 /** chat: { current() → the open conversation's id, open(id, at) → a row was chosen (at: the message
  *  the search found), newChat() → the open conversation was deleted }. */
@@ -41,6 +44,10 @@ export function initHistory(handlers) {
   on('layout', settle);
   on('view', ({ name }) => name !== 'chat' && closeHistory({ focus: false }));
   on('files-added', () => closeHistory({ focus: false })); // a file dropped into the chat (attach.js)
+  // Closing deletes a chat still waiting on its Undo. The window hides first while the handoff note is
+  // written (main.js closeWithHandoff), so hidden counts too (also a minimized window: Undo is a moment's).
+  window.addEventListener('beforeunload', () => settleDelete());
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && settleDelete());
 }
 
 // ------------------------------------------------------------------ the list
@@ -64,7 +71,8 @@ export function drawList() {
   const q = $('#convSearch').value;
   const list = $('#convList');
   const kept = keepFocus(list);
-  const m = core.listModel(conversations, { query: q, limit: listLimit, startToday: new Date().setHours(0, 0, 0, 0), hits });
+  const listed = pending ? conversations.filter((c) => c.id !== pending.conv.id) : conversations;
+  const m = core.listModel(listed, { query: q, limit: listLimit, startToday: new Date().setHours(0, 0, 0, 0), hits });
   list.innerHTML = '';
   if (loadFailed) list.append(el('li', { class: 'conv-status failed' }, el('span', {}, '⚠ Couldn’t load History.'), el('button', { class: 'btn ghost small', type: 'button', onclick: () => refreshList() }, 'Try again')));
   for (const g of m.groups) {
@@ -99,7 +107,7 @@ function convRow(c, { words, hit = null }) {
     hit ? el('span', { class: 's' }, marked(hit.snippet?.text || '', hit.snippet?.marks)) : null,
     el('span', { class: 'd' }, meta),
   );
-  const x = el('button', { class: 'x', type: 'button', tabindex: '-1', title: 'Delete (Del)', 'aria-label': `Delete “${name.text}”`, onclick: () => deleteConversation(c) }, '✕');
+  const x = el('button', { class: 'x', type: 'button', title: 'Delete (Del)', 'aria-label': `Delete “${name.text}”`, onclick: () => deleteConversation(c, hit ? 'hit' : 'title') }, '✕');
   return el('li', { class: `conv-item${hit ? ' conv-hit' : ''}${open_ ? ' active' : ''}`, 'data-id': c.id, 'data-kind': hit ? 'hit' : 'title' }, open, x);
 }
 
@@ -117,26 +125,52 @@ function marked(text, ranges) {
   return out;
 }
 
-// Deleting from History keeps it open: focus goes to the next row (else the one before, else the search).
-async function deleteConversation(c) {
+// Deleting from History keeps it open: the row hides at once and the focus goes to the next row (else the
+// one before, else the search). A notice offers Undo for UNDO_MS; main deletes (conv:delete: the Claude
+// session, the attachments folder, the search cache, devices told) only when it goes. One at a time: a
+// second delete settles the first now. The open chat gives way to a new one at once; Undo doesn't reopen it.
+function deleteConversation(c, kind) {
   const list = $('#convList');
   const inPanel = $('#convPanel').contains(document.activeElement);
   const rows = [...list.querySelectorAll('.conv-item')].map((n) => ({ id: n.dataset.id, kind: n.dataset.kind }));
-  const { next, self } = core.afterDelete(rows, c.id);
-  const back = (row) => (inPanel || historyOpen()) && restoreFocus(list, { scroll: list.scrollTop, row, button: '' });
-  if (!(await confirmDialog('Delete conversation', `Delete “${c.title || 'Untitled'}”? This cannot be undone.`, 'Delete'))) return back(self);
-  try {
-    await api.conv.delete(c.id);
-  } catch (err) {
-    return toastError(err);
-  }
-  forgetHit(c.id);
+  const { next } = core.afterDelete(rows, c.id);
+  settleDelete();
+  const gone = { conv: c, kind };
+  pending = gone;
+  gone.settle = undoToast(`Deleted “${c.title || 'Untitled'}”`, { ms: UNDO_MS, undo: () => undoDelete(gone), expire: () => commitDelete(gone) });
   if (c.id === chat.current()) chat.newChat();
-  await refreshList();
+  drawList();
   if (inPanel || historyOpen()) {
-    if (next) back(next);
+    if (next) restoreFocus(list, { scroll: list.scrollTop, row: next, button: '' });
     else $('#convSearch').focus({ preventScroll: true });
   }
+}
+
+/** A chat still waiting on its Undo is deleted now (closing, a second delete, Clear all). */
+export function settleDelete() {
+  pending?.settle();
+}
+
+async function commitDelete(gone) {
+  if (pending === gone) pending = null;
+  try {
+    await api.conv.delete(gone.conv.id);
+  } catch (err) {
+    toastError(err); // the row comes back with the list below
+  }
+  forgetHit(gone.conv.id);
+  await refreshList();
+}
+
+// Undo: the row is back (nothing was asked of main) and, where History shows, it has the focus.
+function undoDelete(gone) {
+  if (pending === gone) pending = null;
+  drawList();
+  const list = $('#convList');
+  if (!(historyOpen() || historyDocked()) || !$('#convPanel').getClientRects().length) return;
+  const rows = [...list.querySelectorAll('.conv-item')].map((n) => ({ id: n.dataset.id, kind: n.dataset.kind }));
+  const at = core.afterUndo(rows, gone.conv.id, gone.kind);
+  if (at) restoreFocus(list, { scroll: list.scrollTop, row: at, button: '' });
 }
 
 // ------------------------------------------------------------------ the drawer

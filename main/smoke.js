@@ -777,6 +777,31 @@ const SETTINGS_JS = (label) => `(async () => {
       await drawn('redrawn');
       if (document.activeElement?.dataset?.setting !== setting) say('the switch “' + setting + '” lost the keyboard focus in a redraw (now on ' + (document.activeElement?.tagName || 'nothing') + ')');
     }
+    // Simple / Advanced: advanced fields are hidden in Simple mode, a search shows one with its note, the
+    // switch shows them all (and is put back).
+    const shownAdv = () => [...root.querySelectorAll(':scope > .card:not(.tab-hidden) [data-advanced]')].filter((n) => n.offsetParent !== null);
+    const mode = document.querySelector('#settingsTabs .settings-mode input');
+    if (!mode) say('no “Show advanced” switch at the top of Settings');
+    else if (mode.checked) say('Settings opens in Advanced mode on a fresh install');
+    else {
+      if (shownAdv().length) say(shownAdv().length + ' advanced field(s) show in Simple mode');
+      if (!root.querySelector('[data-advanced]')) say('no field is marked advanced');
+      const search = document.querySelector('#settingsTabs .settings-search');
+      search.value = 'how hard it thinks';
+      search.dispatchEvent(new Event('input'));
+      const hit = shownAdv();
+      if (!hit.length) say('the search doesn’t find the advanced field “How hard it thinks”');
+      else if (!hit.some((n) => /Advanced setting/.test(n.textContent))) say('a field the search revealed doesn’t say it is an advanced setting');
+      search.value = '';
+      search.dispatchEvent(new Event('input'));
+      if (shownAdv().length) say('advanced fields stay shown after the search is cleared');
+      mode.click();
+      await wait(300);
+      if (!shownAdv().length) say('Show advanced shows no advanced field on the AI brain tab');
+      mode.click();
+      await wait(300);
+      if (shownAdv().length) say('turning Show advanced off leaves advanced fields shown');
+    }
   } catch (err) {
     say('the check stopped: ' + err.message);
   } finally {
