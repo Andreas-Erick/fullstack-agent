@@ -196,6 +196,24 @@ export function toastActions(message, actions, ms = 30000) {
   pushToast(t, ms);
 }
 
+/** A notice with an Undo button for `ms`. Exactly one of `undo` (the button) and `expire` (the notice went
+ *  any other way: its time, made room for, or the returned `settle()`) runs, once. */
+export function undoToast(message, { undo, expire, ms = 6000 }) {
+  let done = false;
+  const t = el('div', { class: 'toast' }, el('div', {}, message));
+  const detach = t.remove.bind(t);
+  const finish = (fn) => {
+    if (done) return;
+    done = true;
+    detach();
+    fn?.();
+  };
+  t.append(el('div', { class: 'toast-actions' }, el('button', { class: 'btn small', type: 'button', onclick: () => finish(undo) }, 'Undo')));
+  pushToast(t, ms);
+  t.remove = () => finish(expire); // once shown, every way out (removeLater, MAX_TOASTS) goes through remove()
+  return () => finish(expire);
+}
+
 export function toastError(err) {
   toast(err?.message || String(err), 'error', 6000);
 }
@@ -260,6 +278,41 @@ export function confirmDialog(title, message, okLabel = 'Confirm', danger = true
       el('h3', {}, title),
       el('p', { class: 'muted' }, message),
       el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(false) }, 'Cancel'), el('button', { class: `btn ${danger ? 'danger' : 'primary'}`, onclick: () => close(true) }, okLabel)),
+    );
+  });
+}
+
+/** A confirm for deleting everything of a kind, with "Export first": `exportFn()` resolves to where the copy
+ *  went (null: its save dialog was cancelled). The copy is named in the card, which stays open for the
+ *  decision; true only from the acting button. */
+export function confirmExportFirst(title, message, okLabel, exportFn) {
+  return modal((card, close) => {
+    const said = el('div', { class: 'test-result hidden', role: 'status' });
+    const say = (text, kind) => {
+      said.className = `test-result ${kind}`;
+      said.textContent = text;
+    };
+    const exp = el('button', {
+      class: 'btn',
+      type: 'button',
+      onclick: async () => {
+        if (exp.disabled) return;
+        exp.disabled = true;
+        try {
+          const where = await exportFn();
+          if (where) say(`A copy is in ${where}`, 'ok');
+        } catch (err) {
+          say(plainError(err), 'err');
+        } finally {
+          exp.disabled = false;
+        }
+      },
+    }, 'Export first');
+    card.append(
+      el('h3', {}, title),
+      el('p', { class: 'muted' }, message),
+      said,
+      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', type: 'button', onclick: () => close(false) }, 'Cancel'), exp, el('button', { class: 'btn danger', type: 'button', onclick: () => close(true) }, okLabel)),
     );
   });
 }

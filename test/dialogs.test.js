@@ -132,8 +132,8 @@ class FakeEl extends FakeNode {
     return false;
   }
   closest(sel) {
-    assert.strictEqual(sel, '[inert], .hidden', `the stand-in's closest() knows one selector, not ${sel}`);
-    for (let x = this; x instanceof FakeEl; x = x.parent) if (x.inert || x.classes.has('hidden')) return x;
+    const match = sel === '[inert], .hidden' ? (x) => x.inert || x.classes.has('hidden') : matcher(sel);
+    for (let x = this; x instanceof FakeEl; x = x.parent) if (match(x)) return x;
     return null;
   }
   *descendants() {
@@ -148,6 +148,15 @@ class FakeEl extends FakeNode {
     for (const n of this.descendants()) if (match(n)) return n;
     return null;
   }
+  querySelectorAll(sel) {
+    return [...this.descendants()].filter(matcher(sel));
+  }
+  getClientRects() {
+    let n = this;
+    for (; n instanceof FakeEl; n = n.parent) if (n.classes.has('hidden')) return [];
+    return this.isConnected ? [{}] : [];
+  }
+  scrollIntoView() {}
   focus() {
     if (this.isConnected && !this.closest('[inert], .hidden')) doc.activeElement = this;
   }
@@ -163,6 +172,12 @@ function matcher(sel) {
     '.modal-actions > .btn:first-child:not(.danger):not(.primary):not(:disabled)': (n) => n.classes.has('btn') && n.parent?.classes?.has('modal-actions') && firstChild(n) && !n.classes.has('danger') && !n.classes.has('primary') && !n.disabled,
   };
   if (known[sel]) return known[sel];
+  // .class[data-x="v"]… (History's rows by id and kind)
+  const attrs = /^\.([\w-]+)((?:\[[\w-]+="[^"]*"\])+)$/.exec(sel);
+  if (attrs) {
+    const pairs = [...attrs[2].matchAll(/\[([\w-]+)="([^"]*)"\]/g)].map((m) => [m[1], m[2]]);
+    return (n) => n.classes.has(attrs[1]) && pairs.every(([k, v]) => n.getAttribute(k) === v);
+  }
   if (/^[.#][\w-]+$/.test(sel)) return sel[0] === '.' ? (n) => n.classes.has(sel.slice(1)) : (n) => n.id === sel.slice(1);
   if (/^[a-z0-9]+$/.test(sel)) return (n) => n.tagName === sel.toUpperCase();
   throw new Error(`the stand-in doesn't know the selector ${sel}`);
@@ -246,10 +261,12 @@ test.before(async () => {
     fs.writeFileSync(path.join(dir, file), src);
     for (const m of src.matchAll(/from\s+'\.\/([\w.-]+)'/g)) copy(m[1]);
   };
-  for (const file of ['util.js', 'knowledge.js', 'skills.js', 'memory.js']) copy(file);
+  for (const file of ['util.js', 'knowledge.js', 'skills.js', 'memory.js', 'history.js']) copy(file);
   fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}');
   globalThis.window = new EventTarget(); // util.js reads window.nexus when it loads; removeLater listens on it
   window.nexus = API;
+  globalThis.matchMedia = () => ({ matches: false, addEventListener() {} }); // history.js: a wide window, History docked
+  globalThis.CSS = { escape: (s) => String(s) };
   globalThis.Node = FakeNode; // el() appends nodes as they are, other values as text
   makeDocument();
   u = await import(pathToFileURL(path.join(dir, 'util.js')).href);
@@ -259,6 +276,8 @@ test.after(() => {
   delete globalThis.window;
   delete globalThis.document;
   delete globalThis.Node;
+  delete globalThis.matchMedia;
+  delete globalThis.CSS;
 });
 
 // ------------------------------------------------------------------ the layer stack
@@ -987,4 +1006,157 @@ test('the memory editor: empty content is said in the card with title and catego
   assert.strictEqual(u.dialogOpen(), false);
   assert.deepStrictEqual(saves[1], { title: 'Lab notes', category: 'school', content: text });
   assert.strictEqual(doc.activeElement, add, 'the focus is back on the button that opened it');
+});
+
+// ------------------------------------------------------------------ Clear all / Delete all: Export first
+test('a confirm with Export first: the copy is made and named in the card, which stays open to Delete or Cancel; a cancelled save or a failure changes nothing else', async () => {
+  const n = makeDocument();
+  n.shellBtn.focus();
+  const calls = [];
+  let answer = deferred();
+  const p = u.confirmExportFirst('Clear all conversations', 'Delete every conversation?', 'Delete all', () => (calls.push(1), answer.promise));
+  await tick();
+  const card = n.modalCard;
+  assert.deepStrictEqual(buttons(card).map((b) => b.textContent), ['Cancel', 'Export first', 'Delete all']);
+  assert.strictEqual(doc.activeElement.textContent, 'Cancel', 'never the button that acts');
+  const exp = button(card, 'Export first');
+
+  // The save dialog was cancelled: nothing said, the button works again.
+  click(exp);
+  click(exp);
+  assert.strictEqual(calls.length, 1, 'two clicks, one export');
+  answer.resolve(null);
+  await tick();
+  assert.strictEqual(exp.disabled, false);
+  assert.doesNotMatch(card.textContent, /copy/i);
+
+  // A failure is said in the card, in plain words.
+  answer = deferred();
+  click(exp);
+  answer.reject(ipcError('conv:export', 'The disk is full.'));
+  await tick();
+  assert.match(card.textContent, /The disk is full\./);
+  assert.strictEqual(u.dialogOpen(), true);
+
+  // Exported: named, the dialog stays for the decision.
+  answer = deferred();
+  click(exp);
+  answer.resolve('C:\\Exports\\history.md');
+  await tick();
+  assert.match(card.textContent, /A copy is in C:\\Exports\\history\.md/);
+  assert.doesNotMatch(card.textContent, /The disk is full/, 'the old failure is gone');
+  assert.strictEqual(u.dialogOpen(), true, 'still open: exporting is not deleting');
+  click(button(card, 'Delete all'));
+  assert.strictEqual(await p, true);
+  assert.strictEqual(calls.length, 3);
+
+  const q = u.confirmExportFirst('Clear all conversations', 'Delete every conversation?', 'Delete all', async () => null);
+  await tick();
+  click(button(n.modalCard, 'Cancel'));
+  assert.strictEqual(await q, false);
+});
+
+test('Clear all conversations and both Delete all memories offer Export first, through the existing exports', () => {
+  const settings = settingsSource();
+  assert.match(settings, /exportFn \? confirmExportFirst\(title, msg, label, exportFn\)/);
+  assert.match(settings, /danger\('Clear history', [^\n]*'Delete every conversation\?[^\n]*, \(\) => api\.conv\.export\(\)\),\n/);
+  assert.match(settings, /danger\('Clear memory', [^\n]*'Delete every memory\?[^\n]*, \(\) => api\.memory\.export\('md'\)\),\n/);
+  assert.match(read('renderer/js/memory.js'), /confirmExportFirst\('Delete all memories'[\s\S]{0,200}api\.memory\.export\('md'\)/);
+  assert.match(settings, /settleDelete\(\)[\s\S]{0,80}api\.conv\.clear\(\)/, 'a chat waiting on its Undo goes before Clear all');
+});
+
+// ------------------------------------------------------------------ History: delete with Undo
+// history.js over the stand-in: a delete hides the row and offers Undo for 6 s; main deletes only when the
+// notice goes (its time, a second delete, the window closing), and Undo calls nothing in main.
+function historyView(n) {
+  const chatView = node('section', { id: 'view-chat', cls: 'view', parent: n.shell });
+  node('button', { id: 'historyBtn', parent: chatView });
+  const panel = node('aside', { id: 'convPanel', parent: chatView });
+  node('button', { id: 'historyClose', parent: panel });
+  node('div', { id: 'historyScrim', parent: chatView });
+  node('input', { id: 'convSearch', parent: panel });
+  node('div', { id: 'convSearchStatus', parent: panel });
+  node('ul', { id: 'convList', parent: panel });
+}
+
+test('History: a deleted chat hides with Undo; Undo deletes nothing in main and puts it back with the focus; expiry, a second delete or closing deletes it once', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const n = makeDocument();
+  doc.focused = true;
+  historyView(n);
+  const now = Date.now();
+  let convs = ['a', 'b', 'c'].map((id, i) => ({ id, title: id.toUpperCase(), count: 2, updatedAt: now - i * 1000 }));
+  const deleted = [];
+  API.conv = { list: async () => convs, delete: async (id) => (deleted.push(id), (convs = convs.filter((c) => c.id !== id))), search: async () => ({ items: [] }) };
+  API.on = () => {}; // routine:event
+  let open = 'b';
+  const opened = [];
+  let newChats = 0;
+  const h = await view('history.js');
+  h.initHistory({ current: () => open, open: (id) => opened.push(id), newChat: () => ((open = null), newChats++) });
+  await h.refreshList();
+
+  const list = doc.getElementById('convList');
+  const ids = () => list.querySelectorAll('.conv-item').map((r) => r.dataset.id);
+  const row = (id) => list.querySelector(`.conv-item[data-id="${id}"]`);
+  const undos = () => buttons(doc.getElementById('toasts')).filter((b) => b.textContent === 'Undo');
+  assert.deepStrictEqual(ids(), ['a', 'b', 'c']);
+  assert.strictEqual(row('b').querySelector('.x').getAttribute('tabindex'), null, 'the ✕ is a Tab stop, not hover-only');
+
+  // Delete the open chat (b) from its ✕, focus in the panel: hidden at once, a new chat, nothing in main.
+  row('b').querySelector('.x').focus();
+  click(row('b').querySelector('.x'));
+  await tick();
+  assert.deepStrictEqual(ids(), ['a', 'c'], 'the row is hidden');
+  assert.strictEqual(u.dialogOpen(), false, 'no confirmation first');
+  assert.match(notices(), /Deleted “B”/);
+  assert.strictEqual(newChats, 1, 'the open chat gave way to a new one');
+  assert.deepStrictEqual(deleted, []);
+  assert.strictEqual(doc.activeElement, row('c').querySelector('.conv-open'), 'the focus is on the next row');
+  await h.refreshList(); // a reply elsewhere redraws the list: still hidden
+  assert.deepStrictEqual(ids(), ['a', 'c']);
+
+  // Undo: back in the list, focused, not reopened, and main was never asked.
+  click(undos()[0]);
+  await tick();
+  assert.deepStrictEqual(ids(), ['a', 'b', 'c']);
+  assert.strictEqual(doc.activeElement, row('b').querySelector('.conv-open'), 'the focus is on the chat that came back');
+  assert.deepStrictEqual(opened, [], 'Undo does not reopen it');
+  assert.strictEqual(undos().length, 0, 'the notice is gone');
+  t.mock.timers.tick(60000);
+  await tick();
+  assert.deepStrictEqual(deleted, [], 'nothing deleted in main');
+
+  // Expiry: the real delete runs once, when the notice goes.
+  click(row('a').querySelector('.x'));
+  await tick();
+  t.mock.timers.tick(5999);
+  await tick();
+  assert.deepStrictEqual(deleted, [], 'not before its time');
+  t.mock.timers.tick(1);
+  await tick();
+  assert.deepStrictEqual(deleted, ['a'], 'deleted once the notice went');
+  t.mock.timers.tick(60000);
+  await tick();
+  assert.deepStrictEqual(deleted, ['a'], 'once');
+  assert.deepStrictEqual(ids(), ['b', 'c']);
+
+  // A second delete settles the first at once; one Undo notice at a time.
+  click(row('b').querySelector('.x'));
+  await tick();
+  click(row('c').querySelector('.x'));
+  await tick();
+  assert.deepStrictEqual(deleted, ['a', 'b'], 'the first went at once');
+  assert.strictEqual(undos().length, 1);
+  assert.match(notices(), /Deleted “C”/);
+  assert.doesNotMatch(notices(), /Deleted “B”/);
+
+  // Closing the window deletes the pending one at once.
+  window.dispatchEvent(new Event('beforeunload'));
+  await tick();
+  assert.deepStrictEqual(deleted, ['a', 'b', 'c']);
+  assert.strictEqual(undos().length, 0);
+  t.mock.timers.tick(60000);
+  await tick();
+  assert.deepStrictEqual(deleted, ['a', 'b', 'c'], 'once each');
 });
