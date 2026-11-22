@@ -605,6 +605,7 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 .fx-hud .msg.user { animation: hud-msg-r 0.24s cubic-bezier(0.2, 0.8, 0.2, 1); }
 @keyframes hud-msg-l { from { opacity: 0; transform: translateX(-10px); } }
 @keyframes hud-msg-r { from { opacity: 0; transform: translateX(10px); } }
+.fx-hud .msg.settled { animation: none; } /* drawn in bulk (chat.js settled) */
 
 /* ---------------------------------------------------------------- memory, settings: numbered records */
 :is(.fx-hud, .fx-subtle) .mem-grid { counter-reset: hud-rec; }

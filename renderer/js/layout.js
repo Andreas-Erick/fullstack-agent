@@ -33,14 +33,42 @@ export function initLayout({ miniFace }) {
   api.on('win:fullscreen', showFullscreen);
 
   // Chat ⋯ menu
+  // Chat ⋯ menu: opens with the focus on its first item; ↑ ↓ move, Esc closes it back to the button.
   const menu = $('#chatMenu');
-  $('#chatMore').onclick = (e) => {
-    e.stopPropagation();
-    menu.classList.toggle('open');
+  const more = $('#chatMore');
+  const items = () => [...menu.querySelectorAll('button')];
+  const setMenu = (open, { focus = false } = {}) => {
+    const was = menu.classList.contains('open');
+    menu.classList.toggle('open', open);
+    more.setAttribute('aria-expanded', String(open));
+    if (open && !was) items()[0]?.focus();
+    if (!open && was && focus) more.focus();
   };
-  document.addEventListener('click', () => menu.classList.remove('open'));
+  more.onclick = (e) => {
+    e.stopPropagation();
+    setMenu(!menu.classList.contains('open'), { focus: true });
+  };
+  document.addEventListener('click', () => setMenu(false));
+  menu.addEventListener('keydown', (e) => {
+    const list = items();
+    const at = list.indexOf(document.activeElement);
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation(); // the menu only: not the reply, the voice or full screen
+      setMenu(false, { focus: true });
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      list[(at + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length]?.focus();
+    } else if (e.key === 'Tab') {
+      setMenu(false);
+    }
+  });
+  menu.addEventListener('focusout', (e) => {
+    if (!menu.contains(e.relatedTarget) && e.relatedTarget !== more) setMenu(false);
+  });
   menu.onclick = async (e) => {
-    const act = e.target.dataset.act;
+    const act = e.target.closest('button')?.dataset.act;
+    if (act) setMenu(false);
     if (act === 'pdf') exportChatPdf();
     if (act === 'note') quickNote();
     if (act === 'skills') switchView('skills');
@@ -180,9 +208,41 @@ export function applyLayout() {
   const view = $('#view-chat');
   for (const l of ['chat', 'split', 'face']) view.classList.toggle(`layout-${l}`, l === layout);
   $$('#layoutSeg button').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
-  view.style.setProperty('--face-w', `${Math.max(200, Number(s.facePanelWidth) || 300)}px`);
+  setFaceWidth(storedFaceWidth());
   requestAnimationFrame(() => faceHost?.resize());
 }
+
+// The Split layout's face panel: never so wide that the chat column (History docked beside it or not)
+// falls under CHAT_MIN. The stored width is the wish; a narrow window shows less of it without saving that.
+const FACE_MIN = 200;
+const CHAT_MIN = 380;
+const SPLIT_STEP = 20;
+const storedFaceWidth = () => Math.max(FACE_MIN, Number(state.settings.ui.facePanelWidth) || 300);
+
+function faceRoom() {
+  const view = $('#view-chat');
+  const face = $('#facePanel');
+  const main = view.querySelector('.chat-main');
+  if (!view.classList.contains('layout-split') || !face?.offsetWidth || !main) return Infinity;
+  // The two share the row (the chat column is flex: 1), so their sum doesn't depend on the face's width.
+  return Math.max(FACE_MIN, Math.min(view.clientWidth * 0.65, face.offsetWidth + main.offsetWidth - CHAT_MIN));
+}
+
+function setFaceWidth(want) {
+  const view = $('#view-chat');
+  const room = faceRoom();
+  const fit = Math.min(want, room);
+  const w = Math.round(Math.max(FACE_MIN, Number.isFinite(fit) ? fit : storedFaceWidth()));
+  view.style.setProperty('--face-w', `${w}px`);
+  const bar = $('#faceSplitter');
+  bar.setAttribute('aria-valuemin', String(FACE_MIN));
+  bar.setAttribute('aria-valuenow', String(w));
+  if (Number.isFinite(room)) bar.setAttribute('aria-valuemax', String(Math.round(room)));
+  return w;
+}
+
+const currentFaceWidth = () => parseInt(getComputedStyle($('#view-chat')).getPropertyValue('--face-w'), 10) || 0;
+const saveFaceWidth = debounce((w) => saveSettings({ ui: { facePanelWidth: w } }), 400);
 
 function initSplitter() {
   const bar = $('#faceSplitter');
@@ -195,21 +255,38 @@ function initSplitter() {
   });
   bar.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const r = view.getBoundingClientRect();
-    const w = Math.round(Math.min(r.width * 0.65, Math.max(200, r.right - e.clientX - 14)));
-    view.style.setProperty('--face-w', `${w}px`);
+    setFaceWidth(view.getBoundingClientRect().right - e.clientX - 14);
     faceHost?.resize();
   });
   const end = () => {
     if (!dragging) return;
     dragging = false;
     bar.classList.remove('drag');
-    const w = parseInt(getComputedStyle(view).getPropertyValue('--face-w'), 10);
+    const w = currentFaceWidth();
     if (w) saveSettings({ ui: { facePanelWidth: w } });
   };
   bar.addEventListener('pointerup', end);
   bar.addEventListener('pointercancel', end);
   bar.addEventListener('dblclick', () => saveSettings({ ui: { facePanelWidth: 300 } }));
+  // ← widens the face (the splitter moves left), → narrows it; Home/End go to the limits.
+  bar.addEventListener('keydown', (e) => {
+    const now = currentFaceWidth();
+    const want = { ArrowLeft: now + SPLIT_STEP, ArrowRight: now - SPLIT_STEP, Home: FACE_MIN, End: Infinity }[e.key];
+    if (want === undefined) return;
+    e.preventDefault();
+    const w = setFaceWidth(want);
+    faceHost?.resize();
+    if (w !== now) saveFaceWidth(w);
+  });
+  // A window made narrower (or History docked again) gives the chat its room back; wider, the wish returns.
+  let splitFrame = 0;
+  new ResizeObserver(() => {
+    if (dragging || splitFrame) return;
+    splitFrame = requestAnimationFrame(() => {
+      splitFrame = 0;
+      if (view.classList.contains('layout-split')) setFaceWidth(storedFaceWidth());
+    });
+  }).observe(view);
 }
 
 // ------------------------------------------------------------ full screen

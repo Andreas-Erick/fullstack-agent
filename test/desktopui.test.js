@@ -71,7 +71,7 @@ test('styles: hover-only actions show on touch screens and to the keyboard; dang
   for (const sel of ['.msg-meta', '.code-copy', '.conv-item .x', '.mem-card .foot .acts']) assert.ok(touch[1].includes(sel), sel);
   assert.match(css, /\.mem-card:is\(:hover, :focus-within\) \.foot \.acts \{ opacity: 1; \}/);
   assert.match(css, /\.msg-meta:has\(\.redo-btn\) \{ opacity: 0\.55; \}/);
-  assert.match(css, /\.msg-meta button \{[^}]*padding: 5px; margin: -5px;/);
+  assert.match(css, /\.msg-meta button \{[^}]*padding: 4px 5px; margin: -4px -3px;/); // hit areas that never touch (gap 10px)
   assert.match(css, /\.skill-card \.acts \.danger \{ margin-left: auto; \}/);
   assert.match(css, /\.dropdown-menu :not\(\.danger\) \+ \.danger::before/);
   assert.match(read('renderer/js/calendar.js'), /class: 'btn danger', style: \{ marginRight: 'auto' \}, onclick: \(\) => \(close\(\), removeEntry\(entry \|\|/);

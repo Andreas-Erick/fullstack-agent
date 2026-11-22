@@ -20,6 +20,7 @@ let conversations = []; // the index, newest first
 let listLimit = core.LIST_PAGE;
 let hits = core.HITS;
 let timer = null;
+let loadFailed = false; // the last conv:list failed: the list shown is the one before
 let chat = { current: () => null, open: () => {}, newChat: () => {} };
 
 /** chat: { current() → the open conversation's id, open(id, at) → a row was chosen (at: the message
@@ -46,7 +47,10 @@ export function initHistory(handlers) {
 /** The index read again (a reply started or ended, a rename, a chat from the phone) and the list redrawn;
  *  resolves to the index. */
 export async function refreshList() {
-  conversations = await api.conv.list().catch(() => []);
+  // A failed read keeps the last list (never "No conversations yet.") and says so, with Try again.
+  const list = await api.conv.list().catch(() => null);
+  loadFailed = !Array.isArray(list);
+  if (!loadFailed) conversations = list;
   drawList();
   return conversations;
 }
@@ -62,6 +66,7 @@ export function drawList() {
   const kept = keepFocus(list);
   const m = core.listModel(conversations, { query: q, limit: listLimit, startToday: new Date().setHours(0, 0, 0, 0), hits });
   list.innerHTML = '';
+  if (loadFailed) list.append(el('li', { class: 'conv-status failed' }, el('span', {}, '⚠ Couldn’t load History.'), el('button', { class: 'btn ghost small', type: 'button', onclick: () => refreshList() }, 'Try again')));
   for (const g of m.groups) {
     list.append(el('li', { class: 'conv-group' }, g.label));
     for (const c of g.items) list.append(convRow(c, { words: m.words }));
@@ -75,7 +80,7 @@ export function drawList() {
     if (m.status || m.older) list.append(el('li', { class: 'conv-status' }, m.status ? el('span', {}, m.status) : null, m.older ? el('button', { class: 'btn ghost small', type: 'button', onclick: searchOlder }, 'Search older chats') : null));
   }
   list.classList.toggle('stale', m.stale);
-  if (m.empty) list.append(el('li', { class: 'muted', style: { padding: '10px', fontSize: '13px' } }, m.empty));
+  if (m.empty && !(loadFailed && !conversations.length)) list.append(el('li', { class: 'muted', style: { padding: '10px', fontSize: '13px' } }, m.empty));
   restoreFocus(list, kept);
   return m.counts;
 }

@@ -256,6 +256,7 @@ function chipNode(c) {
     },
     pic ? el('img', { src: pic, alt: '' }) : el('span', { class: 'i', 'aria-hidden': 'true' }, info.icon),
     el('span', { class: 'n' }, info.name),
+    busy ? el('span', { class: 'r' }, 'Reading…') : null,
     el('button', { class: 'x', type: 'button', 'aria-label': `Remove ${info.name}`, title: 'Remove', onclick: () => remove(c) }, '✕'),
   );
 }
