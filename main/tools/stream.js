@@ -1,5 +1,6 @@
 // Agent tools: The memory stream (stream.js, after "Generative Agents"): what happened and what it suggests.
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
+const turnguard = require('../turnguard');
 const { obj, str, int } = require('./common');
 
 module.exports = [
@@ -22,7 +23,7 @@ module.exports = [
     ),
     run: async (a, ctx) => {
       // Small notes the agent keeps without asking; after outside content they're marked, not gated.
-      const saved = await require('../stream').observe((a.observations || []).slice(0, 5), { outside: Boolean(ctx?.turn?.tainted) });
+      const saved = await require('../stream').observe((a.observations || []).slice(0, 5), { outside: turnguard.isTainted(ctx?.turn) });
       ctx.emit({ type: 'memory_changed' });
       return { recorded: saved.length };
     },

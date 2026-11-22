@@ -5,6 +5,7 @@
 const core = require('../renderer/js/redocore.mjs');
 const connectors = require('./connectors');
 const localcore = require('./localcore');
+const turnguard = require('./turnguard');
 
 // Claude Code's own tools that only read (or keep its to-do list).
 const CLAUDE_READ = new Set(['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'ToolSearch', 'Skill', 'TodoWrite']);
@@ -19,12 +20,8 @@ function readOnly(name) {
 
 const harmless = (name) => HARMLESS.has(String(name || ''));
 
-/** A tool whose result is external content (web pages, documents, connectors): a kept session still holds it. */
-function tainting(name) {
-  const n = String(name || '');
-  if (['WebFetch', 'WebSearch'].includes(n) || connectors.isConnectorTool(n)) return true;
-  return Boolean(require('./tools').TOOLS.find((t) => t.name === n)?.untrusted);
-}
+/** A tool whose result is external content (web pages, documents, connectors): a kept session still holds it. turnguard's rule, by the name alone. */
+const tainting = (name) => turnguard.taints(name);
 
 // The attempt of the turn that just failed or stopped, until the store has it (an immediate Try again).
 const remembered = new Map(); // convId → { messageId, attempt }

@@ -1,6 +1,7 @@
 // What every tool group shares: JSON Schema shorthands, the built-in faces, window placement, and the
 // permission gate. The groups live next to this file; ../tools.js puts them into one TOOLS list.
 const approvals = require('../approvals');
+const turnguard = require('../turnguard');
 
 // The built-in faces (renderer/js/faces/host.js BUILT_IN); custom ones are custom:<folder>.
 const FACES = ['siren', 'circuit', 'radial', 'rain', 'neural', 'companion'];
@@ -23,4 +24,13 @@ async function requireApproval(ctx, kind, title, detail, extra = {}) {
   if (!r.allow) throw new Error(`Not approved by the user: ${r.reason || 'declined'}`);
 }
 
-module.exports = { FACES, arr, obj, str, int, bool, POSITION, MONITOR, UNTRUSTED_NOTICE, requireApproval };
+// A write that a later turn reads as the user's own (memories, routines, skills, persona and look…):
+// once the turn read outside content it goes to the gate with `taintAsks` (turnguard.guardWrite); a clean
+// turn asks nothing here. Throws when declined; true when it was asked (the write is then from outside).
+async function guardWrite(ctx, title, detail, kind = 'settings') {
+  const r = await turnguard.guardWrite(ctx?.turn, title, detail, { kind, gate: (...a) => approvals.gate(...a) });
+  if (!r.allow) throw new Error(`Not approved by the user: ${r.reason || 'declined'}`);
+  return r.asked;
+}
+
+module.exports = { FACES, arr, obj, str, int, bool, POSITION, MONITOR, UNTRUSTED_NOTICE, requireApproval, guardWrite };
