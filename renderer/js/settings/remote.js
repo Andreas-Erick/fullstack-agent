@@ -2,8 +2,9 @@
 import { api, el, escapeHtml, toastError, confirmDialog } from '../util.js';
 import { state, saveSettings } from '../state.js';
 import { qrCanvas } from '../qr.js';
+import { connectPatch } from '../remotecore.js';
 import { get, render } from './core.js';
-import { text, toggle, select, field, card, showResult, debounceAfter } from './fields.js';
+import { text, toggle, select, field, card, showResult, debounceAfter, markAdvanced } from './fields.js';
 
 export let refreshRemote = null;
 export let refreshRemoteStatus = null;
@@ -87,7 +88,7 @@ function tailscaleGuide() {
       step(7, '', 'On the phone: Tailscale, same account, switched on',
         'Install <b>Tailscale</b> from the Play Store (or App Store), sign in with the <b>same account</b> as this computer, and switch it on (it shows as a VPN; that is Tailscale’s private network, your other apps keep using the internet normally). The phone then appears next to this computer in the Tailscale app.'),
       step(8, '', 'Connect the Siren app (or the phone’s browser)',
-        `<b>New phone:</b> click <b>Pair a device</b> below; in the QR code choose the 🔒 secure address and scan it. In the Android app you can also type <code>https://${host}</code> on the first screen, then enter the six-digit code.<br><b>Already paired over Wi-Fi:</b> open the app at home and tap <b>Switch to the secure address</b> (it keeps the pairing). From then on it works anywhere, on mobile data too, as long as Tailscale is on on both devices.`),
+        `<b>New phone:</b> click <b>Connect my phone</b> at the top of this card; in the QR code choose the 🔒 secure address and scan it. In the Android app you can also type <code>https://${host}</code> on the first screen, then enter the six-digit code.<br><b>Already paired over Wi-Fi:</b> open the app at home and tap <b>Switch to the secure address</b> (it keeps the pairing). From then on it works anywhere, on mobile data too, as long as Tailscale is on on both devices.`),
     ];
     box.replaceChildren(
       el('div', { class: 'row' }, el('b', { style: { flex: '1' } }, 'Set up Tailscale, step by step'), btn('⟳ Check again', draw), link('📖 Full guide', TAILSCALE_GUIDE)),
@@ -131,6 +132,20 @@ function tunnelFields() {
   }
   if (mode === 'quick' || mode === 'cloudflare') fields.push(text('remote.cloudflaredPath', 'cloudflared location (optional)', { placeholder: 'Found automatically' }));
   return fields;
+}
+
+// Everything for reaching Siren from outside the home network (tunnels, Cloudflare Access, cloudflared,
+// Tailscale) and the port, folded away. An advanced block (Simple mode hides it; the search finds it and
+// opens it), except while a secure address is in use: then it shows, open, in either mode.
+function awayFromHome() {
+  const inUse = (get('remote.tunnel') || 'off') !== 'off';
+  const box = el('details', { class: 'ts-guide remote-away', open: inUse },
+    el('summary', {}, 'Use it away from home (advanced)'),
+    el('div', { class: 'hint' }, 'At home, “Connect my phone” is all you need. To use Siren on mobile data or another network, give it a secure https:// address through Tailscale or Cloudflare.'),
+    ...tunnelFields(),
+    text('remote.port', 'Port', { type: 'number', onChange: debounceAfter(() => refreshRemoteStatus?.()) }),
+  );
+  return markAdvanced(box, !inUse);
 }
 
 // VoiceStudio and FreeLLMAPI: Nexus starts the ones its settings use (main/helperapps.js).
@@ -226,7 +241,7 @@ export function remoteCard() {
         pairBox.append(qrBox);
         showQr(links[0]);
       } else {
-        pairBox.append(el('div', { class: 'hint warn' }, 'No address another device can reach yet, so there is no QR code. Turn on “Reachable from other devices on my network” or a secure address above.'));
+        pairBox.append(el('div', { class: 'hint warn' }, 'No address another device can reach yet, so there is no QR code. Turn on “Reachable from other devices on my network”, or set up a secure address under “Use it away from home”.'));
       }
       pairBox.append(
         el('label', {}, links.length ? 'Or type this code' : 'Pairing code'),
@@ -247,21 +262,49 @@ export function remoteCard() {
       toastError(err);
     }
   };
+  // One click for a phone at home: turns on remote access (on the home network, unless a secure address is
+  // set up) with today's defaults, then shows the pairing QR code. The save waits for the server to start
+  // (settings:set settles its effects), so the code is made by a running server.
+  const switches = el('div', { class: 'remote-switches' },
+    toggle('remote.enabled', 'Turn on remote access', refresh),
+    toggle('remote.lan', 'Reachable from other devices on my network (otherwise only from this computer)', refresh),
+  );
+  const connectBtn = el('button', { class: 'btn primary', onclick: () => connectPhone() }, '📱 Connect my phone');
+  async function connectPhone() {
+    connectBtn.disabled = true;
+    try {
+      const patch = connectPatch(get('remote'));
+      if (patch) {
+        await saveSettings(patch);
+        for (const input of switches.querySelectorAll('input[data-setting]')) input.checked = Boolean(get(input.dataset.setting));
+      }
+      const st = await api.remote.status();
+      if (st.error) {
+        statusBox.textContent = `✕ ${st.error}`;
+        return;
+      }
+      await startPair();
+      refresh();
+    } catch (err) {
+      toastError(err);
+    } finally {
+      connectBtn.disabled = false;
+    }
+  }
   refreshRemoteStatus = refresh;
   refresh();
   return card(
     'remote',
     'Remote access',
     'Talk to the assistant from your phone (the Android app or any browser) or another computer. The brain, memory and keys stay on this computer; paired devices can chat, read conversations and answer approvals, never change settings. Remote messages never include a screenshot of this desktop. While it is on, a “Remote” badge shows at the top; click it to turn everything off.',
-    toggle('remote.enabled', 'Turn on remote access', refresh),
-    toggle('remote.lan', 'Reachable from other devices on my network (otherwise only from this computer)', refresh),
-    toggle('remote.shareData', 'Show my notes, memories, learning and Inner World on paired devices (read-only)'),
-    text('remote.port', 'Port', { type: 'number', onChange: debounceAfter(refresh) }),
-    ...tunnelFields(),
-    statusBox,
-    el('div', { class: 'hint' }, 'On the local network the connection is not encrypted. Use it only at home or on another network you trust; the secure address (above) is encrypted and also makes push-to-talk work on the phone.'),
-    el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: startPair }, '📱 Pair a device')),
+    el('div', { class: 'row' }, connectBtn),
+    el('div', { class: 'hint' }, 'Shows a code to scan with the phone’s camera. Works at home, on the same Wi-Fi as this computer.'),
     pairBox,
+    switches,
+    toggle('remote.shareData', 'Show my notes, memories, learning and Inner World on paired devices (read-only)'),
+    statusBox,
+    el('div', { class: 'hint' }, 'On the home network the connection is not encrypted. Use it only at home or on another network you trust; a secure address (Use it away from home, below) is encrypted and also makes push-to-talk work on the phone.'),
+    awayFromHome(),
     field('Paired devices', devices),
     watchGuide(),
   );

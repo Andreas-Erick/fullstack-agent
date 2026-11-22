@@ -116,3 +116,18 @@ test('the Remote tooltip’s first sentence gets a full stop only when it has no
     assert.doesNotMatch(core.sentence(core.pillState(s).reach), /[.?!]["”]?\.$|\.\.$/, JSON.stringify(s));
   }
 });
+
+// "Connect my phone" (Settings → Remote access): turns on what pairing a phone at home needs, with
+// today's defaults (the port as it is), and nothing else; a secure address already set up keeps the
+// server off the network.
+test('Connect my phone switches on only what pairing a phone needs', () => {
+  assert.deepStrictEqual(core.connectPatch({}), { remote: { enabled: true, lan: true } });
+  assert.deepStrictEqual(core.connectPatch({ enabled: false, lan: false, tunnel: 'off', port: 9000 }), { remote: { enabled: true, lan: true } });
+  assert.deepStrictEqual(core.connectPatch({ enabled: true, lan: false }), { remote: { lan: true } });
+  assert.deepStrictEqual(core.connectPatch({ enabled: false, lan: true }), { remote: { enabled: true } });
+  assert.strictEqual(core.connectPatch({ enabled: true, lan: true }), null, 'already reachable: nothing to save');
+  // A secure address (Tailscale, Cloudflare) reaches the phone without opening the home network.
+  assert.strictEqual(core.connectPatch({ enabled: true, lan: false, tunnel: 'tailscale' }), null);
+  assert.deepStrictEqual(core.connectPatch({ enabled: false, lan: false, tunnel: 'cloudflare' }), { remote: { enabled: true } });
+  assert.deepStrictEqual(core.connectPatch(undefined), { remote: { enabled: true, lan: true } });
+});

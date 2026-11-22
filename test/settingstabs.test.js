@@ -153,3 +153,31 @@ test('plain labels: no engineer words in the brain, voice and safety cards', () 
   assert.match(src, /accelerator\(/, 'the voice shortcut is recorded from the keys');
   assert.match(src, /'ui\.settingsAdvanced'/, 'the Show advanced switch is bound');
 });
+
+// Remote access (#24): one "Connect my phone" button; the tunnel, Access, cloudflared, Tailscale and port
+// fields sit in the "Use it away from home (advanced)" block, which is marked advanced as a whole.
+test('Remote access: Connect my phone first, the tunnels under “Use it away from home (advanced)”', () => {
+  const src = read('renderer/js/settings/remote.js');
+  assert.ok(src.includes('Connect my phone'), 'the button is there');
+  assert.ok(!src.includes('Pair a device'), 'no second name for the same button');
+  // The button turns on what pairing needs (remotecore.connectPatch), then shows the pairing QR code.
+  const connect = /async function connectPhone\(\)[\s\S]*?\n {2}\}/.exec(src)?.[0] || '';
+  assert.match(connect, /connectPatch\(/);
+  assert.match(connect, /saveSettings\(/);
+  assert.match(connect, /startPair\(\)/);
+  // The away-from-home block holds every tunnel field and the port, and is advanced.
+  const away = /function awayFromHome\(\)[\s\S]*?\n\}/.exec(src)?.[0] || '';
+  assert.ok(away.includes('Use it away from home (advanced)'), 'the disclosure says what it is');
+  assert.match(away, /markAdvanced\(/);
+  assert.match(away, /tunnelFields\(\)/);
+  assert.match(away, /text\('remote\.port'/);
+  for (const key of ['remote.tunnel', 'remote.tunnelToken', 'remote.publicHost', 'remote.accessTeam', 'remote.accessAud', 'remote.cloudflaredPath']) {
+    assert.ok(src.includes(`'${key}'`), `${key} still has a field`);
+  }
+  // Only the block draws them: the card itself lists no tunnel field or port.
+  const cardBody = /return card\(\s*'remote'[\s\S]*?\n {2}\);/.exec(src)?.[0] || '';
+  assert.ok(cardBody.includes('awayFromHome()'));
+  assert.ok(!/tunnelFields\(\)|'remote\.port'/.test(cardBody), 'no tunnel field outside the block');
+  // A search that finds a field inside the closed block opens it.
+  assert.match(read('renderer/js/settings/index.js'), /details[\s\S]{0,200}\.open = true/);
+});

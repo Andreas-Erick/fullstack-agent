@@ -166,6 +166,8 @@ function showCards() {
     if (show) shown++;
   }
   showAdvanced(root, searching);
+  // A folded block whose fields the search finds opens (Remote access's "Use it away from home").
+  if (searching) for (const d of root.querySelectorAll(':scope > .card:not(.tab-hidden) details')) if (!d.open && matches(cardText(d), query)) d.open = true;
   if (searching) root.removeAttribute('aria-labelledby');
   else root.setAttribute('aria-labelledby', `settings-tab-${activeTab}`);
   let empty = root.querySelector(':scope > .settings-empty');

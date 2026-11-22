@@ -15,6 +15,19 @@ export function pillState({ lan = false, error = '', tunnel = null } = {}) {
   return lan ? { label: 'Remote: network', cls: '', reach: 'Reachable from your local network' } : { label: 'Remote', cls: '', reach: 'Reachable from this computer only' };
 }
 
+/**
+ * "Connect my phone" (Settings → Remote access): the settings patch that makes the server reachable for
+ * pairing a phone, from settings.remote, or null when nothing needs to change. Today's defaults: the port
+ * stays as it is; the home network is opened only when no secure address (a tunnel) is set up.
+ */
+export function connectPatch(remote = {}) {
+  const r = remote || {};
+  const patch = {};
+  if (!r.enabled) patch.enabled = true;
+  if (!r.lan && (!r.tunnel || r.tunnel === 'off')) patch.lan = true;
+  return Object.keys(patch).length ? { remote: patch } : null;
+}
+
 /** A text as the tooltip's first sentence: a full stop only when it doesn't end with one, ? or ! already. */
 export function sentence(text) {
   const s = String(text ?? '').trimEnd();
