@@ -15,13 +15,10 @@ fs.mkdirSync(path.join(ESM, 'js', 'faces'), { recursive: true });
 for (const f of fs.readdirSync(path.join(ROOT, 'renderer/js/faces'))) fs.copyFileSync(path.join(ROOT, 'renderer/js/faces', f), path.join(ESM, 'js', 'faces', f));
 fs.copyFileSync(path.join(ROOT, 'renderer/js/themecore.js'), path.join(ESM, 'js', 'themecore.js'));
 test.after(() => fs.rmSync(ESM, { recursive: true, force: true }));
-const FACES = [
-  ['renderer/js/faces/siren.js', 'SirenFace'],
-  ['renderer/js/faces/radial.js', 'RadialFace'],
-  ['renderer/js/faces/rain.js', 'RainFace'],
-  ['renderer/js/faces/neural.js', 'NeuralFace'],
-  ['renderer/js/faces/companion.js', 'CompanionFace'],
-];
+// Every built-in face, from the one list (renderer/js/faces/registry.mjs) as [file, class]. The Circuit
+// face (visualizer.js) runs its own loop instead of draw(): the reduced-motion test below drives it.
+const ALL = require('../main/facesregistry').BUILT_IN_FACES.map((f) => [`renderer/js/${f.module}`, f.export]);
+const FACES = ALL.filter(([file]) => file.startsWith('renderer/js/faces/'));
 const STATES = ['idle', 'listening', 'thinking', 'working', 'speaking', 'happy', 'sleeping'];
 
 // A 2D context where every method works and returns something usable (gradients, metrics, data).
@@ -82,7 +79,7 @@ test('built-in faces construct and draw every state', async () => {
 // Reduced motion (env.reducedMotion: the system setting or the desktop's body.fx-still) slows every
 // built-in face. The phone wires env without it: the default reads the same two signals.
 test('reduced motion slows every built-in face, the Circuit face too', async () => {
-  fs.copyFileSync(path.join(ROOT, 'renderer/js/visualizer.js'), path.join(ESM, 'js', 'visualizer.js'));
+  for (const [file] of ALL) if (!file.startsWith('renderer/js/faces/')) fs.copyFileSync(path.join(ROOT, file), path.join(ESM, file.replace('renderer/', ''))); // visualizer.js
   globalThis.getComputedStyle ||= () => ({ getPropertyValue: () => '' }); // the Circuit face reads its font
   const envMod = await import(pathToFileURL(path.join(ESM, 'js/faces/env.js')).href);
   const { configureFaces, env, REDUCED_MOTION } = envMod;
@@ -93,7 +90,7 @@ test('reduced motion slows every built-in face, the Circuit face too', async () 
   globalThis.document = { ...prevDoc, body: { classList: { contains: (c) => c === 'fx-still' } } };
   assert.strictEqual(fallback(), true, 'body.fx-still counts');
   globalThis.document = prevDoc;
-  const all = [...FACES, ['renderer/js/visualizer.js', 'CircuitFace']];
+  const all = ALL;
   const clock = async ([file, cls], reduced) => {
     configureFaces({ agentState: () => 'speaking', reducedMotion: () => reduced });
     const Face = (await import(pathToFileURL(path.join(ESM, file.replace('renderer/', ''))).href))[cls];

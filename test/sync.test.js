@@ -259,6 +259,8 @@ test('every data route the phone calls exists on the server', () => {
 test('every module the phone client loads is served, and the offline shell caches only served files', () => {
   const companion = read('main/companion.js');
   const served = new Set([...(/const STATIC = \{([\s\S]*?)\n\};/.exec(companion)[1]).matchAll(/'(\/[^']*)':/g)].map((m) => m[1]));
+  // The face files are spread into STATIC from the face registry (test/facesregistry.test.js checks it).
+  for (const f of require('../main/facesregistry').FACE_FILES) served.add(`/js/${f}`);
   for (const file of ['renderer/remote/app.js', 'renderer/remote/screens.js']) {
     const src = read(file);
     for (const m of src.matchAll(/(?:from|import\()\s*'(\.\/[\w./-]+|\/[\w./-]+)'/g)) {

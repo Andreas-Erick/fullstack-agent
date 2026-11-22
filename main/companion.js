@@ -30,6 +30,7 @@ const log = require('./logger');
 const faces = require('./faces');
 const facelinks = require('./facelinks');
 const facecapture = require('./facecapture');
+const facesRegistry = require('./facesregistry');
 const synccore = require('./synccore');
 const projections = require('./projections');
 
@@ -51,16 +52,9 @@ const STATIC = {
   '/js/chatcore.js': 'renderer/js/chatcore.js', // a failed reply in plain words (errorHelp); pure, imports only the brain table
   '/js/braintable.mjs': 'renderer/js/braintable.mjs', // the brains' names and paths (chatcore's brainAddress); pure data
   '/js/turnstate.js': 'renderer/js/turnstate.js', // the conversation's turns from the events, shared with the desktop; pure
-  // The desktop's built-in faces (app code, no data), so the phone shows the same one.
-  '/js/themecore.js': 'renderer/js/themecore.js',
-  '/js/visualizer.js': 'renderer/js/visualizer.js',
-  '/js/faces/env.js': 'renderer/js/faces/env.js',
-  '/js/faces/common.js': 'renderer/js/faces/common.js',
-  '/js/faces/radial.js': 'renderer/js/faces/radial.js',
-  '/js/faces/rain.js': 'renderer/js/faces/rain.js',
-  '/js/faces/neural.js': 'renderer/js/faces/neural.js',
-  '/js/faces/companion.js': 'renderer/js/faces/companion.js',
-  '/js/faces/siren.js': 'renderer/js/faces/siren.js',
+  // The desktop's built-in faces (app code, no data), so the phone shows the same one: every file the
+  // one list of faces names (renderer/js/faces/registry.mjs), the list itself included.
+  ...Object.fromEntries(facesRegistry.FACE_FILES.map((f) => [`/js/${f}`, `renderer/js/${f}`])),
   // The Inner World's drawing code (app code, no data), so the phone draws the same village.
   '/js/world/map.js': 'renderer/js/world/map.js',
   '/js/world/art.js': 'renderer/js/world/art.js',
@@ -76,7 +70,7 @@ const STATIC = {
 };
 // The village's rendered art (renderer/assets/world: WebP sprites and their manifest; CC0, no data).
 const WORLD_ART = /^\/assets\/world\/([\w.-]+\.(webp|json))$/;
-const FACES = ['siren', 'circuit', 'radial', 'rain', 'neural', 'companion'];
+const FACES = facesRegistry.FACE_IDS;
 // What a custom face folder may serve (no executables, no documents of other kinds).
 const FACE_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.webm': 'video/webm' };
 const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json' };
@@ -661,7 +655,7 @@ async function info() {
   // The face chosen on the desktop (custom faces live in the user's data folder and stay there) and the
   // theme's face parameters; the phone normalizes them again (themecore.normalizeTheme).
   const f = s.appearance?.theme?.face || {};
-  const face = { id: FACES.includes(s.ui?.face) ? s.ui.face : 'siren', states: {} };
+  const face = { id: FACES.includes(s.ui?.face) ? s.ui.face : facesRegistry.DEFAULT_FACE, states: {} };
   // A custom face: the device asks /api/face for a link to it; `id` stays the fallback.
   if (await customFace(s)) face.custom = true;
   if (/^\w{1,20}$/.test(f.core || '')) face.core = f.core;
