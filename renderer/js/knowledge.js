@@ -6,6 +6,7 @@ import { openDocument } from './docs.js';
 
 let notes = [];
 let selected = null;
+let listError = null; // the last list() failure: shown in the list instead of "No notes found."
 let editing = null; // the open editor: { path, read (the note's text as opened), original (what the box held), ta }
 const dirty = () => Boolean(editing?.ta.isConnected) && editing.ta.value !== editing.original;
 
@@ -64,7 +65,8 @@ export async function refresh() {
     );
     return;
   }
-  notes = await api.obsidian.list().catch((e) => (toastError(e), []));
+  listError = null;
+  notes = await api.obsidian.list().catch((e) => ((listError = e), []));
   if (!$('#kbSearch').value.trim()) renderList(notes);
   if (!selected && !editing?.ta.isConnected) $('#kbNote').replaceChildren(el('p', { class: 'muted' }, `${notes.length} notes in `, el('code', {}, st.path), '. Select a note to read or edit it — the agent writes here too.'));
 }
@@ -84,26 +86,33 @@ export function searchVault(q) {
 
 async function search() {
   const q = $('#kbSearch').value.trim();
-  if (!q) return renderList(notes);
+  if (!q) return renderList(notes, listError);
   try {
     renderList(await api.obsidian.search(q));
   } catch (err) {
-    toastError(err);
+    renderList([], err, search);
   }
 }
 
-function renderList(items) {
+function renderList(items, failure = null, again = refresh) {
   const list = $('#kbList');
+  const hadFocus = list.contains(document.activeElement);
   list.innerHTML = '';
+  if (failure) {
+    const retry = el('button', { class: 'btn small', onclick: (ev) => ((ev.currentTarget.disabled = true), again()) }, 'Try again');
+    list.append(el('div', { class: 'test-result err', role: 'alert', style: { margin: '6px' } }, `Couldn’t read the vault: ${plainError(failure)} `, retry));
+    if (hadFocus) retry.focus();
+    return;
+  }
   if (!items.length) list.append(el('div', { class: 'muted', style: { padding: '10px' } }, 'No notes found.'));
   for (const n of items.slice(0, 500)) {
     list.append(
       el(
-        'div',
-        { class: `kb-item ${selected === n.path ? 'active' : ''}`, 'data-path': n.path, onclick: () => openNote(n.path) },
-        el('div', { class: 't' }, n.title),
-        el('div', { class: 'p' }, `${n.path}${n.modified ? ` · ${timeAgo(n.modified)}` : ''}`),
-        n.snippet ? el('div', { class: 's' }, n.snippet) : '',
+        'button',
+        { type: 'button', class: `kb-item ${selected === n.path ? 'active' : ''}`, 'data-path': n.path, 'aria-current': selected === n.path ? 'true' : null, onclick: () => openNote(n.path) },
+        el('span', { class: 't' }, n.title),
+        el('span', { class: 'p' }, `${n.path}${n.modified ? ` · ${timeAgo(n.modified)}` : ''}`),
+        n.snippet ? el('span', { class: 's' }, n.snippet) : '',
       ),
     );
   }
@@ -121,7 +130,7 @@ async function openNote(ref) {
       el(
         'div',
         { class: 'row', style: { justifyContent: 'space-between', marginBottom: '10px', flexWrap: 'wrap' } },
-        el('div', {}, el('div', { class: 'muted', style: { fontSize: '12px' } }, n.path), n.tags.length ? el('div', {}, n.tags.map((t) => el('span', { class: 'tag', style: { marginRight: '4px' } }, `#${t}`))) : ''),
+        el('div', { style: { minWidth: '0', overflowWrap: 'anywhere' } }, el('div', { class: 'muted', style: { fontSize: '12px' } }, n.path), n.tags.length ? el('div', {}, n.tags.map((t) => el('span', { class: 'tag', style: { marginRight: '4px' } }, `#${t}`))) : ''),
         el(
           'div',
           { class: 'row' },
@@ -131,6 +140,7 @@ async function openNote(ref) {
           el('button', { class: 'btn small', onclick: () => api.obsidian.openInObsidian(n.path).catch(toastError) }, 'Obsidian'),
           el('button', {
             class: 'btn small danger',
+            style: { marginLeft: '14px' }, // apart from the everyday buttons: a slip doesn't land on it
             onclick: async () => {
               if (!(await confirmDialog('Delete note', `Move “${n.title}” to the vault’s trash?`, 'Delete'))) return;
               // A delete that failed leaves the note open (it is still there).
@@ -147,7 +157,11 @@ async function openNote(ref) {
     );
     backlinks(box, n.path);
     box.scrollTop = 0;
-    document.querySelectorAll('.kb-item').forEach((i) => i.classList.toggle('active', i.dataset.path === n.path));
+    document.querySelectorAll('.kb-item').forEach((i) => {
+      i.classList.toggle('active', i.dataset.path === n.path);
+      if (i.dataset.path === n.path) i.setAttribute('aria-current', 'true');
+      else i.removeAttribute('aria-current');
+    });
   } catch (err) {
     toastError(err);
   }
@@ -232,10 +246,15 @@ async function showHistory(n) {
     } }, 'Restore this version');
     const list = el('div', { class: 'health-list', style: { maxHeight: '220px', overflow: 'auto' } });
     for (const v of versions) {
-      list.append(el('button', { class: 'ob-choice', onclick: async () => {
+      list.append(el('button', { type: 'button', class: 'ob-choice', 'aria-pressed': 'false', onclick: async (ev) => {
         picked = v.sha;
         restoreBtn.disabled = false;
-        preview.textContent = await api.obsidian.showVersion(n.path, v.sha).catch((e) => e.message);
+        // The picked version stands out (and says so to a screen reader).
+        for (const b of list.children) {
+          b.classList.toggle('sel', b === ev.currentTarget);
+          b.setAttribute('aria-pressed', String(b === ev.currentTarget));
+        }
+        preview.textContent = await api.obsidian.showVersion(n.path, v.sha).catch((e) => plainError(e));
       } }, el('b', {}, new Date(v.date).toLocaleString()), el('small', {}, v.subject)));
     }
     card.append(el('h3', {}, `History · ${n.title}`), list, preview, el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close() }, 'Close'), restoreBtn));

@@ -44,7 +44,7 @@ export async function openGrowth() {
     const resize = () => {
       const r = canvas.getBoundingClientRect();
       if (!r.width || !r.height) return false;
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, document.body.classList.contains('perf-lite') ? 1 : 2);
       canvas.width = Math.round(r.width * dpr);
       canvas.height = Math.round(r.height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

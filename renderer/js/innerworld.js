@@ -7,7 +7,7 @@
 // Lookout…); banners, flowers, books and tables show your notebooks, notes, topics and decks. Drag to look
 // around, scroll to zoom, double-click a building to step inside.
 // The side panel tells today; click a building or a resident for theirs.
-import { $, api, el, toast, toastError, on, promptDialog, logEvent } from './util.js';
+import { $, api, el, toast, toastError, on, promptDialog, logEvent, plainError } from './util.js';
 import { switchView, currentView } from './nav.js';
 import { send } from './chat.js';
 import { state, saveSettings } from './state.js';
@@ -151,11 +151,14 @@ export function initInnerWorld() {
 }
 
 export async function refresh() {
+  loadError = null;
+  if (!data) renderPanel(); // "Loading the village…" until the first answer
   try {
     data = await api.world.view();
   } catch (err) {
     data = null;
-    toastError(err);
+    loadError = err;
+    renderPanel(); // the failure and its Try again, instead of an empty panel
     return;
   }
   // Your recently opened documents lie on the Workshop's drafting table and in the Archive's pigeonholes.
@@ -315,7 +318,7 @@ function renderNow() {
 function resize() {
   const r = canvas.getBoundingClientRect();
   if (!r.width || !r.height) return;
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(window.devicePixelRatio || 1, lite() ? 1 : 2); // a 3× screen costs more than it shows
   canvas.width = Math.round(r.width * dpr);
   canvas.height = Math.round(r.height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -680,7 +683,7 @@ function setupMinimap() {
   };
   box.addEventListener('pointerdown', (e) => ((down = true), box.setPointerCapture(e.pointerId), go(e)));
   box.addEventListener('pointermove', (e) => down && go(e));
-  box.addEventListener('pointerup', () => (down = false));
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) box.addEventListener(ev, () => (down = false));
 }
 
 function drawMinimap() {
@@ -965,10 +968,28 @@ function select(h) {
 }
 
 // ------------------------------------------------------------ the side panel
+let loadError = null; // the last api.world.view() failure: shown in the panel until a read works
+
 function renderPanel() {
   const box = $('#worldPanel');
+  const hadFocus = box.contains(document.activeElement);
   box.innerHTML = '';
-  if (!data) return;
+  fillPanel(box);
+  if (hadFocus) focusPanel(box); // rebuilt from inside (a place, ← Today): the focus stays in the panel
+}
+
+// The panel's heading takes the focus (else its back button, else its first button).
+function focusPanel(box) {
+  const h = box.querySelector('h3');
+  if (h) h.setAttribute('tabindex', '-1');
+  (h || box.querySelector('.world-back') || box.querySelector('button'))?.focus({ preventScroll: true });
+}
+
+function fillPanel(box) {
+  if (loadError) {
+    return box.append(el('h3', { class: 'display' }, 'Couldn’t open the village'), el('p', { role: 'alert' }, plainError(loadError)), el('button', { class: 'btn primary', onclick: (ev) => ((ev.currentTarget.disabled = true), refresh()) }, 'Try again'));
+  }
+  if (!data) return box.append(el('p', { class: 'hint', role: 'status' }, 'Loading the village…'));
   if (!data.vault) return box.append(el('h3', { class: 'display' }, 'The Inner World needs a vault'), el('p', {}, 'It keeps its chronicle and the residents’ memories as notes in your vault. Set one up in Settings → Memory vault.'));
   if (!data.enabled) return box.append(...wakeCard());
   if (selected?.type === 'place') return box.append(...placePanel(placeById(selected.id)));
@@ -988,9 +1009,18 @@ function wakeCard() {
 
 function sceneCard(s) {
   const name = placeById(s.place)?.name || s.place;
+  const watch = () => ((scrub = minutes(s.time) + 1), ($('#worldClock').value = scrub), clockLabel(), draw());
+  // A card of several lines (a <button> can't hold them): a button for the keyboard and screen readers.
   return el(
     'div',
-    { class: 'world-scene', title: 'Watch it in the village', onclick: () => ((scrub = minutes(s.time) + 1), ($('#worldClock').value = scrub), clockLabel(), draw()) },
+    {
+      class: 'world-scene',
+      role: 'button',
+      tabindex: '0',
+      title: 'Watch it in the village',
+      onclick: watch,
+      onkeydown: (e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), watch()),
+    },
     el('div', { class: 'hint' }, `${s.time} · ${name}`),
     el('b', {}, s.title || 'A moment'),
     ...s.lines.map((l) => el('div', { class: 'world-line', style: lineStyle(l.who) }, el('span', { class: 'who' }, l.who), ` ${l.text}`)),
@@ -1146,12 +1176,13 @@ async function residentPanel(box, name) {
   try {
     r = await api.world.resident(name);
   } catch (err) {
-    box.lastChild.textContent = err.message;
+    box.lastChild.textContent = plainError(err);
     return;
   }
   if (selected?.id !== name) return; // the user moved on meanwhile
   const info = data.residents.find((x) => x.name === name) || {};
   const now = positions(at()).find((p) => p.name === name);
+  const hadFocus = box.contains(document.activeElement);
   box.innerHTML = '';
   box.append(
     back(),
@@ -1176,4 +1207,5 @@ async function residentPanel(box, name) {
       el('button', { class: 'btn small', onclick: () => api.obsidian.openInObsidian(r.note).catch(toastError) }, 'Their memories in the vault'),
     ),
   );
+  if (hadFocus) focusPanel(box);
 }

@@ -6,7 +6,7 @@
 // move, wheel to zoom, click for details, double-click to dive in. Rebuild scans the code again, so the
 // map follows self-changes. This module is the desktop host: the canvas, the input, the legend, the
 // crumbs, the minimap and the side panel (a part's details, or Learn).
-import { $, api, el, toast, toastError, on } from './util.js';
+import { $, api, el, toast, toastError, on, plainError } from './util.js';
 import { switchView, currentView } from './nav.js';
 import { send } from './chat.js';
 import { fxLevel } from './hud.js';
@@ -51,6 +51,14 @@ export function initArchMap() {
   // Evolution's "Watch the history" opens this view straight into the replay.
   on('view', ({ name, section }) => name === 'arch' && section === 'replay' && !replay && startReplay());
   window.addEventListener('keydown', onKey);
+  // The loop stops while the map is off screen (render): back on screen, it picks up from now.
+  const resume = () => {
+    if (currentView !== 'arch' || document.hidden) return;
+    lastTick = performance.now();
+    draw();
+  };
+  on('view', ({ name }) => name === 'arch' && resume());
+  document.addEventListener('visibilitychange', resume);
 }
 
 // ------------------------------------------------------------ the history replay
@@ -107,7 +115,7 @@ export async function refresh() {
     load(await api.arch.get());
     fitAll(false);
   } catch (err) {
-    status(`Couldn't build the map: ${err.message}`);
+    status(`Couldn't build the map: ${plainError(err)}`);
   } finally {
     loading = false;
   }
@@ -175,10 +183,12 @@ const still = () => document.body.classList.contains('fx-still');
 const rgba = (tone, a) => scene.rgba(tone, a);
 
 // ------------------------------------------------------------ geometry
+// At most 2× (a 3× screen costs more than it shows), 1× on the Balanced profile (body.perf-lite), as roomview.js.
+const pixelRatio = () => Math.min(window.devicePixelRatio || 1, document.body.classList.contains('perf-lite') ? 1 : 2);
 function resize() {
   const r = canvas.getBoundingClientRect();
   if (!r.width || !r.height) return;
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = pixelRatio();
   scene.setSize(r.width, r.height);
   canvas.width = Math.round(r.width * dpr);
   canvas.height = Math.round(r.height * dpr);
@@ -211,8 +221,11 @@ function render(now) {
   mini();
   // Smooth while something moves; with HUD effects the map stays alive (packets flowing) at ~30 fps,
   // on the display's own beat (frames skipped, not delayed).
+  // Only while the map is on screen: another view or a hidden window stops the loop; coming back restarts it (initArchMap).
+  const shown = currentView === 'arch' && !document.hidden;
+  if (!shown) return;
   if (moving || replayAlive()) frame = requestAnimationFrame(render);
-  else if (animated() && currentView === 'arch' && !document.hidden) frame = requestAnimationFrame(idle);
+  else if (animated()) frame = requestAnimationFrame(idle);
 }
 
 function idle(now) {
@@ -375,14 +388,14 @@ function setupMini() {
   let down = false;
   m.addEventListener('pointerdown', (e) => ((down = true), m.setPointerCapture(e.pointerId), jump(e)));
   m.addEventListener('pointermove', (e) => down && jump(e));
-  m.addEventListener('pointerup', () => (down = false));
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) m.addEventListener(ev, () => (down = false));
 }
 
 function mini() {
   const m = $('#archMini');
   const r = m.getBoundingClientRect();
   if (!r.width || !scene.map) return;
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = pixelRatio();
   if (m.width !== Math.round(r.width * dpr)) (m.width = Math.round(r.width * dpr)), (m.height = Math.round(r.height * dpr));
   scene.drawMini(m.getContext('2d'), r.width, r.height, dpr);
 }
@@ -399,6 +412,7 @@ function legend() {
           'button',
           {
             class: `arch-kind${scene.hidden.has(k) ? ' off' : ''}`,
+            'aria-pressed': String(!scene.hidden.has(k)),
             title: `${v.what} Click to ${scene.hidden.has(k) ? 'show' : 'hide'}.`,
             onclick: () => {
               scene.hidden.has(k) ? scene.hidden.delete(k) : scene.hidden.add(k);
@@ -449,15 +463,23 @@ function select(n, open = true) {
 
 function closePanel() {
   panelMode = null;
-  $('#archPanel').classList.add('hidden');
+  const p = $('#archPanel');
+  const hadFocus = p.contains(document.activeElement);
+  p.classList.add('hidden');
+  p.closest('.arch-body')?.classList.remove('panel-open');
+  if (hadFocus) $('#archLearn').focus(); // the panel's own button went with it
   draw();
 }
 
 function openPanel(mode, ...children) {
   panelMode = mode;
   const p = $('#archPanel');
-  p.replaceChildren(el('button', { class: 'icon-btn arch-close', title: 'Close (Esc)', onclick: closePanel }, '✕'), ...children);
+  const hadFocus = p.contains(document.activeElement); // rebuilt from inside (a chip, a connection): the focus stays in the panel
+  p.replaceChildren(el('button', { class: 'icon-btn arch-close', title: 'Close (Esc)', 'aria-label': 'Close the panel', onclick: closePanel }, '✕'), ...children);
   p.classList.remove('hidden');
+  p.closest('.arch-body')?.classList.add('panel-open');
+  const heading = p.querySelector('h3');
+  if (hadFocus && heading) (heading.setAttribute('tabindex', '-1'), heading.focus({ preventScroll: true }));
   p.scrollTop = 0;
   draw();
 }
@@ -503,7 +525,7 @@ function showNode(n) {
           'div',
           { class: 'arch-note warn' },
           'Discovered by the last rebuild: no rule in main/archcore.js describes this part yet, so it got its own component.',
-          el('button', { class: 'btn', onclick: () => (switchView('chat'), send(`The architecture map found a part it has no description for: ${n.name} (${children.map((f) => f.path).join(', ')}). Read it, then add it to COMPONENTS in main/archcore.js (in the right container, with a short about and, if there is one, a design lesson) so the Architecture view explains it.`)) }, 'Ask Nexus to describe it'),
+          el('button', { class: 'btn', onclick: () => (switchView('chat'), send(`The architecture map found a part it has no description for: ${n.name} (${children.map((f) => f.path).join(', ')}). Read it, then add it to COMPONENTS in main/archcore.js (in the right container, with a short about and, if there is one, a design lesson) so the Architecture view explains it.`)) }, 'Ask Siren to describe it'),
         )
       : '',
     n.level !== 'file' && scene.kids.has(n.id) ? el('div', { class: 'arch-stats' }, ...[[c.comps, 'components'], [c.files, 'files'], [c.lines, 'lines']].filter(([v]) => v).map(([v, l]) => el('div', {}, el('b', {}, v.toLocaleString()), el('span', {}, l)))) : '',

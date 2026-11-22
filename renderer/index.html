@@ -230,8 +230,8 @@
               <select class="input" id="memCategory" aria-label="Category"><option value="">All categories</option></select>
               <button class="btn primary" id="memAdd">＋ Add memory</button>
               <div class="dropdown">
-                <button class="btn" id="memMore">⋯</button>
-                <div class="dropdown-menu" id="memMenu">
+                <button class="btn" id="memMore" aria-label="More memory actions" title="More memory actions" aria-haspopup="true" aria-expanded="false" aria-controls="memMenu">⋯</button>
+                <div class="dropdown-menu" id="memMenu" role="group" aria-label="More memory actions">
                   <button data-act="export-md">Export as Markdown</button>
                   <button data-act="export-json">Export as JSON</button>
                   <button data-act="import">Import JSON…</button>

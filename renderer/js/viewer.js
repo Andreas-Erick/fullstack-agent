@@ -2,7 +2,7 @@
 // movable window, under a custom title bar: what kind of file it is, its name and folder, zoom and
 // page controls, and actions. The main process sends a new path to show another document in the
 // same window.
-import { $, api, el, toast, toastError, installErrorTrap } from './util.js';
+import { $, api, el, toast, toastError, installErrorTrap, plainError } from './util.js';
 import { applyTheme } from './theme.js';
 import { renderDocument, disposeDocument } from './docview.js';
 
@@ -22,6 +22,15 @@ async function show(path) {
   controller = null;
   const ctl = $('#docCtl');
   ctl.innerHTML = '';
+  // The last document's header goes at once; "Opening…" shows until this one is drawn.
+  $('#docKind').textContent = '';
+  delete $('#docKind').dataset.kind;
+  $('#docName').textContent = 'Opening…';
+  $('#docName').title = '';
+  $('#docPath').textContent = '';
+  $('#docFoot').textContent = '';
+  const opening = el('p', { class: 'muted', role: 'status', style: { padding: '20px' } }, 'Opening…');
+  viewer.append(opening);
   try {
     const doc = await api.docs.load(path);
     if (seq !== showSeq) return; // another document was asked for meanwhile
@@ -33,8 +42,8 @@ async function show(path) {
     $('#docPath').textContent = folderOf(doc.path);
     const actions = el('div', { class: 'doc-act' });
     actions.append(
-      el('button', { class: 'tb', title: 'Show in folder', onclick: () => api.docs.showInFolder(doc.path) }, '📁'),
-      el('button', { class: 'tb', title: 'Open in its default app', onclick: () => api.docs.openExternal(doc.path).catch(toastError) }, '↗'),
+      el('button', { class: 'tb', title: 'Show in folder', 'aria-label': 'Show in folder', onclick: () => api.docs.showInFolder(doc.path) }, '📁'),
+      el('button', { class: 'tb', title: 'Open in its default app', 'aria-label': 'Open in its default app', onclick: () => api.docs.openExternal(doc.path).catch(toastError) }, '↗'),
     );
     if (doc.kind === 'markdown' || doc.kind === 'text') {
       actions.prepend(
@@ -54,14 +63,17 @@ async function show(path) {
     }
     ctl.append(actions);
     const shown = await renderDocument(doc, viewer, ctl);
+    opening.remove();
     if (seq !== showSeq) return;
     controller = shown;
     $('#docFoot').textContent = [doc.pages ? `${doc.pages} pages` : '', doc.size ? sizeLabel(doc.size) : '', 'Ctrl + wheel to zoom · Esc closes'].filter(Boolean).join(' · ');
     viewer.focus();
   } catch (err) {
     if (seq !== showSeq) return;
+    opening.remove();
+    document.title = 'Document';
     $('#docName').textContent = 'Could not open this document';
-    viewer.append(el('p', { class: 'muted', style: { padding: '20px' } }, err.message));
+    viewer.append(el('p', { class: 'muted', role: 'alert', style: { padding: '20px' } }, plainError(err)));
   }
 }
 

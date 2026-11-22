@@ -9,12 +9,21 @@ export function initMemory() {
   $('#memAdd').onclick = () => edit();
   $('#memMore').onclick = (e) => {
     e.stopPropagation();
-    $('#memMenu').classList.toggle('open');
+    setMenu(!$('#memMenu').classList.contains('open'));
   };
-  document.addEventListener('click', () => $('#memMenu').classList.remove('open'));
+  document.addEventListener('click', () => setMenu(false));
+  $('#memMenu').addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.stopPropagation();
+    setMenu(false, { refocus: true });
+  });
+  $('#memMenu').addEventListener('focusout', (e) => {
+    if (!e.relatedTarget || !e.currentTarget.closest('.dropdown').contains(e.relatedTarget)) setMenu(false);
+  });
   $('#memMenu').onclick = async (e) => {
     const act = e.target.dataset.act;
     if (!act) return;
+    setMenu(false);
     try {
       if (act === 'export-md' || act === 'export-json') {
         const p = await api.memory.export(act === 'export-json' ? 'json' : 'md');
@@ -38,6 +47,17 @@ export function initMemory() {
   $('#streamOpen').onclick = () => stream?.note && api.obsidian.openInObsidian(stream.note).catch(toastError);
   on('memory-changed', refresh);
   refresh();
+}
+
+// The ⋯ menu: opening moves the focus to its first item; Esc closes it back to the button.
+function setMenu(open, { refocus = false } = {}) {
+  const menu = $('#memMenu');
+  const btn = $('#memMore');
+  if (menu.classList.contains('open') === open) return;
+  menu.classList.toggle('open', open);
+  btn.setAttribute('aria-expanded', String(open));
+  if (open) menu.querySelector('button')?.focus();
+  else if (refocus) btn.focus();
 }
 
 // ------------------------------------------------------------ the memory stream
@@ -134,7 +154,18 @@ function render() {
   $('#memSummary').textContent = `${entries.length} memories in the vault${list.length !== entries.length ? ` · ${list.length} shown` : ''} · every memory is injected into the agent's system prompt.`;
   grid.innerHTML = '';
   if (!list.length) {
-    grid.append(el('div', { class: 'muted' }, entries.length ? 'No memories match.' : 'The vault is empty. Tell the agent about yourself, or add a memory manually.'));
+    if (entries.length) grid.append(el('div', { class: 'muted mem-empty' }, 'No memories match.'));
+    else {
+      grid.append(
+        el(
+          'div',
+          { class: 'mem-empty glass' },
+          el('h3', { class: 'display' }, 'Nothing remembered yet'),
+          el('p', { class: 'muted' }, 'Tell the assistant about yourself in the chat and it keeps what matters here, or write a memory yourself.'),
+          el('button', { class: 'btn primary', onclick: () => edit() }, '＋ Add memory'),
+        ),
+      );
+    }
     return;
   }
   for (const e of list) {
@@ -184,10 +215,10 @@ function render() {
 async function edit(entry) {
   let dirty = () => false; // set once the fields exist
   await modal((card, close) => {
-    const title = el('input', { class: 'input', value: entry?.title || '', placeholder: 'Title' });
-    const category = el('input', { class: 'input', value: entry?.category || 'general', placeholder: 'Category', list: 'memCats' });
+    const title = el('input', { class: 'input', id: 'memEditTitle', value: entry?.title || '', placeholder: 'Title' });
+    const category = el('input', { class: 'input', id: 'memEditCategory', value: entry?.category || 'general', placeholder: 'Category', list: 'memCats' });
     const datalist = el('datalist', { id: 'memCats' }, [...new Set(entries.map((e) => e.category))].map((c) => el('option', { value: c })));
-    const content = el('textarea', { class: 'input', rows: 8, placeholder: 'What should the agent remember?' });
+    const content = el('textarea', { class: 'input', id: 'memEditContent', rows: 8, placeholder: 'What should the agent remember?' });
     content.value = entry?.content || '';
     const snapshot = () => JSON.stringify([title.value, category.value, content.value]);
     const start = snapshot();
@@ -221,8 +252,8 @@ async function edit(entry) {
     };
     card.append(
       el('h3', {}, entry ? 'Edit memory' : 'New memory'),
-      el('div', { class: 'grid2' }, el('div', { class: 'field' }, el('label', {}, 'Title'), title), el('div', { class: 'field' }, el('label', {}, 'Category'), category, datalist)),
-      el('div', { class: 'field' }, el('label', {}, 'Content'), content),
+      el('div', { class: 'grid2' }, el('div', { class: 'field' }, el('label', { for: 'memEditTitle' }, 'Title'), title), el('div', { class: 'field' }, el('label', { for: 'memEditCategory' }, 'Category'), category, datalist)),
+      el('div', { class: 'field' }, el('label', { for: 'memEditContent' }, 'Content'), content),
       error,
       el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel'), saveBtn),
     );

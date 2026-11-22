@@ -17,7 +17,17 @@ const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const local = (d) => `${ymd(d)}T00:00:00`;
 const sameDay = (a, b) => ymd(a) === ymd(b);
-const hm = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// English day and month names (the rest of the view is English) with the user's regional conventions
+// (date order, 24-hour clock): en-DE, en-SE… A region ICU doesn't know falls back to en-GB.
+const LOC = (() => {
+  try {
+    const wanted = `en-${(navigator.language || '').split('-')[1] || 'GB'}`;
+    return Intl.DateTimeFormat.supportedLocalesOf([wanted])[0] || 'en-GB';
+  } catch {
+    return 'en-GB';
+  }
+})();
+const hm = (d) => d.toLocaleTimeString(LOC, { hour: '2-digit', minute: '2-digit' });
 
 const cal = {
   mode: readMode(),
@@ -53,7 +63,7 @@ function taskRow(t, { showDate = false } = {}) {
   return el(
     'button',
     { class: `cal-row cal-task-row ${t.source}${late ? ' late' : ''}`, onclick: () => taskDetails(t) },
-    el('span', { class: 'tm' }, showDate || late ? new Date(`${t.date}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : t.time || 'Task'),
+    el('span', { class: 'tm' }, showDate || late ? new Date(`${t.date}T12:00:00`).toLocaleDateString(LOC, { day: 'numeric', month: 'short' }) : t.time || 'Task'),
     el('i', { class: 'cal-check', 'aria-hidden': 'true' }),
     el('span', { class: 'what' }, el('b', {}, t.title), el('small', {}, [SOURCE_NAME[t.source], t.project, t.priority >= 3 ? (t.priority === 4 ? '‼ urgent' : '! high') : ''].filter(Boolean).join(' · '))),
   );
@@ -63,7 +73,7 @@ function taskDetails(t) {
   modal((box, close) => {
     box.append(
       el('h3', { class: 'display' }, t.title),
-      el('p', { class: 'muted' }, [`${SOURCE_NAME[t.source]} task`, t.project, t.date && `due ${new Date(`${t.date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}${t.time ? ` at ${t.time}` : ''}`, t.priority ? `priority ${t.priority}` : ''].filter(Boolean).join(' · ')),
+      el('p', { class: 'muted' }, [`${SOURCE_NAME[t.source]} task`, t.project, t.date && `due ${new Date(`${t.date}T12:00:00`).toLocaleDateString(LOC, { weekday: 'long', day: 'numeric', month: 'long' })}${t.time ? ` at ${t.time}` : ''}`, t.priority ? `priority ${t.priority}` : ''].filter(Boolean).join(' · ')),
       el('p', { class: 'hint' }, `Shown from your last sync. Changes happen in ${SOURCE_NAME[t.source]}, or ask the assistant.`),
       el(
         'div',
@@ -92,7 +102,7 @@ async function syncTasks() {
 function tasksPanel() {
   const t = cal.tasks;
   if (!t.available.length && !t.tasks.length) return null;
-  const synced = Object.entries(t.sources).map(([s, v]) => `${SOURCE_NAME[s]} ${new Date(v.at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`).join(' · ');
+  const synced = Object.entries(t.sources).map(([s, v]) => `${SOURCE_NAME[s]} ${new Date(v.at).toLocaleString(LOC, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`).join(' · ');
   const late = overdueTasks();
   const today = tasksOn(cal.selected);
   const why = { 'connectors-off': 'Turn on “Use my Claude connectors and plugins” in Settings → AI brain to sync.', 'no-claude': 'Syncing needs the Claude account brain (Settings → AI brain).' }[t.reason];
@@ -103,7 +113,7 @@ function tasksPanel() {
     why ? el('p', { class: 'hint' }, why) : null,
     !t.tasks.length && t.ready && !t.syncing ? el('p', { class: 'muted' }, `Show your ${t.available.map((s) => SOURCE_NAME[s]).join(' and ')} tasks here: press Sync.`) : null,
     late.length ? el('div', { class: 'cal-task-group' }, el('small', { class: 'cal-late' }, `OVERDUE · ${late.length}`), late.slice(0, 6).map((x) => taskRow(x))) : null,
-    t.tasks.length ? el('div', { class: 'cal-task-group' }, el('small', {}, sameDay(cal.selected, new Date()) ? 'TODAY' : cal.selected.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()), today.length ? today.map((x) => taskRow(x)) : el('p', { class: 'muted' }, 'No tasks due.')) : null,
+    t.tasks.length ? el('div', { class: 'cal-task-group' }, el('small', {}, sameDay(cal.selected, new Date()) ? 'TODAY' : cal.selected.toLocaleDateString(LOC, { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()), today.length ? today.map((x) => taskRow(x)) : el('p', { class: 'muted' }, 'No tasks due.')) : null,
     synced ? el('small', { class: 'hint' }, `Last sync: ${synced}`) : null,
   );
 }
@@ -195,15 +205,18 @@ function range() {
 }
 
 function rangeLabel(from, to) {
-  if (cal.mode === 'month') return cal.anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  if (cal.mode === 'month') return cal.anchor.toLocaleDateString(LOC, { month: 'long', year: 'numeric' });
   const last = addDays(to, -1);
   const opts = { day: 'numeric', month: 'short' };
-  return `${from.toLocaleDateString(undefined, opts)} – ${last.toLocaleDateString(undefined, { ...opts, year: 'numeric' })}${cal.mode === 'week' ? ` · W${isoWeek(from)}` : ''}`;
+  return `${from.toLocaleDateString(LOC, opts)} – ${last.toLocaleDateString(LOC, { ...opts, year: 'numeric' })}${cal.mode === 'week' ? ` · W${isoWeek(from)}` : ''}`;
 }
 
 export async function refresh() {
   const body = $('#calBody');
-  for (const b of document.querySelectorAll('#calModes button')) b.classList.toggle('active', b.dataset.mode === cal.mode);
+  for (const b of document.querySelectorAll('#calModes button')) {
+    b.classList.toggle('active', b.dataset.mode === cal.mode);
+    b.setAttribute('aria-pressed', String(b.dataset.mode === cal.mode));
+  }
   const [from, to] = range();
   $('#calRange').textContent = rangeLabel(from, to);
   const status = await api.calendar.status().catch(() => ({}));
@@ -276,15 +289,53 @@ function monthView(from) {
     // Schedule entries first, then the day's tasks from the to-do apps.
     const list = [...onDay(cal.events, day).map((e) => ({ e })), ...tasksOn(day).map((t) => ({ t }))];
     const cls = ['cal-cell', day.getMonth() !== cal.anchor.getMonth() && 'out', sameDay(day, today) && 'today', sameDay(day, cal.selected) && 'sel', day < today && 'past'].filter(Boolean).join(' ');
+    // Roving focus: only the selected day is a Tab stop; the arrow keys move the selection (cellKey).
     const cell = el(
       'div',
-      { class: cls, tabindex: '0', 'aria-label': day.toDateString(), onclick: () => select(day), ondblclick: () => editor({ date: ymd(day) }), onkeydown: (e) => e.key === 'Enter' && e.target === e.currentTarget && editor({ date: ymd(day) }) },
-      el('div', { class: 'cal-num' }, el('span', {}, day.getDate()), list.length ? el('i', { class: 'cal-count' }, list.length) : null),
-      el('div', { class: 'cal-pills' }, list.slice(0, 3).map((x) => (x.e ? pill(x.e) : taskPill(x.t))), list.length > 3 ? el('button', { class: 'cal-more', onclick: (ev) => (ev.stopPropagation(), select(day)) }, `+${list.length - 3} more`) : null),
+      { class: cls, tabindex: sameDay(day, cal.selected) ? '0' : '-1', 'aria-label': day.toDateString(), onclick: () => select(day), ondblclick: () => editor({ date: ymd(day) }), onkeydown: (e) => cellKey(e, day) },
+      el('div', { class: 'cal-num' }, el('span', {}, day.getDate()), moreLabel(list.length, day)),
+      el('div', { class: 'cal-pills' }, list.slice(0, 3).map((x) => (x.e ? pill(x.e) : taskPill(x.t)))),
     );
     cells.append(cell);
   }
+  if (!cells.querySelector('[tabindex="0"]')) cells.querySelector('.cal-cell:not(.out)')?.setAttribute('tabindex', '0');
   return el('div', { class: 'cal-month-wrap' }, head, cells);
+}
+
+// The day's count, or "+N more" in the number row, where a short row never cuts it off. A short cell
+// (styles.css container query) shows two pills instead of three, so the label has both counts.
+function moreLabel(n, day) {
+  if (!n) return null;
+  if (n < 3) return el('i', { class: 'cal-count' }, n);
+  const show = (ev) => (ev.stopPropagation(), select(day));
+  return el(
+    'span',
+    { class: 'cal-num-end' },
+    n === 3 ? el('i', { class: 'cal-count cal-tall' }, n) : null,
+    el(
+      'button',
+      { type: 'button', class: `cal-more${n === 3 ? ' cal-short' : ''}`, onclick: show },
+      n > 3 ? el('span', { class: 'cal-tall' }, `+${n - 3} more`) : null,
+      el('span', { class: 'cal-short' }, `+${n - 2} more`),
+    ),
+  );
+}
+
+async function cellKey(e, day) {
+  if (e.target !== e.currentTarget || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === 'Enter') return editor({ date: ymd(day) });
+  const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+  if (!step) return;
+  e.preventDefault();
+  e.stopPropagation(); // the view's own ArrowLeft/Right change the month
+  const next = addDays(day, step);
+  if (next.getMonth() === cal.anchor.getMonth()) select(next);
+  else {
+    cal.anchor = new Date(next.getFullYear(), next.getMonth(), 1);
+    cal.selected = next;
+    await refresh();
+  }
+  document.querySelector('.cal-cell.sel')?.focus();
 }
 
 function pill(e) {
@@ -302,7 +353,11 @@ function select(day) {
   for (const c of document.querySelectorAll('.cal-cell.sel')) c.classList.remove('sel');
   const cells = [...document.querySelectorAll('.cal-cell')];
   const [from] = range();
-  cells[Math.round((cal.selected - from) / DAY)]?.classList.add('sel');
+  const target = cells[Math.round((cal.selected - from) / DAY)];
+  if (target) {
+    target.classList.add('sel');
+    for (const c of cells) c.tabIndex = c === target ? 0 : -1;
+  }
   document.querySelectorAll('.cal-wk-day').forEach((b, i) => b.classList.toggle('sel', sameDay(addDays(from, i), cal.selected)));
   $('.cal-side')?.replaceWith(sidePanel());
 }
@@ -403,7 +458,7 @@ function agendaView() {
       el(
         'section',
         { class: `cal-ag-day ${sameDay(day, today) ? 'today' : ''}` },
-        el('header', {}, el('b', {}, day.getDate()), el('span', {}, day.toLocaleDateString(undefined, { weekday: 'long', month: 'long' })), sameDay(day, today) ? el('i', {}, 'TODAY') : null),
+        el('header', {}, el('b', {}, day.getDate()), el('span', {}, day.toLocaleDateString(LOC, { weekday: 'long', month: 'long' })), sameDay(day, today) ? el('i', {}, 'TODAY') : null),
         items.map(row),
         todo.map((t) => taskRow(t)),
       ),
@@ -419,7 +474,7 @@ function row(e) {
     { class: 'cal-row', style: colorOf(e.entryId), onclick: () => details(e) },
     el('span', { class: 'tm' }, timeLabel(e)),
     el('span', { class: 'bar' }),
-    el('span', { class: 'what' }, el('b', {}, e.title), e.location || e.recurring ? el('small', {}, [e.location && `📍 ${e.location}`, e.recurring && `↻ ${e.rule.split(',')[0]}`].filter(Boolean).join('   ')) : null),
+    el('span', { class: 'what' }, el('b', {}, e.title), e.location || e.recurring ? el('small', {}, [e.location && `📍 ${e.location}`, e.recurring && `↻ ${e.rule.split(',')[0]}`].filter(Boolean).join(' · ')) : null),
   );
 }
 
@@ -435,7 +490,7 @@ function sidePanel() {
     el(
       'section',
       { class: 'cal-today glass' },
-      el('div', { class: 'cal-big' }, el('b', {}, day.getDate()), el('div', {}, el('span', {}, day.toLocaleDateString(undefined, { weekday: 'long' })), el('small', {}, day.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })))),
+      el('div', { class: 'cal-big' }, el('b', {}, day.getDate()), el('div', {}, el('span', {}, day.toLocaleDateString(LOC, { weekday: 'long' })), el('small', {}, day.toLocaleDateString(LOC, { month: 'long', year: 'numeric' })))),
       nextUp(),
       el('div', { class: 'cal-day-list' }, unique.length ? unique.map(row) : el('p', { class: 'muted' }, sameDay(day, new Date()) ? 'Nothing scheduled today.' : 'Nothing scheduled.')),
       el('button', { class: 'btn small', onclick: () => editor({ date: ymd(day) }) }, '＋ Add to this day'),
@@ -472,7 +527,7 @@ function nextUp() {
   if (!next) return el('div', { class: 'cal-next muted' }, 'Nothing coming up this week.');
   const start = new Date(next.start);
   const mins = Math.round((start - now) / 60000);
-  const when = mins <= 0 ? 'NOW' : mins < 60 ? `IN ${mins} MIN` : mins < 24 * 60 ? `IN ${Math.floor(mins / 60)} H ${pad(mins % 60)} MIN` : start.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase() + ` ${hm(start)}`;
+  const when = mins <= 0 ? 'NOW' : mins < 60 ? `IN ${mins} MIN` : mins < 24 * 60 ? `IN ${Math.floor(mins / 60)} H ${pad(mins % 60)} MIN` : start.toLocaleDateString(LOC, { weekday: 'short' }).toUpperCase() + ` ${hm(start)}`;
   return el('button', { class: `cal-next ${mins <= 0 ? 'live' : ''}`, style: colorOf(next.entryId), onclick: () => details(next) }, el('small', {}, `NEXT · ${when}`), el('b', {}, next.title), el('span', {}, `${timeLabel(next)}${next.location ? ` · ${next.location}` : ''}`));
 }
 
@@ -503,7 +558,7 @@ function details(e) {
     card.style.cssText = colorOf(e.entryId);
     // native append() would print a skipped (null) line as the text "null"
     const parts = [
-      el('div', { class: 'cal-modal-head' }, el('span', { class: 'bar' }), el('div', {}, el('h3', {}, e.title), el('div', { class: 'muted' }, `${new Date(e.start).toLocaleDateString(undefined, { dateStyle: 'full' })} · ${timeLabel(e)}`))),
+      el('div', { class: 'cal-modal-head' }, el('span', { class: 'bar' }), el('div', {}, el('h3', {}, e.title), el('div', { class: 'muted' }, `${new Date(e.start).toLocaleDateString(LOC, { dateStyle: 'full' })} · ${timeLabel(e)}`))),
       e.recurring ? el('div', { class: 'cal-meta' }, '↻ ', e.rule) : null,
       e.location ? el('div', { class: 'cal-meta' }, '📍 ', e.location) : null,
       e.notes ? el('div', { class: 'cal-meta' }, '✎ ', e.notes) : null,
@@ -523,7 +578,7 @@ function details(e) {
 async function skipDay(e, day) {
   try {
     await api.calendar.remove(e.entryId, { onlyDate: day });
-    toast(`Skipped ${e.title} on ${new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}`);
+    toast(`Skipped ${e.title} on ${new Date(`${day}T12:00:00`).toLocaleDateString(LOC, { weekday: 'short', day: 'numeric', month: 'short' })}`);
     refresh();
   } catch (err) {
     toastError(err);
@@ -619,10 +674,16 @@ function editor(x = {}) {
     const update = () => {
       type.children[0].classList.toggle('active', !f.repeats);
       type.children[1].classList.toggle('active', f.repeats);
+      type.children[0].setAttribute('aria-pressed', String(!f.repeats));
+      type.children[1].setAttribute('aria-pressed', String(f.repeats));
       repeatBox.classList.toggle('hidden', !f.repeats);
       dayBtns.parentElement.classList.toggle('hidden', f.freq !== 'weekly');
       repeatBox.querySelector('.unit').textContent = { daily: 'day(s)', weekly: 'week(s)', monthly: 'month(s)', yearly: 'year' }[f.freq];
-      for (const b of dayBtns.children) b.classList.toggle('active', (f.days.length ? f.days : [new Date(`${f.date}T12:00:00`).getDay()]).includes(Number(b.dataset.d)));
+      for (const b of dayBtns.children) {
+        const on = (f.days.length ? f.days : [new Date(`${f.date}T12:00:00`).getDay()]).includes(Number(b.dataset.d));
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', String(on));
+      }
       times.classList.toggle('hidden', f.allDay);
       endDate.classList.toggle('hidden', !f.allDay || f.repeats);
       // A rule needs a date only for "same day of the month / same date"; weekly uses the days.
