@@ -29,7 +29,7 @@ test('Copy copies what the bubble shows: the typed words, a /skill as typed; a r
 test('no brain ready, no model, Claude Code missing, no provider could answer', () => {
   const r = help('No AI provider is ready. Connect your Claude account or add an API key in Settings → AI brain.');
   assert.strictEqual(r.kind, 'notready');
-  assert.strictEqual(r.title, 'No brain is ready');
+  assert.match(r.title, /^Siren can.t answer yet: no AI is connected$/);
   assert.deepStrictEqual(r.action, brainAction);
   assert.strictEqual(r.retry, true);
   assert.strictEqual(help('No model selected. Choose a model in Settings → AI Brain.').title, 'No model is chosen');
@@ -37,6 +37,53 @@ test('no brain ready, no model, Claude Code missing, no provider could answer', 
   const none = help('No provider could answer: Claude (account) hit its rate limit; Gemini is unavailable.');
   assert.strictEqual(none.title, 'No brain could answer');
   assert.strictEqual(none.text, 'Claude (account) hit its rate limit; Gemini is unavailable.');
+});
+
+// UX-UPGRADE-02: a brain that isn't set up offers the conversational brain setup right in the chat.
+test('no brain set up offers “Set one up now”; a configured brain that failed doesn’t', () => {
+  const setup = { id: 'brain-setup', label: 'Set one up now' };
+  for (const m of [
+    'No AI provider is ready. Connect your Claude account or add an API key in Settings → AI brain.',
+    'Add your Anthropic API key in Settings → AI brain.',
+    'Claude Code is not installed. Install it, then connect your Claude account in Settings → AI brain.',
+    'No model selected. Choose a model in Settings → AI Brain.',
+  ]) {
+    const r = help(m);
+    assert.deepStrictEqual(r.setup, setup, m);
+    assert.deepStrictEqual(r.action, brainAction, 'the settings link stays beside it');
+  }
+  assert.doesNotMatch(help('No AI provider is ready.').text, /Set one up/, 'the words never name a button the phone doesn’t show');
+  for (const m of [
+    'No provider could answer: Claude (account) hit its rate limit; Gemini is unavailable.',
+    'Claude AI usage limit reached|1700000000',
+    'Invalid API key · Please run /login',
+    'fetch failed',
+    'LLM error 429: rate limit',
+    'Something odd',
+    '',
+  ]) assert.strictEqual(help(m).setup, null, m);
+});
+
+// The desktop's failed card and reply card (both errorNode) draw it, and it runs setup.js's brain part.
+test('the desktop draws “Set one up now” and starts the conversational brain setup', () => {
+  const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+  const chatSrc = read('renderer/js/chat.js');
+  const node = /function errorNode\([\s\S]*?\n}\n/.exec(chatSrc)[0];
+  assert.match(node, /help\.setup \? el\('button'[^\n]*runHelpAction\(help\.setup\)/);
+  const run = /function runHelpAction\([\s\S]*?\n}\n/.exec(chatSrc)[0];
+  assert.match(run, /a\.id === 'brain-setup'[^\n]*import\('\.\/setup\.js'\)[^\n]*setupBrain\(/);
+  const setupSrc = read('renderer/js/setup.js');
+  const fn = /export async function setupBrain\([\s\S]*?\n}\n/.exec(setupSrc)[0];
+  assert.match(fn, /bootstrapBrain\(\{ brainOnly: true \}\)/, 'the scripted part, which needs no working brain');
+  assert.doesNotMatch(fn, /api\.setup\.(start|skip)/, 'no interview, and "Not now" never marks setup as skipped');
+});
+
+// The phone shares errorHelp but can't run the desktop's setup: it draws no action of errorHelp's at all.
+test('the phone client ignores errorHelp’s actions: no setup button it can’t run', () => {
+  const { phoneClientSource } = require('./helpers');
+  const src = phoneClientSource();
+  assert.doesNotMatch(src, /brain-setup/, 'the phone never names the desktop-only action');
+  assert.doesNotMatch(src, /help\.(setup|action)\b/, 'the phone draws neither errorHelp action');
 });
 
 test('the plan’s limit says when it resets: from the CLI’s epoch, the usage meter, or its own words', () => {

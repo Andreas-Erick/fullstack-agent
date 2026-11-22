@@ -275,6 +275,8 @@ function hhmm(ms, now = Date.now()) {
 }
 
 const BRAIN = { label: 'Open AI brain settings', go: 'settings', section: 'brain' };
+// The conversational brain setup (renderer/js/setup.js), offered when no brain is set up. Desktop only.
+const BRAIN_SETUP = { id: 'brain-setup', label: 'Set one up now' };
 const NETWORK = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|socket hang up|connection error|network|ENETUNREACH|ENETDOWN|EHOSTDOWN|connection dropped|no internet route|can['’]t reach the API server|unable to connect to API(?!:)/i;
 const LOCAL_HOST = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i;
 
@@ -299,23 +301,25 @@ function resetTime(raw, { usage, now, time }) {
 }
 
 /**
- * A failed reply's message → { kind, title, text, action, retry, raw }. action: { label, go: 'settings',
+ * A failed reply's message → { kind, title, text, action, setup, retry, raw }. action: { label, go: 'settings',
  * section } | { label, go: 'helper', id } | { label, go: 'newchat' } | { label, go: 'edit' } | null.
+ * setup: { id: 'brain-setup', label } when no brain is set up (the desktop runs the conversational brain
+ * setup; the phone can't and ignores it), else null. The words never name that button.
  * settings / usage (optional) make it exact: which brain, when the plan resets. time: a formatter (tests).
  */
 export function errorHelp(message, { usage = null, settings = null, now = Date.now(), time = hhmm } = {}) {
   const raw = String(message ?? '').trim().slice(0, 2000);
   const first = (raw.split('\n').find((l) => l.trim()) || '').trim().slice(0, 200);
-  const out = (kind, title, text, action = null) => ({ kind, title, text, action, retry: true, raw });
+  const out = (kind, title, text, action = null, setup = null) => ({ kind, title, text, action, setup, retry: true, raw });
 
   // Multi-provider mode stopped after a brain had already acted (main/llm.js runTurn): its own words say it best.
   if (/already used tools, so this reply was not repeated/i.test(raw)) return out('toolsran', 'The brain failed partway', raw);
   if (/No AI provider is ready|No model selected|Choose a model|not installed|No provider could answer|Add your Anthropic API key/i.test(raw)) {
     const list = /No provider could answer:\s*([\s\S]+)/i.exec(raw);
     if (list) return out('notready', 'No brain could answer', list[1].trim().slice(0, 300), BRAIN);
-    if (/No model selected|Choose a model/i.test(raw)) return out('notready', 'No model is chosen', 'Choose a model in Settings → AI brain.', BRAIN);
-    if (/not installed/i.test(raw)) return out('notready', 'Claude Code isn’t installed', 'Install it and connect your Claude account, or pick another brain in Settings → AI brain.', BRAIN);
-    return out('notready', 'No brain is ready', 'Connect your Claude account or add an API key in Settings → AI brain.', BRAIN);
+    if (/No model selected|Choose a model/i.test(raw)) return out('notready', 'No model is chosen', 'Choose a model in Settings → AI brain.', BRAIN, BRAIN_SETUP);
+    if (/not installed/i.test(raw)) return out('notready', 'Claude Code isn’t installed', 'Install it and connect your Claude account, or pick another brain in Settings → AI brain.', BRAIN, BRAIN_SETUP);
+    return out('notready', 'Siren can’t answer yet: no AI is connected', 'Connect your Claude account, a model on this computer or an API key in Settings → AI brain.', BRAIN, BRAIN_SETUP);
   }
   if (/usage limit reached|(you['’]?ve|you have) hit your (\w+ )?limit|\d+-hour limit reached|spend limit|out of usage credits/i.test(raw)) {
     const at = resetTime(raw, { usage, now, time });

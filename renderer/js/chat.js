@@ -750,7 +750,7 @@ function handleEvent(ev) {
         const seen = currentView === 'chat' && ended.onScreen;
         const convId = chat.convId;
         if (seen || !retryId) toast(`⚠ ${help.title}`, 'error', 6000);
-        else toastActions(`⚠ ${help.title}. ${help.text}`, [['Try again', () => retryIn(convId, retryId)], ...(help.action ? [[help.action.label, () => runHelpAction(help.action)]] : [])]);
+        else toastActions(`⚠ ${help.title}. ${help.text}`, [...(help.setup ? [[help.setup.label, () => runHelpAction(help.setup, convId)]] : []), ['Try again', () => retryIn(convId, retryId)], ...(help.action ? [[help.action.label, () => runHelpAction(help.action)]] : [])]);
         announce(`Error: ${help.title}. ${help.text}`);
         raiseAlert(help.title);
         // 'info': main.js already logs the failed turn as an error, with its stack (one problem report, not two).
@@ -967,7 +967,8 @@ function errorNode(help, { retry = false, messageId = null } = {}) {
   const buttons = el(
     'div',
     { class: 'reply-error-actions' },
-    retry && id ? el('button', { class: 'btn small primary retry-btn', type: 'button', 'data-for': id, onclick: () => runAgain('again', id) }, '↻ Try again') : null,
+    help.setup ? el('button', { class: 'btn small primary setup-btn', type: 'button', onclick: () => runHelpAction(help.setup) }, help.setup.label) : null,
+    retry && id ? el('button', { class: `btn small ${help.setup ? '' : 'primary '}retry-btn`, type: 'button', 'data-for': id, onclick: () => runAgain('again', id) }, '↻ Try again') : null,
     help.action ? el('button', { class: 'btn small', type: 'button', onclick: () => runHelpAction(help.action) }, help.action.label) : null,
   );
   return el(
@@ -981,7 +982,9 @@ function errorNode(help, { retry = false, messageId = null } = {}) {
 }
 
 /** The way out a failure offers (chatcore.errorHelp action). */
-function runHelpAction(a) {
+function runHelpAction(a, convId = chat.convId) {
+  // The conversational brain setup, back to the failed chat once a brain answers (setup.js; imported late: it imports chat.js).
+  if (a.id === 'brain-setup') return import('./setup.js').then((m) => m.setupBrain({ back: convId }), toastError);
   if (a.go === 'settings') return switchView('settings', a.section);
   if (a.go === 'helper') return api.helperApps.start(a.id).then(() => toast('Starting it… try again in a moment.'), toastError);
   if (currentView !== 'chat') switchView('chat');
