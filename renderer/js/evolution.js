@@ -8,7 +8,8 @@ let refreshGen = 0; // only the latest refresh() draws (Record's own and announc
 
 export function initEvolution() {
   $('#evoReload').onclick = () => api.self.reload();
-  $('#evoRestart').onclick = () => api.self.restart();
+  // The app quits and starts again: unsaved typing elsewhere would go, so it asks first.
+  $('#evoRestart').onclick = async () => (await confirmDialog('Restart the app?', 'Siren closes and starts again. A reply being written is stopped.', 'Restart', false)) && api.self.restart();
   // The history as a film: the Architecture view replays every commit on the map (renderer/js/replay.js).
   $('#evoReplay').onclick = () => switchView('arch', 'replay');
 
@@ -138,10 +139,10 @@ export async function refresh() {
   for (const c of log) {
     list.append(
       el(
-        'div',
-        { class: `evo-item ${c.kind} ${selected === c.sha ? 'active' : ''}`, onclick: () => showChange(c) },
+        'button',
+        { type: 'button', class: `evo-item ${c.kind} ${selected === c.sha ? 'active' : ''}`, 'aria-current': selected === c.sha ? 'true' : null, onclick: () => showChange(c) },
         el('span', { class: 'dot' }),
-        el('div', { style: { minWidth: 0 } }, el('div', { class: 's' }, c.subject), el('div', { class: 'm' }, `${c.short} · ${timeAgo(c.date)} · ${c.files.length} file${c.files.length === 1 ? '' : 's'}`)),
+        el('span', { class: 'evo-text' }, el('span', { class: 's' }, c.subject), el('span', { class: 'm' }, `${c.short} · ${timeAgo(c.date)} · ${c.files.length} file${c.files.length === 1 ? '' : 's'}`)),
       ),
     );
   }
@@ -162,7 +163,12 @@ function renderDiff(text) {
 
 async function showChange(c) {
   selected = c.sha;
-  document.querySelectorAll('.evo-item').forEach((i) => i.classList.toggle('active', i.querySelector('.m')?.textContent.startsWith(c.short)));
+  document.querySelectorAll('.evo-item').forEach((i) => {
+    const on = Boolean(i.querySelector('.m')?.textContent.startsWith(c.short));
+    i.classList.toggle('active', on);
+    if (on) i.setAttribute('aria-current', 'true');
+    else i.removeAttribute('aria-current');
+  });
   const box = $('#evoDetail');
   box.innerHTML = '<p class="muted">Loading…</p>';
   const diff = await api.self.show(c.sha).catch((e) => `Error: ${e.message}`);

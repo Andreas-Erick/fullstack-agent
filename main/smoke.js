@@ -848,6 +848,12 @@ async function scanText() {
   for (const [w, h] of [[1600, 1000], [1100, 700], [900, 600]]) {
     await wc.executeJavaScript(`window.resizeTo(${w}, ${h})`);
     await wait(500);
+    // The first-run wizard makes the window behind it inert (onboarding.js), and a11ytest skips inert
+    // controls: it is scanned on its own, then hidden while the views are walked.
+    const hadWizard = await wc.executeJavaScript(`!document.querySelector('#onboarding').classList.contains('hidden')`);
+    if (hadWizard) for (const p of await wc.executeJavaScript(scanJs(`wizard @${w}`), true)) found.add(p);
+    await wc.executeJavaScript(`document.querySelector('#onboarding').classList.add('hidden')`);
+    await wait(100);
     for (const v of views) {
       await wc.executeJavaScript(`document.querySelector('.rail-btn[data-view="${v}"]').click()`, true);
       await wait(900);
@@ -862,6 +868,7 @@ async function scanText() {
         if (w === 1600) for (const p of await wc.executeJavaScript(namesJs(`settings/${tab}`), true)) found.add(p);
       }
     }
+    if (hadWizard) await wc.executeJavaScript(`document.querySelector('#onboarding').classList.remove('hidden')`);
     // History in the Face layout (always a drawer) and the Chat layout (docked where it has room).
     for (const layout of ['face', 'chat']) for (const p of await wc.executeJavaScript(HISTORY_JS(layout, `history ${layout} @${w}`, w), true)) found.add(p);
     for (const [i, [channel, payload]] of PROMPTS.entries()) {

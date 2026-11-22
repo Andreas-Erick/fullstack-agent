@@ -5,7 +5,7 @@
 // you?"), and ends with a "first hello" test; then it offers the agent's get-to-know-you interview.
 // "Quick start" is the welcome and the privacy step only; an install set up without accepting the notice
 // sees that step alone at launch (onboardcore.js stepsFor / launchMode).
-import { $, api, el, toast, toastError, on } from './util.js';
+import { $, api, el, toast, toastError, on, dialogOpen } from './util.js';
 import { state, saveSettings, loadSettings } from './state.js';
 import { ROUTINE_TEMPLATES } from './routines.js';
 import { speaker, listMics, testLocalVoice } from './voice.js';
@@ -43,6 +43,7 @@ let step = 0; // the index in stepsFor(mode)
 let mode = 'full'; // full | quick | missed
 let afterFinish = null; // what runs once the wizard is done (the launch greeting after a missed step)
 let moving = false; // a step change in progress: a double click moves one step
+let shownStep = null; // the step whose heading last took the focus (a redraw of the same step keeps it)
 const draft = {};
 let faceHost = null;
 
@@ -59,6 +60,8 @@ export function startOnboarding(how = 'full', after = null) {
   mode = ['quick', 'missed'].includes(how) ? how : 'full';
   afterFinish = after;
   step = 0;
+  shownStep = null;
+  watchBehind();
   $('#onboarding').classList.remove('hidden');
   render();
 }
@@ -66,7 +69,26 @@ export function startOnboarding(how = 'full', after = null) {
 function closeWizard() {
   faceHost?.teardown();
   faceHost = null;
+  shownStep = null;
   $('#onboarding').classList.add('hidden');
+}
+
+// While the wizard shows, the window behind it is out of reach for the keyboard and screen readers. A dialog
+// over the wizard (util.js holdFocus) clears the window's inert when it closes, so a watch on the wizard's
+// class and on those nodes puts it back while the wizard is still up, and takes it away once it is hidden.
+const BEHIND = ['.titlebar', '.shell'];
+let behindWatch = null;
+function syncBehind() {
+  const up = !$('#onboarding').classList.contains('hidden');
+  if (!up && dialogOpen()) return; // a dialog governs the window now
+  for (const q of BEHIND) for (const n of document.querySelectorAll(q)) if (n.inert !== up) n.inert = up;
+}
+function watchBehind() {
+  if (behindWatch) return syncBehind();
+  behindWatch = new MutationObserver(syncBehind);
+  behindWatch.observe($('#onboarding'), { attributes: true, attributeFilter: ['class'] });
+  for (const q of BEHIND) for (const n of document.querySelectorAll(q)) behindWatch.observe(n, { attributes: true, attributeFilter: ['inert'] });
+  syncBehind();
 }
 
 // Every way out of the wizard ends here, and none without the privacy acceptance: back to that step.
@@ -120,7 +142,7 @@ async function render() {
   const steps = stepsFor(mode);
   const id = steps[step];
   card.append(
-    el('div', { class: 'ob-head' }, el('span', {}, mode === 'missed' ? 'Before you go on' : `Step ${step + 1} of ${steps.length}`), el('b', {}, STEP_NAMES[id])),
+    el('div', { class: 'ob-head' }, el('span', {}, mode === 'missed' ? 'Before you go on' : `Step ${step + 1} of ${steps.length}`), el('b', { id: 'obTitle' }, STEP_NAMES[id])),
     el('div', { class: 'ob-steps' }, steps.map((_, i) => el('span', { class: i <= step ? 'on' : '' }))),
   );
   const body = el('div', { class: 'field', style: { gap: '12px' } });
@@ -183,7 +205,7 @@ async function render() {
 
   if (id === 'hardware') {
     const box = el('div', { class: 'field' });
-    const scan = el('button', { class: 'btn primary', onclick: async () => ((scan.disabled = true), (draft.hw = await scanInto(box)), (scan.disabled = false)) }, '🖥 Scan my hardware');
+    const scan = el('button', { class: 'btn', onclick: async () => ((scan.disabled = true), (draft.hw = await scanInto(box)), (scan.disabled = false)) }, '🖥 Scan my hardware');
     body.append(
       el('h2', {}, 'Check this computer?'),
       el('p', { class: 'muted' }, 'Optional. A quick look at the processor, memory and graphics card tells you which speech model runs best here, and whether a local AI model would run well or a cloud brain is the better choice. Nothing leaves this computer. Skip it with Next.'),
@@ -215,12 +237,16 @@ async function render() {
     const drawArea = async () => {
       area.innerHTML = '';
       if (draft.provider === 'claude-code') {
+        // The buttons sit in a row under the result, never stretched across the field.
+        const actions = el('div', { class: 'row' });
+        const connect = () => el('button', { class: 'btn', onclick: () => connectClaude('Re-check') }, 'Connect Claude account');
         const st = await api.claude.status({ fresh: true }).catch((e) => ({ installed: true, checked: false, error: e.message }));
         if (!st.installed) area.append(el('div', { class: 'test-result err' }, `Claude Code isn’t installed. Install it, then click Re-check:\n  ${await api.claude.installHint()}`));
-        else if (st.checked === false) area.append(el('div', { class: 'test-result err' }, `Couldn’t check your Claude account: ${st.error}`), el('button', { class: 'btn', onclick: () => connectClaude('Re-check') }, 'Connect Claude account'));
-        else if (!st.loggedIn) area.append(el('div', { class: 'test-result' }, `Claude Code ${st.version} found — connect your account:`), el('button', { class: 'btn primary', onclick: () => connectClaude('Re-check') }, 'Connect Claude account'));
+        else if (st.checked === false) area.append(el('div', { class: 'test-result err' }, `Couldn’t check your Claude account: ${st.error}`)), actions.append(connect());
+        else if (!st.loggedIn) area.append(el('div', { class: 'test-result' }, `Claude Code ${st.version} found — connect your account:`)), actions.append(connect());
         else area.append(el('div', { class: 'test-result ok' }, `✓ Connected as ${st.email} (${st.subscription || st.authMethod} plan)`));
-        area.append(el('button', { class: 'btn', onclick: drawArea }, '⟳ Re-check'));
+        actions.append(el('button', { class: 'btn', onclick: drawArea }, '⟳ Re-check'));
+        area.append(actions);
       } else if (draft.provider === 'openai') {
         // Ollama / LM Studio found on this computer fill in the address and model (settings.js localFinder).
         area.append(
@@ -254,7 +280,7 @@ async function render() {
         async (v) => ((draft.provider = v), await saveSettings({ llm: { provider: v } }), drawArea()),
       ),
       area,
-      el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: testBrain }, '⚡ Test')),
+      el('div', { class: 'row' }, el('button', { class: 'btn', onclick: testBrain }, '⚡ Test')),
       out,
     );
     drawArea();
@@ -302,7 +328,7 @@ async function render() {
         voices.addEventListener('change', () => saveSettings({ voice: { localVoice: voices.value } }));
         engineArea.append(
           field('Her voice', voices, 'Downloaded once (about 90 MB, more with a graphics card), then it works without internet.'),
-          el('div', { class: 'row' }, el('button', { class: 'btn primary', onclick: async () => { progress.textContent = 'Loading the offline voice…'; try { await testLocalVoice(`Hello, I'm ${state.settings.agent.name}. Lovely to meet you.`); } catch (e) { progress.textContent = `✕ ${e.message}`; } } }, '🔊 Download and play')),
+          el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => { progress.textContent = 'Loading the offline voice…'; try { await testLocalVoice(`Hello, I'm ${state.settings.agent.name}. Lovely to meet you.`); } catch (e) { progress.textContent = `✕ ${e.message}`; } } }, '🔊 Download and play')),
           progress,
         );
       } else if (draft.engine === 'cloud') {
@@ -399,7 +425,7 @@ async function render() {
     body.append(
       el('div', {}, el('b', {}, 'Where do you keep your files?')),
       el('p', { class: 'muted' }, 'Optional. Your university, work or projects folder becomes her workspace: she looks there first when you ask for a file. Without one she uses only her vault and the files you open yourself. She can’t use your other folders unless you add them in Settings → Documents & folder access.'),
-      el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => { const d = await api.dialog.pickFolder('Workspace folder'); if (d) { await saveSettings({ documents: { workspace: d } }); render(); } } }, workspace ? 'Choose another workspace…' : 'Choose a workspace folder…'), workspace ? el('span', { class: 'hint' }, workspace) : ''),
+      el('div', { class: 'row' }, el('button', { class: 'btn', onclick: async () => { const d = await api.dialog.pickFolder('Workspace folder'); if (d) { await saveSettings({ documents: { workspace: d } }); render(); } } }, workspace ? 'Choose another workspace…' : 'Choose a workspace folder…'), workspace ? el('span', { class: 'hint path' }, workspace) : ''),
     );
     beforeNext = async () => {
       await saveSettings({ obsidian: { vaultPath: draft.vault, enabled: true } });
@@ -531,6 +557,14 @@ async function render() {
   $('#onboarding').innerHTML = '';
   $('#onboarding').append(card);
   $('#onboarding').scrollTop = 0; // the overlay scrolls (long steps); each step starts at its top
+  // A new step takes the focus to its heading (the old card, and the focus in it, is gone), unless a
+  // dialog or an approval over the wizard holds it.
+  if (shownStep !== id && !dialogOpen()) {
+    const head = card.querySelector('h2') || card.querySelector('#obTitle');
+    head.tabIndex = -1;
+    head.focus({ preventScroll: true });
+  }
+  shownStep = id;
 }
 
 function go(delta) {
@@ -605,12 +639,12 @@ async function testMic(meter) {
     const tick = () => {
       an.getFloatTimeDomainData(data);
       const rms = Math.sqrt(data.reduce((s, v) => s + v * v, 0) / data.length);
-      meter.firstChild.style.width = `${Math.min(100, rms * 500)}%`;
+      meter.firstChild.style.transform = `scaleX(${Math.min(1, rms * 5)})`; // transform, not width: no layout per frame
       if (performance.now() < end) requestAnimationFrame(tick);
       else {
         stream.getTracks().forEach((t) => t.stop());
         ac.close();
-        meter.firstChild.style.width = '0';
+        meter.firstChild.style.transform = 'scaleX(0)';
       }
     };
     tick();
