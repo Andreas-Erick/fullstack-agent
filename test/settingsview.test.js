@@ -444,7 +444,7 @@ test('the Persona studio saves what was typed before its own switch, New, Duplic
   assert.match(part('summaryRow'), /api\.persona\.setSummary\(textBox\.value, persona\)/);
   // Main decides inside its queue, and a dropped change re-applies nothing.
   const main = read('main/main.js');
-  assert.match(main, /handle\('settings:set', async \(patch, opts\) => \{\s*const r = typeof opts\?\.persona === 'string' && opts\.persona \? await persona\.saveFor\(opts\.persona, patch\) : \{ settings: await store\.setSettings\(patch\), saved: true \};\s*if \(r\.saved\) await applySaved\(r\.settings, patch\);\s*return r\.settings;/);
+  assert.match(main, /handle\('settings:set', async \(patch, opts\) => \{\s*const r = typeof opts\?\.persona === 'string' && opts\.persona \? await persona\.saveFor\(opts\.persona, patch\) : \{ settings: await store\.setSettings\(patch\), saved: true \};\s*await settingsEffects\.settled\(\);\s*return r\.settings;/);
 });
 
 test('the Safety copy says what really asks (ORDER.md §3.13), in Settings and in the wizard', () => {

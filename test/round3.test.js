@@ -889,13 +889,31 @@ test('§3.3 Reset settings: data’s { settings, kept } is what Settings’ noti
   assert.strictEqual(notice(r), `Settings reset. Your old settings are in ${path.basename(r.kept)} in the data folder.`);
   assert.strictEqual(notice({ settings: {}, kept: '' }), 'Settings reset.');
   assert.strictEqual(notice(undefined), 'Settings reset.');
-  // The IPC handler returns the store's result, after re-applying what a save would (with every section as
-  // what changed): remote access stops with remote.enabled false, not at the next launch.
+  // The IPC handler returns the store's result once the settings effects (settingseffects.js, behind
+  // store.onChange, with every section as what changed) have settled: remote access stops with
+  // remote.enabled false, not at the next launch.
   const main = read('main/main.js');
-  assert.match(main, /handle\('settings:reset', async \(\) => \{\n\s*const r = await store\.resetSettings\(\);\n\s*await applySaved\(r\.settings, r\.settings\);\n\s*return r;\n\s*\}\);/, 'the IPC handler returns the store’s result');
-  const applySaved = main.slice(main.indexOf('async function applySaved(s, patch) {'), main.indexOf('\n  }\n', main.indexOf('async function applySaved(s, patch) {')));
-  for (const line of ['if (patch?.remote) await companion.apply(s);', 'if (patch?.logging) log.setDebug(s.logging.debug);', 'registerShortcut()', 'helperApps.ensureAll(s, ', 'router.reset()']) assert.ok(applySaved.includes(line), line);
+  assert.match(main, /handle\('settings:reset', async \(\) => \{\n\s*const r = await store\.resetSettings\(\);\n\s*await settingsEffects\.settled\(\);\n\s*return r;\n\s*\}\);/, 'the IPC handler returns the store’s result');
   for (const section of ['remote', 'logging', 'stt', 'voice', 'routing']) assert.ok(section in r.settings, `${section}: a reset's patch names it`);
+  const did = [];
+  const effects = load('main/settingseffects.js');
+  effects.init(
+    {
+      store: s2,
+      log: { ...quietLog, setDebug: () => did.push('logging') },
+      companion: { apply: async (s) => did.push(`remote:${s.remote.enabled}`), settingsChanged: () => did.push('devices') },
+      helperApps: { ensureAll: () => did.push('helper apps') },
+      router: { reset: () => did.push('router') },
+      registerShortcut: async () => did.push('shortcut'),
+      toWindow: () => {},
+      persona: { ensureSummary: async () => ({}) },
+    },
+    { summaryAfterStartMs: null },
+  );
+  await s2.resetSettings();
+  await effects.settled();
+  effects.stop();
+  for (const e of ['remote:false', 'logging', 'shortcut', 'helper apps', 'router', 'devices']) assert.ok(did.includes(e), `a reset re-applies ${e}`);
 
   // The window saves something before the next launch; that launch still opens the wizard (onboarded is
   // written as false, so the install isn't taken for one from before the wizard, LEGACY).

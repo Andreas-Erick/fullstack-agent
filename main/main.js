@@ -43,6 +43,7 @@ const skills = require('./skills');
 const pdf = require('./pdf');
 const companion = require('./companion');
 const helperApps = require('./helperapps');
+const settingsEffects = require('./settingseffects');
 const attachments = require('./attachments');
 const { navDecision } = require('./navguard');
 
@@ -430,26 +431,19 @@ function registerIpc() {
   // Settings
   handle('settings:get', () => store.getSettings());
   // What a save changes beyond the file (the voice shortcut, logging, remote access, helper apps, the
-  // router), after Settings' saves and after a reset, which changes every section.
-  async function applySaved(s, patch) {
-    if (patch?.stt?.globalShortcut !== undefined) registerShortcut().catch((error) => log.warn('voice shortcut not registered', { error }));
-    if (patch?.logging) log.setDebug(s.logging.debug);
-    if (patch?.remote) await companion.apply(s);
-    // A newly used or re-enabled helper app (VoiceStudio, FreeLLMAPI) starts now.
-    if (patch?.voice || patch?.llm || patch?.routing || patch?.helperApps) helperApps.ensureAll(s, 'settings');
-    if (patch?.routing || patch?.llm?.provider || ['gemini', 'deepseek', 'groq', 'perplexity', 'anthropic', 'claudeCode'].some((k) => patch?.[k])) router.reset();
-  }
+  // router…) is settingseffects.js, behind store.onChange, for every save whoever made it. These two wait
+  // for its async effects, so remote access has started or stopped when the window's save resolves.
   // opts.persona: the persona whose Settings cards the value was typed into. A persona field is then saved
   // only while that persona is still active (persona.saveFor); dropped, the settings come back as they are.
   handle('settings:set', async (patch, opts) => {
     const r = typeof opts?.persona === 'string' && opts.persona ? await persona.saveFor(opts.persona, patch) : { settings: await store.setSettings(patch), saved: true };
-    if (r.saved) await applySaved(r.settings, patch);
+    await settingsEffects.settled();
     return r.settings;
   });
-  // Remote access, the shortcut and the rest follow the reset at once (the server stopped when it goes off).
+  // A reset is heard with every section as the patch: remote access, the shortcut and the rest follow at once.
   handle('settings:reset', async () => {
     const r = await store.resetSettings();
-    await applySaved(r.settings, r.settings);
+    await settingsEffects.settled();
     return r;
   });
   // New versions (updates.js): the state, a check now, skipping one, and opening a GitHub download.
@@ -952,29 +946,9 @@ app.whenReady().then(async () => {
       remoteAlert(ev);
     },
   });
-  // A persona switch or a changed look reaches paired phones (and, through them, the watch) at once.
-  store.onChange((s, patch) => companion.settingsChanged(patch));
-  // Connector levels also change outside the window (an approval's "Always allow…", the tool
-  // connector_permission): the window gets the saved lists, so Settings shows and keeps them.
-  store.onChange((s, patch) => {
-    if (['connectorsAllowed', 'connectorsReadOnly', 'connectorsWrite'].some((k) => patch?.claudeCode?.[k])) {
-      toWindow('claude:connectorLevels', { connectorsAllowed: s.claudeCode.connectorsAllowed, connectorsReadOnly: s.claudeCode.connectorsReadOnly, connectorsWrite: s.claudeCode.connectorsWrite });
-    }
-  });
-  // A long master prompt gets its short version for local models (persona.ensureSummary): a little after
-  // start, and after the persona, its master prompt or the brain changed (a switch, an edit). Settled
-  // first: a persona being edited is not summarized on every keystroke.
-  let summaryTimer = null;
-  const summarizeSoon = (ms) => {
-    clearTimeout(summaryTimer);
-    summaryTimer = setTimeout(() => {
-      persona.ensureSummary().then((st) => toWindow('persona:summary', st), (error) => log.warn('persona summary failed', { error }));
-    }, ms);
-  };
-  store.onChange((s, patch) => {
-    if (patch?.agent?.personality !== undefined || patch?.llm || patch?.local) summarizeSoon(20000);
-  });
-  summarizeSoon(60000);
+  // Every save's effects beyond the file (devices told, connector levels, the persona summary, remote
+  // access, helper apps, the router, the shortcut, logging), whoever saved: settingseffects.js.
+  settingsEffects.init({ store, log, companion, helperApps, router, registerShortcut, toWindow, persona });
   // Attachment folders whose conversation is gone (deleted while the app was down): a while after start.
   setTimeout(() => attachments.sweep().catch((error) => log.warn('attachment sweep failed', { error })), 90000).unref?.();
   require('./tunnel').setListener((st) => send('remote:event', { type: 'tunnel', tunnel: st }));
