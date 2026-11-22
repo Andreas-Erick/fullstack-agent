@@ -1479,6 +1479,7 @@ body.agent .aw-frame::before { border-color: rgba(var(--c1), 0.85); box-shadow: 
 .notes-editor { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; }
 .note-tools { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 22px; background: var(--glass-strong); border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); }
 .note-tools .spacer { flex: 1; }
+.note-tools .danger { margin-left: 8px; } /* Delete set apart from the other tools (it has Undo too) */
 .note-tools .btn.on { color: rgb(var(--c1)); border-color: rgba(var(--c1), 0.5); }
 .note-status { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
 .note-status.saved { color: rgb(var(--ok)); }

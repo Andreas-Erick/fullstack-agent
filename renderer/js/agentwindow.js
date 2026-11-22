@@ -120,7 +120,7 @@ function wear(s) {
   const fx = effectsLevel(s); // Balanced performance: the look without motion
   document.body.classList.toggle('fx-hud', fx === 'hud');
   document.body.classList.toggle('fx-subtle', fx === 'subtle');
-  document.body.classList.toggle('fx-still', fx !== 'off' && reduceMotion.matches);
+  document.body.classList.toggle('fx-still', reduceMotion.matches); // at every effects level, as hud.js
   api.win.overlay({ color: t.colors.bg, symbolColor: t.colors.accent }).catch(() => {});
 }
 const rewear = () => api.settings.get().then(wear).catch(() => {});
