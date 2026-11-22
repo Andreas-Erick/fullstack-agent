@@ -64,7 +64,11 @@ module.exports = [
     group: 'github',
     description: "Clone a repository into the user's repos folder so you can work on it (or update an existing clone from GitHub). Returns the local path.",
     parameters: obj({ repo: str('owner/name') }, ['repo']),
-    run: async (a) => github.clone(a.repo),
+    run: async (a, ctx) => {
+      // After outside content a page may be choosing the repo whose files a later command would run.
+      if (ctx?.turn?.tainted) await requireApproval(ctx, 'repo_change', `Clone ${a.repo} from GitHub`, `Download ${a.repo} into your repos folder.`, { taintAsks: true });
+      return github.clone(a.repo);
+    },
   },
   {
     name: 'github_start_branch',

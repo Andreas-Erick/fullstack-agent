@@ -5,11 +5,13 @@ const path = require('path');
 
 // Where a path really is on disk: a link or junction inside the root may point anywhere (security
 // review 2026-10-29: "link/secret.txt" in the vault read a file outside it). The nearest part that
-// exists is resolved (a file about to be written doesn't exist yet). If even that fails, the plain
-// check above stands.
+// exists is resolved (a file about to be written doesn't exist yet). A link counts as existing even when
+// what it names doesn't (lstat): a dangling link would otherwise read as missing and a write would follow
+// it out (security audit SEC-10), so one that can't be resolved is outside.
 function realInside(base, full) {
+  if (!present(base)) return true; // a root not made yet holds no links
   let probe = full;
-  while (!fs.existsSync(probe)) {
+  while (!present(probe)) {
     const up = path.dirname(probe);
     if (up === probe) return true;
     probe = up;
@@ -18,7 +20,16 @@ function realInside(base, full) {
     const relative = path.relative(fs.realpathSync.native(base), fs.realpathSync.native(probe));
     return !relative.startsWith('..') && !path.isAbsolute(relative);
   } catch {
+    return false;
+  }
+}
+
+function present(p) {
+  try {
+    fs.lstatSync(p);
     return true;
+  } catch {
+    return false;
   }
 }
 
