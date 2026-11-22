@@ -2,6 +2,7 @@
 // Registered in ../tools.js (TOOLS), which also filters them by group (activeTools).
 const codebase = require('../codebase');
 const selfchange = require('../selfchange');
+const log = require('../logger');
 const { arr, obj, str, int, bool, requireApproval } = require('./common');
 
 module.exports = [
@@ -96,10 +97,14 @@ module.exports = [
       'Finish a change to yourself: runs code_check and the tests, and records the change in your change history (so the user can review or revert it). Refuses the change while either fails. Call once when the feature/fix is complete and reviewed (code_diff), with a one-line summary of what changed and why. After the next reload/restart the app checks that the change started cleanly.',
     parameters: obj({ summary: str('One-line summary, e.g. "Add a weather widget to the chat header"') }, ['summary']),
     run: async (a, ctx) => {
-      const r = await selfchange.commit(a.summary, { source: 'agent' });
+      // Only what this turn's tools wrote: someone else's edits in the repo are never swept into the agent's
+      // change. A shell command ('*') could have changed anything, so then everything dirty counts.
+      const touched = selfchange.touchedIn(log.context().turn);
+      if (!touched.length) return { committed: false, note: 'No source files written by your tools in this turn, so there is nothing of yours to record.' };
+      const r = await selfchange.commit(a.summary, { source: 'agent', only: touched.includes('*') ? null : touched });
       if (r.ok && !r.nothing) ctx.emit({ type: 'self_changed', change: r });
       if (!r.ok) return { committed: false, error: 'Checks failed (syntax, integrity or tests) — fix the cause, not the check, and call self_change_commit again.', output: r.check.output };
-      return r.nothing ? { committed: false, note: 'No changes to record.' } : { committed: true, id: r.short, files: r.files, needs: r.restart ? 'app restart' : r.reload ? 'window reload' : 'nothing' };
+      return r.nothing ? { committed: false, note: 'No changes to record.' } : { committed: true, id: r.short, files: r.files, needs: r.restart ? 'app restart' : r.reload ? 'window reload' : 'nothing', ...(r.verifyPending === false ? { warning: 'The change was recorded but could not be marked for the check after it goes live; tell the user to watch for problems.' } : {}) };
     },
   },
   {

@@ -128,7 +128,7 @@ function isGlobeRequest(u, details) {
   let from = '';
   try {
     from = details.webContents?.getURL?.() || details.referrer || '';
-  } catch {}
+  } catch {} // a destroyed or unreadable page: from stays '', so the request counts as not the globe's (denied)
   return core.globeRequestAllowed({ url: u, resourceType: details.resourceType, from, appNav: globeNav === details.webContentsId });
 }
 

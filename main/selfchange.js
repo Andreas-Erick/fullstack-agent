@@ -7,6 +7,7 @@ const fsp = fs.promises;
 const path = require('path');
 const { app } = require('electron');
 const store = require('./store');
+const logger = require('./logger');
 
 const AUTHOR = ['-c', 'user.name=Siren Assistant', '-c', 'user.email=nexus-agent@localhost', '-c', 'core.autocrlf=false', '-c', 'commit.gpgsign=false'];
 const PREFIX = '[self-change]';
@@ -167,6 +168,17 @@ function touchedBy(tool, input = {}, rootDir) {
   return rel.split(path.sep).join('/');
 }
 
+// The files each running turn's tools wrote (turns.js notes them under the turn's log tag), so that
+// self_change_commit records only the agent's own edits, as the end-of-turn record does.
+const turnTouched = new Map();
+function noteTouched(turn, file) {
+  if (!turn || !file) return;
+  if (!turnTouched.has(turn)) turnTouched.set(turn, new Set());
+  turnTouched.get(turn).add(file);
+}
+const touchedIn = (turn) => [...(turnTouched.get(turn) || [])];
+const forgetTurn = (turn) => turnTouched.delete(turn);
+
 // `only`: commit just these files (repo-relative); without it, everything that is dirty.
 async function commit(summary, { source = 'agent', only = null } = {}) {
   let dirty = await dirtyFiles();
@@ -183,9 +195,13 @@ async function commit(summary, { source = 'agent', only = null } = {}) {
   const sha = (await git(['rev-parse', 'HEAD'])).trim();
   const files = dirty.map((d) => d.file);
   const change = { ok: true, sha, short: sha.slice(0, 7), subject, files, ...impact(files) };
-  logToVault(change).catch(() => {});
-  await markPending(change).catch(() => {});
-  return change;
+  logToVault(change).catch(() => {}); // the vault's change log is a convenience copy; git holds the record
+  // Without the marker the change is never checked after it goes live: say so instead of hiding it.
+  const verifyPending = await markPending(change).then(() => true, (error) => {
+    logger.warn('self-change not marked for checking', { short: change.short, error });
+    return false;
+  });
+  return { ...change, verifyPending };
 }
 
 // ------------------------------------------------ did the change start cleanly?
@@ -295,4 +311,4 @@ async function discard() {
   return status();
 }
 
-module.exports = { root, status, ensureRepo, dirtyFiles, fingerprint, check, runTests, diff, commit, touchedBy, log, show, revert, restore, discard, impact, lastVerification, verifyAfterLoad, run };
+module.exports = { root, status, ensureRepo, dirtyFiles, fingerprint, check, runTests, diff, commit, touchedBy, noteTouched, touchedIn, forgetTurn, log, show, revert, restore, discard, impact, lastVerification, verifyAfterLoad, run };

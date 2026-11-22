@@ -3,7 +3,7 @@
 What else is worth upgrading, found while fixing the 2.0.3 batch and adding the history replays. Each
 item says why it matters, what it would take, and a rough effort (S < 1 h, M ≈ half a day, L ≈ a day
 or more). Ordered by how much it matters day to day. The Inner World's own ideas stay in
-`ROADMAP-inner-world.md`, the phone's in `ROADMAP-mobile.md`; the October audit (`AUDIT-2026-10.md`)
+`ROADMAP-inner-world.md`, the phone's in `ROADMAP-mobile.md`; the October audit (`archive/AUDIT-2026-10.md`)
 is done and not repeated here.
 
 Pick an item, read `ENGINEERING.md`, and start; tick the box and note the version when it ships.

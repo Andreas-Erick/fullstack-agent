@@ -201,7 +201,10 @@ function create({ send = () => {}, toWindow = send } = {}) {
       if (ev.type === 'tool_start' && !conv.setup) {
         require('./innerworld').noteTool(ev.name);
         const t = selfchange.touchedBy(ev.name, ev.input, codeRoot);
-        if (t) touched.add(t);
+        if (t) {
+          touched.add(t);
+          selfchange.noteTouched(tagFor(requestId), t); // self_change_commit reads it under this turn's tag
+        }
       }
       if (ev.type === 'tool_start') {
         ran.set(ev.id, { name: ev.name, ok: null, input: ev.input });
@@ -285,6 +288,7 @@ function create({ send = () => {}, toWindow = send } = {}) {
         if (attempt) store.updateConversation(conv.id, (c) => redo.withAttempt(c, userMsg.id, attempt)).catch((e) => log.warn('could not record the failed attempt', { error: e }));
       } finally {
         active.delete(requestId);
+        selfchange.forgetTurn(tagFor(requestId));
         if (trackChanges) recordSelfChanges(before, text, [...touched]).catch((e) => log.warn('self-change tracking failed', { error: e }));
       }
     });
