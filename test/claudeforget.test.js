@@ -16,7 +16,7 @@ stub({
   './github': {},
   './logger': quietLog,
   './approvals': { gate: async () => ({ allow: true }), markTainted: () => {} },
-  './prompt': { build: async () => ({ stable: 'p', memIds: [] }), buildSetup: () => ({ stable: 'setup', memIds: [] }) },
+  './prompt': { build: async () => ({ stable: 'p', memIds: [] }), buildSetup: () => ({ stable: 'setup', memIds: [] }), turnContext: async () => '' },
   './tools': { activeTools: async () => [] },
   './codebase': { root: async () => process.cwd() },
   './obsidian': { vaultPath: async () => null },
@@ -197,7 +197,7 @@ const full = (extra = {}) => ({
   ...extra,
 });
 const quiet = { claudeCode: { ...CC, warmCache: false } }; // the session starts, no warm-up message
-const runOf = (settings, conv) => (history, extra = {}) => claudesession.runTurn(settings, { conv, history, active: [], model: 'sonnet', effort: 'default', buildContext: async () => '', emit() {}, signal: new AbortController().signal, ctx: {}, ...extra });
+const runOf = (settings, conv) => (history, extra = {}) => claudesession.runTurn(settings, { conv, history, active: [], model: 'sonnet', effort: 'default', emit() {}, signal: new AbortController().signal, ctx: {}, ...extra });
 
 // Regression: the warm-up's epoch was taken after the conversation was read, so a read that began before a
 // Regenerate's save and ended after its forget passed both checks with the withdrawn messages. The order is

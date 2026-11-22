@@ -11,7 +11,8 @@ const path = require('path');
 let sdk = null;
 const Anthropic = () => (sdk ||= require('@anthropic-ai/sdk'));
 const tools = require('./tools');
-const prompt = require('./prompt');
+// Which prompt builder a turn gets and the facts it is given (setup, Claude session, compact, full).
+const turnprompt = require('./turnprompt');
 const claudecode = require('./claudecode');
 // A conversation's Claude Code session: turn, warm-up, rollover, the fields it keeps (claudesession.js).
 const claudesession = require('./claudesession');
@@ -223,14 +224,12 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   const setup = Boolean(conv.setup);
   const active = setup || settings.llm.useTools ? await tools.activeTools(settings, { setup }) : [];
   const names = active.map((t) => t.name);
+  // What the prompt, pace, engineering, tool hints, recall and the log read of this turn (turnprompt.js):
+  // the user's own words, never a whole attached PDF.
+  const facts = turnprompt.facts({ conv, history, voice, routine, again });
+  const lastText = facts.query;
   // logTags: tool calls that arrive later through other channels (the MCP bridge, the Claude Code
   // process's output) are logged under this turn too.
-  // The user's own words: pace, engineering, tool hints, recall and the log never read a whole attached PDF.
-  const lastContent = String(history[history.length - 1]?.content || '');
-  const lastText = attachcore.withoutBlocks(lastContent);
-  const attached = attachcore.attachedChars(lastContent);
-  // The persona that wrote the latest reply (stored on it since 2.7.10): a switch mid-conversation is named.
-  const previousPersona = require('./personacore').lastPersona(history);
   // Spoken turns stay quick unless they actually start engineering work (upgraded in runTool).
   // A routine's own instructions ("fix the errors in…") are not a request for code work.
   const engineering = !setup && !voice && !routine && isEngineeringTask(lastText);
@@ -238,7 +237,7 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   const base = settings.llm.provider === 'claude-code' ? settings.claudeCode.effort : settings.llm.provider === 'anthropic' ? settings.anthropic.effort : 'default';
   // A routine's long instructions read as "deep" and ran on Opus; syncing lists and briefings is everyday
   // work (the normal model, Sonnet with Claude), unless the user set a model mode themselves.
-  const paced = routine && settings.llm?.autoPace !== false && (settings.llm?.modelMode || 'default') === 'default' ? { pace: 'routine', mode: 'normal', effort: base } : pace.plan(settings, { text: lastText, voice, setup, engineering, base, attached });
+  const paced = routine && settings.llm?.autoPace !== false && (settings.llm?.modelMode || 'default') === 'default' ? { pace: 'routine', mode: 'normal', effort: base } : pace.plan(settings, { text: lastText, voice, setup, engineering, base, attached: facts.attached });
   const ctx = { emit, turn: approvals.newTurn({ signal, userText: lastText }), signal, logTags: log.context(), budget: toolBudget(settings, engineering), effort: paced.effort, pace: paced.pace };
   // A routine works on its own (a sync can take many steps): the larger number of rounds, not code work's effort.
   if (routine) ctx.budget.rounds = ctx.budget.deep;
@@ -248,24 +247,25 @@ async function runOn(settings, { conv, history, emit, signal, voice = false, ima
   if (again?.taint) approvals.markTainted(ctx.turn, 'the earlier attempt at this message');
   ctx.imageNoun = imageNoun || 'the shared screen';
   const model = effectiveModel(settings, { voice, mode: paced.mode });
-  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', pace: paced.pace, effort: paced.effort, voice, setup, engineering: engineering || undefined, images: images.length || undefined, attachments: history[history.length - 1]?.attachments?.length || undefined, conversation: conv.id, chars: lastText.length });
+  log.info('turn', { provider: settings.llm.via || settings.llm.provider, model: model || 'default', pace: paced.pace, effort: paced.effort, voice, setup, engineering: engineering || undefined, images: images.length || undefined, attachments: facts.attachments || undefined, conversation: conv.id, chars: lastText.length });
   log.debug('turn text', { text: lastText.slice(0, 200) });
-  if (settings.llm.provider === 'claude-code') {
+  // Which prompt this brain gets and what it is given: turnprompt.js.
+  const brain = turnprompt.kind(settings, facts);
+  if (brain === 'claude-session') {
     // The conversation's session (claudesession.js): resume or fresh, the warm model (a routine never moves
-    // it), rollover, and the fields the conversation keeps (its convPatch).
-    const buildContext = setup ? async () => prompt.buildSetup(await require('./store').getSettings()).context : (memIds) => prompt.turnContext(settings, names, memIds || [], { query: lastText, previousPersona, spoken: voice, again: again?.note || '' });
-    return claudesession.runTurn(settings, { conv, history, active, model, effort: paced.effort, routine, buildContext, emit, signal, ctx, images });
+    // it), rollover, its prompt, and the fields the conversation keeps (its convPatch).
+    return claudesession.runTurn(settings, { conv, history, active, model, effort: paced.effort, routine, facts, emit, signal, ctx, images });
   }
   // A local model gets the compact prompt, the everyday tools and more on request (localturn.js).
-  if (!setup && localturn.wantsCompact(settings)) {
+  if (brain === 'compact') {
     const local = localturn.begin({ settings, conv, active, lastText, catalog: tools.TOOLS, handOverTo });
     ctx.localTurn = local; // tools_more and hand_over (tools/toolbox.js), and runOpenAI's hooks
-    const built = await prompt.buildCompact(settings, local.promptTools, { query: lastText, previousPersona, spoken: voice, again: again?.note || '' });
+    const built = await turnprompt.forBrain(settings, facts, brain, { tools: local.promptTools });
     log.info('compact prompt', { model: model || settings.llm.model, tools: local.tools.length, groups: local.groups.join(',') || undefined, chars: built.system.length });
     const { system, turnNote } = local.prompt(built);
     return local.finish(await runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active: local.tools, system, turnNote, ctx, images }));
   }
-  const { system, stable, context } = setup ? prompt.buildSetup(settings) : await prompt.build(settings, names, { query: lastText, previousPersona, spoken: voice, again: again?.note || '' });
+  const { system, stable, context } = await turnprompt.forBrain(settings, facts, brain, { tools: names });
   if (settings.llm.provider === 'anthropic') return runAnthropic({ settings: withModel(settings, 'anthropic', model), conv, history, emit, signal, active, system, stable, context, ctx, images });
   return runOpenAI({ settings: withModel(settings, 'llm', model), conv, history, emit, signal, active, system, ctx, images });
 }

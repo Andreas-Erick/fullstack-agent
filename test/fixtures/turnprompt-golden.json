@@ -1,0 +1,140 @@
+{
+ "full": {
+  "brain": "openai",
+  "got": {
+   "messages": [
+    "build|Siren|[\"memory_save\",\"memory_search\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":true,\"again\":\"Answer it again.\"}"
+   ]
+  }
+ },
+ "fullTyped": {
+  "brain": "openai",
+  "got": {
+   "messages": [
+    "build|Siren|[\"memory_save\",\"memory_search\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":false,\"again\":\"\"}"
+   ]
+  }
+ },
+ "compactLocal": {
+  "brain": "openai",
+  "got": {
+   "messages": [
+    "compact.stable|Siren|[\"memory_save\",\"memory_search\",\"tools_more\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":true,\"again\":\"Answer it again.\"}\n\nreminder",
+    "Notes for this message, from the app (not written by the user; use them, never mention them):\ncompact.context|Siren|[\"memory_save\",\"memory_search\",\"tools_more\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":true,\"again\":\"Answer it again.\"}"
+   ]
+  }
+ },
+ "compactLocalTyped": {
+  "brain": "openai",
+  "got": {
+   "messages": [
+    "compact.stable|Siren|[\"memory_save\",\"memory_search\",\"tools_more\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":false,\"again\":\"\"}\n\nreminder",
+    "Notes for this message, from the app (not written by the user; use them, never mention them):\ncompact.context|Siren|[\"memory_save\",\"memory_search\",\"tools_more\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":false,\"again\":\"\"}"
+   ]
+  }
+ },
+ "compactOnCloud": {
+  "brain": "openai",
+  "got": {
+   "messages": [
+    "compact|Siren|[\"memory_save\",\"memory_search\",\"tools_more\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":true,\"again\":\"Answer it again.\"}"
+   ]
+  }
+ },
+ "compactOnCloudTyped": {
+  "brain": "openai",
+  "got": {
+   "messages": [
+    "compact|Siren|[\"memory_save\",\"memory_search\",\"tools_more\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":false,\"again\":\"\"}"
+   ]
+  }
+ },
+ "setupOpenai": {
+  "brain": "openai",
+  "got": {
+   "messages": [
+    "setup|Siren"
+   ]
+  }
+ },
+ "setupOpenaiTyped": {
+  "brain": "openai",
+  "got": {
+   "messages": [
+    "setup|Siren"
+   ]
+  }
+ },
+ "anthropic": {
+  "brain": "anthropic",
+  "got": {
+   "system": [
+    "build.stable|Siren|[\"memory_save\",\"memory_search\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":true,\"again\":\"Answer it again.\"}",
+    "build.context|Siren|[\"memory_save\",\"memory_search\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":true,\"again\":\"Answer it again.\"}"
+   ]
+  }
+ },
+ "anthropicTyped": {
+  "brain": "anthropic",
+  "got": {
+   "system": [
+    "build.stable|Siren|[\"memory_save\",\"memory_search\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":false,\"again\":\"\"}",
+    "build.context|Siren|[\"memory_save\",\"memory_search\"]|{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":false,\"again\":\"\"}"
+   ]
+  }
+ },
+ "anthropicSetup": {
+  "brain": "anthropic",
+  "got": {
+   "system": [
+    "setup.stable|Siren",
+    "setup.context|Siren"
+   ]
+  }
+ },
+ "anthropicSetupTyped": {
+  "brain": "anthropic",
+  "got": {
+   "system": [
+    "setup.stable|Siren",
+    "setup.context|Siren"
+   ]
+  }
+ },
+ "claudeCode": {
+  "brain": "claude-code",
+  "got": {
+   "configKey": "persona",
+   "stable": "build.stable|Siren|[\"memory_save\",\"memory_search\"]|{\"forSession\":true}",
+   "context": "turnContext|Siren|[[\"memory_save\",\"memory_search\"],[\"m1\"],{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":true,\"again\":\"Answer it again.\"}]",
+   "contextNoIds": "turnContext|Siren|[[\"memory_save\",\"memory_search\"],[],{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":true,\"again\":\"Answer it again.\"}]"
+  }
+ },
+ "claudeCodeTyped": {
+  "brain": "claude-code",
+  "got": {
+   "configKey": "persona",
+   "stable": "build.stable|Siren|[\"memory_save\",\"memory_search\"]|{\"forSession\":true}",
+   "context": "turnContext|Siren|[[\"memory_save\",\"memory_search\"],[\"m1\"],{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":false,\"again\":\"\"}]",
+   "contextNoIds": "turnContext|Siren|[[\"memory_save\",\"memory_search\"],[],{\"query\":\"what does the file say about exams?\",\"previousPersona\":\"Vega\",\"spoken\":false,\"again\":\"\"}]"
+  }
+ },
+ "claudeCodeSetup": {
+  "brain": "claude-code",
+  "got": {
+   "configKey": "setup",
+   "stable": "setup.stable|Siren",
+   "context": "setup.context|Stored",
+   "contextNoIds": "setup.context|Stored"
+  }
+ },
+ "claudeCodeSetupTyped": {
+  "brain": "claude-code",
+  "got": {
+   "configKey": "setup",
+   "stable": "setup.stable|Siren",
+   "context": "setup.context|Stored",
+   "contextNoIds": "setup.context|Stored"
+  }
+ }
+}
