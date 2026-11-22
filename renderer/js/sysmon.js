@@ -82,7 +82,7 @@ function closePanel() {
 async function refreshExtras() {
   // What Nexus uses comes right away; Bluetooth (a PowerShell query) can take a few seconds.
   api.system.usage().then((u) => ((usage = u), renderIfOpen()), () => {});
-  const [b, n] = await Promise.all([api.system.bluetooth().catch(() => null), api.system.network().catch(() => null)]);
+  const [b, n] = await Promise.all([api.system.bluetooth().catch(() => null), api.system.network().catch(() => null)]); // a section that cannot be read shows as unavailable
   bt = b;
   if (n) net = n;
   renderIfOpen();

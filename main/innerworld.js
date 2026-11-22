@@ -7,6 +7,7 @@
 const path = require('path');
 const store = require('./store');
 const log = require('./logger');
+const { ignore } = require('./ignore');
 const obsidian = require('./obsidian');
 const stream = require('./stream');
 const core = require('./worldcore');
@@ -44,7 +45,7 @@ function updateState(change) {
     if ((await change(st)) !== false) await store.writeJsonAtomic(file(), st);
     return st;
   });
-  saving = run.catch(() => {});
+  saving = run.catch(() => {}); // the queue only orders the work; each caller gets its own error
   return run;
 }
 
@@ -272,7 +273,7 @@ async function track(places, date) {
 async function view({ track: tracking = true } = {}) {
   const settings = await store.getSettings();
   const st = await state();
-  const vault = Boolean(await obsidian.vaultPath().catch(() => null));
+  const vault = Boolean(await obsidian.vaultPath().catch(() => null)); // no vault: null
   const { counts, details } = await gather(st, settings);
   const places = core.places(counts);
   const residents = await residentsNow(settings);
@@ -347,7 +348,7 @@ async function recordRehearsal(entry) {
 async function check() {
   const settings = await store.getSettings();
   if (!settings.innerWorld?.enabled || new Date().getHours() < WAKE_HOUR) return;
-  if (!(await obsidian.vaultPath().catch(() => null))) return;
+  if (!(await obsidian.vaultPath().catch(() => null))) return; // no vault: null
   const st = await state();
   if (st.days.some((d) => d.date === today())) return;
   await simulate().catch((err) => log.warn('inner world day failed', { error: err }));
@@ -356,10 +357,10 @@ async function check() {
 function start(opts = {}) {
   notify = opts.notify || notify;
   clearInterval(timer);
-  timer = setInterval(() => check().catch(() => {}), CHECK_EVERY_MS);
+  timer = setInterval(() => check().catch(ignore('Inner World daily check failed (tried again next time)')), CHECK_EVERY_MS);
   timer.unref?.();
   // A little after launch, so the first day never competes with the app's start.
-  setTimeout(() => check().catch(() => {}), 90000).unref?.();
+  setTimeout(() => check().catch(ignore('Inner World daily check failed (tried again next time)')), 90000).unref?.();
 }
 
 module.exports = { start, simulate, view, resident, status, recordRehearsal, progress, noteTool, residentStream, CHRONICLE };

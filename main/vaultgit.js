@@ -83,12 +83,12 @@ async function maintain(root, now = Date.now()) {
 }
 
 async function flushAll() {
-  await Promise.all([...pendingMsgs.keys()].map((r) => flush(r).catch(() => {})));
+  await Promise.all([...pendingMsgs.keys()].map((r) => flush(r).catch((e) => log.warn('note history not saved', { error: e }))));
 }
 
 async function history(root, rel, limit = 30) {
   if (!fs.existsSync(path.join(root, '.git'))) return [];
-  await flush(root).catch(() => {});
+  await flush(root).catch((e) => log.warn('note history not saved', { error: e }));
   const out = await git(root, ['log', `-n${limit}`, '--follow', '--pretty=format:%H%x1f%ct%x1f%s', '--', rel]).catch(() => '');
   return out
     .split('\n')

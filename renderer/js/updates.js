@@ -1,6 +1,6 @@
 // New versions (main/updates.js): the title-bar pill "Update 2.1.0" while a newer release is out and not
 // skipped; a click shows what's new, with the download (opens in the browser), Skip and Later.
-import { $, api, el, modal, toast, toastError, renderMarkdown } from './util.js';
+import { $, api, el, modal, toast, toastError, renderMarkdown, ignore } from './util.js';
 
 let current = null;
 
@@ -11,7 +11,7 @@ export function initUpdates() {
     render(st);
     if (fresh) toast(`✨ Siren ${st.version} is available. Click “Update” in the title bar.`);
   });
-  api.updates.status().then(render).catch(() => {});
+  api.updates.status().then(render).catch(ignore('update status not read'));
 }
 
 function render(st) {

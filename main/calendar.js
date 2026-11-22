@@ -68,7 +68,7 @@ async function entries() {
 }
 
 function change(fn) {
-  const next = queue.catch(() => {}).then(fn);
+  const next = queue.catch(() => {}).then(fn); // the queue only orders the work; each caller gets its own error
   queue = next;
   return next;
 }
@@ -180,7 +180,7 @@ async function promptBlock() {
 
 // Google Calendar sign-ins from before 1.3: their token file is no longer used.
 function removeLegacy() {
-  return store.setSecretBlob('google-tokens', null).catch(() => {});
+  return store.setSecretBlob('google-tokens', null).catch((err) => log.warn('old Google sign-in not removed', { error: err }));
 }
 
 module.exports = { status, events, entries, add, update, remove, promptBlock, fmtEvent, removeLegacy, FILE };

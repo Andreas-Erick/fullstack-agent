@@ -1,5 +1,5 @@
 // Chat view: the open conversation (History's list is history.js), streaming messages, tool-call chips, voice integration.
-import { $, api, el, renderMarkdown, toast, toastActions, toastError, confirmDialog, promptDialog, on, emit, plainError, dialogOpen } from './util.js';
+import { $, api, el, renderMarkdown, toast, toastActions, toastError, confirmDialog, promptDialog, on, emit, plainError, dialogOpen, ignore } from './util.js';
 import * as redo from './redocore.mjs';
 import { createChat } from './turnstate.js';
 import { switchView, currentView } from './nav.js';
@@ -195,7 +195,7 @@ function emptyStateNode() {
 export async function openConversation(id, { at = null, card = false, quiet = false } = {}) {
   if (chat.own) return toast('Wait for the current reply to finish (or press stop).');
   const seq = ++openSeq;
-  const conv = await api.conv.get(id).catch(() => null);
+  const conv = await api.conv.get(id).catch(() => null); // gone or unreadable: handled as null below
   if (seq !== openSeq || chat.own) return; // a newer open, New chat, or a message sent meanwhile wins
   if (!conv) {
     if (quiet) return newChat(); // launch: the latest chat is gone, start fresh as before
@@ -216,7 +216,7 @@ export async function openConversation(id, { at = null, card = false, quiet = fa
   updateEarlierButton();
   box.scrollTop = box.scrollHeight;
   drawList(); // this one's row marked open
-  api.llm.prewarm(conv.id).catch(() => {});
+  api.llm.prewarm(conv.id).catch(ignore('chat not prewarmed'));
   syncActions();
   const revealed = at && revealMessage(at);
   // The Face layout's card shows one thing: the message asked for (History), else a recent failure,
@@ -493,7 +493,7 @@ function onNoteLink(e) {
 }
 
 async function openNoteLink(ref) {
-  const n = await api.obsidian.read(ref).catch(() => null);
+  const n = await api.obsidian.read(ref).catch(() => null); // no such note: handled as null below
   if (!n) {
     toast(`No note called “${ref}” in your vault yet.`);
     return searchVault(ref);
@@ -597,7 +597,7 @@ function refusedSend(message, requestId, wrap, { keepWrap = false } = {}) {
 }
 
 function stop() {
-  if (chat.own) api.chat.abort(chat.own.requestId).catch(() => {});
+  if (chat.own) api.chat.abort(chat.own.requestId).catch((err) => logEvent('warn', 'stop not delivered', { error: String(err?.message || err) }));
   replySpeech.stop();
 }
 
@@ -727,7 +727,7 @@ function handleEvent(ev) {
       // A switch by voice: the new persona greets the user in its own voice, after the reply.
       if (t.greeting) {
         const greeting = t.greeting;
-        loadSettings().then(() => replySpeech.follow(greeting)).catch(() => {});
+        loadSettings().then(() => replySpeech.follow(greeting)).catch(() => {}); // the greeting is optional
       }
       finish(t);
       if (!replySpeech.active()) celebrate();

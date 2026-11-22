@@ -36,7 +36,7 @@ function order(settings) {
 // Can this provider be used at all (signed in / has a key)? Not about limits.
 async function configured(settings, id) {
   if (id === 'claude-code' && Date.now() - claudeStatus.at > 60000) {
-    const st = await require('./claudecode').status().catch(() => null);
+    const st = await require('./claudecode').status().catch(() => null); // status unknown: Claude counts as not ready
     claudeStatus = { at: Date.now(), st };
   }
   return brains.configured(settings, id, { claude: claudeStatus.st });

@@ -83,7 +83,7 @@ async function installBundled() {
   let changed = false;
   for (const f of names) {
     const src = path.join(BUNDLED, f);
-    const text = await fsp.readFile(src, 'utf8').catch(() => null);
+    const text = await fsp.readFile(src, 'utf8').catch(() => null); // a shipped skill that cannot be read is skipped
     if (text === null) continue;
     const h = hashOf(text);
     if (seen[f] === h) continue;
@@ -93,7 +93,7 @@ async function installBundled() {
       await fsp.copyFile(src, target, fs.constants.COPYFILE_EXCL).catch(() => {}); // never over a user's own skill
     } else {
       // Removed or edited by the user, it is theirs: only a copy that is still what was placed is replaced.
-      const current = await fsp.readFile(target, 'utf8').catch(() => null);
+      const current = await fsp.readFile(target, 'utf8').catch(() => null); // no copy placed yet
       const placed = seen[f] ? [seen[f]] : SHIPPED[f] || [];
       const untouched = current !== null && placed.includes(hashOf(current));
       if (untouched && !(await fsp.copyFile(src, target).then(() => true, () => false))) continue; // tried again at the next start
@@ -113,7 +113,7 @@ async function list() {
       if (e.isFile() && e.name.endsWith('.md')) return parse(await fsp.readFile(path.join(dir(), e.name), 'utf8').catch(() => ''), e.name.slice(0, -3));
       if (!e.isDirectory() || e.name.startsWith('.')) return null;
       const folder = path.join(dir(), e.name);
-      const text = await fsp.readFile(path.join(folder, 'SKILL.md'), 'utf8').catch(() => null);
+      const text = await fsp.readFile(path.join(folder, 'SKILL.md'), 'utf8').catch(() => null); // a folder without SKILL.md is not a skill
       if (text === null) return null;
       const source = await store.readJson(path.join(folder, '.source.json'), null);
       return { ...parse(text, e.name), folder: true, files: await companionFiles(folder), source: source?.repo || '' };

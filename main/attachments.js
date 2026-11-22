@@ -52,7 +52,7 @@ function extract(bytes, kind, { timeoutMs = LIMITS.extractMs, workerPath = WORKE
       settled = true;
       clearTimeout(timer);
       clearInterval(watch);
-      worker.terminate().catch(() => {});
+      worker.terminate().catch(() => {}); // the worker already exited: nothing left to end
       if (why || error) log.warn('text extraction failed', error ? { kind, error } : { kind, why });
       resolve(value);
     };

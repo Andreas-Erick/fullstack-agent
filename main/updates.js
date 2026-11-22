@@ -7,6 +7,7 @@ const path = require('path');
 const { app, net } = require('electron');
 const store = require('./store');
 const log = require('./logger');
+const { ignore } = require('./ignore');
 const core = require('./updatecore');
 
 const REPO = 'Andreas-Erick/fullstack-agent'; // package.json build.publish
@@ -64,7 +65,7 @@ async function check({ manual = false } = {}) {
       last = { ...prev, checkedAt: Date.now(), error: err.message };
       log.warn('update check failed', { error: err });
     }
-    await store.writeJsonAtomic(file(), last).catch(() => {});
+    await store.writeJsonAtomic(file(), last).catch(ignore('update cache not written'));
     const st = await status();
     notify(st);
     return st;
@@ -88,7 +89,7 @@ async function forDevices() {
   const l = await saved();
   // A phone asks rarely (it connects, or the look changed): an answer older than a few hours is refreshed
   // in the background; the check's notify tells devices (info.changed), and their next ask gets it.
-  if (Date.now() - (l.checkedAt || 0) >= DEVICE_FRESH_MS && !checking) check().catch(() => {});
+  if (Date.now() - (l.checkedAt || 0) >= DEVICE_FRESH_MS && !checking) check().catch(ignore('update check failed'));
   return l.latest?.android ? { version: l.latest.version, android: l.latest.android, wear: l.latest.wear || null, page: l.latest.page } : null;
 }
 
@@ -98,8 +99,8 @@ function start(opts = {}) {
   const due = async () => {
     if (needsCheck(await saved(), app.getVersion())) await check();
   };
-  setTimeout(() => due().catch(() => {}), FIRST_CHECK_MS).unref?.();
-  timer = setInterval(() => due().catch(() => {}), 60 * 60 * 1000);
+  setTimeout(() => due().catch(ignore('update check failed')), FIRST_CHECK_MS).unref?.();
+  timer = setInterval(() => due().catch(ignore('update check failed')), 60 * 60 * 1000);
   timer.unref?.();
 }
 

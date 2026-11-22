@@ -191,7 +191,7 @@ class Speaker {
     // the filler would hold the voice ahead of the reply's first sentence). It resumes like warmStep's
     // wait or stop: when the speaker goes quiet (pump) or the reply or recording is over (chat.js finish).
     if (!kept && (!want.idle() || state.transcribing || this.busy || this.mainVoiceAway())) return void (this.warming = false);
-    const buf = kept || (await this.synthesize(todo[0], undefined, this.gen, { quiet: true }).catch(() => null));
+    const buf = kept || (await this.synthesize(todo[0], undefined, this.gen, { quiet: true }).catch(() => null)); // a failure waits for the next quiet moment (below)
     // The system voice ('system') is instant anyway; a failure or a stop waits for the next quiet moment.
     if (!buf || typeof buf !== 'object') return void (this.warming = false);
     if (this.fillers.size > 80) this.fillers.clear(); // a few voices' worth

@@ -85,7 +85,7 @@ export function createModelHost({
       key = k;
       loaded = false;
       promise = new Promise((resolve, reject) => (settle = { resolve, reject }));
-      promise.catch(() => {});
+      promise.catch(() => {}); // callers await promise themselves; this keeps an unawaited failure from being unhandled
       w.onmessage = (e) => worker === w && onMessage(e.data);
       w.onerror = (e) => worker === w && host.fail(e?.message || failText);
       onStart(w);
@@ -138,7 +138,7 @@ export function createModelHost({
       if (!retryAfterMs) return void (promise = null);
       cooling = true;
       promise = Promise.reject(new Error(reason));
-      promise.catch(() => {});
+      promise.catch(() => {}); // callers await promise themselves; this keeps an unawaited failure from being unhandled
       clock.setTimeout(() => {
         cooling = false;
         if (!worker) promise = null;

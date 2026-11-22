@@ -105,7 +105,7 @@ export async function refresh() {
   }
 
   // How the last self-change started up once it went live (checked by the app after a restart/reload).
-  const v = await api.self.verification().catch(() => null);
+  const v = await api.self.verification().catch(() => null); // no verification yet
   if (mine !== refreshGen) return;
   if (v?.state === 'problems') {
     box.append(

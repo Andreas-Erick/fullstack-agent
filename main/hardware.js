@@ -136,7 +136,7 @@ async function scan({ webgpu = null } = {}) {
     gpus: await gpus().catch(() => []),
   };
   if (!hw.gpus.length) {
-    const info = await app.getGPUInfo('basic').catch(() => null);
+    const info = await app.getGPUInfo('basic').catch(() => null); // no GPU info: the scan says unknown
     hw.gpus = (info?.gpuDevice || []).map((d) => ({ name: `GPU ${d.vendorId?.toString(16)}:${d.deviceId?.toString(16)}`, vramGB: null, vendor: { 0x10de: 'NVIDIA', 0x1002: 'AMD', 0x8086: 'Intel', 0x106b: 'Apple' }[d.vendorId] || '', unified: d.vendorId === 0x106b }));
   }
   hw.webgpu = webgpu;

@@ -43,7 +43,7 @@ module.exports = [
     parameters: obj({ hours: int('How far back (default 24)') }),
     run: async (a) => {
       const groups = require('../errorinsight').fromLog({ sinceMs: (Number(a.hours) || 24) * 3600000, limit: 20 });
-      const lastChange = await selfchange.lastVerification().catch(() => null);
+      const lastChange = await selfchange.lastVerification().catch(() => null); // no recorded change
       return { problems: groups.length ? groups : 'No warnings or errors in that period.', lastSelfChange: lastChange ? { change: lastChange.short, subject: lastChange.subject, state: lastChange.state, problems: lastChange.problems?.length } : 'none recorded' };
     },
   },

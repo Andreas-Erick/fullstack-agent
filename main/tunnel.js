@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const log = require('./logger');
+const { ignore } = require('./ignore');
 
 const QUICK_URL = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
 const CANDIDATES = ['C:\\Program Files (x86)\\cloudflared\\cloudflared.exe', 'C:\\Program Files\\cloudflared\\cloudflared.exe', '/usr/local/bin/cloudflared', '/opt/homebrew/bin/cloudflared', '/usr/bin/cloudflared'];
@@ -209,7 +210,7 @@ async function setupTailscaleServe(port) {
     const timer = setTimeout(() => (proc.kill(), finish(1)), 30000);
   });
   log.info('tailscale serve setup', { port: p, ok: Boolean(result.ok), needsHttps: Boolean(result.enableUrl), error: result.error ? result.error.slice(0, 200) : undefined });
-  if (result.ok && state.mode === 'tailscale') verify().catch(() => {});
+  if (result.ok && state.mode === 'tailscale') verify().catch(ignore('secure address check failed'));
   return result;
 }
 
@@ -219,7 +220,7 @@ const RECHECK_MS = 5 * 60000;
 let recheck = null;
 function watchAddress() {
   clearInterval(recheck);
-  recheck = setInterval(() => verify({ quiet: true }).catch(() => {}), RECHECK_MS);
+  recheck = setInterval(() => verify({ quiet: true }).catch(ignore('secure address re-check failed')), RECHECK_MS);
   recheck.unref?.();
 }
 

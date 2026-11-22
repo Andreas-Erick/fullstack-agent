@@ -68,7 +68,7 @@ async function resolveAllowed(p, { fromUser = false } = {}) {
     const ws = await workspace();
     const vault = await obsidian.vaultPath();
     const inWs = ws && path.join(ws, full);
-    if (inWs && (await fsp.stat(inWs).catch(() => null))) full = inWs;
+    if (inWs && (await fsp.stat(inWs).catch(() => null))) full = inWs; // not in the workspace: the path is used as given
     else if (vault) full = path.join(vault, full);
     else if (ws) full = inWs;
   }
@@ -212,7 +212,7 @@ async function findDocuments(query, { limit = 8 } = {}) {
   const searched = [];
   const hits = new Map();
   for (const root of roots) {
-    if (!(await fsp.stat(root).catch(() => null))?.isDirectory()) continue;
+    if (!(await fsp.stat(root).catch(() => null))?.isDirectory()) continue; // a folder that is gone is skipped
     const isWs = root === ws;
     const complete = await walk(root, (file) => {
       const ext = path.extname(file).toLowerCase();
@@ -227,7 +227,7 @@ async function findDocuments(query, { limit = 8 } = {}) {
   const ranked = [...hits.values()].sort((a, b) => b.score - a.score).slice(0, limit);
   const matches = await Promise.all(
     ranked.map(async (h) => {
-      const st = await fsp.stat(h.path).catch(() => null);
+      const st = await fsp.stat(h.path).catch(() => null); // gone or unreadable: left out of the list
       return { path: h.path, name: path.basename(h.path), modified: st ? new Date(st.mtimeMs).toISOString().slice(0, 10) : undefined, inWorkspace: h.inWorkspace || undefined };
     }),
   );

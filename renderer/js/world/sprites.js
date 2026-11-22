@@ -31,7 +31,7 @@ export function loadSprites() {
     );
     manifest = m;
     return true;
-  })().catch(() => false);
+  })().catch(() => false); // no art: the village draws itself in code
   return pending;
 }
 
