@@ -39,7 +39,7 @@ export async function switchedAway(path, persona = renderedPersona) {
   const active = state.settings.personas?.active;
   if (!(await staleNow(path, persona, active, async () => (await api.settings.get())?.personas?.active))) return false;
   toast(PERSONA_CHANGED, 'error');
-  if (!stale(path, persona, active)) loadSettings().catch(() => {});
+  if (!stale(path, persona, active)) loadSettings().catch(() => {}); // a failed reload keeps the drawn settings
   return true;
 }
 

@@ -48,7 +48,7 @@ export function initHistory(handlers) {
  *  resolves to the index. */
 export async function refreshList() {
   // A failed read keeps the last list (never "No conversations yet.") and says so, with Try again.
-  const list = await api.conv.list().catch(() => null);
+  const list = await api.conv.list().catch(() => null); // handled below: the last list stays, with Try again
   loadFailed = !Array.isArray(list);
   if (!loadFailed) conversations = list;
   drawList();

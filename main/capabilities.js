@@ -112,7 +112,7 @@ function match(task, inv) {
 async function inventory(settings) {
   const [skills, cc, ext] = await Promise.all([
     require('./skills').list().catch(() => []),
-    require('./claudecode').cachedConnectors().catch(() => null),
+    require('./claudecode').cachedConnectors().catch(() => null), // no cached connector list: no connector suggestions
     require('./extensions').status(settings).catch(() => []),
   ]);
   const p = settings.llm?.provider;

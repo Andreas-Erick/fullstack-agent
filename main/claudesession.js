@@ -48,7 +48,7 @@ async function options(settings, active, model, facts = null) {
   let repos = null;
   if (names.includes('github_clone')) {
     repos = await github.workspace();
-    await fsp.mkdir(repos, { recursive: true }).catch(() => {});
+    await fsp.mkdir(repos, { recursive: true }).catch(() => {}); // github_clone reports a folder it cannot create itself
   }
   return {
     settings,

@@ -41,7 +41,7 @@ export function initRemote() {
 
 async function refreshDevices() {
   if (!state.settings?.remote?.enabled) return;
-  const st = await api.remote.status().catch(() => null);
+  const st = await api.remote.status().catch(() => null); // status unknown: nothing to update
   if (!st) return;
   tunnel = st.tunnel;
   serverError = st.error || '';
@@ -86,7 +86,7 @@ async function handleSpeak({ id, text }) {
     await api.remote.spoken(id, await offlineVoiceWav(text), null);
   } catch (err) {
     logEvent('warn', 'remote speech failed', err?.message || String(err));
-    await api.remote.spoken(id, null, err?.message || 'The offline voice failed').catch(() => {});
+    await api.remote.spoken(id, null, err?.message || 'The offline voice failed').catch(() => {}); // the phone gives up waiting by itself
   }
 }
 
@@ -96,6 +96,6 @@ async function handleTranscribe({ id, wav }) {
     await api.remote.transcribed(id, text, null);
   } catch (err) {
     logEvent('warn', 'remote transcription failed', err?.message || String(err));
-    await api.remote.transcribed(id, '', err?.message || 'Speech-to-text failed').catch(() => {});
+    await api.remote.transcribed(id, '', err?.message || 'Speech-to-text failed').catch(() => {}); // the phone gives up waiting by itself
   }
 }

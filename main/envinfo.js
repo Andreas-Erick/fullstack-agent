@@ -25,7 +25,7 @@ function voiceLine(v = {}) {
 
 async function environment() {
   const s = await store.getSettings();
-  const [commit, changed, gpu] = await Promise.all([git(['rev-parse', '--short', 'HEAD']), git(['status', '--porcelain']), app.getGPUInfo('basic').catch(() => null)]);
+  const [commit, changed, gpu] = await Promise.all([git(['rev-parse', '--short', 'HEAD']), git(['status', '--porcelain']), app.getGPUInfo('basic').catch(() => null)]); // no GPU info: the snapshot says unknown
   return {
     app: app.getVersion(),
     electron: process.versions.electron,

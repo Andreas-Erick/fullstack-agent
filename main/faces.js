@@ -22,11 +22,11 @@ async function placeBundled(d) {
   for (const e of await fsp.readdir(BUNDLED, { withFileTypes: true }).catch(() => [])) {
     if (!e.isDirectory()) continue;
     const src = path.join(BUNDLED, e.name);
-    const text = await fsp.readFile(path.join(src, 'index.html'), 'utf8').catch(() => null);
+    const text = await fsp.readFile(path.join(src, 'index.html'), 'utf8').catch(() => null); // a shipped face without index.html is skipped
     if (text === null) continue;
     const h = hashOf(text);
     const target = path.join(d, e.name);
-    const current = await fsp.readFile(path.join(target, 'index.html'), 'utf8').catch(() => null);
+    const current = await fsp.readFile(path.join(target, 'index.html'), 'utf8').catch(() => null); // no copy placed yet
     if (!(e.name in seen)) {
       if (current === null) await fsp.cp(src, target, { recursive: true });
     } else if (seen[e.name] === h) continue;

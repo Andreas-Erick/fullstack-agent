@@ -285,7 +285,7 @@ async function painting(fn) {
   const frames = (async () => {
     while (on && !win.isDestroyed()) {
       win.webContents.invalidate();
-      await win.webContents.capturePage().catch(() => null);
+      await win.webContents.capturePage().catch(() => null); // a frame missed while the window closes
       await new Promise((r) => setTimeout(r, 30));
     }
   })();

@@ -163,7 +163,7 @@ const SETUP_TOOLS = [
         voice.ping().catch(() => ({ ok: false })),
         voice.voices().catch(() => []),
         obsidian.knownVaults().catch(() => []),
-        obsidian.vaultPath().catch(() => null),
+        obsidian.vaultPath().catch(() => null), // no vault: null
         require('./faces').list().catch(() => []),
       ]);
       return {
@@ -199,7 +199,7 @@ const SETUP_TOOLS = [
       if (a.setting === 'obsidian.vaultPath' && /^(default|own|)$/i.test(String(value ?? '').trim())) value = '';
       if (a.setting === 'documents.workspace' && value) {
         value = require('path').resolve(String(value).replace(/^~(?=$|[/\\])/, require('os').homedir()));
-        const st = await require('fs').promises.stat(value).catch(() => null);
+        const st = await require('fs').promises.stat(value).catch(() => null); // no such path
         if (!st?.isDirectory()) throw new Error(`There is no folder at ${value}. Ask the user for the exact path, or to pick it in Settings → Documents.`);
       }
       if (a.setting === 'ui.face' && !FACES.includes(value) && !String(value).startsWith('custom:')) throw new Error(`Unknown face. Use one of: ${FACES.join(', ')}`);
@@ -338,7 +338,7 @@ const NATIVE_IN_CLAUDE_CODE = ['code', 'selfmod', 'web'];
 async function activeTools(settings, { setup = false } = {}) {
   if (setup) return TOOLS.filter((t) => t.group === 'setup' || SETUP_EXTRA.includes(t.name));
   const gh = settings.github?.enabled !== false ? await github.status().catch(() => ({})) : {};
-  const vault = await obsidian.vaultPath().catch(() => null);
+  const vault = await obsidian.vaultPath().catch(() => null); // no vault: null
   const viaClaudeCode = settings.llm.provider === 'claude-code';
   return TOOLS.filter((t) => {
     // tools_more only exists for the compact prompt, which adds it itself (llm.js runOn).

@@ -22,7 +22,7 @@ let deps = null;
 // routine is being deleted or switched off can't put back the old list.
 let queue = Promise.resolve();
 function change(fn) {
-  const next = queue.catch(() => {}).then(fn);
+  const next = queue.catch(() => {}).then(fn); // the queue only orders the work; each caller gets its own error
   queue = next;
   return next;
 }
@@ -55,8 +55,8 @@ async function list() {
   const raw = await store.readJson(file(), [], {
     onCorrupt: async (err) => {
       const kept = path.join(store.dataDir(), `routines.corrupt-${Date.now()}.json`);
-      await require('fs').promises.copyFile(file(), kept).catch(() => {});
-      await store.writeJsonAtomic(file(), []).catch(() => {});
+      await require('fs').promises.copyFile(file(), kept).catch((e) => log.warn('damaged routines file not kept', { error: e }));
+      await store.writeJsonAtomic(file(), []).catch((e) => log.warn('routines file not reset', { error: e }));
       log.error('routines file unreadable', { error: err, kept });
       deps?.notify({ type: 'finished', name: 'Routines', ok: false, summary: `Your routines file was damaged; a copy is kept at ${kept}.` });
       return [];
@@ -181,7 +181,7 @@ async function runNow(id, { reason = 'request', signal = null } = {}) {
   } catch (err) {
     // deps.run never rejects (main.js resolves every outcome), but if it or a write does, the record
     // mustn't say 'running' until the next launch.
-    await update(id, { lastStatus: 'error', lastSummary: String(err?.message || err).slice(0, 400) }).catch(() => {});
+    await update(id, { lastStatus: 'error', lastSummary: String(err?.message || err).slice(0, 400) }).catch((e) => log.warn('routine status not saved', { error: e }));
     throw err;
   } finally {
     busy = false;

@@ -14,6 +14,7 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const log = require('./logger');
+const { ignore } = require('./ignore');
 
 const APPS = {
   voicestudio: {
@@ -174,7 +175,7 @@ function onUnreachable(id, err, settings = lastSettings) {
   if (offHere() || !settings || cfg(settings).autoStart === false || !APPS[id]?.needed(settings)) return false; // false: llm.js doesn't say "Starting it now"
   if (!/ECONNREFUSED|fetch failed|unreachable|ECONNRESET|socket hang up/i.test(`${err?.message || ''} ${err?.cause?.code || ''}`)) return false;
   if (starting.has(id) || Date.now() - state[id].lastStart < RETRY_AFTER_MS) return false;
-  start(id, settings, { reason: 'needed' }).catch(() => {});
+  start(id, settings, { reason: 'needed' }).catch(ignore('helper app restart failed'));
   return true;
 }
 

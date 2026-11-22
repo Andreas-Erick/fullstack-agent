@@ -170,7 +170,7 @@ function effectiveModel(settings, { voice = false, mode: forced } = {}) {
 // The names of the user's connectors ("TickTick"…), when the Claude brain may use them.
 async function connectorNames(settings) {
   if (!settings.claudeCode?.connectors) return [];
-  const cached = await claudecode.cachedConnectors().catch(() => null);
+  const cached = await claudecode.cachedConnectors().catch(() => null); // no cached connector list
   return (cached?.list || []).filter((c) => c.source === 'connector').map((c) => c.name.replace(/^claude\.ai\s+/i, '').replace(/[®™]/g, '').trim()).filter(Boolean);
 }
 

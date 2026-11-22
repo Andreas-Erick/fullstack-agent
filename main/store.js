@@ -333,6 +333,8 @@ function deepMerge(base, patch) {
 // A JSON parse error's message can quote the file's first characters (a conversation's words): the log
 // gets its kind and position, never that quote.
 const parseFailure = (err) => ({ name: err?.name, message: String(err?.message || err).replace(/".*"/s, '"…"') });
+// A file system failure without the folders its message quotes: the log names files by basename only.
+const fsFailure = (err) => ({ code: err?.code, message: String(err?.message || err).replace(/'[^']*'/g, "'…'") });
 
 // A missing file gives the fallback. A file that exists but can't be parsed also gives the
 // fallback, unless onCorrupt is passed (then it decides), and it is reported, never silently lost.
@@ -365,7 +367,7 @@ function writeJsonAtomic(file, data) {
 
 /** The same for text (vault notes): queued per file, temp file + rename, retried while Windows locks it. */
 function writeTextAtomic(file, text) {
-  const next = (writeQueues.get(file) || Promise.resolve()).catch(() => {}).then(() => writeNow(file, String(text)));
+  const next = (writeQueues.get(file) || Promise.resolve()).catch(() => {}).then(() => writeNow(file, String(text))); // the queue only orders the work; each caller gets its own error
   writeQueues.set(file, next);
   next.then(
     () => writeQueues.get(file) === next && writeQueues.delete(file),
@@ -377,7 +379,7 @@ function writeTextAtomic(file, text) {
 /** Reads and rewrites a file inside its write queue (fn returns the new text, or null to leave it); true if written. */
 function updateInQueue(file, fn) {
   let wrote = false;
-  const next = (writeQueues.get(file) || Promise.resolve()).catch(() => {}).then(async () => {
+  const next = (writeQueues.get(file) || Promise.resolve()).catch(() => {}).then(async () => { // the queue only orders the work; each caller gets its own error
     const text = await fn();
     if (text == null) return;
     await writeNow(file, String(text));
@@ -399,7 +401,7 @@ async function writeNow(file, text) {
       return;
     } catch (err) {
       if (attempt >= 6 || !['EPERM', 'EBUSY', 'EACCES'].includes(err.code)) {
-        await fsp.rm(tmp, { force: true }).catch(() => {});
+        await fsp.rm(tmp, { force: true }).catch(() => {}); // the write's own error goes to the caller; a stray temp file is swept at start
         throw err;
       }
       await new Promise((r) => setTimeout(r, 40 * 2 ** attempt));
@@ -413,8 +415,8 @@ async function sweepStaleTemp() {
     const names = await fsp.readdir(dir).catch(() => []);
     for (const name of names.filter((n) => n.endsWith('.tmp'))) {
       const file = path.join(dir, name);
-      const st = await fsp.stat(file).catch(() => null);
-      if (st && Date.now() - st.mtimeMs > 3600000) await fsp.rm(file, { force: true }).catch(() => {});
+      const st = await fsp.stat(file).catch(() => null); // gone meanwhile
+      if (st && Date.now() - st.mtimeMs > 3600000) await fsp.rm(file, { force: true }).catch(() => {}); // swept again at the next start
     }
   }
 }
@@ -434,12 +436,12 @@ let settingsRecovered = null; // set when the settings file was damaged (restore
 async function restoreFromBackup(err) {
   const file = settingsFile();
   const kept = path.join(dataDir(), `settings.corrupt-${Date.now()}.json`);
-  await fsp.copyFile(file, kept).catch(() => {});
+  await fsp.copyFile(file, kept).catch((e) => log.warn('damaged settings not kept', { kept: path.basename(kept), error: fsFailure(e) }));
   const saved = await readJson(path.join(dataDir(), 'settings.backup.json'), null, { onCorrupt: () => null });
   const good = isPlainObject(saved) ? saved : null; // a backup of the wrong shape is no good copy either
   settingsRecovered = { error: err.message, kept, restored: Boolean(good) };
   log.warn('settings file damaged', { restored: Boolean(good), kept: path.basename(kept), error: parseFailure(err) });
-  if (good) await writeJsonAtomic(file, good).catch(() => {});
+  if (good) await writeJsonAtomic(file, good).catch((e) => log.warn('settings not restored from backup', { error: fsFailure(e) }));
   return good || {};
 }
 
@@ -522,7 +524,7 @@ async function getSettings() {
   setSealing(merged.privacy?.encryptConversations !== false);
   // Only a copy that loaded without any repair becomes the last good one: after a restore the backup already
   // is that copy, and a file with a damaged section is never one.
-  if (Object.keys(raw).length && !settingsRecovered) await writeJsonAtomic(path.join(dataDir(), 'settings.backup.json'), raw).catch(() => {});
+  if (Object.keys(raw).length && !settingsRecovered) await writeJsonAtomic(path.join(dataDir(), 'settings.backup.json'), raw).catch((e) => log.warn('settings backup not written', { error: fsFailure(e) }));
   return merged;
 }
 
@@ -557,7 +559,7 @@ const PERSONA_CHANGED = 'PERSONA_CHANGED';
 
 function setSettings(patch, opts) {
   const run = saving.then(() => applySettings(patch, opts));
-  saving = run.catch(() => {});
+  saving = run.catch(() => {}); // the queue only orders the work; each caller gets its own error
   return run;
 }
 
@@ -626,7 +628,7 @@ function resetSettings() {
     tellListeners(settings, { ...settings });
     return { settings, kept: moved };
   });
-  saving = run.catch(() => {});
+  saving = run.catch(() => {}); // the queue only orders the work; each caller gets its own error
   return run;
 }
 
@@ -796,7 +798,7 @@ function loadIndex() {
 function saveIndexSoon() {
   clearTimeout(indexTimer);
   indexTimer = setTimeout(() => {
-    if (convIndex) writeConvFile(path.join(convDir(), INDEX), { version: INDEX_VERSION, items: [...convIndex.values()] }).catch(() => {});
+    if (convIndex) writeConvFile(path.join(convDir(), INDEX), { version: INDEX_VERSION, items: [...convIndex.values()] }).catch((e) => log.warn('conversation index not saved', { error: fsFailure(e) }));
   }, 500);
   indexTimer.unref?.();
 }

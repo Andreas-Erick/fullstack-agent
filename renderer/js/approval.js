@@ -241,7 +241,7 @@ function toBase64(bytes) {
 
 function answer(allow, reason, remember) {
   if (!current) return;
-  api.approval.respond(current.id, allow, reason || '', remember).catch(() => {});
+  api.approval.respond(current.id, allow, reason || '', remember).catch((err) => logEvent('warn', 'approval answer not delivered', { error: String(err?.message || err) }));
   close(allow, reason);
 }
 
