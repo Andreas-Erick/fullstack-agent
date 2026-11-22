@@ -804,13 +804,13 @@ async function route(req, res) {
     return transcribe(req, res, device);
   }
   if (req.method === 'GET' && p === '/api/conversations') {
-    const list = (await store.listConversations()).filter((c) => !c.setup);
+    const list = (await store.listConversations()).filter(projections.reachesDevices);
     return json(res, 200, list.map(({ id, title, updatedAt, createdAt }) => ({ id, title, updatedAt, createdAt })));
   }
   let m = /^\/api\/conversations\/([\w-]+)$/.exec(p);
   if (req.method === 'GET' && m) {
     const conv = await store.getConversation(m[1]).catch(() => null); // 'index' throws (store.js safeConvId)
-    if (!conv || conv.setup) return fail(res, 404, 'Conversation not found');
+    if (!conv || !projections.reachesDevices(conv)) return fail(res, 404, 'Conversation not found');
     // running: replies still being written here (the device follows them; one missing from it has ended).
     return json(res, 200, { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, messages: projections.messagesFor('device', conv.messages), running: running.in(conv.id) });
   }
@@ -989,11 +989,14 @@ async function chat(req, res, device) {
   if (text.length > 20000) return fail(res, 413, 'Message too long');
   if (!underLimit('turn', device.id, TURNS_PER_MIN)) return fail(res, 429, 'Too many messages; wait a minute');
   const convId = body.conversationId == null || body.conversationId === '' ? null : bodyText(body.conversationId);
+  // turns.start refuses a missing or setup conversation for a device as well; asked here first so the
+  // device gets its own status (400/404/403) before a request id is handed out, not a failed turn.
+  // The setup rule is projections.reachesDevices, the same one the conversation routes ask.
   if (convId !== null) {
     if (!/^[\w-]+$/.test(convId)) return fail(res, 400, 'Invalid conversation id');
     const conv = await store.getConversation(convId).catch(() => null); // 'index' throws (store.js safeConvId)
     if (!conv) return fail(res, 404, 'Conversation not found');
-    if (conv.setup) return fail(res, 403, 'The setup conversation can only be used on the desktop');
+    if (!projections.reachesDevices(conv)) return fail(res, 403, 'The setup conversation can only be used on the desktop');
   }
   const requestId = `r${Date.now()}${crypto.randomBytes(3).toString('hex')}`;
   turnOwners.set(requestId, device.id);
