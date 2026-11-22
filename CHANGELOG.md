@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Architecture review: deeper modules** (one owner for each rule that had spread across files):
+  - Settings the assistant saves now take effect like the Settings view's: switching brains by chat clears the old router cooldowns, and a helper app found during setup starts at once (`settingseffects.js`, one table behind every save).
+  - Outside content has one owner: `turnguard.js` decides what taints a turn (both brains and Try again), keeps the raw fact apart from the taint guard setting, and guards the writes later turns trust (`guardWrite`).
+  - Persona saves: main answers whether a Settings change was saved or dropped (no extra check per keystroke), the persona field list exists once for main and the window, and tools save for the persona that was active when asked (`persona.forActive`).
+  - One module (`turnprompt.js`) picks the prompt for every brain (setup, Claude session, local compact, full) and reads the turn's facts once. What each brain is sent is unchanged (a golden test holds it).
+  - Voice: the offline voice, the voice detector and speech-to-text share one model host (load once, idle unload, restart on a hang), and the chat speaks replies through one interface. Fixes: a transcription is never unloaded mid-way for idleness, and an old idle timer no longer unloads a newly loaded model.
+  - The performance rules live in one shared module (`perfcore.mjs`) instead of two copies kept in step by a test, and the phone server asks one rule (`projections.reachesDevices`) for which conversations it may show.
 - **Security fixes from an audit**:
   - Claude sessions no longer run `git diff`, `git log` or `npm test` with arbitrary flags without asking. Only the exact checks run on their own; every other command asks.
   - A link inside a cloned repository, or a dangling link in the vault, can no longer lead a write or a read outside it. The assistant's git commands no longer run a repository's own hooks.
