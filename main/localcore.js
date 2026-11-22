@@ -116,6 +116,7 @@ const TOOLBOX = {
 };
 
 // Words that make a group's need obvious, so it is there from the first round (it only ever adds).
+/** @type {Array<[string, RegExp]>} */
 const HINTS = [
   ['learning', /\b(flash ?cards?|decks?|vocab\w*|study|studying|quiz|learn(ing)?|lernen|karteikarten)\b/i],
   ['routines', /\b(routines?|automatically|every (morning|evening|night|day|week|weekday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|each (morning|evening|day|week))\b/i],

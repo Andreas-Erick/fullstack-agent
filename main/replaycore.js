@@ -15,6 +15,8 @@ const MAX_FILES_PER_COMMIT = 400;
  * ("{a => b}/c", "a => b"); the new name is kept and the old one is reported as removed.
  * Returns commits in the order given: { sha, at (ms), author, subject, kind, files: [{ path, status,
  * added, removed }] }, at most MAX_COMMITS, newest kept.
+ * @param {string} text
+ * @param {{ kinds?: (subject: string, author?: string) => string }} [opts]
  */
 function parseLog(text, { kinds = classifyApp } = {}) {
   const commits = [];
@@ -86,6 +88,7 @@ const cleanSubject = (s) => String(s || '').replace(SELF, '').trim().slice(0, 12
  */
 function vaultMap(paths, { lines = {}, links = {} } = {}) {
   const notes = [...new Set(paths)].filter((p) => /\.md$/i.test(p) && !/^\.obsidian\//.test(p) && !/(^|\/)\.trash\//.test(p)).sort();
+  /** @type {Array<Record<string, any>>} the container, then folders and notes (they carry different fields) */
   const nodes = [{ id: 'c:vault', level: 'container', kind: 'system', kindLabel: 'Vault', name: 'Your vault', tech: 'Markdown notes', about: 'Every note in the vault, folder by folder. Zoom in to open a folder; the replay shows when each note appeared.', tone: 'c1', row: 0, anchor: true, parent: null }];
   const folders = new Map();
   const TONES = ['c1', 'c2', 'c3', 'ok', 'warn'];
