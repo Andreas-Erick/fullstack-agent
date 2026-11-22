@@ -624,6 +624,7 @@ body.fx-hud .view.active.materialize { animation: hud-in 0.18s cubic-bezier(0.2,
 :is(.fx-hud, .fx-subtle) .evo-item .dot { position: relative; z-index: 1; }
 :is(.fx-hud, .fx-subtle) .evo-item:first-child .dot::after { content: ''; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid rgb(var(--c1)); }
 .fx-hud .evo-item:first-child .dot::after { animation: hud-ping 2s ease-out infinite; }
+@keyframes hud-ping { from { transform: scale(0.7); opacity: 0.9; } to { transform: scale(1.9); opacity: 0; } }
 :is(.fx-hud, .fx-subtle) .evo-item .m { font-family: var(--hud-mono); font-size: 10.5px; letter-spacing: 0.06em; }
 
 /* ---------------------------------------------------------------- docs: awaiting input */

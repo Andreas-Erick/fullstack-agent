@@ -113,15 +113,15 @@ function show(req) {
   card.style.cssText = '';
   card.append(
     el('h3', {}, `⚠ ${KIND_LABEL[req.kind] || 'Permission'} — approval needed`),
-    el('div', { style: { fontSize: '16px' } }, `${state.settings.agent.name} wants to: `, el('b', {}, req.title)),
+    el('div', { class: 'approval-what' }, `${state.settings.agent.name} wants to: `, el('b', {}, req.title)),
     req.tainted ? el('div', { class: 'evo-banner' }, `This turn read external content (${(req.sources || []).join(', ') || 'web/documents'}). Make sure this request is what you asked for — not something a web page, a document or a message in one of your services told the agent to do.`) : '',
     req.detail ? el('pre', { class: 'diff', style: { maxHeight: '260px', whiteSpace: 'pre-wrap', padding: '10px 12px' } }, req.detail) : '',
-    el('div', { class: 'muted', style: { fontSize: '12px' } }, approvalHint(req, { pttKey: state.settings?.stt?.pttKey, handsFree: state.settings?.stt?.micMode === 'open' }), countdown),
+    el('div', { class: 'muted approval-hint' }, approvalHint(req, { pttKey: state.settings?.stt?.pttKey, handsFree: state.settings?.stt?.micMode === 'open' }), countdown),
     // "From now on" (connectors): approves and sets that service's level; changeable in Settings → AI brain.
     req.remember?.length
       ? el('div', { class: 'approval-remember' }, el('span', { class: 'hint' }, 'Approve, and don’t ask again:'), ...req.remember.map((c) => el('button', { class: 'chip-btn', title: 'Changeable any time in Settings → AI brain', onclick: () => answer(true, '', c.level) }, c.label)))
       : '',
-    el('div', { class: 'modal-actions' }, el('button', { class: 'btn danger', onclick: () => answer(false, 'The user clicked Deny.') }, 'Deny'), el('button', { class: 'btn primary', onclick: () => answer(true) }, 'Approve')),
+    el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => answer(false, 'The user clicked Deny.') }, 'Deny'), el('button', { class: 'btn primary', onclick: () => answer(true) }, 'Approve')),
   );
   wrap.classList.remove('hidden');
   current.release = holdFocus(wrap, card, { role: 'alertdialog', initial: card });
@@ -143,7 +143,7 @@ function showSecret(req) {
     if (!v) return input.focus();
     answer(true, v);
   };
-  input.addEventListener('keydown', (e) => e.key === 'Enter' && submit());
+  input.addEventListener('keydown', (e) => e.key === 'Enter' && !e.isComposing && submit());
   card.innerHTML = '';
   card.className = 'modal-card glass';
   card.style.cssText = '';

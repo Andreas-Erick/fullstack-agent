@@ -34,7 +34,7 @@ export function showUpdate(st) {
       st.notes ? el('div', { class: 'update-notes', html: renderMarkdown(st.notes) }) : '',
       el(
         'div',
-        { class: 'row', style: { justifyContent: 'flex-end', marginTop: '14px', flexWrap: 'wrap' } },
+        { class: 'modal-actions' },
         el('button', { class: 'btn', onclick: () => close(null) }, 'Later'),
         el('button', { class: 'btn', onclick: () => api.updates.skip(st.version).then((s) => (render(s), close(false)), toastError) }, 'Skip this version'),
         st.page ? el('button', { class: 'btn', onclick: () => open(st.page) }, 'Release page') : '',

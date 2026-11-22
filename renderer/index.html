@@ -47,20 +47,20 @@
           <button class="pill aw-pill" id="pillAgentWin" title="Open the agent window: websites and the globe, which the agent can use and you can watch" aria-label="Agent window">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18" /></svg>
           </button>
-          <button class="pill sys-pill hidden" id="pillSys" title="CPU, memory and GPU load"></button>
+          <button type="button" class="pill sys-pill hidden" id="pillSys" title="CPU, memory and GPU load" aria-expanded="false" aria-controls="sysPanel"></button>
         </div>
-        <span class="pill usage-pill hidden" id="pillUsage" title="Claude plan usage"><b class="usage-bar"><b></b></b><span>Claude</span></span>
+        <button type="button" class="pill usage-pill hidden" id="pillUsage" title="Claude plan usage"><b class="usage-bar"><b></b></b><span>Claude</span></button>
         <div class="tb-group tb-systems">
-          <span class="pill" id="pillLlm" title="AI brain"><i></i>Brain</span>
-          <span class="pill" id="pillVoice" title="VoiceStudio"><i></i>Voice</span>
-          <span class="pill" id="pillCal" title="Calendar"><i></i>Calendar</span>
-          <span class="pill" id="pillKb" title="Obsidian vault"><i></i>Vault</span>
+          <button type="button" class="pill" id="pillLlm" title="AI brain"><i></i>Brain</button>
+          <button type="button" class="pill" id="pillVoice" title="VoiceStudio"><i></i>Voice</button>
+          <button type="button" class="pill" id="pillCal" title="Calendar"><i></i>Calendar</button>
+          <button type="button" class="pill" id="pillKb" title="Obsidian vault"><i></i>Vault</button>
         </div>
       </div>
     </header>
 
     <!-- System monitor details (renderer/js/sysmon.js), opened from the title-bar meter -->
-    <div class="sys-panel hidden" id="sysPanel"></div>
+    <div class="sys-panel hidden" id="sysPanel" role="region" aria-label="System monitor details"></div>
 
     <div class="shell">
       <nav class="rail" id="rail" aria-label="Views">
