@@ -3,21 +3,8 @@
 // always the active persona: everything else in the app keeps reading them. This module keeps the
 // saved list in step with them and builds the settings patch for a switch. Pure (no Electron, no I/O).
 
-// [settings section, settings key, persona field]
-const FIELDS = [
-  ['agent', 'name', 'name'],
-  ['agent', 'personality', 'personality'],
-  ['agent', 'aesthetic', 'aesthetic'],
-  ['agent', 'avatar', 'avatar'],
-  ['agent', 'personaSummary', 'personaSummary'],
-  ['appearance', 'theme', 'theme'],
-  ['appearance', 'personaNotes', 'personaNotes'],
-  ['appearance', 'greeting', 'greeting'],
-  ['appearance', 'scene', 'scene'],
-  ['ui', 'face', 'face'],
-  ['voice', 'voice', 'voice'],
-  ['voice', 'localVoice', 'localVoice'],
-];
+// [settings section, settings key, persona field]: one list for main and the window (renderer/js/personafields.mjs).
+const { FIELDS } = require('../renderer/js/personafields.mjs');
 const REPLACE = FIELDS.map(([section, key]) => [section, key]);
 const MAX_PERSONAS = 24;
 const FIRST_ID = 'p-main'; // the persona an install already had before personas existed

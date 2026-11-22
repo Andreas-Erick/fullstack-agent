@@ -176,6 +176,27 @@ test('a value typed for one persona while a switch waits in the queue is refused
   await store.setSettings({ agent: { personality: expected[now].personality }, ui: { zoom: store.DEFAULTS.ui.zoom } });
 });
 
+test('persona.forActive: the persona taken when asked, whatever is switched to before the save', async () => {
+  const [from, to] = [ids[0], ids[2]];
+  await persona.activate(from);
+  const target = persona.forActive(await store.getSettings()); // a tool reads the settings, then waits
+  assert.strictEqual(target.id, from);
+  await persona.activate(to);
+  await assert.rejects(target.save({ appearance: { greeting: 'late hello' } }), (err) => err.code === store.PERSONA_CHANGED && /^Not saved: the persona changed meanwhile/.test(err.message));
+  const r = await target.trySave({ appearance: { greeting: 'late hello' } });
+  assert.deepStrictEqual([r.saved, r.dropped, r.settings.personas.active], [false, true, to]);
+  assert.match(r.reason, /^Not saved: the persona changed meanwhile .*so nothing was changed\.$/, 'the store’s one wording');
+  const s = await store.getSettings();
+  assert.deepStrictEqual(s.personas.list.filter((x) => x.greeting === 'late hello'), [], 'in no persona');
+  // Back on it, the same target saves (a function patch too), into that persona only.
+  await persona.activate(from);
+  const ok = await target.trySave(() => ({ appearance: { greeting: 'on time' } }));
+  assert.deepStrictEqual([ok.saved, ok.dropped], [true, false]);
+  assert.strictEqual(entry(await store.getSettings(), from).greeting, 'on time');
+  await target.save({ appearance: { greeting: expected[from].greeting } });
+  for (const id of ids) assert.deepStrictEqual(canon(entry(await store.getSettings(), id)), expected[id], id);
+});
+
 test('a switch touches only the persona: the brain, voice engine, remote access, vault and the rest stay', async () => {
   await store.setSettings({ llm: { provider: 'local', autoPace: false }, voice: { engine: 'cloud', ttsEnabled: true, fallback: 'system' }, remote: { enabled: true, shareData: false }, ui: { zoom: 1.25, fx: 'subtle', sleepAfterMin: 7 }, calendar: { enabled: true }, memory: { stream: true } });
   const strip = (s) => {
