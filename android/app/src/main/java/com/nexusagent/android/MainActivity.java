@@ -49,6 +49,15 @@ import java.security.SecureRandom;
  */
 public class MainActivity extends Activity {
     static final String ACTION_TALK = "com.nexusagent.android.TALK";
+    static final String EXTRA_TALK_KEY = "com.nexusagent.android.TALK_KEY";
+
+    /** The push-to-talk intent this app's own senders use (with the per-install key, Prefs.talkSecret). */
+    static Intent talkIntent(android.content.Context c) {
+        return new Intent(c, MainActivity.class)
+                .setAction(ACTION_TALK)
+                .putExtra(EXTRA_TALK_KEY, Prefs.talkSecret(c))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    }
     private static final int REQ_MIC = 1;
     private static final int REQ_NOTIFY = 2;
     /** The link in the desktop's pairing QR code: address + #pair=one-time secret. */
@@ -616,7 +625,9 @@ public class MainActivity extends Activity {
             // Already connected to that computer: just open the app (pairing again would add a second device).
             if (Prefs.token(this) != null && Prefs.toOrigin(m.group(1)) != null && Prefs.toOrigin(m.group(1)).equals(origin)) return;
             showSetup(null, link.trim());
-        } else if (ACTION_TALK.equals(intent.getAction())) {
+        } else if (ACTION_TALK.equals(intent.getAction()) && Prefs.isTalkSecret(this, intent.getStringExtra(EXTRA_TALK_KEY))) {
+            // Only this app's own Talk tile and shortcut know the key: another app's explicit intent can't
+            // start the microphone.
             runJs("window.nexusTalk && nexusTalk()");
         }
     }

@@ -423,13 +423,18 @@ function infoChanged() {
 // or results; no internal events; no paths in error and notice text). The window keeps the full events.
 
 // expiresIn: seconds left, so a device that connects later shows the right countdown.
-// Approvals only the computer may answer: the assistant changing its own code, and a connected service
-// set to run without asking. Devices see them (so the user knows why the reply waits), without buttons.
-const DESKTOP_ONLY = new Set(['self_modify', 'connector_trust']);
+// The approvals a paired device may answer: changes the user can judge from a phone's card and undo.
+// Everything else, and any kind added later, is answered only on the computer: running a command,
+// changing its own code, where keys are sent (endpoint), more access, publishing to GitHub, cloning a
+// voice, a connected service set to run without asking. A phone or watch in someone else's hand (or a
+// token seen on the LAN) can't say yes to those, and a long command can't hide behind a short card.
+// Devices still see them (so the user knows why the reply waits), without buttons.
+const DEVICE_OK = new Set(['settings', 'delete', 'calendar', 'invite', 'voice', 'repo_change', 'browser', 'connector', 'web_outbound']);
+const desktopOnly = (kind) => !DEVICE_OK.has(kind);
 
 function approvalForDevice(a) {
   const { at, ...rest } = a;
-  return { ...rest, desktopOnly: DESKTOP_ONLY.has(a.kind), expiresIn: Math.max(0, Math.round((a.timeoutSec || 0) - (Date.now() - at) / 1000)) };
+  return { ...rest, desktopOnly: desktopOnly(a.kind), expiresIn: Math.max(0, Math.round((a.timeoutSec || 0) - (Date.now() - at) / 1000)) };
 }
 
 // ------------------------------------------------------------- requests
@@ -826,7 +831,7 @@ async function route(req, res) {
     const body = await readBody(req).catch((e) => e);
     if (body instanceof Error) return fail(res, body.status || 400, body.message);
     if (!openApprovals.has(m[1])) return fail(res, 404, 'No open approval with that id');
-    if (DESKTOP_ONLY.has(openApprovals.get(m[1]).kind)) return fail(res, 403, 'Answer this one on your computer.');
+    if (desktopOnly(openApprovals.get(m[1]).kind)) return fail(res, 403, 'Answer this one on your computer.');
     openApprovals.delete(m[1]);
     const allow = body.allow === true;
     log.info('remote approval', { device: device.name, allow });

@@ -180,3 +180,14 @@ export const TAP_MS = 400;
 export function releasePlan({ heldMs, starting = false } = {}) {
   return starting || !(Number(heldMs) >= TAP_MS) ? 'toggle' : 'send';
 }
+
+// Rendered Markdown (replies, notes) is content, not part of the page, as on the desktop (renderer/js/util.js
+// MD_PURIFY): no styles, forms, form controls, frames or dialogs, and every id/name gets DOMPurify's
+// "user-content-" prefix (SANITIZE_NAMED_PROPS), so a reply can never stand in for the page's own elements
+// (a hidden <textarea id="input"> would otherwise be what Send reads). Formulas are MathML, kept.
+export const PHONE_PURIFY = Object.freeze({
+  ADD_ATTR: ['target'],
+  FORBID_TAGS: ['style', 'form', 'input', 'img', 'button', 'textarea', 'select', 'option', 'optgroup', 'dialog', 'template', 'iframe', 'frame', 'object', 'embed', 'link', 'meta', 'base'],
+  FORBID_ATTR: ['style', 'action', 'formaction', 'form', 'for'],
+  SANITIZE_NAMED_PROPS: true,
+});

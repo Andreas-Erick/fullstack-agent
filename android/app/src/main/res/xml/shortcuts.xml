@@ -9,7 +9,7 @@
         android:shortcutShortLabel="@string/shortcut_talk">
         <intent
             android:action="com.nexusagent.android.TALK"
-            android:targetClass="com.nexusagent.android.MainActivity"
+            android:targetClass="com.nexusagent.android.TalkActivity"
             android:targetPackage="com.nexusagent.android" />
     </shortcut>
 </shortcuts>

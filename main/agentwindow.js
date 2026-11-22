@@ -69,6 +69,9 @@ function agentActing() {
 // is the page's own navigation. `asking`: a question still open, which open() waits for.
 let navAsk = null;
 let asking = null;
+// The webContents id whose load open() pointed at the globe's server (core.globeRequestAllowed's appNav):
+// set by open(), cleared when that load commits or fails. A page's own navigation there is refused.
+let globeNav = null;
 function asked(question) {
   const q = Promise.resolve().then(question); // a question that throws cancels the request, never leaves it hanging
   asking = q;
@@ -119,16 +122,14 @@ function prepareSession() {
   });
 }
 
-// The globe's own server, for the globe's own pages (and the window opening it), not for any site:
-// a public page could otherwise send requests to that local server.
+// The globe's own server, for the globe's own pages and the app's own loads of it (open()), not for any
+// site: a public page could otherwise send requests to that local server or navigate the window there.
 function isGlobeRequest(u, details) {
-  if (!(['localhost', '127.0.0.1'].includes(u.hostname) && Number(u.port) === core.GLOBE_PORT)) return false;
-  if (details.resourceType === 'mainFrame') return true;
   let from = '';
   try {
     from = details.webContents?.getURL?.() || details.referrer || '';
   } catch {}
-  return /^http:\/\/(localhost|127\.0\.0\.1):4173(\/|$)/.test(from);
+  return core.globeRequestAllowed({ url: u, resourceType: details.resourceType, from, appNav: globeNav === details.webContentsId });
 }
 
 // What a name resolves to, through the window's own session (its resolver and host cache, the ones its
@@ -191,6 +192,9 @@ function create() {
     if (!c.ok) {
       e.preventDefault();
       say(c.reason);
+    } else if (c.globe && !core.globeRequestAllowed({ url: c.url, resourceType: 'mainFrame', from: wc.getURL(), appNav: globeNav === wc.id })) {
+      e.preventDefault(); // a website sending the window to the globe's local server
+      say('A website can’t open the globe’s local server. Ask for the globe instead.');
     }
   };
   wc.on('will-navigate', guardNav);
@@ -205,6 +209,9 @@ function create() {
   for (const ev of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'did-navigate-in-page', 'page-title-updated']) wc.on(ev, pushState);
   // The agent's load committed or stopped (a declined redirect too): its redirects have all been asked.
   for (const ev of ['did-navigate', 'did-stop-loading']) wc.on(ev, () => navAsk?.wc === wc.id && (navAsk = null));
+  // The app's own globe load committed or failed: from now on only the globe page itself reaches its server.
+  wc.on('did-navigate', () => globeNav === wc.id && (globeNav = null));
+  wc.on('did-fail-load', (_e, _code, _desc, _url, isMain) => isMain && globeNav === wc.id && (globeNav = null));
   wc.on('did-fail-load', (_e, code, desc, url, isMain) => isMain && code !== -3 && say(`Couldn't load ${url}: ${desc}`));
   wc.on('render-process-gone', (_e, details) => {
     log.warn('agent window page crashed', details);
@@ -264,6 +271,7 @@ async function open(raw, { byAgent = true, monitor, position, focus = false, bef
   if (byAgent) agentActing();
   const wc = view.webContents;
   navAsk = byAgent && !c.globe && beforeRedirect ? { wc: wc.id, ask: beforeRedirect } : null;
+  globeNav = c.globe ? wc.id : null; // this load may go to the globe's server, until it commits or fails
   if (c.globe && core.onlyHashDiffers(wc.getURL(), c.url)) {
     await wc.executeJavaScript(`location.replace(${JSON.stringify(c.url)}); location.reload();`).catch(() => wc.loadURL(c.url));
   } else {

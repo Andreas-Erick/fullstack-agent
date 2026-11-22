@@ -162,3 +162,36 @@ test('Android: the microphone and notifications refused for good lead to the app
   assert.match(app, /bridge\('openAppSettings', 'notifications'\)/);
   assert.match(app, /window\.nexusBackgroundChanged = \(on, blocked = false\)/, 'an older app calls it with one argument');
 });
+
+test('Android: only the app’s own Talk tile and shortcut can start push-to-talk (SEC-08)', () => {
+  const dir = 'android/app/src/main/java/com/nexusagent/android/';
+  const main = read(dir + 'MainActivity.java');
+  // MainActivity is exported (launcher, share, pairing link): a TALK intent needs the per-install key.
+  assert.match(main, /else if \(ACTION_TALK\.equals\(intent\.getAction\(\)\) && Prefs\.isTalkSecret\(this, intent\.getStringExtra\(EXTRA_TALK_KEY\)\)\) \{/);
+  assert.strictEqual((main.match(/ACTION_TALK\.equals\(/g) || []).length, 1, 'no other way in');
+  assert.match(main, /\.putExtra\(EXTRA_TALK_KEY, Prefs\.talkSecret\(c\)\)/);
+  const prefs = read(dir + 'Prefs.java');
+  assert.match(prefs, /new java\.security\.SecureRandom\(\)\.nextBytes\(b\)/, 'a random key per install');
+  assert.match(prefs, /MessageDigest\.isEqual\(/, 'compared in constant time');
+  assert.match(read(dir + 'TalkTileService.java'), /Intent i = MainActivity\.talkIntent\(this\);/);
+  assert.match(read(dir + 'TalkActivity.java'), /startActivity\(MainActivity\.talkIntent\(this\)\);/);
+  // The static shortcut can't carry a secret: it goes through TalkActivity, which other apps can't start.
+  assert.match(read('android/app/src/main/res/xml/shortcuts.xml'), /android:targetClass="com\.nexusagent\.android\.TalkActivity"/);
+  const manifest = read('android/app/src/main/AndroidManifest.xml');
+  assert.match(manifest, /android:name="\.TalkActivity"[^>]*android:exported="false"/);
+  assert.doesNotMatch(manifest, /com\.nexusagent\.android\.TALK/, 'no intent filter advertises TALK');
+});
+
+test('phone Markdown can never stand in for the page’s own elements (SEC-03)', async () => {
+  const { PHONE_PURIFY } = await client();
+  // As strict as the desktop's MD_PURIFY: no form controls, frames or dialogs, ids prefixed.
+  for (const tag of ['textarea', 'select', 'option', 'button', 'input', 'form', 'iframe', 'dialog', 'template', 'style', 'object', 'embed', 'base']) assert.ok(PHONE_PURIFY.FORBID_TAGS.includes(tag), tag);
+  for (const attr of ['style', 'for', 'form', 'formaction', 'action']) assert.ok(PHONE_PURIFY.FORBID_ATTR.includes(attr), attr);
+  assert.strictEqual(PHONE_PURIFY.SANITIZE_NAMED_PROPS, true, 'ids and names get the user-content- prefix');
+  assert.ok(Object.isFrozen(PHONE_PURIFY));
+  const app = read('renderer/remote/app.js');
+  assert.match(app, /window\.DOMPurify\.sanitize\(html, \{ \.\.\.PHONE_PURIFY \}\)/, 'markdown() uses the profile');
+  // The message box is taken once, before anything is drawn; Send never looks it up again.
+  assert.match(app, /^const inputEl = document\.getElementById\('input'\);$/m);
+  assert.doesNotMatch(app, /\$\('#input'\)|querySelector\('#input'\)/, 'no lookup of #input after load');
+});
