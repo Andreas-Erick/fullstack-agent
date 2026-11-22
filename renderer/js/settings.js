@@ -426,6 +426,7 @@ function agentCard() {
   setPreview();
   const pick = el('button', {
     class: 'btn',
+    style: { alignSelf: 'flex-end' }, // level with the name's input, not its label
     onclick: async () => {
       const persona = renderedPersona; // the picker can stay open while the persona changes elsewhere
       const dataUrl = await api.dialog.pickImage();
@@ -434,7 +435,7 @@ function agentCard() {
       setPreview();
     },
   }, 'Choose image…');
-  const clear = el('button', { class: 'btn', onclick: async () => (await save('agent.avatar', null), setPreview()) }, 'Remove');
+  const clear = el('button', { class: 'btn', style: { alignSelf: 'flex-end' }, onclick: async () => (await save('agent.avatar', null), setPreview()) }, 'Remove');
 
   const out = result();
   const gen = el('button', {
@@ -579,8 +580,8 @@ function sceneRow() {
       }
     },
   }, scene ? '↻ Draw the scene again' : '✨ Draw the scene');
-  const remove = scene ? el('button', { class: 'btn', onclick: () => saveFromClick({ appearance: { scene: null } }, 'appearance.scene', renderedPersona) }, 'Remove') : '';
-  return field('Scene behind the face', el('div', {}, el('div', { class: 'row' }, el('span', { class: 'hint' }, scene ? `“${scene.caption || 'A scene'}” · ${Math.round(scene.svg.length / 1024)} KB${scene.portrait ? ` wide + ${Math.round(scene.portrait.length / 1024)} KB tall` : ' (wide only: narrow panels crop it)'}` : 'None yet: a drawing of the place the persona lives in, in the theme’s colors.'), draw, remove), out), 'Drawn by the AI from the persona and aesthetic, wide and tall (for the chat’s face panel); its layers drift slowly and it dims while the face sleeps.');
+  const remove = scene ? el('button', { class: 'btn danger', style: { marginLeft: '4px' }, onclick: () => saveFromClick({ appearance: { scene: null } }, 'appearance.scene', renderedPersona, ['Remove the scene?', 'The drawing behind the face goes. You can draw a new one any time.', 'Remove']) }, 'Remove') : '';
+  return field('Scene behind the face', el('div', {}, el('div', { class: 'row' }, el('span', { class: 'hint', style: { flex: '1 1 220px', minWidth: 0 } }, scene ? `“${scene.caption || 'A scene'}” · ${Math.round(scene.svg.length / 1024)} KB${scene.portrait ? ` wide + ${Math.round(scene.portrait.length / 1024)} KB tall` : ' (wide only: narrow panels crop it)'}` : 'None yet: a drawing of the place the persona lives in, in the theme’s colors.'), draw, remove), out), 'Drawn by the AI from the persona and aesthetic, wide and tall (for the chat’s face panel); its layers drift slowly and it dims while the face sleeps.');
 }
 
 // The saved personas: pick the one to edit (and be), add, duplicate, delete. Each saves what was just
@@ -619,7 +620,7 @@ async function pickTemplate() {
     card.append(
       el('h3', {}, 'Add a persona from a template'),
       el('p', { class: 'muted' }, 'It becomes a persona of its own, with its prompt, look, face and greeting. Rename it, edit it and pick its voice afterwards.'),
-      ...list.map((t) => el('div', { class: 'template-row' }, el('div', { style: { flex: 1 } }, el('b', {}, `${t.title} · ${t.name}`), el('div', { class: 'hint' }, t.blurb)), el('button', { class: 'btn primary', onclick: () => close(t.id) }, 'Add'))),
+      ...list.map((t) => el('div', { class: 'template-row' }, el('div', { style: { flex: 1 } }, el('b', {}, `${t.title} · ${t.name}`), el('div', { class: 'hint' }, t.blurb)), el('button', { class: 'btn', onclick: () => close(t.id) }, 'Add'))),
       el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(null) }, 'Cancel')),
     );
   });
@@ -659,8 +660,10 @@ function faceSelect() {
 
 // A persona-field change made with a button (Remove the scene, Reset the theme): for the persona whose cards
 // were on screen at the click, dropped with a notice when it is no longer active; the cards redraw when saved.
-async function saveFromClick(patch, path, persona = renderedPersona) {
+// `ask` = [title, message, button]: a confirm first. The persona is still the one at the click, taken before it.
+async function saveFromClick(patch, path, persona = renderedPersona, ask = null) {
   try {
+    if (ask && !(await confirmDialog(...ask))) return;
     if (await dropped(path, persona)) return;
     if (await saveForPersona(patch, persona)) render();
   } catch (err) {
@@ -725,7 +728,7 @@ function themeEditor() {
     sceneRow(),
     field('Voice & tone notes (from the aesthetic)', notes, 'Added to the system prompt so the agent writes in the matching style.'),
     text('appearance.greeting', 'Welcome greeting'),
-    isDefault ? '' : el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => saveFromClick({ appearance: { theme: null } }, 'appearance.theme', renderedPersona) }, '↺ Reset to the default theme')),
+    isDefault ? '' : el('div', { class: 'row' }, el('button', { class: 'btn danger', onclick: () => saveFromClick({ appearance: { theme: null } }, 'appearance.theme', renderedPersona, ['Reset the theme?', 'Your colors, fonts, background and face settings for this persona go back to the default theme.', 'Reset']) }, '↺ Reset to the default theme')),
   );
 }
 
@@ -1179,7 +1182,7 @@ export function localFinder(section, after) {
     out.replaceChildren(
       ...(up.length
         ? up.map((s) =>
-            el('div', { class: 'tree-sec' }, el('b', {}, `${s.name} · ${s.baseUrl}`), ...(s.models.length ? s.models.map((m) => el('button', { class: `chip ${state.settings[section]?.model === m.id ? 'ok' : ''}`, onclick: () => pick(s, m) }, `${m.name}${m.params ? ` · ${m.params}B` : ''}${m.small ? ' · fast' : ''}`)) : [el('div', { class: 'hint' }, 'Running, but no models yet.')])),
+            el('div', { class: 'tree-sec' }, el('b', {}, `${s.name} · ${s.baseUrl}`), ...(s.models.length ? s.models.map((m) => el('button', { class: `chip ${state.settings[section]?.model === m.id ? 'on' : ''}`, 'aria-pressed': String(state.settings[section]?.model === m.id), onclick: () => pick(s, m) }, `${m.name}${m.params ? ` · ${m.params}B` : ''}${m.small ? ' · fast' : ''}`)) : [el('div', { class: 'hint' }, 'Running, but no models yet.')])),
           )
         : [el('div', { class: 'hint' }, 'Neither Ollama nor LM Studio is running on this computer. Install one (ollama.com or lmstudio.ai), start it, and look again.')]),
       ideas.length ? el('div', { class: 'hint' }, `Good small models for this computer: ${ideas.map((i) => `${i.model} (${i.why})`).join(' · ')}${up.some((s) => s.id === 'ollama') ? ' Get one with “ollama pull <name>” in a terminal.' : ''}`) : '',
@@ -1320,7 +1323,7 @@ function providerConfig(p) {
     p.id === 'openai' ? text('llm.baseUrl', 'Server URL', { placeholder: 'http://localhost:3001/v1' }) : '',
     p.id === 'local' ? localFinder('local', after) : '',
     p.id === 'local' ? text('local.baseUrl', 'Server URL', { placeholder: 'http://localhost:11434/v1', hint: 'Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1', onChange: debounceAfter(after) }) : '',
-    el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, text(`${section}.apiKey`, p.id === 'openai' ? 'Bearer token (optional)' : 'API key', { type: 'password', onChange: debounceAfter(after) })), p.keyUrl ? el('button', { class: 'btn small', style: { alignSelf: 'end' }, onclick: () => api.shell.openExternal(p.keyUrl) }, 'Get a key ↗') : ''),
+    el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, text(`${section}.apiKey`, p.id === 'openai' ? 'Bearer token (optional)' : 'API key', { type: 'password', onChange: debounceAfter(after) })), p.keyUrl ? el('button', { class: 'btn small', style: { alignSelf: 'flex-end' }, onclick: () => api.shell.openExternal(p.keyUrl) }, 'Get a key ↗') : ''),
     field('Model', el('div', { class: 'row' }, modelSel, el('button', { class: 'btn small', onclick: load }, '⟳ Load models'))),
     el('div', { class: 'grid2' }, text(`${section}.fastModel`, 'Fast model (voice)', { placeholder: 'same as above' }), text(`${section}.deepModel`, 'Deep model', { placeholder: 'same as above' })),
     p.id === 'local' ? compactSelect() : '',
@@ -1383,7 +1386,7 @@ function voiceCard() {
     },
   }, '🔊 Test offline voice');
   const speed = el('input', { type: 'range', min: '0.5', max: '2', step: '0.05', value: state.settings.voice.speed, style: { flex: 1 } });
-  const speedLabel = el('span', { class: 'muted' }, `${Number(state.settings.voice.speed).toFixed(2)}×`);
+  const speedLabel = el('span', { class: 'muted num' }, `${Number(state.settings.voice.speed).toFixed(2)}×`);
   speed.addEventListener('input', () => {
     speedLabel.textContent = `${Number(speed.value).toFixed(2)}×`;
     queueSave('voice.speed', Number(speed.value));
@@ -1455,13 +1458,18 @@ function sttCard() {
     select('stt.engine', 'Speech-to-text engine', [['local', 'Local Whisper (in-app, private, offline after first download)'], ['groq', 'Cloud: Groq Whisper Large v3 Turbo (fast and accurate; free key)'], ['remote', 'Other OpenAI-compatible /audio/transcriptions endpoint']], { onChange: () => render() }),
   ];
   // The Groq key (shared with the Groq AI brain) and where to get one for free.
-  const groqKey = () =>
-    el(
+  // The button sits level with the input (the hint goes under both), as the brain's 'Get a key ↗' does.
+  const groqKey = () => {
+    const key = text('groq.apiKey', 'Groq API key', { type: 'password', placeholder: 'gsk_…' });
+    const input = key.querySelector('input');
+    input.setAttribute('aria-describedby', `${input.id}-hint`);
+    return el(
       'div',
-      { class: 'row' },
-      el('div', { style: { flex: 1 } }, text('groq.apiKey', 'Groq API key', { type: 'password', placeholder: 'gsk_…', hint: 'Free, no card: sign up at console.groq.com and create a key. Also used by the Groq AI brain.' })),
-      el('button', { class: 'btn small', style: { alignSelf: 'center' }, onclick: () => api.shell.openExternal('https://console.groq.com/keys') }, 'Get a free key ↗'),
+      { class: 'field' },
+      el('div', { class: 'row' }, el('div', { style: { flex: 1 } }, key), el('button', { class: 'btn small', style: { alignSelf: 'flex-end' }, onclick: () => api.shell.openExternal('https://console.groq.com/keys') }, 'Get a free key ↗')),
+      el('div', { class: 'hint', id: `${input.id}-hint` }, 'Free, no card: sign up at console.groq.com and create a key. Also used by the Groq AI brain.'),
     );
+  };
   const groqModel = () => select('stt.groqModel', 'Groq model', [['whisper-large-v3-turbo', 'Whisper Large v3 Turbo: fastest, ~$0.04 per audio hour'], ['whisper-large-v3', 'Whisper Large v3: a little more accurate, ~$0.11 per audio hour']], { hint: 'Both are free within Groq’s daily free allowance.' });
   const cloudNote = el('div', { class: 'hint' }, 'With the cloud, what you say is sent to Groq to be written down (not your conversations or files). Local Whisper keeps your voice on this computer.');
   if (engine === 'local') {
@@ -1653,7 +1661,7 @@ async function docsCard() {
   const ws = state.settings.documents.workspace;
   const list = el('div', { class: 'field' });
   list.append(el('label', {}, 'Folders the agent may use'));
-  const row = (p, note, action) => el('div', { class: 'row' }, el('code', { style: { flex: 1, fontSize: '12px' } }, p), note ? el('span', { class: 'hint' }, note) : '', action || '');
+  const row = (p, note, action) => el('div', { class: 'row' }, el('code', { class: 'path', style: { flex: 1, fontSize: '12px' } }, p), note ? el('span', { class: 'hint' }, note) : '', action || '');
   if (ws) list.append(row(ws, 'workspace'));
   for (const r of extra) list.append(row(r, '', el('button', { class: 'btn small', onclick: async () => (await save('documents.allowedRoots', extra.filter((x) => x !== r)), render()) }, 'Remove')));
   if (!ws && !extra.length) list.append(el('div', { class: 'hint' }, 'None yet: set a workspace folder above. Until then the agent can only use its vault and files you open yourself.'));
@@ -1792,8 +1800,9 @@ function calibrationInfo() {
     return el('div', { class: 'hint' }, `Voice calibration: not done yet. Ask ${state.settings.agent.name || 'the agent'} to “calibrate my voice” — you read a short script and it learns how your names and words come through.`);
   }
   const clear = el('button', {
-    class: 'btn',
+    class: 'btn small danger',
     onclick: async () => {
+      if (!(await confirmDialog('Forget the calibration?', 'The corrections and words it learned from your voice go. You can calibrate again any time.', 'Forget'))) return;
       await save('stt.corrections', []);
       await save('stt.vocabulary', []);
       render();
@@ -1810,7 +1819,7 @@ function calibrationInfo() {
     ),
     'Corrections apply to whole words in everything you say. Ask the agent to calibrate again any time.',
   );
-  info.append(clear);
+  info.append(el('div', { class: 'row' }, clear));
   return info;
 }
 
@@ -1823,7 +1832,7 @@ function thinkingVolume() {
 
 function endSilence() {
   const value = state.settings.stt.endSilenceMs ?? 600;
-  const label = el('span', { class: 'muted' }, `${(value / 1000).toFixed(1)} s`);
+  const label = el('span', { class: 'muted num' }, `${(value / 1000).toFixed(1)} s`);
   const r = el('input', { type: 'range', min: '300', max: '2000', step: '100', value, style: { width: '100%' } });
   r.addEventListener('input', () => {
     label.textContent = `${(Number(r.value) / 1000).toFixed(1)} s`;
@@ -2097,7 +2106,7 @@ function remoteCard() {
       if (links.length) {
         pairBox.append(el('label', {}, 'Scan with the phone’s camera'));
         if (links.length > 1) {
-          const pick = el('select', { onchange: (e) => showQr(links[e.target.selectedIndex]) }, links.map((l) => el('option', {}, `${l.url}${l.secure ? ' (secure)' : ''}`)));
+          const pick = el('select', { class: 'input', 'aria-label': 'Address the QR code opens', onchange: (e) => showQr(links[e.target.selectedIndex]) }, links.map((l) => el('option', {}, `${l.url}${l.secure ? ' (secure)' : ''}`)));
           pairBox.append(pick);
         }
         pairBox.append(qrBox);
@@ -2245,7 +2254,7 @@ function performanceControls() {
 
 function uiCard() {
   const zoom = el('input', { type: 'range', min: '0.5', max: '2', step: '0.05', value: state.settings.ui.zoom || 1, style: { flex: 1 } });
-  const zoomLabel = el('span', { class: 'muted' }, `${Math.round((state.settings.ui.zoom || 1) * 100)}%`);
+  const zoomLabel = el('span', { class: 'muted num' }, `${Math.round((state.settings.ui.zoom || 1) * 100)}%`);
   zoom.addEventListener('input', () => {
     zoomLabel.textContent = `${Math.round(Number(zoom.value) * 100)}%`;
     setZoom(Number(zoom.value));

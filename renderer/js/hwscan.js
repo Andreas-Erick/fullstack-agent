@@ -1,6 +1,6 @@
 // Hardware scan (optional, local): what this computer has and what that means for the speech model
 // and the brain. Shared by the setup wizard and Settings → Health.
-import { api, el, toast, toastError } from './util.js';
+import { api, el, toast } from './util.js';
 import { state, saveSettings } from './state.js';
 import { speechPlan } from './perfcore.js';
 
@@ -51,8 +51,7 @@ export async function scanInto(box) {
     return { hw, rec };
   } catch (err) {
     box.innerHTML = '';
-    box.append(el('div', { class: 'test-result err' }, `Scan failed: ${err.message}`));
-    toastError(err);
+    box.append(el('div', { class: 'test-result err' }, `Scan failed: ${err.message}`)); // said once, inline
     return null;
   }
 }

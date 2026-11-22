@@ -93,7 +93,7 @@ function ask(text, { choices = [], input = null } = {}) {
     };
     for (const c of choices) row.append(el('button', { class: 'suggestion', onclick: () => done(c.value, c.label) }, c.label));
     if (input) {
-      const field = el('input', { class: 'input', type: input.type || 'text', value: input.value || '', placeholder: input.placeholder || '', style: { minWidth: '320px' } });
+      const field = el('input', { class: 'input', type: input.type || 'text', value: input.value || '', placeholder: input.placeholder || '', style: { minWidth: 'min(320px, 100%)' } });
       field.addEventListener('keydown', (e) => e.key === 'Enter' && done(field.value.trim(), input.type === 'password' ? '••••••' : field.value.trim() || '(skip)'));
       row.prepend(field, el('button', { class: 'suggestion', onclick: () => done(field.value.trim(), input.type === 'password' ? '••••••' : field.value.trim() || '(skip)') }, 'OK'));
       setTimeout(() => field.focus(), 50);

@@ -425,10 +425,11 @@ test('the Persona studio saves what was typed before its own switch, New, Duplic
   // The theme editor: the persona taken at the edit, edits one after another (two quick ones both read the
   // same theme and the second saved over the first), a failure shown instead of an unhandled rejection.
   assert.match(part('themeEditor'), /const update = \(mutate\) => \{\s*const persona = renderedPersona;\s*themeEdits = themeEdits\.then\(async \(\) => \{\s*try \{\s*if \(await dropped\('appearance\.theme', persona\)\) return;\s*const t = normalizeTheme\(state\.settings\.appearance\?\.theme\);\s*mutate\(t\);\s*await saveForPersona\(\{ appearance: \{ theme: t \} \}, persona\);\s*\} catch \(err\) \{\s*toastError\(err\);/);
-  // Reset the theme and Remove the scene: the persona on screen at the click, not after the check's await.
-  assert.match(part('saveFromClick'), /function saveFromClick\(patch, path, persona = renderedPersona\) \{\s*try \{\s*if \(await dropped\(path, persona\)\) return;\s*if \(await saveForPersona\(patch, persona\)\) render\(\);\s*\} catch \(err\) \{\s*toastError\(err\);/);
-  assert.match(part('themeEditor'), /onclick: \(\) => saveFromClick\(\{ appearance: \{ theme: null \} \}, 'appearance\.theme', renderedPersona\)/);
-  assert.match(part('sceneRow'), /onclick: \(\) => saveFromClick\(\{ appearance: \{ scene: null \} \}, 'appearance\.scene', renderedPersona\)/);
+  // Reset the theme and Remove the scene: the persona on screen at the click (taken before their confirm),
+  // not after the check's await.
+  assert.match(part('saveFromClick'), /function saveFromClick\(patch, path, persona = renderedPersona, ask = null\) \{\s*try \{\s*if \(ask && !\(await confirmDialog\(\.\.\.ask\)\)\) return;\s*if \(await dropped\(path, persona\)\) return;\s*if \(await saveForPersona\(patch, persona\)\) render\(\);\s*\} catch \(err\) \{\s*toastError\(err\);/);
+  assert.match(part('themeEditor'), /onclick: \(\) => saveFromClick\(\{ appearance: \{ theme: null \} \}, 'appearance\.theme', renderedPersona, \[/);
+  assert.match(part('sceneRow'), /onclick: \(\) => saveFromClick\(\{ appearance: \{ scene: null \} \}, 'appearance\.scene', renderedPersona, \[/);
   assert.match(part('drawScene'), /if \(await dropped\('appearance\.scene', persona\)\) return null;\s*return \(await saveForPersona\(\{ appearance: \{ scene \} \}, persona\)\) \? scene : null;/);
   const agent = part('agentCard');
   assert.match(agent, /if \(await dropped\('appearance\.theme', persona\)\) return showResult/);

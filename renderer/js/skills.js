@@ -5,6 +5,7 @@ import { switchView } from './nav.js';
 import { send } from './chat.js';
 
 let all = [];
+let loadError = null; // the list couldn't be read: an error with Try again, not the empty state
 
 const EXAMPLES = [
   { name: 'Morning briefing', description: "Today's plan in one minute", triggers: ['start my day', 'morning briefing'], steps: "1. Read today's calendar events.\n2. Read Active Priorities.\n3. Search the web for the top 3 news headlines.\n4. Tell me: today's meetings, the 3 things to focus on, and the headlines, in under 150 words." },
@@ -21,7 +22,13 @@ export function initSkills() {
 }
 
 export async function refresh() {
-  all = await api.skills.list().catch(() => []);
+  try {
+    all = await api.skills.list();
+    loadError = null;
+  } catch (err) {
+    all = [];
+    loadError = err;
+  }
   render();
 }
 
@@ -44,6 +51,10 @@ function render() {
   const grid = $('#skillGrid');
   grid.innerHTML = '';
   const list = all.filter((s) => !q || `${s.name} ${s.description} ${s.triggers.join(' ')} ${s.steps}`.toLowerCase().includes(q));
+  if (loadError) {
+    grid.append(el('div', { class: 'skill-empty' }, el('div', { class: 'test-result err', role: 'alert' }, `Your skills couldn’t be read: ${plainError(loadError)}`), el('div', { class: 'examples' }, el('button', { class: 'btn', onclick: () => refresh() }, '⟳ Try again'))));
+    return;
+  }
   if (!all.length) {
     grid.append(
       el(
@@ -97,6 +108,7 @@ async function run(s) {
 
 // The editor checks and saves before it closes: a refusal (a taken name, an empty step list) shows in it,
 // and every field is kept.
+let fieldSeq = 0;
 async function edit(skill = {}, { isNew = !skill.slug } = {}) {
   let dirty = () => false; // set once the fields exist
   const saved = await modal((card, close) => {
@@ -136,7 +148,12 @@ async function edit(skill = {}, { isNew = !skill.slug } = {}) {
         fail(plainError(err), saveBtn); // the focus is kept in the card (a disabled button may lose it)
       }
     };
-    const field = (label, control, hint) => el('div', { class: 'field' }, el('label', {}, label), control, hint ? el('div', { class: 'hint' }, hint) : '');
+    // Each label is tied to its control (for/id) and the hint describes it, as in the routine editor.
+    const field = (label, control, hint) => {
+      control.id ||= `skill-field-${++fieldSeq}`;
+      if (hint) control.setAttribute('aria-describedby', `${control.id}-hint`);
+      return el('div', { class: 'field' }, el('label', { for: control.id }, label), control, hint ? el('div', { class: 'hint', id: `${control.id}-hint` }, hint) : '');
+    };
     card.classList.add('wide');
     card.append(
       el('h3', {}, isNew ? 'New skill' : `Edit “${skill.name}”`),
@@ -163,9 +180,14 @@ async function importSkills(preset = '') {
   const list = el('div', { class: 'import-list' });
   const status = el('div', { class: 'hint' });
   let found = null;
+  // Import selected waits for a ticked skill.
+  const importBtn = el('button', { class: 'btn primary', disabled: true }, 'Import selected');
+  const syncImport = () => (importBtn.disabled = !list.querySelector('input:checked'));
+  list.addEventListener('change', syncImport);
   const find = async () => {
     status.textContent = 'Looking for skills…';
     list.innerHTML = '';
+    syncImport();
     try {
       found = await api.skills.scan(repo.value);
       status.textContent = `${found.repo} · ${found.license || 'no license stated'} · ${found.skills.length} skill${found.skills.length === 1 ? '' : 's'}${found.description ? ` · ${found.description}` : ''}`;
@@ -184,8 +206,9 @@ async function importSkills(preset = '') {
       el('div', { class: 'row', style: { flexWrap: 'wrap', gap: '6px' } }, ...SUGGESTED_REPOS.map(([r, d]) => el('button', { class: 'btn small', title: d, onclick: () => ((repo.value = r), find()) }, r))),
       status,
       list,
-      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(false) }, 'Cancel'), el('button', { class: 'btn primary', onclick: () => close(true) }, 'Import selected')),
+      el('div', { class: 'modal-actions' }, el('button', { class: 'btn', onclick: () => close(false) }, 'Cancel'), importBtn),
     );
+    importBtn.onclick = () => close(true);
     repo.addEventListener('keydown', (e) => e.key === 'Enter' && find());
     if (preset) find();
   });

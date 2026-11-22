@@ -1,6 +1,6 @@
 // Routines, in the Skills view: things the assistant does on a schedule, on its own (main/routines.js),
 // each run its own conversation with a notification. (They lived beside the habits until those went.)
-import { $, api, el, toast, toastError, modal, confirmDialog, pushToast } from './util.js';
+import { $, api, el, toast, toastError, modal, confirmDialog, pushToast, plainError } from './util.js';
 import { switchView } from './nav.js';
 import { openConversation } from './chat.js';
 
@@ -58,7 +58,14 @@ function openRoutineChat(id) {
 export async function refresh() {
   const box = $('#routineList');
   if (!box) return;
-  const list = await api.routines.list().catch(() => []);
+  let list;
+  try {
+    list = await api.routines.list();
+  } catch (err) {
+    // Not the empty state: the routines are there, they just couldn't be read.
+    box.replaceChildren(el('div', { class: 'routine-empty' }, el('div', { class: 'test-result err', role: 'alert' }, `Your routines couldn’t be read: ${plainError(err)}`), el('div', { class: 'row' }, el('button', { class: 'btn', onclick: () => refresh() }, '⟳ Try again'))));
+    return;
+  }
   box.innerHTML = '';
   if (!list.length) {
     box.append(
@@ -83,7 +90,7 @@ export async function refresh() {
         'div',
         { class: 'routine-row glass' },
         el('label', { class: 'toggle', title: 'On / off' }, toggle, el('span', { class: 'sw' })),
-        el('div', { class: 'routine-main' }, el('b', {}, r.name), el('div', { class: `hint${r.broken ? ' warn' : ''}` }, `${r.when} · ${next} · ${last}`), r.lastSummary ? el('div', { class: 'routine-summary' }, r.lastSummary) : ''),
+        el('div', { class: 'routine-main' }, el('b', {}, r.name), el('div', { class: `hint${r.broken ? ' warn' : ''}`, title: `${r.when} · ${next} · ${last}` }, `${r.when} · ${next} · ${last}`), r.lastSummary ? el('div', { class: 'routine-summary' }, r.lastSummary) : ''),
         el('button', { class: 'btn small', title: 'Run it now', onclick: () => api.routines.run(r.id).then(refresh, toastError) }, '▶ Run'),
         r.conversationId ? el('button', { class: 'btn small', title: 'Its conversation', onclick: () => openRoutineChat(r.conversationId) }, 'Open') : '',
         el('button', { class: 'btn small', onclick: () => editRoutine(r) }, 'Edit'),
