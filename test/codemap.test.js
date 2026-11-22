@@ -31,8 +31,8 @@ function copyApp() {
   };
   copy('preload.js');
   for (const f of codemap.jsFiles(ROOT)) if (/^(main|renderer)\//.test(f)) copy(f);
-  // ES modules shared by the main process and the window (renderer/js/chartcore.mjs) are imported too.
-  for (const f of fs.readdirSync(path.join(ROOT, 'renderer/js')).filter((n) => n.endsWith('.mjs'))) copy(`renderer/js/${f}`);
+  // ES modules shared by the main process and the window (renderer/js/chartcore.mjs, faces/registry.mjs) are imported too.
+  for (const f of fs.readdirSync(path.join(ROOT, 'renderer/js'), { recursive: true }).map((n) => n.replace(/\\/g, '/')).filter((n) => n.endsWith('.mjs'))) copy(`renderer/js/${f}`);
   return dir;
 }
 

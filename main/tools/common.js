@@ -3,8 +3,8 @@
 const approvals = require('../approvals');
 const turnguard = require('../turnguard');
 
-// The built-in faces (renderer/js/faces/host.js BUILT_IN); custom ones are custom:<folder>.
-const FACES = ['siren', 'circuit', 'radial', 'rain', 'neural', 'companion'];
+// The built-in faces (renderer/js/faces/registry.mjs); custom ones are custom:<folder>.
+const FACES = require('../facesregistry').FACE_IDS;
 
 const arr = (description) => ({ type: 'array', items: { type: 'string' }, description });
 const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false });

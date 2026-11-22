@@ -1,11 +1,6 @@
 // Face host: shows the selected face in a container — a built-in canvas face, or a custom face from
 // <userData>/faces/<name>/ in a sandboxed iframe fed with the agent state every display frame (see faces/core.js).
-import { CircuitFace } from '../visualizer.js';
-import { RadialFace } from './radial.js';
-import { RainFace } from './rain.js';
-import { NeuralFace } from './neural.js';
-import { CompanionFace } from './companion.js';
-import { SirenFace } from './siren.js';
+import { BUILT_IN_FACES } from './registry.mjs';
 import { state, setFlag, alertActive } from '../state.js';
 import { on } from '../util.js';
 import { DEFAULT_THEME } from '../themecore.js';
@@ -29,14 +24,9 @@ configureFaces({
   maxFps: () => faceFpsCap({ balanced: profile(state.settings) === 'balanced', voiceWorking: state.voiceWorking, resting: !document.hasFocus() && state.agentState === 'idle', sleeping: state.agentState === 'sleeping' }),
 });
 
-export const BUILT_IN = [
-  { id: 'siren', title: 'Siren', tagline: 'A sea-nymph who sings: fins spread, a lyre halo turns, song rings ripple with her voice', Face: SirenFace },
-  { id: 'circuit', title: 'Circuit Board', tagline: 'Living PCB — pulses run the traces', Face: CircuitFace },
-  { id: 'radial', title: 'Radial', tagline: 'Starburst bars around a particle orb', Face: RadialFace },
-  { id: 'rain', title: 'Code Rain', tagline: 'Glyph rain; a face appears when it speaks', Face: RainFace },
-  { id: 'neural', title: 'Neural Core', tagline: 'Constellation brain with live regions', Face: NeuralFace },
-  { id: 'companion', title: 'Companion', tagline: 'A friendly character: eyes and smile show what it is doing', Face: CompanionFace },
-];
+// The gallery, from the one list of built-in faces (registry.mjs), each with its class loaded.
+const loaded = await Promise.all(BUILT_IN_FACES.map((f) => import(new URL(`../${f.module}`, import.meta.url).href)));
+export const BUILT_IN = BUILT_IN_FACES.map((f, i) => ({ id: f.id, title: f.title, tagline: f.tagline, Face: loaded[i][f.export] }));
 
 export class FaceHost {
   constructor(container, { compact = false } = {}) {

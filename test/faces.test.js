@@ -8,22 +8,23 @@ const path = require('path');
 const { ROOT } = require('./helpers');
 const codemap = require('../main/codemap');
 
-// The files main/companion.js serves under /js/ (read from its STATIC table).
+const { BUILT_IN_FACES, FACE_FILES } = require('../main/facesregistry');
+
+// The files main/companion.js serves under /js/ (read from its STATIC table, whose face entries come from
+// the face registry; test/facesregistry.test.js checks that wiring).
 function servedFaceFiles() {
   const text = fs.readFileSync(path.join(ROOT, 'main/companion.js'), 'utf8');
-  return [...text.matchAll(/'\/js\/[\w/.-]+':\s*'(renderer\/js\/[\w/.-]+)'/g)].map((m) => m[1]);
+  assert.match(text, /FACE_FILES\.map\(\(f\) => \[`\/js\/\$\{f\}`, `renderer\/js\/\$\{f\}`\]\)/, 'companion.js no longer serves the face registry\'s files');
+  return [...[...text.matchAll(/'\/js\/[\w/.-]+':\s*'(renderer\/js\/[\w/.-]+)'/g)].map((m) => m[1]), ...FACE_FILES.map((f) => `renderer/js/${f}`)];
 }
 
 test('the phone is served every built-in face and its helpers', () => {
   const served = servedFaceFiles();
-  for (const f of ['renderer/js/visualizer.js', 'renderer/js/faces/radial.js', 'renderer/js/faces/rain.js', 'renderer/js/faces/neural.js', 'renderer/js/faces/companion.js', 'renderer/js/faces/siren.js', 'renderer/js/faces/env.js', 'renderer/js/faces/common.js', 'renderer/js/themecore.js']) {
+  for (const f of ['renderer/js/faces/env.js', 'renderer/js/faces/common.js', 'renderer/js/faces/registry.mjs', 'renderer/js/themecore.js']) {
     assert.ok(served.includes(f), `${f} is not served to the phone`);
   }
-  // Every face in the desktop gallery has a module on the phone.
-  const host = fs.readFileSync(path.join(ROOT, 'renderer/js/faces/host.js'), 'utf8');
-  const ids = [...host.matchAll(/\{ id: '(\w+)', title:/g)].map((m) => m[1]);
-  const phone = fs.readFileSync(path.join(ROOT, 'renderer/remote/app.js'), 'utf8');
-  for (const id of ids) assert.match(phone, new RegExp(`\\b${id}: \\['\\./js/`), `the phone has no module for the "${id}" face`);
+  // Every built-in face's module is served (the desktop's gallery and the phone both read the registry).
+  for (const f of BUILT_IN_FACES) assert.ok(served.includes(`renderer/js/${f.module}`), `the "${f.id}" face's module is not served`);
 });
 
 test('shared face modules import only what the phone is served', () => {
