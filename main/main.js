@@ -434,11 +434,12 @@ function registerIpc() {
   // router…) is settingseffects.js, behind store.onChange, for every save whoever made it. These two wait
   // for its async effects, so remote access has started or stopped when the window's save resolves.
   // opts.persona: the persona whose Settings cards the value was typed into. A persona field is then saved
-  // only while that persona is still active (persona.saveFor); dropped, the settings come back as they are.
+  // only while that persona is still active (persona.saveFor). { settings, saved, dropped }: dropped = the
+  // persona changed meanwhile, nothing was saved and the settings come back as they are.
   handle('settings:set', async (patch, opts) => {
     const r = typeof opts?.persona === 'string' && opts.persona ? await persona.saveFor(opts.persona, patch) : { settings: await store.setSettings(patch), saved: true };
     await settingsEffects.settled();
-    return r.settings;
+    return { settings: r.settings, saved: r.saved, dropped: !r.saved };
   });
   // A reset is heard with every section as the patch: remote access, the shortcut and the rest follow at once.
   handle('settings:reset', async () => {

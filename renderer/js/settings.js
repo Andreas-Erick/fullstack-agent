@@ -1,7 +1,7 @@
 // Configuration dashboard. Every control auto-saves to settings.json (secrets are encrypted at rest).
 import { $, api, el, escapeHtml, toast, toastError, confirmDialog, on, emit, modal, logEvent, plainError } from './util.js';
 import { testFailure } from './chatcore.js';
-import { state, saveSettings, loadSettings } from './state.js';
+import { state, saveSettings, savePersonaSettings, loadSettings } from './state.js';
 import { speaker, preloadLocalModel, listMics, handsFree, testLocalVoice, forgetVoiceLines } from './voice.js';
 import { KOKORO_VOICES } from './kokorotext.js';
 import { refreshList, newChat } from './chat.js';
@@ -18,7 +18,7 @@ import { detect } from './perf.js';
 import { profile, speechPlan } from './perfcore.js';
 import { checkNow as checkUpdatesNow } from './updates.js';
 import { TABS, tabFor, validTab, stepTab, matches } from './settingstabs.js';
-import { PERSONA_PATHS, stale, staleNow, createSaves, parseNumber, cleanPath } from './settingsave.js';
+import { stale, staleNow, createSaves, parseNumber, cleanPath } from './settingsave.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (default)'],
@@ -45,39 +45,35 @@ function patchFor(p, value) {
 let savedTimer;
 let renderedPersona = null; // the persona the cards on screen were drawn for (render)
 
-// Main's active persona. This window's copy lags behind a switch made on the phone, the watch or by a
-// routine: the window hears of it only when it reads the settings again.
-const liveActive = async () => (await api.settings.get())?.personas?.active;
+const PERSONA_CHANGED = 'Not saved: the persona changed meanwhile.';
 
 // A change made in cards drawn for one persona never lands in another (switched in the title bar, by the
-// agent, on the phone or the watch, or by a routine while Settings was open): it is dropped with a notice.
-// A switch only main knew of brings this window up to date, which redraws the studio for the new persona.
-async function dropped(path, persona = renderedPersona) {
+// agent, on the phone or the watch, or by a routine while Settings was open). Main decides inside its save
+// queue (settings:set { persona } → persona.saveFor) and answers whether it saved; when it didn't, the
+// settings that came back have the other persona active, and the studio redraws for it. Whether it saved.
+async function saveForPersona(patch, persona = renderedPersona) {
+  const r = await savePersonaSettings(patch, persona);
+  if (!r.dropped) return true;
+  toast(PERSONA_CHANGED, 'error');
+  return false;
+}
+
+// Before a model call made for the persona on screen (Generate look & feel, Draw the scene): whether that
+// persona is no longer active, so the call would be wasted. This window's copy lags a switch made on the
+// phone, the watch or by a routine, so main is asked too; a switch only main knew of reloads the settings.
+async function switchedAway(path, persona = renderedPersona) {
   const active = state.settings.personas?.active;
-  if (!(await staleNow(path, persona, active, liveActive))) return false;
-  toast('Not saved: the persona changed meanwhile.', 'error');
+  if (!(await staleNow(path, persona, active, async () => (await api.settings.get())?.personas?.active))) return false;
+  toast(PERSONA_CHANGED, 'error');
   if (!stale(path, persona, active)) loadSettings().catch(() => {});
   return true;
 }
 
-// A change to persona fields made for `persona`: main saves it only while that persona is still active,
-// decided inside its save queue (a switch queued on the phone, the watch or by a routine between this
-// window's check and the save lands first). Whether it was saved: when it wasn't, the settings that came
-// back have the other persona active, and the studio redraws for it.
-async function saveForPersona(patch, persona = renderedPersona) {
-  const s = await saveSettings(patch, persona ? { persona } : undefined);
-  if (!persona || s?.personas?.active === persona) return true;
-  toast('Not saved: the persona changed meanwhile.', 'error');
-  return false;
-}
-
-// Saves one setting; whether it was saved (switches and selects flip back when it wasn't).
+// Saves one setting for the persona whose cards it was typed into (main ignores the persona for a setting
+// no persona keeps); whether it was saved (switches and selects flip back when it wasn't).
 async function save(p, value, persona = renderedPersona) {
   try {
-    if (await dropped(p, persona)) return false;
-    if (PERSONA_PATHS.has(p)) {
-      if (!(await saveForPersona(patchFor(p, value), persona))) return false;
-    } else await saveSettings(patchFor(p, value));
+    if (!(await saveForPersona(patchFor(p, value), persona))) return false;
     const s = $('#saveState');
     if (s) {
       s.classList.add('show');
@@ -444,7 +440,7 @@ function agentCard() {
       const persona = renderedPersona; // the model takes a minute: the result belongs to this persona
       gen.disabled = true;
       try {
-        if (await dropped('appearance.theme', persona)) return; // drawn for a persona no longer active: nothing asked
+        if (await switchedAway('appearance.theme', persona)) return; // drawn for a persona no longer active: nothing asked
         showResult(out, true, `Designing ${state.settings.agent.name}'s look & feel… (this can take a minute)`);
         const [palette, voices] = await Promise.all([extractPalette(state.settings.agent.avatar), api.tts.voices().catch(() => [])]);
         const res = await api.persona.generate({
@@ -456,7 +452,6 @@ function agentCard() {
           options: { fonts: Object.keys(FONTS), patterns: PATTERNS, cores: CORE_SHAPES, traces: TRACE_STYLES },
         });
         const theme = normalizeTheme(res.theme);
-        if (await dropped('appearance.theme', persona)) return showResult(out, false, '✕ Not applied: the persona changed meanwhile.');
         // The voice (persona-synced too) goes in the same save, so no switch can land between the two.
         const voice = res.voice && state.settings.appearance.applyVoice ? res.voice : '';
         if (!(await saveForPersona({ appearance: { theme, personaNotes: res.personaNotes, greeting: res.greeting }, ...(voice ? { voice: { voice } } : {}) }, persona))) return showResult(out, false, '✕ Not applied: the persona changed meanwhile.');
@@ -522,10 +517,9 @@ function summaryRow() {
       onclick: async () => {
         try {
           const persona = renderedPersona;
-          if (await dropped('agent.personaSummary', persona)) return;
-          const r = await api.persona.setSummary(textBox.value, persona); // main checks the persona again, inside its save queue
+          const r = await api.persona.setSummary(textBox.value, persona); // main checks the persona inside its save queue
           if (r?.dropped) {
-            toast('Not saved: the persona changed meanwhile.', 'error');
+            toast(PERSONA_CHANGED, 'error');
             return void loadSettings().catch(() => {});
           }
           show(r);
@@ -554,9 +548,9 @@ api.on('persona:summary', (st) => showSummary?.(st));
 // the persona (appearance.scene) and shown by js/scene.js. null when the persona changed while it was
 // drawn (nothing saved).
 async function drawScene(persona = renderedPersona) {
+  if (await switchedAway('appearance.scene', persona)) return null; // nothing asked for a persona no longer active
   const s = state.settings;
   const scene = await api.persona.scene({ masterPrompt: s.agent.personality, aesthetic: s.agent.aesthetic, theme: normalizeTheme(s.appearance?.theme) });
-  if (await dropped('appearance.scene', persona)) return null;
   return (await saveForPersona({ appearance: { scene } }, persona)) ? scene : null;
 }
 
@@ -580,7 +574,7 @@ function sceneRow() {
       }
     },
   }, scene ? '↻ Draw the scene again' : '✨ Draw the scene');
-  const remove = scene ? el('button', { class: 'btn danger', style: { marginLeft: '4px' }, onclick: () => saveFromClick({ appearance: { scene: null } }, 'appearance.scene', renderedPersona, ['Remove the scene?', 'The drawing behind the face goes. You can draw a new one any time.', 'Remove']) }, 'Remove') : '';
+  const remove = scene ? el('button', { class: 'btn danger', style: { marginLeft: '4px' }, onclick: () => saveFromClick({ appearance: { scene: null } }, renderedPersona, ['Remove the scene?', 'The drawing behind the face goes. You can draw a new one any time.', 'Remove']) }, 'Remove') : '';
   return field('Scene behind the face', el('div', {}, el('div', { class: 'row' }, el('span', { class: 'hint', style: { flex: '1 1 220px', minWidth: 0 } }, scene ? `“${scene.caption || 'A scene'}” · ${Math.round(scene.svg.length / 1024)} KB${scene.portrait ? ` wide + ${Math.round(scene.portrait.length / 1024)} KB tall` : ' (wide only: narrow panels crop it)'}` : 'None yet: a drawing of the place the persona lives in, in the theme’s colors.'), draw, remove), out), 'Drawn by the AI from the persona and aesthetic, wide and tall (for the chat’s face panel); its layers drift slowly and it dims while the face sleeps.');
 }
 
@@ -661,10 +655,9 @@ function faceSelect() {
 // A persona-field change made with a button (Remove the scene, Reset the theme): for the persona whose cards
 // were on screen at the click, dropped with a notice when it is no longer active; the cards redraw when saved.
 // `ask` = [title, message, button]: a confirm first. The persona is still the one at the click, taken before it.
-async function saveFromClick(patch, path, persona = renderedPersona, ask = null) {
+async function saveFromClick(patch, persona = renderedPersona, ask = null) {
   try {
     if (ask && !(await confirmDialog(...ask))) return;
-    if (await dropped(path, persona)) return;
     if (await saveForPersona(patch, persona)) render();
   } catch (err) {
     toastError(err);
@@ -683,7 +676,6 @@ function themeEditor() {
     const persona = renderedPersona;
     themeEdits = themeEdits.then(async () => {
       try {
-        if (await dropped('appearance.theme', persona)) return;
         const t = normalizeTheme(state.settings.appearance?.theme);
         mutate(t);
         await saveForPersona({ appearance: { theme: t } }, persona);
@@ -728,7 +720,7 @@ function themeEditor() {
     sceneRow(),
     field('Voice & tone notes (from the aesthetic)', notes, 'Added to the system prompt so the agent writes in the matching style.'),
     text('appearance.greeting', 'Welcome greeting'),
-    isDefault ? '' : el('div', { class: 'row' }, el('button', { class: 'btn danger', onclick: () => saveFromClick({ appearance: { theme: null } }, 'appearance.theme', renderedPersona, ['Reset the theme?', 'Your colors, fonts, background and face settings for this persona go back to the default theme.', 'Reset']) }, '↺ Reset to the default theme')),
+    isDefault ? '' : el('div', { class: 'row' }, el('button', { class: 'btn danger', onclick: () => saveFromClick({ appearance: { theme: null } }, renderedPersona, ['Reset the theme?', 'Your colors, fonts, background and face settings for this persona go back to the default theme.', 'Reset']) }, '↺ Reset to the default theme')),
   );
 }
 
