@@ -374,9 +374,11 @@ test('the stuck-key limit only stops the press that is recording', async () => {
 });
 
 test('voice.js feeds the arbiter instead of keeping its own listening state', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'renderer/js/voice.js'), 'utf8');
-  assert.match(src, /export const utteranceInfo = \(\) => input\.info\(\);/);
-  assert.match(src, /agentTalking: \(\) => speaker\.playing,/, 'asks the speaker, not state.playing');
+  const voice = fs.readFileSync(path.join(ROOT, 'renderer/js/voice.js'), 'utf8');
+  assert.match(voice, /export const utteranceInfo = \(\) => input\.info\(\);/);
+  assert.match(voice, /agentTalking: \(\) => speaker\.playing,/, 'asks the speaker, not state.playing');
+  // Every voice module (voice.js and the parts it was split into) for what must not come back anywhere.
+  const src = ['voice.js', 'voicecommon.js', 'offlinevoice.js', 'speaker.js', 'mic.js', 'handsfree.js'].map((f) => fs.readFileSync(path.join(ROOT, 'renderer/js', f), 'utf8')).join('\n');
   for (const gone of [/\blet busy\b/, /\butteranceStart\b/, /\bheldPiece\b/, /\blastFailed\b/, /\bclipActive\b/, /\blet press\b/]) assert.doesNotMatch(src, gone);
   assert.doesNotMatch(src, /setFlag\('(recording|transcribing)'/, 'those flags belong to the arbiter');
   assert.strictEqual(src.split("emit('barge-in-over')").length, 2, 'one place emits barge-in-over: the resume outcome');
