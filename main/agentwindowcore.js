@@ -47,7 +47,7 @@ function globeRequestAllowed({ url, resourceType, from, appNav = false }) {
   let page = null;
   try {
     page = from ? new URL(String(from)) : null;
-  } catch {}
+  } catch {} // an unparsable origin stays null: not on the globe, so denied (fails closed)
   const onGlobe = Boolean(page) && isGlobeUrl(page);
   return resourceType === 'mainFrame' ? Boolean(appNav) || onGlobe : onGlobe;
 }

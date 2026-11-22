@@ -63,7 +63,7 @@ function harness({ convs = [], settings = {} } = {}) {
   };
   const skills = { fromSlash: async () => null, instructions: () => '' };
   const screenshare = { state: () => ({ active: false }), capture: async () => ({ url: 'data:image/jpeg;base64,x' }) };
-  const selfchange = { touchedBy: () => null, fingerprint: async () => null, root: async () => null, dirtyFiles: async () => [] };
+  const selfchange = { touchedBy: () => null, noteTouched() {}, forgetTurn() {}, fingerprint: async () => null, root: async () => null, dirtyFiles: async () => [] };
   stub({
     electron: { app: { getPath: () => '' }, safeStorage: { isEncryptionAvailable: () => false } },
     './store': store,
