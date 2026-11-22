@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **Security fixes from an audit**:
+  - Claude sessions no longer run `git diff`, `git log` or `npm test` with arbitrary flags without asking. Only the exact checks run on their own; every other command asks.
+  - A link inside a cloned repository, or a dangling link in the vault, can no longer lead a write or a read outside it. The assistant's git commands no longer run a repository's own hooks.
+  - After the assistant has read outside content (a web page, a connector, a file), saving a memory or changing your profile, priorities or jobs asks first. So does cloning a repository or writing a `package.json`/`.npmrc`. Memories saved that way are marked, and shown to the brain as facts to weigh, never instructions, so a web page can't plant instructions for later conversations. Imported skills count as outside content too.
+  - Importing a skill whose folder name has no Latin letters (a Japanese or Chinese name, say) no longer deletes all your skills.
+  - On paired devices:
+    - The phone renders replies and notes with the desktop's strict sanitizer, so a reply can no longer pose as the message box.
+    - A paired phone or watch can no longer approve commands, endpoint or permission changes, publishing or voice cloning; answer those on the computer.
+    - An Android approval notification whose text is too long to show offers only Deny, so you open the app to read it all.
+    - Other apps on the phone can no longer start push-to-talk.
+  - A website in the agent window can no longer open the globe's local server.
+
 ## 2.7.29 — 2026-11-22
 
 - **A persona keeps its own look and voice**: when Siren changed her theme or voice while you switched persona on the phone, the watch or by a routine, the new persona could end up with the old one's look or voice. Every change to a persona's look, voice or prompt is now saved only for the persona it was made for; otherwise Siren says it wasn't saved. Two quick colour changes in the theme editor no longer lose the first.
