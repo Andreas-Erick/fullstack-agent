@@ -25,6 +25,7 @@ export const state = {
   // The offline voice is loading or making a sentence (voice.js syncBusy): faces draw fewer frames
   // meanwhile (perfcore.js faceFpsCap), since they share the graphics card with it.
   voiceWorking: false,
+  offlineVoiceError: '', // why the offline voice failed to load ('' while it works): its light and Health's row
 };
 
 // Faces turn red and show ALERT for a few seconds when something fails.

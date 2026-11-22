@@ -5,6 +5,7 @@ import { setZoom } from '../layout.js';
 import { scanInto } from '../hwscan.js';
 import { detect } from '../perf.js';
 import { profile } from '../perfcore.js';
+import { offlineVoiceHealth } from '../statuscore.js';
 import { text, toggle, select, field, card, debounceAfter } from './fields.js';
 
 export function safetyCard() {
@@ -70,8 +71,10 @@ export async function healthCard() {
     list.innerHTML = '<div class="muted">Checking…</div>';
     try {
       const results = await api.diag.run();
+      // The offline voice runs in this window, so main's checks can't see why it failed to load.
+      const voice = offlineVoiceHealth(state.offlineVoiceError);
       list.innerHTML = '';
-      for (const r of results) {
+      for (const r of voice ? [...results, voice] : results) {
         list.append(el('div', { class: `health-item ${r.status}` }, el('span', { class: 'ic' }, ICON[r.status] || '?'), el('div', {}, el('b', {}, r.label), el('div', { class: 'd' }, r.detail), r.fix ? el('div', { class: 'f' }, `Fix: ${r.fix}`) : '')));
       }
     } catch (err) {

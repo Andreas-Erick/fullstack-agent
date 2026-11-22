@@ -19,12 +19,14 @@ const core = () => import(pathToFileURL(path.join(ESM, 'composerhints.js')).href
 test('a short tap on the mic shows the hold hint once', async () => {
   const { tapHint, TAP_MS } = await core();
   assert.strictEqual(TAP_MS, 400);
-  assert.strictEqual(tapHint(120, false), 'Keep holding while you speak.');
-  assert.strictEqual(tapHint(399, false), 'Keep holding while you speak.');
-  assert.strictEqual(tapHint(120, true), null, 'only the first time');
-  assert.strictEqual(tapHint(400, false), null, 'a real hold needs no hint');
-  assert.strictEqual(tapHint(3000, false), null);
-  assert.strictEqual(tapHint(NaN, false), null, 'no measurement, no hint');
+  assert.strictEqual(tapHint(120, false, true), 'Keep holding while you speak.');
+  assert.strictEqual(tapHint(399, false, true), 'Keep holding while you speak.');
+  assert.strictEqual(tapHint(120, true, true), null, 'only the first time');
+  assert.strictEqual(tapHint(400, false, true), null, 'a real hold needs no hint');
+  assert.strictEqual(tapHint(3000, false, true), null);
+  assert.strictEqual(tapHint(NaN, false, true), null, 'no measurement, no hint');
+  // Review of spec #17: with voice input off (or the press refused) nothing recorded, so the one-time hint waits.
+  assert.strictEqual(tapHint(120, false, false), null, 'no recording started, no hint');
 });
 
 test('the saved chip names the notes folder in its tooltip', async () => {
@@ -65,6 +67,11 @@ test('the mic says Hold to talk under it, and the composer has the saved chip', 
   assert.match(html, /id="savedChip"[^>]*>[^<]*Saved on this PC<\/span>/);
   const app = read('renderer/js/app.js');
   assert.match(app, /tapHint\(/, 'app.js shows the tap hint');
+  assert.match(app, /started = startListening\(\);[\s\S]{0,400}started\.then\(\(ok\) => showTapHint\(held, ok\)/, 'the press keeps whether a recording started');
+  const voice = read('renderer/js/voice.js').replace(/\r\n/g, '\n');
+  const start = voice.slice(voice.indexOf('export async function startListening'), voice.indexOf('let pttLimit'));
+  assert.match(start, /Voice input is disabled in Settings\.'\)\);\n\s*return false;/, 'disabled voice input started nothing');
+  assert.match(start, /input\.micStarted\(p\.id, recorder\.startedAt\);[\s\S]*return true;/, 'a started microphone says so');
   assert.match(app, /savedChip\(/, 'app.js fills the chip tooltip');
 });
 

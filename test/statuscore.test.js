@@ -99,3 +99,17 @@ test('app.js and usage.js word their lights only through pillText; no raw detail
   assert.match(html, /id="pillKb" title="Notes library"><i><\/i>Notes library<\/button>/);
   assert.match(app, /const pillTargets = \{ pillLlm: 'brain', pillVoice: 'voice', pillCal: 'calendar', pillKb: 'obsidian', pillUsage: 'brain' \};/, 'click targets unchanged');
 });
+
+// Review of spec #17: the voice light said its reason was in Settings → Health, but nothing showed it there.
+test('the offline voice\'s failure reason is a Health row (and nothing when it works)', () => {
+  assert.strictEqual(core.offlineVoiceHealth(''), null);
+  const row = core.offlineVoiceHealth('WebGPU device lost');
+  assert.strictEqual(row.status, 'fail');
+  assert.strictEqual(row.label, 'Offline voice');
+  assert.match(row.detail, /WebGPU device lost/, 'Health is where the technical reason goes');
+  assert.ok(row.fix);
+  const system = fs.readFileSync(path.join(ROOT, 'renderer/js/settings/system.js'), 'utf8');
+  assert.match(system, /offlineVoiceHealth\(state\.offlineVoiceError\)/, 'the Health card adds it to the checks');
+  const app = fs.readFileSync(path.join(ROOT, 'renderer/js/app.js'), 'utf8');
+  assert.match(app, /state\.offlineVoiceError = p\.message \|\| 'unknown error'/);
+});

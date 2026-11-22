@@ -395,19 +395,20 @@ export function warmMic() {
   if (s?.enabled && s.micMode !== 'open') recorder.warm().catch(() => {}); // warming only; the press starts the microphone again
 }
 
+// Resolves to whether this press started a recording (app.js shows the one-time tap hint only then).
 export async function startListening() {
   if (!state.settings?.stt?.enabled) {
     toastError(new Error('Voice input is disabled in Settings.'));
-    return;
+    return false;
   }
-  if (recorder.active || recorder.starting) return;
+  if (recorder.active || recorder.starting) return false;
   // Barge-in: pressing the talk key interrupts the agent (the arbiter's 'barge-in' stops the speaker).
   const p = input.press();
   if (p.cutOpen) handsFree.endSegment('cut'); // the open mic's words so far: a piece that waits for these
   if (p.wait) {
     setCaption('One moment…', 'user');
     await untilIdle(4000);
-    if (!input.ready(p.id)) return; // released meanwhile
+    if (!input.ready(p.id)) return false; // released meanwhile
   }
   // Not preloaded at launch (perfcore.js preloadSpeech): it loads while you speak, not after.
   preloadLocalModel();
@@ -419,10 +420,12 @@ export async function startListening() {
     // A stuck talk key must not record forever: what was said so far is sent.
     clearTimeout(pttLimit);
     pttLimit = setTimeout(() => input.holds(p.id) && recorder.active && (logEvent('warn', 'push-to-talk held at the limit; stopped', { min: PTT_MAX_MS / 60000 }), stopListening()), PTT_MAX_MS);
+    return true;
   } catch (err) {
     input.micFailed(p.id); // nothing was recorded: the reply the press silenced speaks again
     logEvent('error', 'microphone failed', err.message);
     toastError(new Error(`Microphone: ${err.message}`));
+    return false;
   }
 }
 

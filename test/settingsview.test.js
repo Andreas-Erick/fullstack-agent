@@ -735,3 +735,10 @@ test('settings.js: number fields never save Number(""), paths are cleaned, "✓ 
   assert.doesNotMatch(wizard, /onclick: \(\) => api\.claude\.login\(\)/, 'Connect says what to do next (connectClaude)');
   assert.match(part('brainCard'), /Finish signing out in the window that opened, then click Refresh\./);
 });
+
+// Review of spec #17: with stt.language '' (speech then uses English on this computer, a cloud service
+// detects it) the select showed its first language, Arabic. An option for '' says what really happens.
+test('the speech language select shows what an empty language means, never the first language', () => {
+  const src = read('renderer/js/settings/voice.js');
+  assert.match(src, /select\('stt\.language', 'Language you speak', \[\['', 'Not chosen \(English\)'\], \.\.\.LANGUAGES\]/);
+});

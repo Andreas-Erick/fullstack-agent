@@ -201,7 +201,7 @@ export function sttCard() {
     );
   }
   children.push(
-    el('div', { class: 'grid2' }, select('stt.language', 'Language you speak', LANGUAGES, { hint: 'What speech is written down in. Language practice listens for its own language.' }), field('Push-to-talk key (hold)', keyBtn, 'Works anywhere in the app.')),
+    el('div', { class: 'grid2' }, select('stt.language', 'Language you speak', [['', 'Not chosen (English)'], ...LANGUAGES], { hint: 'What speech is written down in (not chosen: English on this computer; a cloud service works it out). Language practice listens for its own language.' }), field('Push-to-talk key (hold)', keyBtn, 'Works anywhere in the app.')),
     shortcutField(),
     select('stt.micMode', 'Microphone mode', [['ptt', 'Push to talk (mic closed between presses)'], ['open', 'Hands-free (always listening, voice detection)']], { hint: 'Also by voice: “go hands free” / “push to talk”.' }),
     micField(),

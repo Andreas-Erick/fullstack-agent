@@ -62,3 +62,12 @@ export function pillText(pill, state, detail = {}) {
   const text = level === 'err' || level === 'warn' ? `${base}${FIX}` : base;
   return { level, text, aria: `${name}: ${text}` };
 }
+
+/**
+ * Settings → Health's row for the offline voice, which runs in the window (main's checks can't see it):
+ * the reason it failed to load, or null while it works. The light only says that it failed.
+ */
+export function offlineVoiceHealth(error) {
+  if (!error) return null;
+  return { status: 'fail', label: 'Offline voice', detail: `It failed to load: ${String(error).slice(0, 300)}`, fix: 'It tries again by itself a minute later, with the next sentence. If it keeps failing, choose another voice engine in Settings → Voice output.' };
+}

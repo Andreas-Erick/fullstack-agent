@@ -205,8 +205,8 @@ async function boot() {
     for (const [id, section] of Object.entries(pillTargets)) document.getElementById(id)?.addEventListener('click', () => switchView('settings', section));
     // The offline voice failing to load turns its light red; loading again turns it green.
     on('tts-progress', (p) => {
-      if (p.status === 'error') voiceError = p.message || 'unknown error';
-      else if (p.status === 'ready') voiceError = '';
+      if (p.status === 'error') state.offlineVoiceError = p.message || 'unknown error';
+      else if (p.status === 'ready') state.offlineVoiceError = '';
       else return;
       if (state.settings.voice.engine === 'local' && state.settings.voice.ttsEnabled) offlineVoicePill();
     });
@@ -453,18 +453,19 @@ function setupPushToTalk() {
 
   for (const btn of [$('#micBtn'), $('#faceMicBtn')]) {
     let down = 0;
+    let started = Promise.resolve(false); // whether the press started a recording (voice.js startListening)
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       btn.setPointerCapture(e.pointerId);
       down = performance.now();
-      startListening();
+      started = startListening();
     });
     const up = (e) => {
       if (!down) return;
       const held = performance.now() - down;
       down = 0;
       stopListening();
-      if (e.type === 'pointerup') showTapHint(held);
+      if (e.type === 'pointerup') started.then((ok) => showTapHint(held, ok), ignore('no tap hint: the press failed'));
     };
     btn.addEventListener('pointerup', up);
     btn.addEventListener('pointercancel', up);
@@ -475,14 +476,14 @@ function setupPushToTalk() {
 
 // A tap on the mic records nothing (push-to-talk): the first time, say to keep holding (composerhints.js).
 const TAP_HINT_KEY = 'siren.tapHintShown';
-function showTapHint(heldMs) {
+function showTapHint(heldMs, started) {
   let shown = false;
   try {
     shown = localStorage.getItem(TAP_HINT_KEY) === '1';
   } catch {
     // storage blocked: the hint may show again next session
   }
-  const hint = tapHint(heldMs, shown);
+  const hint = tapHint(heldMs, shown, started);
   if (!hint) return;
   toast(hint);
   try {
@@ -596,12 +597,11 @@ function setPill(id, pill, status, detail) {
 
 const STATUS_EVERY_MS = 5 * 60000;
 let lastStatusAt = 0;
-let voiceError = ''; // why the offline voice failed to load ('' once it loads); voice.js tries again a minute later
-
-// The light of the offline voice (the main voice, running in the app).
+// The light of the offline voice (the main voice, running in the app). state.offlineVoiceError: why it
+// failed to load ('' once it loads; voice.js tries again a minute later).
 function offlineVoicePill() {
-  // voiceError and the device are in Settings → Health and the log; the light only says whether it works.
-  setPill('#pillVoice', 'voice', voiceError ? 'failed' : 'ready');
+  // The reason is a row in Settings → Health (statuscore offlineVoiceHealth) and in the log; the light only says whether it works.
+  setPill('#pillVoice', 'voice', state.offlineVoiceError ? 'failed' : 'ready');
 }
 
 // The brain's light: b is the current brain's catalogue entry (main/brains.js entry()).
