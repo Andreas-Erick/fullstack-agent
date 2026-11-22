@@ -53,7 +53,8 @@ test('every way through the wizard passes the privacy step before it can finish'
     assert.ok(steps.includes('privacy'), `${mode}: has the privacy step`);
     assert.ok(steps.every((s) => STEPS.includes(s)), `${mode}: only real steps`);
   }
-  assert.deepStrictEqual(stepsFor('quick'), ['welcome', 'privacy'], 'Quick start ends with the privacy step');
+  assert.deepStrictEqual(stepsFor('quick'), ['welcome', 'privacy', 'brain'], 'Quick start: privacy, then the brain finder');
+  assert.ok(stepsFor('quick').indexOf('privacy') < stepsFor('quick').indexOf('brain'), 'privacy before the brain');
   assert.deepStrictEqual(stepsFor('missed'), ['privacy']);
   assert.strictEqual(finishPatch({ privacy: { acceptedAt: 0 } }), null, 'not accepted: not onboarded');
   assert.strictEqual(finishPatch({}), null);
@@ -143,4 +144,126 @@ test('every shortcut a rail button advertises opens that view', () => {
     assert.strictEqual(views[Number(key) - 1], view, `Ctrl+${key}`);
     assert.ok(Number(key) <= top, `Ctrl+${key} is handled (keys up to ${top})`);
   }
+});
+
+// The brain finder (spec #17): what the first-run wizard preselects, offers and says, from what was found
+// on this computer. A fresh install's settings: the default brain (claude-code), no keys, nothing local.
+const FRESH = { llm: { provider: 'claude-code' }, local: { baseUrl: '', model: '' }, gemini: { apiKey: '' }, groq: { apiKey: '' }, anthropic: { apiKey: '' } };
+const NOTHING = { claude: 'missing', local: [], keys: { gemini: false, groq: false, anthropic: false } };
+const OLLAMA = [{ server: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.2:3b' }];
+
+test('the brain finder preselects a signed-in Claude account', async () => {
+  const { brainPlan } = await loadCore();
+  const plan = brainPlan({ ...NOTHING, claude: 'ready' }, FRESH);
+  assert.strictEqual(plan.preselect, 'claude-code');
+  assert.strictEqual(plan.cards[0].id, 'claude-code', 'what works comes first');
+  assert.strictEqual(plan.cards[0].works, true);
+});
+
+test('signed out or missing Claude, with an Ollama model running: the local model is preselected', async () => {
+  const { brainPlan } = await loadCore();
+  for (const claude of ['signedOut', 'missing', 'unchecked']) {
+    const plan = brainPlan({ ...NOTHING, claude, local: OLLAMA }, FRESH);
+    assert.strictEqual(plan.preselect, 'local', claude);
+    assert.strictEqual(plan.cards[0].id, 'local');
+  }
+});
+
+test('nothing found: the free Gemini card is preselected and comes first', async () => {
+  const { brainPlan } = await loadCore();
+  const plan = brainPlan(NOTHING, FRESH);
+  assert.strictEqual(plan.preselect, 'gemini');
+  assert.strictEqual(plan.cards[0].id, 'gemini');
+  assert.strictEqual(plan.cards[0].free, true);
+  assert.match(plan.cards[0].title, /^Free, nothing to install/);
+  assert.ok(plan.cards.every((c) => !c.works), 'nothing claims to work');
+  assert.ok(plan.cards.some((c) => c.id === 'claude-code'), 'the Claude plan is still offered');
+  assert.ok(!plan.cards.some((c) => c.id === 'openai'), 'the advanced server card only for those who use it');
+});
+
+test('a saved Gemini key is preselected; what works comes before the free option and the rest', async () => {
+  const { brainPlan } = await loadCore();
+  const plan = brainPlan({ ...NOTHING, keys: { gemini: true } }, { ...FRESH, gemini: { apiKey: 'AIza…' } });
+  assert.strictEqual(plan.preselect, 'gemini');
+  const both = brainPlan({ ...NOTHING, claude: 'ready', local: OLLAMA }, FRESH);
+  assert.deepStrictEqual(both.cards.slice(0, 3).map((c) => c.id), ['claude-code', 'local', 'gemini'], 'works, works, then free');
+  assert.deepStrictEqual(brainPlan({ ...NOTHING, keys: { anthropic: true } }, FRESH).preselect, 'anthropic');
+  assert.deepStrictEqual(brainPlan({ ...NOTHING, keys: { groq: true } }, FRESH).preselect, 'auto', 'a Groq key runs through several providers');
+});
+
+test('Start only after a test answered for the chosen brain; until then a plain warning', async () => {
+  const { brainPlan } = await loadCore();
+  const ready = { ...NOTHING, claude: 'ready' };
+  const before = brainPlan(ready, FRESH);
+  assert.strictEqual(before.canStart, false, 'set up is not tested');
+  assert.ok(before.warn, 'a warning while untested');
+  assert.strictEqual(brainPlan(ready, FRESH, { tested: 'gemini' }).canStart, false, 'another brain\'s test does not count');
+  const after = brainPlan(ready, FRESH, { tested: 'claude-code' });
+  assert.strictEqual(after.canStart, true);
+  assert.strictEqual(after.warn, '');
+  const switched = brainPlan(ready, FRESH, { chosen: 'gemini', tested: 'claude-code' });
+  assert.strictEqual(switched.chosen, 'gemini');
+  assert.strictEqual(switched.canStart, false, 'picking another card needs its own test');
+  assert.match(brainPlan(NOTHING, FRESH).warn, /can’t answer yet/);
+  assert.match(brainPlan(NOTHING, FRESH, { chosen: 'nonsense', tested: 'nonsense' }).warn, /can’t answer yet/, 'an unknown card is no brain');
+});
+
+test('setup reopened from Settings keeps the brain already set up', async () => {
+  const { brainPlan } = await loadCore();
+  const local = { ...FRESH, llm: { provider: 'local' }, local: { baseUrl: 'http://localhost:1234/v1', model: 'qwen3' } };
+  assert.strictEqual(brainPlan({ ...NOTHING, claude: 'ready' }, local).preselect, 'local', 'a configured local model, even with Claude ready');
+  const server = { ...FRESH, llm: { provider: 'openai', baseUrl: 'http://localhost:3001/v1' } };
+  const plan = brainPlan({ ...NOTHING, claude: 'ready' }, server);
+  assert.strictEqual(plan.preselect, 'openai');
+  assert.ok(plan.cards.find((c) => c.id === 'openai').works, 'shown as set up');
+  const key = { ...FRESH, llm: { provider: 'anthropic' }, anthropic: { apiKey: 'sk-ant' } };
+  assert.strictEqual(brainPlan({ ...NOTHING, claude: 'ready', keys: { anthropic: true } }, key).preselect, 'anthropic');
+  // A current brain that isn't set up gives way to what works.
+  assert.strictEqual(brainPlan({ ...NOTHING, claude: 'ready' }, { ...FRESH, llm: { provider: 'anthropic' } }).preselect, 'claude-code');
+});
+
+test('the wizard tells the truth about the brain: a warning on Next, Fix this and Set up a brain first on First hello', () => {
+  const src = read('renderer/js/onboarding.js');
+  // The brain step is drawn from the plan, from the checks that already exist (no new probing).
+  assert.match(src, /api\.llm\.brains\(\{ fresh: true, all: true \}\)/);
+  assert.match(src, /api\.llm\.localModels\(\)/);
+  assert.match(src, /detectionFrom\(catalogue, servers\)/);
+  assert.match(src, /brainPlan\(finder\.detection \|\| NOTHING_FOUND, state\.settings, finder\)/);
+  // Claude Code: a plain line and the official page, never a terminal command as the only way.
+  assert.match(src, /api\.shell\.openExternal\(CLAUDE_CODE_URL\)/);
+  assert.ok(!/isn’t installed\. Install it, then click Re-check/.test(src), 'the old terminal-command line is gone');
+  assert.match(src, /api\.shell\.openExternal\(FREE_KEY_URL\) \}, '🔑 Get my free key'\)/);
+  // Next in the full wizard without a brain that answered: warned once, and staying is the default.
+  assert.match(src, /if \(!plan\.canStart && mode === 'full' && !\(await warnOnce\(plan\.warn\)\)\) return false;/);
+  assert.match(src, /if \(\(await beforeNext\(\)\) === false\) return;/);
+  assert.match(src, /'Continue anyway'/);
+  assert.match(src, /'Set it up now'/);
+  // Quick start's last step: Start only once the test answered, Do this later says so plainly.
+  assert.match(src, /disabled: !ready,[^\n]*'Start ›'\)/);
+  assert.match(src, /'Do this later'/);
+  assert.match(src, /if \(!plan\.canStart && plan\.warn\) toast\(plan\.warn/);
+  // First hello: the failed brain row gets Fix this, and the main button stops promising an interview.
+  assert.match(src, /brain\.action\(el\('button', \{ class: 'btn small', onclick: fix \}, 'Fix this'\)\)/);
+  assert.match(src, /if \(finder\.helloFailed\) return el\('div', \{ class: 'row' \}, el\('button', \{ class: 'btn', onclick: \(\) => finish\(\) \}, 'Start without a brain'\), el\('button', \{ class: 'btn primary', onclick: toBrain \}, 'Set up a brain first ›'\)\);/);
+});
+
+test('the finder reads what the app already checks: the brain catalogue and the local servers', async () => {
+  const { detectionFrom } = await loadCore();
+  const catalogue = { brains: [{ id: 'claude-code', state: 'signedOut', ready: false }, { id: 'gemini', state: 'ready', ready: true }, { id: 'groq', state: 'notSetUp', ready: false }, { id: 'anthropic', state: 'notSetUp', ready: false }] };
+  const servers = [{ id: 'ollama', name: 'Ollama', baseUrl: 'http://localhost:11434/v1', running: true, models: [{ id: 'llama3.2:3b', name: 'llama3.2:3b' }] }, { id: 'lmstudio', name: 'LM Studio', baseUrl: 'http://localhost:1234/v1', running: false, models: [] }];
+  assert.deepStrictEqual(detectionFrom(catalogue, servers), {
+    claude: 'signedOut',
+    local: [{ server: 'Ollama', baseUrl: 'http://localhost:11434/v1', model: 'llama3.2:3b', name: 'llama3.2:3b' }],
+    keys: { gemini: true, groq: false, anthropic: false },
+  });
+  assert.deepStrictEqual(detectionFrom(null, null), { claude: 'unchecked', local: [], keys: { gemini: false, groq: false, anthropic: false } }, 'a failed check finds nothing and claims nothing');
+});
+
+test('a brain card writes only the provider and its own key or detected model', async () => {
+  const { brainPatch } = await loadCore();
+  assert.deepStrictEqual(brainPatch('gemini', { key: '  AIza123 ' }), { llm: { provider: 'gemini' }, gemini: { apiKey: 'AIza123' } });
+  assert.deepStrictEqual(brainPatch('gemini'), { llm: { provider: 'gemini' } }, 'no key typed: the provider only');
+  assert.deepStrictEqual(brainPatch('local', { local: OLLAMA[0] }), { llm: { provider: 'local' }, local: { model: 'llama3.2:3b', baseUrl: 'http://localhost:11434/v1' } });
+  assert.deepStrictEqual(brainPatch('claude-code', { key: 'x' }), { llm: { provider: 'claude-code' } }, 'no key for the Claude plan');
+  assert.deepStrictEqual(brainPatch('anthropic', { key: 'sk-ant-1' }), { llm: { provider: 'anthropic' }, anthropic: { apiKey: 'sk-ant-1' } });
 });
