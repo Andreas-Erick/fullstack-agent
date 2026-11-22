@@ -96,6 +96,7 @@ const SETTINGS_TOOLS = [
       const bad = settingValueError(a.section, a.key, a.value);
       if (bad) throw new Error(bad);
       const s = await store.getSettings();
+      const forPersona = require('./persona').forActive(s); // taken before the approval's wait
       const old = s[a.section][a.key];
       if (typeof old === 'number') a.value = Number(a.value);
       if (typeof old === 'boolean') a.value = a.value === true || a.value === 'true';
@@ -103,7 +104,7 @@ const SETTINGS_TOOLS = [
       if (endpoint && !/^https?:\/\/[^\s/]+/i.test(String(a.value))) throw new Error('An address must start with http:// or https://.');
       await requireApproval(ctx, endpoint ? 'endpoint' : 'settings', `Change setting ${a.section}.${a.key}`, `${JSON.stringify(old)} → ${JSON.stringify(a.value)}${endpoint ? ' (your API key and conversations will be sent to this address)' : ''}`);
       // For the persona active when asked (voice.voice, ui.face…): a switch during the approval drops it.
-      await store.setSettings({ [a.section]: { [a.key]: a.value } }, { persona: s.personas?.active });
+      await forPersona.save({ [a.section]: { [a.key]: a.value } });
       ctx.emit({ type: 'settings_changed' });
       return { changed: `${a.section}.${a.key}`, from: old, to: a.value };
     },
@@ -189,6 +190,7 @@ const SETUP_TOOLS = [
       if (!SETUP_SETTABLE.includes(a.setting)) throw new Error(`"${a.setting}" can't be set during setup. Settable: ${SETUP_SETTABLE.join(', ')}`);
       const [section, key] = a.setting.split('.');
       const s = await store.getSettings();
+      const forPersona = require('./persona').forActive(s); // taken before the folder check and the approval
       let value = a.value;
       const old = s[section][key];
       if (typeof old === 'number') value = Number(value);
@@ -208,7 +210,7 @@ const SETUP_TOOLS = [
       // The vault too: whatever folder it is, the agent may read and write all of it (review 2026-10-29).
       const widens = (a.setting === 'safety.permissionMode' && value === 'auto') || (a.setting === 'code.allowSelfModify' && value === true) || (['documents.workspace', 'obsidian.vaultPath'].includes(a.setting) && value && value !== old);
       if (widens) await requireApproval(ctx, 'permissions', `Give the assistant more access: ${a.setting}`, `${JSON.stringify(old)} → ${JSON.stringify(value)}`);
-      await store.setSettings({ [section]: { [key]: value } }, { persona: s.personas?.active });
+      await forPersona.save({ [section]: { [key]: value } });
       log.info('setup configured', { setting: a.setting, value: typeof value === 'string' ? value.slice(0, 80) : value });
       ctx.emit({ type: 'settings_changed' });
       return { set: a.setting, value: typeof value === 'string' && value.length > 120 ? `${value.slice(0, 120)}…` : value };
@@ -232,12 +234,13 @@ const SETUP_TOOLS = [
     parameters: obj({}),
     run: async (_a, ctx) => {
       const s = await store.getSettings();
-      const voices = (await require('./voice').voices().catch(() => [])).map((v) => v.id);
       const persona = require('./persona');
+      const forPersona = persona.forActive(s); // taken before the model's minute
+      const voices = (await require('./voice').voices().catch(() => [])).map((v) => v.id);
       const res = await persona.generate({ masterPrompt: s.agent.personality, aesthetic: s.agent.aesthetic, palette: [], voices, image: s.agent.avatar, options: persona.DEFAULT_OPTIONS });
       // Designed for the persona active when asked: a switch while the model worked drops it, look and voice together.
       const voice = res.voice && s.appearance.applyVoice ? { voice: { voice: res.voice } } : {};
-      await store.setSettings({ appearance: { theme: res.theme, personaNotes: res.personaNotes, greeting: res.greeting }, ...voice }, { persona: s.personas?.active });
+      await forPersona.save({ appearance: { theme: res.theme, personaNotes: res.personaNotes, greeting: res.greeting }, ...voice });
       ctx.emit({ type: 'settings_changed' });
       return { applied: res.theme?.name, greeting: res.greeting, voice: res.voice || 'unchanged' };
     },

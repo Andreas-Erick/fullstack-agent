@@ -16,6 +16,7 @@ const ESM = tmpDir('nexus-settingsave-');
 test.before(async () => {
   const copy = path.join(ESM, 'settingsave.mjs');
   fs.copyFileSync(path.join(ROOT, 'renderer/js/settingsave.js'), copy);
+  fs.copyFileSync(path.join(ROOT, 'renderer/js/personafields.mjs'), path.join(ESM, 'personafields.mjs'));
   m = await import(pathToFileURL(copy).href);
 });
 test.after(() => fs.rmSync(ESM, { recursive: true, force: true }));
@@ -156,10 +157,9 @@ test('the studio’s switches after a flush, with saves slow on their way: a per
     let rendered = 'A';
     let n = 0;
     const gap = () => new Promise((r) => setImmediate(r));
-    // As settings.js save(): main's persona checked, a moment on the wire, then main saves it inside its
-    // queue only while that persona is still active (persona.saveFor).
+    // As settings.js save(): a moment on the wire, then main saves it inside its queue only while that
+    // persona is still active (settings:set { persona } → persona.saveFor), and answers dropped otherwise.
     const save = async (p, value, persona) => {
-      if (await m.staleNow(p, persona, w.main, async () => (await gap(), w.main))) return false;
       await gap();
       if (m.PERSONA_PATHS.has(p) && w.main !== persona) return false;
       (w.stored[w.main] ||= {})[p] = value;
@@ -261,16 +261,16 @@ test('the window’s copy lags main: random switches on the phone never let a pe
     const w = { main: 'A', seen: 'A', stored: {} }; // main's active persona, and this window's copy of it
     let rendered = 'A';
     let n = 0;
-    // As settings.js save(): staleNow against the window's copy, then main's; a switch only main knew of
-    // brings the window up to date (loadSettings). A saved value lands in main's active persona.
+    // As settings.js save(): main decides inside its queue (dropped when the persona isn't active) and
+    // answers with its settings either way, which bring the window's copy up to date.
     const save = async (p, value, persona) => {
       const seen = w.seen;
-      if (await m.staleNow(p, persona, seen, async () => w.main)) {
-        if (!m.stale(p, persona, seen)) (w.seen = w.main), caughtByMain++;
+      w.seen = w.main; // settings:set answers with main's settings, saved or dropped
+      if (m.PERSONA_PATHS.has(p) && w.main !== persona) {
+        if (!m.stale(p, persona, seen)) caughtByMain++;
         return false;
       }
       (w.stored[w.main] ||= {})[p] = value;
-      w.seen = w.main; // saveSettings returns main's settings
       return true;
     };
     const s = m.createSaves({ save, timers });
@@ -355,10 +355,15 @@ test('random typing, switching, redrawing and saving: a persona only ever holds 
   assert.ok(savedTotal > droppedTotal, 'and saves plenty');
 });
 
-test('PERSONA_PATHS are exactly the persona fields main/personacore.js keeps', () => {
+test('one field list: main/personacore.js and the window read renderer/js/personafields.mjs', () => {
+  const shared = require(path.join(ROOT, 'renderer/js/personafields.mjs'));
   const { FIELDS } = require(path.join(ROOT, 'main/personacore.js'));
+  assert.strictEqual(FIELDS, shared.FIELDS, 'personacore keeps no copy of its own');
+  assert.ok(Object.isFrozen(FIELDS) && FIELDS.every(Object.isFrozen), 'nobody can change it for everyone');
   const fields = new Set(FIELDS.map(([section, key]) => `${section}.${key}`));
   assert.deepStrictEqual([...m.PERSONA_PATHS].sort(), [...fields].sort());
+  assert.deepStrictEqual([...shared.PERSONA_PATHS].sort(), [...fields].sort());
+  assert.match(read('renderer/js/settingsave.js'), /import \{ PERSONA_PATHS \} from '\.\/personafields\.mjs';/, 'settingsave keeps no copy either');
 });
 
 // settings.js needs the window: what it must keep is checked in its source.
@@ -399,15 +404,13 @@ test('settings.js renders every card at once and swaps them in only for the late
   assert.match(body, /refocus\?\.persona === persona/, 'never into another persona’s cards');
 });
 
-test('every persona check is awaited (a pending promise is truthy: nothing would ever save)', () => {
+test('a check before a model call is awaited, and only model calls are checked before (main decides every save)', () => {
   const src = read('renderer/js/settings.js');
-  const calls = [...src.matchAll(/(\S+\s)?dropped\(/g)].map((x) => x[1] || '');
-  assert.ok(calls.length >= 8, `found ${calls.length}`);
-  for (const before of calls) assert.ok(/^(\(?await |function )$/.test(before), `dropped( after “${before}”`);
-  assert.match(src, /async function dropped\(path, persona = renderedPersona\) \{\s*const active = state\.settings\.personas\?\.active;\s*if \(!\(await staleNow\(path, persona, active, liveActive\)\)\) return false;/);
-  assert.match(src, /const liveActive = async \(\) => \(await api\.settings\.get\(\)\)\?\.personas\?\.active;/);
-  // A switch only main knew of brings the window up to date (the listener then redraws the studio).
-  assert.match(src, /if \(!stale\(path, persona, active\)\) loadSettings\(\)\.catch\(\(\) => \{\}\);/);
+  const calls = [...src.matchAll(/(\S+\s)?switchedAway\(/g)].map((x) => x[1] || '');
+  assert.strictEqual(calls.length, 3, 'defined once, used by Generate look & feel and Draw the scene');
+  for (const before of calls) assert.ok(/^(\(?await |function )$/.test(before), `switchedAway( after “${before}”`);
+  assert.doesNotMatch(src, /\bdropped\(|liveActive|PERSONA_PATHS/, 'no second check of its own before a save');
+  assert.strictEqual(src.split("'Not saved: the persona changed meanwhile.'").length - 1, 1, 'one wording');
 });
 
 test('the Persona studio saves what was typed before its own switch, New, Duplicate, Template and Delete', () => {
@@ -420,31 +423,66 @@ test('the Persona studio saves what was typed before its own switch, New, Duplic
   assert.ok(studio.split('flushSaves()').length - 1 >= 5, 'every persona action flushes first');
   assert.doesNotMatch(studio, /\brender\(\)/, 'the new active persona redraws the studio (the settings listener)');
   assert.match(src, /on\('settings', \(s\) => currentView === 'settings' && s\?\.personas\?\.active !== drawingFor && render\(\)\);/);
-  // Every direct persona save is guarded: checked here first, then again by main inside its save queue
-  // (saveForPersona → settings:set { persona } → persona.saveFor), where a switch queued meanwhile is seen.
+  // Reset the theme and Remove the scene: the persona on screen at the click (taken before their confirm).
+  assert.match(part('themeEditor'), /onclick: \(\) => saveFromClick\(\{ appearance: \{ theme: null \} \}, renderedPersona, \[/);
+  assert.match(part('sceneRow'), /onclick: \(\) => saveFromClick\(\{ appearance: \{ scene: null \} \}, renderedPersona, \[/);
   // The theme editor: the persona taken at the edit, edits one after another (two quick ones both read the
-  // same theme and the second saved over the first), a failure shown instead of an unhandled rejection.
-  assert.match(part('themeEditor'), /const update = \(mutate\) => \{\s*const persona = renderedPersona;\s*themeEdits = themeEdits\.then\(async \(\) => \{\s*try \{\s*if \(await dropped\('appearance\.theme', persona\)\) return;\s*const t = normalizeTheme\(state\.settings\.appearance\?\.theme\);\s*mutate\(t\);\s*await saveForPersona\(\{ appearance: \{ theme: t \} \}, persona\);\s*\} catch \(err\) \{\s*toastError\(err\);/);
-  // Reset the theme and Remove the scene: the persona on screen at the click (taken before their confirm),
-  // not after the check's await.
-  assert.match(part('saveFromClick'), /function saveFromClick\(patch, path, persona = renderedPersona, ask = null\) \{\s*try \{\s*if \(ask && !\(await confirmDialog\(\.\.\.ask\)\)\) return;\s*if \(await dropped\(path, persona\)\) return;\s*if \(await saveForPersona\(patch, persona\)\) render\(\);\s*\} catch \(err\) \{\s*toastError\(err\);/);
-  assert.match(part('themeEditor'), /onclick: \(\) => saveFromClick\(\{ appearance: \{ theme: null \} \}, 'appearance\.theme', renderedPersona, \[/);
-  assert.match(part('sceneRow'), /onclick: \(\) => saveFromClick\(\{ appearance: \{ scene: null \} \}, 'appearance\.scene', renderedPersona, \[/);
-  assert.match(part('drawScene'), /if \(await dropped\('appearance\.scene', persona\)\) return null;\s*return \(await saveForPersona\(\{ appearance: \{ scene \} \}, persona\)\) \? scene : null;/);
+  // same theme and the second saved over the first).
+  assert.match(part('themeEditor'), /const update = \(mutate\) => \{\s*const persona = renderedPersona;\s*themeEdits = themeEdits\.then\(/);
   const agent = part('agentCard');
-  assert.match(agent, /if \(await dropped\('appearance\.theme', persona\)\) return showResult/);
-  // Generate look & feel: checked before the minute-long model call too, and the persona's voice is saved
-  // in the same call as its theme (a switch between two saves put this voice into the next persona).
-  assert.ok(agent.indexOf("if (await dropped('appearance.theme', persona)) return;") < agent.indexOf('api.persona.generate('), 'checked before the model is asked');
+  // Generate look & feel: checked before the minute-long model call, and the persona's voice is saved in
+  // the same call as its theme (a switch between two saves put this voice into the next persona).
+  assert.ok(agent.indexOf("if (await switchedAway('appearance.theme', persona)) return;") < agent.indexOf('api.persona.generate('), 'checked before the model is asked');
   assert.match(agent, /await saveForPersona\(\{ appearance: \{ theme, personaNotes: res\.personaNotes, greeting: res\.greeting \}, \.\.\.\(voice \? \{ voice: \{ voice \} \} : \{\}\) \}, persona\)/);
   assert.doesNotMatch(agent, /saveSettings\(\{ voice:/, 'no separate voice save');
-  assert.match(src, /async function save\(p, value, persona = renderedPersona\) \{\s*try \{\s*if \(await dropped\(p, persona\)\) return false;\s*if \(PERSONA_PATHS\.has\(p\)\) \{\s*if \(!\(await saveForPersona\(patchFor\(p, value\), persona\)\)\) return false;/);
-  assert.match(part('saveForPersona'), /const s = await saveSettings\(patch, persona \? \{ persona \} : undefined\);\s*if \(!persona \|\| s\?\.personas\?\.active === persona\) return true;/);
-  assert.doesNotMatch(src, /saveSettings\(\{ (appearance|agent|ui: \{ face)\b/, 'no persona field saved past the queue check');
+  assert.ok(part('drawScene').indexOf('switchedAway(') < part('drawScene').indexOf('api.persona.scene('), 'the scene: checked before the model is asked');
+  assert.doesNotMatch(src, /saveSettings\(\{ (appearance|agent|ui: \{ face)\b/, 'every persona field goes through saveForPersona');
   assert.match(part('summaryRow'), /api\.persona\.setSummary\(textBox\.value, persona\)/);
-  // Main decides inside its queue, and a dropped change re-applies nothing.
-  const main = read('main/main.js');
-  assert.match(main, /handle\('settings:set', async \(patch, opts\) => \{\s*const r = typeof opts\?\.persona === 'string' && opts\.persona \? await persona\.saveFor\(opts\.persona, patch\) : \{ settings: await store\.setSettings\(patch\), saved: true \};\s*await settingsEffects\.settled\(\);\s*return r\.settings;/);
+  // Main answers whether it saved; a dropped change re-applies nothing.
+  assert.match(read('main/main.js'), /handle\('settings:set', async \(patch, opts\) => \{[^}]*persona\.saveFor\(opts\.persona, patch\)[\s\S]{0,200}?return \{ settings: r\.settings, saved: r\.saved, dropped: !r\.saved \};/);
+});
+
+// state.js on stand-ins: what the window does with main's answer.
+async function stateModule(answer) {
+  const dir = tmpDir('nexus-state-');
+  evoDirs.push(dir);
+  fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}');
+  fs.writeFileSync(path.join(dir, 'util.js'), `export const calls = { set: [], emitted: [] };
+export let answer = null;
+export const setAnswer = (fn) => (answer = fn);
+export const api = { settings: { set: async (...args) => (calls.set.push(args), answer(...args)), get: async () => answer({}).settings } };
+export const emit = (name, v) => calls.emitted.push([name, v]);
+`);
+  fs.writeFileSync(path.join(dir, 'turnstate.js'), 'export const faceState = () => \'idle\';\n');
+  fs.copyFileSync(path.join(ROOT, 'renderer/js/state.js'), path.join(dir, 'state.js'));
+  const u = await import(pathToFileURL(path.join(dir, 'util.js')).href);
+  u.setAnswer(answer);
+  const st = await import(pathToFileURL(path.join(dir, 'state.js')).href);
+  return { st, u };
+}
+
+test('state.js: a persona save names the persona and passes on main’s answer; a plain save returns the settings', async () => {
+  const main = { personas: { active: 'B' }, agent: { name: 'Bea' } };
+  // Main as persona.saveFor answers: dropped when the persona named is not active, its settings either way.
+  const { st, u } = await stateModule((patch, opts) => (opts?.persona && opts.persona !== main.personas.active
+    ? { settings: main, saved: false, dropped: true }
+    : { settings: { ...main, ...patch }, saved: true, dropped: false }));
+  const r = await st.savePersonaSettings({ agent: { name: 'Ann' } }, 'A');
+  assert.deepStrictEqual(u.calls.set[0], [{ agent: { name: 'Ann' } }, { persona: 'A' }]);
+  assert.strictEqual(r.dropped, true);
+  assert.strictEqual(st.state.settings, main, 'the window takes main’s settings, so the studio redraws for B');
+  assert.deepStrictEqual(u.calls.emitted.at(-1), ['settings', main]);
+  const ok = await st.savePersonaSettings({ agent: { name: 'Bee' } }, 'B');
+  assert.strictEqual(ok.saved, true);
+  assert.strictEqual(st.state.settings.agent.name, 'Bee');
+  // No persona known: sent without one (main saves it wherever).
+  await st.savePersonaSettings({ ui: { zoom: 1 } }, null);
+  assert.deepStrictEqual(u.calls.set.at(-1), [{ ui: { zoom: 1 } }]);
+  // saveSettings keeps its old answer for its callers: the settings.
+  const s = await st.saveSettings({ ui: { zoom: 1.2 } });
+  assert.strictEqual(s.ui.zoom, 1.2);
+  assert.strictEqual(s, st.state.settings);
+  assert.deepStrictEqual(u.calls.set.at(-1), [{ ui: { zoom: 1.2 } }]);
 });
 
 test('the Safety copy says what really asks (ORDER.md §3.13), in Settings and in the wizard', () => {

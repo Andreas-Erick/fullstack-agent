@@ -47,11 +47,20 @@ export async function loadSettings() {
   return state.settings;
 }
 
-// opts.persona: the persona the change was made for; main saves its persona fields only while it is active.
-export async function saveSettings(patch, opts) {
-  state.settings = await (opts ? api.settings.set(patch, opts) : api.settings.set(patch));
+// Saves a change and returns the settings as main has them now.
+export async function saveSettings(patch) {
+  return (await savePersonaSettings(patch, null)).settings;
+}
+
+// A change made for `persona` (the one whose Settings cards it was typed into): main saves its persona
+// fields only while that persona is still active, decided inside its save queue. { settings, saved,
+// dropped }: dropped = the persona changed meanwhile and nothing was saved; the settings that come back
+// have the other persona active, and the 'settings' listeners redraw for it.
+export async function savePersonaSettings(patch, persona) {
+  const r = await (persona ? api.settings.set(patch, { persona }) : api.settings.set(patch));
+  state.settings = r.settings;
   emit('settings', state.settings);
-  return state.settings;
+  return r;
 }
 
 export function ttsActive() {

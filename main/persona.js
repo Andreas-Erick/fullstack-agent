@@ -202,15 +202,32 @@ const dropped = (err) => err?.code === store.PERSONA_CHANGED;
  * A change made for persona `id` (typed into Settings cards drawn for it): a persona field is saved only
  * while that persona is still the active one, decided inside the save queue (store.setSettings opts.persona),
  * so a switch queued just before it (on the phone, the watch, by a routine) never takes the value.
- * { settings, saved }.
+ * { settings, saved, dropped, reason }: dropped = the persona changed meanwhile and nothing was saved;
+ * reason = the store's wording ('Not saved: the persona changed meanwhile (… is active now), so nothing was changed.').
  */
 async function saveFor(id, patch) {
   try {
-    return { settings: await store.setSettings(patch, { persona: id }), saved: true };
+    return { settings: await store.setSettings(patch, { persona: id }), saved: true, dropped: false };
   } catch (err) {
     if (!dropped(err)) throw err;
-    return { settings: err.settings, saved: false };
+    return { settings: err.settings, saved: false, dropped: true, reason: err.message };
   }
+}
+
+/**
+ * A main-process change of persona fields (a tool, a model's result) is for the persona active when it was
+ * asked: pass the settings read before any await (an approval, a model call), and save through what comes
+ * back. `save(patch | fn)` rejects with code PERSONA_CHANGED and the store's wording when that persona is no
+ * longer active (executeTool hands the model 'Not saved: the persona changed meanwhile…');
+ * `trySave(patch | fn)` answers as saveFor instead.
+ */
+function forActive(settings) {
+  const id = settings?.personas?.active || '';
+  return {
+    id,
+    save: (patch) => store.setSettings(patch, { persona: id }),
+    trySave: (patch) => saveFor(id, patch),
+  };
 }
 
 // ------------------------------------------------------------ the summary for small models
@@ -305,4 +322,4 @@ async function setSummary(text, forPersona = '') {
   return summaryStatus();
 }
 
-module.exports = { generate, generateScene, extractJson, jsonWithRetry, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, saveFor, dropped, templates: templates.list, summaryWriter, summaryStatus, ensureSummary, setSummary };
+module.exports = { generate, generateScene, extractJson, jsonWithRetry, DEFAULT_OPTIONS, COLOR_KEYS, themeChange, list, activate, create, remove, saveFor, forActive, dropped, templates: templates.list, summaryWriter, summaryStatus, ensureSummary, setSummary };

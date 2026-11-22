@@ -12,9 +12,10 @@ const { arr, obj, str, bool, requireApproval } = require('./common');
 const CLONE_SCRIPT =
   'The quick brown fox jumps over the lazy dog, and that is just the start. On a bright Tuesday morning I check my calendar, make a cup of coffee, and plan the week ahead. Some days are busy, others are quiet, but every one of them is mine.';
 
-// The persona active when a voice tool starts: use_now gives the new voice to it, never to one switched to
-// while the voice was made or the approval waited.
-const activePersona = async () => (await store.getSettings()).personas?.active;
+// The persona active when a voice tool starts (persona.forActive): use_now gives the new voice to it, never
+// to one switched to while the voice was made or the approval waited. Required here: persona.js needs llm.js,
+// which needs the tools.
+const activePersona = async () => require('../persona').forActive(await store.getSettings());
 
 // After a voice is created: let the user hear it, and switch to it when asked (with approval).
 async function finishNewVoice(v, a, ctx, extra = {}, forPersona) {
@@ -22,15 +23,12 @@ async function finishNewVoice(v, a, ctx, extra = {}, forPersona) {
   let notUsed = '';
   if (a.use_now) {
     await requireApproval(ctx, 'settings', `Speak with the new voice "${v.name}"`, `voice.voice → ${v.id}`);
-    try {
-      await store.setSettings({ voice: { voice: v.id } }, { persona: forPersona });
+    // The voice exists either way; only the switch to it is dropped.
+    const r = await forPersona.trySave({ voice: { voice: v.id } });
+    if (r.saved) {
       ctx.emit({ type: 'settings_changed' });
       using = true;
-    } catch (err) {
-      // The voice exists either way; only the switch to it is dropped.
-      if (err?.code !== store.PERSONA_CHANGED) throw err;
-      notUsed = ` Not switched to it: ${err.message.replace(/^Not saved: /, '')} The voice is in VoiceStudio; set it on the active persona only if the user asks.`;
-    }
+    } else notUsed = ` Not switched to it: ${r.reason.replace(/^Not saved: /, '')} The voice is in VoiceStudio; set it on the active persona only if the user asks.`;
   }
   ctx.emit({ type: 'voice_preview', voice: v.id, text: a.sample_text || `Hi, this is ${v.name}. How do I sound?` });
   return { created: true, voice_id: v.id, name: v.name, using, ...extra, note: `A sample is playing for the user. The first sample can take a while if VoiceStudio still has to load its model.${notUsed}` };
